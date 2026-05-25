@@ -528,6 +528,7 @@
     }
 
     const isLive = webinarConfig && webinarConfig.status === 'live';
+    let broadcastStarted = false;
 
     // No locked timeline list is rendered under the video (removed to prevent exposing autowebinar timing)
 
@@ -603,35 +604,47 @@
     activateTimelineEvent(video.currentTime, data.timeline || []);
     updateSimulatedChat(video.currentTime, true);
 
-    // 3. Unmute / Start Playback Overlay Handler
-    if (playOverlay) {
-      playOverlay.addEventListener('click', () => {
-        if (isLive) {
-          const currentPos = getLivePosition();
-          if (currentPos >= videoDuration) {
-            return; // Live ended
-          }
-          video.currentTime = currentPos;
+    function startBroadcastFromClick() {
+      if (isLive) {
+        const currentPos = getLivePosition();
+        if (currentPos >= videoDuration) {
+          return; // Live ended
         }
+        video.currentTime = currentPos;
+      }
 
-        video.muted = false;
-        video.volume = 1;
-        if (volumeSlider) volumeSlider.value = 1;
-        if (muteBtn) muteBtn.querySelector('span').textContent = 'volume_up';
+      video.muted = false;
+      video.volume = 1;
+      if (volumeSlider) volumeSlider.value = 1;
+      if (muteBtn) muteBtn.querySelector('span').textContent = 'volume_up';
 
-        video.play().then(() => {
+      video.play().then(() => {
+        broadcastStarted = true;
+        if (playOverlay) {
           playOverlay.classList.add('opacity-0');
           setTimeout(() => playOverlay.classList.add('hidden'), 300);
-        }).catch(err => {
-          console.error('Play unmuted failed:', err);
-          video.muted = true;
-          video.play().then(() => {
+        }
+        if (pauseOverlay) pauseOverlay.classList.add('hidden');
+      }).catch(err => {
+        console.error('Play unmuted failed:', err);
+        video.muted = true;
+        video.play().then(() => {
+          broadcastStarted = true;
+          if (playOverlay) {
             const title = playOverlay.querySelector('p');
             if (title) title.textContent = '🔊 Включить звук трансляции';
             const desc = playOverlay.querySelector('p:last-of-type');
             if (desc) desc.textContent = 'Трансляция идет без звука. Нажмите еще раз для включения.';
-          });
+          }
         });
+      });
+    }
+
+    // 3. Unmute / Start Playback Overlay Handler
+    if (playOverlay) {
+      playOverlay.addEventListener('click', event => {
+        event.stopPropagation();
+        startBroadcastFromClick();
       });
     }
 
@@ -657,12 +670,14 @@
     // 5. Video Player Container Click Event (toggles Mute in Live, toggles Play in Replay)
     if (container) {
       container.addEventListener('click', (e) => {
-        // Prevent action if clicked on controls or overlay buttons
-        if (e.target.closest('#customPlayerControls') || e.target.closest('#videoPlayOverlay') || e.target.closest('#videoPauseOverlay')) {
+        // Prevent action if clicked on controls or pause overlay buttons
+        if (e.target.closest('#customPlayerControls') || e.target.closest('#videoPauseOverlay')) {
           return;
         }
 
-        if (isLive) {
+        if (!broadcastStarted || video.paused) {
+          startBroadcastFromClick();
+        } else if (isLive) {
           toggleMuteState();
         } else {
           togglePlayState();

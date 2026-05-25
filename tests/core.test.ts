@@ -29,15 +29,16 @@ describe('webinar time logic', () => {
 
   it('calculates strict webinar access windows', () => {
     const scheduledAt = new Date('2026-05-22T08:00:00.000Z');
-    expect(getWebinarAccess(new Date('2026-05-22T07:59:00.000Z'), scheduledAt, 120).accessStatus).toBe('waiting');
+    expect(getWebinarAccess(new Date('2026-05-22T07:40:00.000Z'), scheduledAt, 120).accessStatus).toBe('waiting');
+    expect(getWebinarAccess(new Date('2026-05-22T07:59:00.000Z'), scheduledAt, 120).accessStatus).toBe('pre_live');
     expect(getWebinarAccess(new Date('2026-05-22T08:30:00.000Z'), scheduledAt, 120).accessStatus).toBe('live');
     expect(getWebinarAccess(new Date('2026-05-22T10:30:00.000Z'), scheduledAt, 120).accessStatus).toBe('replay');
-    expect(getWebinarAccess(new Date('2026-05-29T10:00:01.000Z'), scheduledAt, 120).accessStatus).toBe('expired');
+    expect(getWebinarAccess(new Date('2026-05-24T10:00:01.000Z'), scheduledAt, 120).accessStatus).toBe('closed');
   });
 
-  it('expires replay access seven days after the webinar ends', () => {
+  it('expires replay access 48 hours after the webinar ends', () => {
     const scheduledAt = new Date('2026-05-22T08:00:00.000Z');
-    expect(getReplayExpiresAt(scheduledAt, 120).toISOString()).toBe('2026-05-29T10:00:00.000Z');
+    expect(getReplayExpiresAt(scheduledAt, 120).toISOString()).toBe('2026-05-24T10:00:00.000Z');
   });
 });
 

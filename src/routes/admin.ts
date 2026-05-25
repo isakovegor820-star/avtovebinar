@@ -1,19 +1,108 @@
+import type { Request } from 'express';
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { asyncHandler, AppError } from '../lib/http.js';
-import { createAccessToken, createAdminSession, hashToken, verifyAdminSession } from '../lib/tokens.js';
+import { asyncHandler, AppError, getClientIp } from '../lib/http.js';
+import { createAccessToken, createAdminSession, hashIp, hashToken, parseAdminSession } from '../lib/tokens.js';
 import { env } from '../lib/env.js';
 import { CRM_STATUS_LABELS, CRM_STATUSES, isCrmStatus } from '../lib/crm.js';
+import { hashPassword, verifyPassword } from '../lib/passwords.js';
 import { formatMoscowDate, sendTelegramMessageToChat } from '../lib/telegram.js';
 
 export const adminRouter = Router();
 
-function requireAdmin(req: any, _res: any, next: any) {
-  if (!verifyAdminSession(req.cookies?.aspb_admin_session)) {
+const ADMIN_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
+type AdminRole = (typeof ADMIN_ROLES)[number];
+
+function isAdminRole(value: string): value is AdminRole {
+  return ADMIN_ROLES.includes(value as AdminRole);
+}
+
+type AdminRequest = Request & {
+  admin?: {
+    id: string | null;
+    login: string;
+    email: string | null;
+    role: string;
+  };
+};
+
+async function requireAdmin(req: AdminRequest, _res: any, next: any) {
+  const session = parseAdminSession(req.cookies?.aspb_admin_session);
+  if (!session) {
     return next(new AppError(401, 'Admin authorization required'));
   }
+
+  if (session.adminId) {
+    const adminUser = await prisma.adminUser.findUnique({ where: { id: session.adminId } });
+    if (!adminUser || !adminUser.isActive) {
+      return next(new AppError(401, 'Admin authorization required'));
+    }
+
+    req.admin = {
+      id: adminUser.id,
+      login: adminUser.name,
+      email: adminUser.email,
+      role: adminUser.role
+    };
+    return next();
+  }
+
+  req.admin = {
+    id: session.adminId ?? null,
+    login: session.login ?? env.ADMIN_LOGIN,
+    email: session.email ?? null,
+    role: session.role ?? 'owner'
+  };
   return next();
+}
+
+function requireRole(roles: AdminRole[]) {
+  return (req: AdminRequest, _res: any, next: any) => {
+    if (!req.admin || !roles.includes(req.admin.role as AdminRole)) {
+      return next(new AppError(403, 'Недостаточно прав'));
+    }
+
+    return next();
+  };
+}
+
+async function ensureDefaultAdminUser() {
+  const existingCount = await prisma.adminUser.count();
+  if (existingCount > 0) {
+    return null;
+  }
+
+  return prisma.adminUser.create({
+    data: {
+      name: env.ADMIN_LOGIN,
+      email: env.ADMIN_LOGIN.includes('@') ? env.ADMIN_LOGIN.toLowerCase() : `${env.ADMIN_LOGIN}@local.admin`,
+      passwordHash: hashPassword(env.ADMIN_PASSWORD),
+      role: 'owner'
+    }
+  });
+}
+
+async function audit(req: AdminRequest, input: {
+  action: string;
+  entityType: string;
+  entityId?: string | null;
+  before?: unknown;
+  after?: unknown;
+}) {
+  await prisma.auditLog.create({
+    data: {
+      adminUserId: req.admin?.id ?? null,
+      action: input.action,
+      entityType: input.entityType,
+      entityId: input.entityId ?? null,
+      beforeJson: input.before === undefined ? Prisma.JsonNull : input.before as Prisma.InputJsonValue,
+      afterJson: input.after === undefined ? Prisma.JsonNull : input.after as Prisma.InputJsonValue,
+      ipHash: hashIp(getClientIp(req)),
+      userAgent: req.headers['user-agent'] ?? null
+    }
+  });
 }
 
 function adminPage() {
@@ -110,6 +199,24 @@ function adminPage() {
         <div id="hotLeads" class="hot-grid"></div>
       </section>
 
+      <section class="panel hidden" id="userAdminSection">
+        <div class="top">
+          <div>
+            <h2>Менеджеры и роли</h2>
+            <div class="sub">Owner/admin управляют доступом. Менеджеры видят всех лидов, действия пишутся в audit log.</div>
+          </div>
+          <button id="usersRefreshBtn" class="ghost">Обновить</button>
+        </div>
+        <div class="filters">
+          <input id="newUserName" placeholder="Имя менеджера" />
+          <input id="newUserEmail" placeholder="Email для входа" />
+          <input id="newUserPassword" type="password" placeholder="Временный пароль" />
+          <select id="newUserRole"></select>
+          <button id="createUserBtn">Добавить</button>
+        </div>
+        <div id="usersList"></div>
+      </section>
+
       <div class="layout">
         <div>
           <section class="panel">
@@ -164,6 +271,9 @@ function adminPage() {
     const applicationsNode = document.getElementById('applications');
     const questionsNode = document.getElementById('questions');
     const hotLeadsNode = document.getElementById('hotLeads');
+    const userAdminSection = document.getElementById('userAdminSection');
+    const usersList = document.getElementById('usersList');
+    const newUserRole = document.getElementById('newUserRole');
     const broadcastText = document.getElementById('broadcastText');
     const broadcastBtn = document.getElementById('broadcastBtn');
     const broadcastStatus = document.getElementById('broadcastStatus');
@@ -223,6 +333,69 @@ function adminPage() {
       clear(statusFilter);
       statusFilter.append(node('option', { value:'', text:'Все CRM-статусы' }));
       CRM_STATUSES.forEach(item => statusFilter.append(node('option', { value:item.value, text:item.label })));
+    }
+
+    function fillRoleSelect(roles) {
+      clear(newUserRole);
+      (roles || ['manager']).forEach(role => newUserRole.append(node('option', { value:role, text:role })));
+      newUserRole.value = 'manager';
+    }
+
+    async function loadUsers() {
+      try {
+        const data = await api('/api/admin/users');
+        userAdminSection.classList.remove('hidden');
+        fillRoleSelect(data.roles);
+        clear(usersList);
+        if (!data.users.length) {
+          usersList.append(node('p', { class:'sub', text:'Менеджеров пока нет.' }));
+          return;
+        }
+        data.users.forEach(user => {
+          const roleSelect = node('select');
+          data.roles.forEach(role => roleSelect.append(node('option', { value:role, text:role })));
+          roleSelect.value = user.role;
+          usersList.append(node('div', { class:'row' }, [
+            node('div', {}, [
+              node('strong', { text:user.name }),
+              node('div', { text:user.email }),
+              node('div', { class:'sub', text:'роль: ' + user.role + ', вход: ' + fmtDate(user.lastLoginAt) })
+            ]),
+            node('div', { class:'action-row' }, [
+              roleSelect,
+              node('button', { class:'ghost', text:user.isActive ? 'Отключить' : 'Включить', onclick:async () => {
+                await api('/api/admin/users/' + user.id, { method:'PATCH', body:JSON.stringify({ isActive:!user.isActive }) });
+                await loadUsers();
+              }}),
+              node('button', { text:'Сохранить роль', onclick:async () => {
+                await api('/api/admin/users/' + user.id, { method:'PATCH', body:JSON.stringify({ role:roleSelect.value }) });
+                await loadUsers();
+              }})
+            ])
+          ]));
+        });
+      } catch (_error) {
+        userAdminSection.classList.add('hidden');
+      }
+    }
+
+    async function createUser() {
+      const name = document.getElementById('newUserName').value.trim();
+      const email = document.getElementById('newUserEmail').value.trim();
+      const password = document.getElementById('newUserPassword').value;
+      if (!name || !email || !password) {
+        alert('Заполните имя, email и пароль.');
+        return;
+      }
+
+      await api('/api/admin/users', {
+        method:'POST',
+        body:JSON.stringify({ name, email, password, role:newUserRole.value || 'manager' })
+      });
+      document.getElementById('newUserName').value = '';
+      document.getElementById('newUserEmail').value = '';
+      document.getElementById('newUserPassword').value = '';
+      await loadUsers();
     }
 
     async function loadSummary() {
@@ -475,7 +648,7 @@ function adminPage() {
     }
 
     async function loadAll() {
-      await Promise.all([loadSummary(), loadHotLeads(), loadRegistrations(), loadApplications(), loadQuestions()]);
+      await Promise.all([loadSummary(), loadHotLeads(), loadRegistrations(), loadApplications(), loadQuestions(), loadUsers()]);
     }
 
     loginBtn.addEventListener('click', async () => {
@@ -500,6 +673,8 @@ function adminPage() {
 
     refreshBtn.addEventListener('click', loadAll);
     hotRefreshBtn.addEventListener('click', loadHotLeads);
+    usersRefreshBtn.addEventListener('click', loadUsers);
+    createUserBtn.addEventListener('click', createUser);
     broadcastBtn.addEventListener('click', sendBroadcast);
     fillStatusFilter();
 
@@ -524,12 +699,36 @@ adminRouter.get('/admin', (_req, res) => {
 adminRouter.post(
   '/api/admin/login',
   asyncHandler(async (req, res) => {
-    const data = z.object({ login: z.string(), password: z.string() }).parse(req.body);
-    if (data.login !== env.ADMIN_LOGIN || data.password !== env.ADMIN_PASSWORD) {
+    const data = z.object({ login: z.string().trim(), password: z.string() }).parse(req.body);
+    await ensureDefaultAdminUser();
+
+    const login = data.login.toLowerCase();
+    const adminUser = await prisma.adminUser.findFirst({
+      where: {
+        isActive: true,
+        OR: [{ email: login }, { name: data.login }]
+      }
+    });
+
+    const isLegacyLogin = data.login === env.ADMIN_LOGIN && data.password === env.ADMIN_PASSWORD;
+    const isDbLogin = adminUser ? verifyPassword(data.password, adminUser.passwordHash) : false;
+
+    if (!isDbLogin && !isLegacyLogin) {
       throw new AppError(401, 'Неверный логин или пароль');
     }
 
-    res.cookie('aspb_admin_session', createAdminSession(), {
+    const sessionAdmin = adminUser
+      ? { id: adminUser.id, email: adminUser.email, role: adminUser.role }
+      : { id: undefined, email: env.ADMIN_LOGIN, role: 'owner' };
+
+    if (adminUser) {
+      await prisma.adminUser.update({
+        where: { id: adminUser.id },
+        data: { lastLoginAt: new Date() }
+      });
+    }
+
+    res.cookie('aspb_admin_session', createAdminSession(sessionAdmin), {
       httpOnly: true,
       sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
       secure: env.NODE_ENV === 'production',
@@ -543,6 +742,140 @@ adminRouter.post('/api/admin/logout', (_req, res) => {
   res.clearCookie('aspb_admin_session');
   res.json({ ok: true });
 });
+
+adminRouter.get(
+  '/api/admin/me',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    res.json({ ok: true, admin: (req as AdminRequest).admin });
+  })
+);
+
+adminRouter.get(
+  '/api/admin/users',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (_req, res) => {
+    const users = await prisma.adminUser.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true
+      },
+      orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }]
+    });
+
+    res.json({ ok: true, roles: ADMIN_ROLES, users });
+  })
+);
+
+adminRouter.post(
+  '/api/admin/users',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const data = z.object({
+      name: z.string().trim().min(2).max(120),
+      email: z.string().trim().email().max(160),
+      password: z.string().min(8).max(200),
+      role: z.string().default('manager')
+    }).parse(req.body);
+
+    if (!isAdminRole(data.role)) {
+      throw new AppError(400, 'Invalid admin role');
+    }
+
+    const user = await prisma.adminUser.create({
+      data: {
+        name: data.name,
+        email: data.email.toLowerCase(),
+        passwordHash: hashPassword(data.password),
+        role: data.role
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    await audit(req as AdminRequest, {
+      action: 'admin_user.create',
+      entityType: 'admin_user',
+      entityId: user.id,
+      after: user
+    });
+
+    res.status(201).json({ ok: true, user });
+  })
+);
+
+adminRouter.patch(
+  '/api/admin/users/:id',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const id = z.string().parse(req.params.id);
+    const data = z.object({
+      name: z.string().trim().min(2).max(120).optional(),
+      role: z.string().optional(),
+      isActive: z.boolean().optional(),
+      password: z.string().min(8).max(200).optional().or(z.literal(''))
+    }).parse(req.body);
+    const before = await prisma.adminUser.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, role: true, isActive: true }
+    });
+
+    if (!before) {
+      throw new AppError(404, 'Admin user not found');
+    }
+
+    if (data.role && !isAdminRole(data.role)) {
+      throw new AppError(400, 'Invalid admin role');
+    }
+
+    const user = await prisma.adminUser.update({
+      where: { id },
+      data: {
+        name: data.name,
+        role: data.role,
+        isActive: data.isActive,
+        passwordHash: data.password ? hashPassword(data.password) : undefined
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    await audit(req as AdminRequest, {
+      action: 'admin_user.update',
+      entityType: 'admin_user',
+      entityId: user.id,
+      before,
+      after: user
+    });
+
+    res.json({ ok: true, user });
+  })
+);
 
 adminRouter.get(
   '/api/admin/registrations',
@@ -580,6 +913,7 @@ adminRouter.get(
       include: {
         lead: true,
         webinarSession: true,
+        assignedManager: { select: { id: true, name: true, email: true, role: true } },
         _count: { select: { questions: true, partnerApplications: true } }
       },
       orderBy: { registeredAt: 'desc' },
@@ -594,6 +928,9 @@ adminRouter.get(
         crmStatus: item.crmStatus,
         managerNote: item.managerNote,
         isHot: item.isHot,
+        assignedManagerId: item.assignedManagerId,
+        assignedManager: item.assignedManager,
+        nextContactAt: item.nextContactAt,
         registeredAt: item.registeredAt,
         roomEnteredAt: item.roomEnteredAt,
         telegramClickedAt: item.telegramClickedAt,
@@ -641,6 +978,7 @@ adminRouter.get(
       include: {
         lead: true,
         webinarSession: true,
+        assignedManager: { select: { id: true, name: true, email: true, role: true } },
         _count: { select: { questions: true, partnerApplications: true } }
       },
       orderBy: [{ isHot: 'desc' }, { updatedAt: 'desc' }],
@@ -653,6 +991,9 @@ adminRouter.get(
         id: item.id,
         crmStatus: item.crmStatus,
         isHot: item.isHot,
+        assignedManagerId: item.assignedManagerId,
+        assignedManager: item.assignedManager,
+        nextContactAt: item.nextContactAt,
         roomEnteredAt: item.roomEnteredAt,
         telegramClickedAt: item.telegramClickedAt,
         questionCount: item._count.questions,
@@ -685,6 +1026,7 @@ adminRouter.get(
       include: {
         lead: true,
         webinarSession: true,
+        assignedManager: { select: { id: true, name: true, email: true, role: true } },
         questions: { orderBy: { createdAt: 'desc' } },
         partnerApplications: { orderBy: { createdAt: 'desc' } },
         events: { orderBy: { createdAt: 'desc' }, take: 100 }
@@ -702,6 +1044,7 @@ adminRouter.get(
 adminRouter.patch(
   '/api/admin/registrations/:id/status',
   requireAdmin,
+  requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
     const data = z.object({ crmStatus: z.string() }).parse(req.body);
@@ -710,9 +1053,18 @@ adminRouter.patch(
       throw new AppError(400, 'Invalid CRM status');
     }
 
+    const before = await prisma.registration.findUnique({ where: { id }, select: { crmStatus: true } });
     const registration = await prisma.registration.update({
       where: { id },
       data: { crmStatus: data.crmStatus }
+    });
+
+    await audit(req as AdminRequest, {
+      action: 'registration.crm_status.update',
+      entityType: 'registration',
+      entityId: id,
+      before,
+      after: { crmStatus: registration.crmStatus }
     });
 
     res.json({ ok: true, registration });
@@ -722,12 +1074,64 @@ adminRouter.patch(
 adminRouter.patch(
   '/api/admin/registrations/:id/hot',
   requireAdmin,
+  requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
     const data = z.object({ isHot: z.boolean() }).parse(req.body);
+    const before = await prisma.registration.findUnique({ where: { id }, select: { isHot: true } });
     const registration = await prisma.registration.update({
       where: { id },
       data: { isHot: data.isHot }
+    });
+
+    await audit(req as AdminRequest, {
+      action: 'registration.hot.update',
+      entityType: 'registration',
+      entityId: id,
+      before,
+      after: { isHot: registration.isHot }
+    });
+
+    res.json({ ok: true, registration });
+  })
+);
+
+adminRouter.patch(
+  '/api/admin/registrations/:id/manager',
+  requireAdmin,
+  requireRole(['owner', 'admin', 'manager']),
+  asyncHandler(async (req, res) => {
+    const id = z.string().parse(req.params.id);
+    const data = z.object({
+      assignedManagerId: z.string().optional().nullable(),
+      nextContactAt: z.string().optional().nullable()
+    }).parse(req.body);
+    const before = await prisma.registration.findUnique({
+      where: { id },
+      select: { assignedManagerId: true, nextContactAt: true }
+    });
+
+    if (data.assignedManagerId) {
+      const manager = await prisma.adminUser.findUnique({ where: { id: data.assignedManagerId } });
+      if (!manager || !manager.isActive) {
+        throw new AppError(400, 'Manager not found or inactive');
+      }
+    }
+
+    const registration = await prisma.registration.update({
+      where: { id },
+      data: {
+        assignedManagerId: data.assignedManagerId || null,
+        nextContactAt: data.nextContactAt ? new Date(data.nextContactAt) : null
+      }
+    });
+
+    await audit(req as AdminRequest, {
+      action: 'registration.manager.update',
+      entityType: 'registration',
+      entityId: id,
+      before,
+      after: { assignedManagerId: registration.assignedManagerId, nextContactAt: registration.nextContactAt }
     });
 
     res.json({ ok: true, registration });
@@ -737,6 +1141,7 @@ adminRouter.patch(
 adminRouter.post(
   '/api/admin/registrations/:id/telegram-reminder',
   requireAdmin,
+  requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
     const data = z.object({ text: z.string().trim().max(1200).optional().or(z.literal('')) }).parse(req.body);
@@ -788,6 +1193,13 @@ adminRouter.post(
       }
     });
 
+    await audit(req as AdminRequest, {
+      action: 'registration.telegram_reminder.send',
+      entityType: 'registration',
+      entityId: registration.id,
+      after: { chatId: registration.lead.telegramChatId, textLength: text.length }
+    });
+
     res.json({ ok: true, sent: true });
   })
 );
@@ -795,12 +1207,22 @@ adminRouter.post(
 adminRouter.patch(
   '/api/admin/registrations/:id/note',
   requireAdmin,
+  requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
     const data = z.object({ managerNote: z.string().max(5000).optional().or(z.literal('')) }).parse(req.body);
+    const before = await prisma.registration.findUnique({ where: { id }, select: { managerNote: true } });
     const registration = await prisma.registration.update({
       where: { id },
       data: { managerNote: data.managerNote || null }
+    });
+
+    await audit(req as AdminRequest, {
+      action: 'registration.note.update',
+      entityType: 'registration',
+      entityId: id,
+      before,
+      after: { managerNote: registration.managerNote }
     });
 
     res.json({ ok: true, registration });
@@ -852,6 +1274,7 @@ adminRouter.get(
 adminRouter.post(
   '/api/admin/telegram/broadcast',
   requireAdmin,
+  requireRole(['owner', 'admin']),
   asyncHandler(async (req, res) => {
     const data = z.object({ text: z.string().trim().min(3).max(2000) }).parse(req.body);
     const leads = await prisma.lead.findMany({
@@ -890,6 +1313,12 @@ adminRouter.post(
           textLength: data.text.length
         }
       }
+    });
+
+    await audit(req as AdminRequest, {
+      action: 'telegram.broadcast.send',
+      entityType: 'telegram_broadcast',
+      after: { total: chatIds.length, sent, failed, textLength: data.text.length }
     });
 
     res.json({ ok: true, total: chatIds.length, sent, failed });
@@ -933,9 +1362,11 @@ adminRouter.get(
 adminRouter.patch(
   '/api/admin/questions/:id',
   requireAdmin,
+  requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
     const data = z.object({ isAnswered: z.boolean(), adminNote: z.string().optional() }).parse(req.body);
+    const before = await prisma.question.findUnique({ where: { id }, select: { isAnswered: true, adminNote: true } });
     const question = await prisma.question.update({
       where: { id },
       data: {
@@ -943,6 +1374,15 @@ adminRouter.patch(
         adminNote: data.adminNote
       }
     });
+
+    await audit(req as AdminRequest, {
+      action: 'question.update',
+      entityType: 'question',
+      entityId: id,
+      before,
+      after: { isAnswered: question.isAnswered, adminNote: question.adminNote }
+    });
+
     res.json({ ok: true, question });
   })
 );

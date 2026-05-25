@@ -14,8 +14,6 @@ create_slide() {
   cat > "$TMP/${name}.svg" << SVGEOF
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
   <rect width="1920" height="1080" fill="${bg}"/>
-  <!-- Progress bar background -->
-  <rect x="0" y="1076" width="1920" height="4" fill="#1a2b3c"/>
   <!-- ASPB logo -->
   <text x="80" y="65" font-family="Helvetica,Arial,sans-serif" font-size="28" font-weight="bold" fill="#7A8EA6">ASPБ</text>
   <text x="135" y="65" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#4A5E76">Антикризисная служба</text>
@@ -36,7 +34,6 @@ create_slide "s1" "#0A1628" '
   <rect x="760" y="460" width="400" height="3" rx="2" fill="#FED488"/>
   <text x="960" y="530" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#FED488">Клиенты с долгами уже проходят через вас</text>
   <text x="960" y="580" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#7A8EA6">Подготовьте пример клиента для разбора</text>
-  <rect x="0" y="1076" width="160" height="4" fill="#FED488"/>
 '
 
 # Слайд 2: Проблема (5:00 - 12:59)
@@ -50,7 +47,6 @@ create_slide "s2" "#0D1E35" '
   <text x="960" y="550" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#BCC7DD">и просьбах «потянуть ещё немного»</text>
   <rect x="300" y="650" width="1320" height="60" rx="12" fill="#FED488" opacity="0.15"/>
   <text x="960" y="690" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#FED488">Узнали свою ситуацию? Задайте вопрос!</text>
-  <rect x="0" y="1076" width="427" height="4" fill="#FED488"/>
 '
 
 # Слайд 3: Карта клиентов (13:00 - 25:59)
@@ -71,7 +67,6 @@ create_slide "s3" "#0A1628" '
   <text x="410" y="645" font-family="Helvetica,Arial,sans-serif" font-size="30" font-weight="bold" fill="#FED488">Риелторы</text>
   <text x="410" y="680" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#BCC7DD">видят сделки, которые срываются из-за долгов</text>
   <text x="960" y="870" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#7A8EA6">Все видят разные симптомы одной проблемы</text>
-  <rect x="0" y="1076" width="693" height="4" fill="#FED488"/>
 '
 
 # Слайд 4: АСПБ (26:00 - 33:59)
@@ -84,7 +79,6 @@ create_slide "s4" "#0D1E35" '
   <text x="960" y="475" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#BCC7DD">Диагностика → Документы → Суд → Кредиторы</text>
   <text x="960" y="580" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="48" font-weight="bold" fill="white">17 000+ успешных дел</text>
   <text x="960" y="650" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="24" fill="#7A8EA6">Опытные арбитражные управляющие</text>
-  <rect x="0" y="1076" width="907" height="4" fill="#FED488"/>
 '
 
 # Слайд 5: Партнёрская модель (34:00 - 42:59)
@@ -98,7 +92,6 @@ create_slide "s5" "#0A1628" '
   <text x="960" y="620" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#BCC7DD">Направляете клиента в систему АСПБ</text>
   <rect x="350" y="700" width="1220" height="56" rx="28" fill="#FED488" opacity="0.15"/>
   <text x="960" y="738" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#FED488">Посмотрите путь партнёра</text>
-  <rect x="0" y="1076" width="1120" height="4" fill="#FED488"/>
 '
 
 # Слайд 6: Договор (43:00 - 54:59)
@@ -113,7 +106,6 @@ create_slide "s6" "#0D1E35" '
   <text x="960" y="640" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#7A8EA6">Достаточно предложить диагностику</text>
   <rect x="300" y="720" width="1320" height="60" rx="30" fill="#FED488" opacity="0.2"/>
   <text x="960" y="760" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="24" font-weight="bold" fill="#FED488">Оставьте заявку на партнёрский договор</text>
-  <rect x="0" y="1076" width="1467" height="4" fill="#FED488"/>
 '
 
 # Слайд 7: Финальный CTA (55:00 - 60:00)
@@ -126,7 +118,6 @@ create_slide "s7" "#041627" '
   <text x="960" y="650" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="26" fill="#BCC7DD">как передавать клиентов в работу</text>
   <rect x="600" y="740" width="720" height="70" rx="35" fill="#FED488"/>
   <text x="960" y="785" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="26" font-weight="bold" fill="#041627">НАЖМИТЕ КНОПКУ НИЖЕ</text>
-  <rect x="0" y="1076" width="1920" height="4" fill="#FED488"/>
 '
 
 echo ""
@@ -167,17 +158,17 @@ for i in "${!NAMES[@]}"; do
   echo "  [$(($i+1))/7] ${name} → ${dur}s видео..."
   
   if [ -f "$TMP/${name}.png" ]; then
-    ffmpeg -y -loop 1 -i "$TMP/${name}.png" \
+    ffmpeg -y -loop 1 -framerate 1 -i "$TMP/${name}.png" \
       -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-      -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p \
+      -c:v libx264 -preset ultrafast -crf 28 -r 1 -pix_fmt yuv420p \
       -c:a aac -b:a 128k \
       -t "$dur" \
       "$TMP/${name}_video.mp4" 2>/dev/null
   else
     # SVG fallback using ffmpeg's SVG decoder
-    ffmpeg -y -loop 1 -i "$TMP/${name}.svg" \
+    ffmpeg -y -loop 1 -framerate 1 -i "$TMP/${name}.svg" \
       -f lavfi -i "anullsrc=r=44100:cl=stereo" \
-      -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p \
+      -c:v libx264 -preset ultrafast -crf 28 -r 1 -pix_fmt yuv420p \
       -vf "scale=1920:1080" \
       -c:a aac -b:a 128k \
       -t "$dur" \

@@ -7,6 +7,45 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model AdminUser {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  role         String     @default("manager")
+  isActive     Boolean    @default(true) @map("is_active")
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  auditLogs    AuditLog[]
+  assignedRegistrations Registration[]
+  assignedPartnerApplications PartnerApplication[]
+
+  @@index([role])
+  @@index([isActive])
+  @@map("admin_users")
+}
+
+model AuditLog {
+  id          String     @id @default(cuid())
+  adminUserId String?    @map("admin_user_id")
+  action      String
+  entityType  String     @map("entity_type")
+  entityId    String?    @map("entity_id")
+  beforeJson  Json?      @map("before_json")
+  afterJson   Json?      @map("after_json")
+  ipHash      String?    @map("ip_hash")
+  userAgent   String?    @map("user_agent")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  adminUser   AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([adminUserId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
 model Lead {
   id                 String         @id @default(cuid())
   name               String
@@ -44,6 +83,13 @@ model WebinarSession {
   title           String
   scheduledAt     DateTime       @map("scheduled_at")
   durationMinutes Int            @default(120) @map("duration_minutes")
+  videoUrl        String?        @map("video_url")
+  posterUrl       String?        @map("poster_url")
+  videoDurationSeconds Int       @default(568) @map("video_duration_seconds")
+  roomOpenBeforeMinutes Int      @default(15) @map("room_open_before_minutes")
+  replayAvailableHours Int       @default(48) @map("replay_available_hours")
+  replayEnabled   Boolean        @default(true) @map("replay_enabled")
+  liveMode        String         @default("simulated") @map("live_mode")
   status          String         @default("scheduled")
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
@@ -80,11 +126,14 @@ model Registration {
   status           String         @default("registered")
   crmStatus        String         @default("new") @map("crm_status")
   isHot            Boolean        @default(false) @map("is_hot")
+  assignedManagerId String?       @map("assigned_manager_id")
+  nextContactAt    DateTime?      @map("next_contact_at")
   managerNote      String?        @map("manager_note")
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
   lead             Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
   webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  assignedManager  AdminUser?     @relation(fields: [assignedManagerId], references: [id], onDelete: SetNull)
   questions        Question[]
   events           Event[]
   partnerApplications PartnerApplication[]
@@ -95,6 +144,8 @@ model Registration {
   @@index([registeredAt])
   @@index([crmStatus])
   @@index([isHot])
+  @@index([assignedManagerId])
+  @@index([nextContactAt])
   @@map("registrations")
 }
 
@@ -168,15 +219,23 @@ model PartnerApplication {
   comment          String?
   preferredFormat  String?         @map("preferred_format")
   status           String          @default("new")
+  assignedManagerId String?        @map("assigned_manager_id")
+  nextContactAt    DateTime?       @map("next_contact_at")
+  contractSentAt   DateTime?       @map("contract_sent_at")
+  contractSignedAt DateTime?       @map("contract_signed_at")
+  lostReason       String?         @map("lost_reason")
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
   lead             Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
   registration     Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   webinarSession   WebinarSession? @relation(fields: [webinarSessionId], references: [id], onDelete: SetNull)
+  assignedManager  AdminUser?      @relation(fields: [assignedManagerId], references: [id], onDelete: SetNull)
 
   @@index([leadId])
   @@index([registrationId])
   @@index([status])
+  @@index([assignedManagerId])
+  @@index([nextContactAt])
   @@index([createdAt])
   @@map("partner_applications")
 }

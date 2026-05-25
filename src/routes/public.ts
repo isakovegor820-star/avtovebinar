@@ -13,19 +13,26 @@ import {
   getWebinarAccess,
   parseFirstSeenCookie,
   WEBINAR_DURATION_MINUTES,
-  WEBINAR_REPLAY_DAYS,
+  WEBINAR_REPLAY_HOURS,
   WEBINAR_TITLE
 } from '../lib/time.js';
 import { sendRegistrationEmail } from '../lib/email.js';
 import {
   DEFAULT_TIMELINE_EVENTS,
-  WEBINAR_VIDEO_DURATION_SECONDS,
   WEBINAR_VIDEO_PATH
 } from '../lib/webinarTimeline.js';
 import { buildTelegramStartUrl, notifyPartnerApplication, notifyQuestion, notifyRegistration } from '../lib/telegram.js';
 import { PUBLIC_ANALYTICS_EVENTS } from '../lib/events.js';
 
 export const publicRouter = Router();
+
+function roomAccessError(accessStatus: string) {
+  if (accessStatus === 'waiting' || accessStatus === 'pre_live') {
+    return new AppError(423, 'Webinar has not started yet');
+  }
+
+  return new AppError(403, 'Replay access has expired');
+}
 
 const utmSchema = {
   source: z.string().trim().max(120).optional().or(z.literal('')),
@@ -91,7 +98,7 @@ function getFirstSeen(req: Request, res: Response) {
 }
 
 function setRoomTokenCookie(res: Response, token: string, replayExpiresAt?: Date) {
-  const fallbackMaxAge = 1000 * 60 * 60 * 24 * (WEBINAR_REPLAY_DAYS + 2);
+  const fallbackMaxAge = 1000 * 60 * 60 * (WEBINAR_REPLAY_HOURS + 48);
   const maxAge = replayExpiresAt ? Math.max(60 * 1000, replayExpiresAt.getTime() - Date.now()) : fallbackMaxAge;
   res.cookie('aspb_room_token', token, {
     httpOnly: true,
@@ -112,6 +119,12 @@ async function findOrCreateWebinarSession(scheduledAt: Date) {
       title: WEBINAR_TITLE,
       scheduledAt,
       durationMinutes: WEBINAR_DURATION_MINUTES,
+      videoUrl: WEBINAR_VIDEO_PATH,
+      videoDurationSeconds: 568,
+      roomOpenBeforeMinutes: 15,
+      replayAvailableHours: 48,
+      replayEnabled: true,
+      liveMode: 'simulated',
       status
     }
   });
@@ -160,10 +173,18 @@ async function findRegistrationForRequest(req: Request, token?: string | null) {
 }
 
 function buildAccessPayload(registration: NonNullable<Awaited<ReturnType<typeof findRegistrationByToken>>>, now: Date) {
-  const access = getWebinarAccess(now, registration.webinarSession.scheduledAt, registration.webinarSession.durationMinutes);
+  const access = getWebinarAccess(
+    now,
+    registration.webinarSession.scheduledAt,
+    registration.webinarSession.durationMinutes,
+    registration.webinarSession.replayAvailableHours,
+    registration.webinarSession.roomOpenBeforeMinutes,
+    registration.webinarSession.replayEnabled
+  );
   return {
     accessStatus: access.accessStatus,
     webinarStatus: access.webinarStatus,
+    roomOpensAt: access.roomOpensAt,
     replayExpiresAt: access.replayExpiresAt,
     canEnterRoom: access.canEnterRoom,
     countdown: getCountdown(now, registration.webinarSession.scheduledAt)
@@ -239,7 +260,10 @@ publicRouter.get(
       webinar: {
         id: session.id,
         title: session.title,
-        durationMinutes: session.durationMinutes
+        durationMinutes: session.durationMinutes,
+        videoDurationSeconds: session.videoDurationSeconds,
+        roomOpenBeforeMinutes: session.roomOpenBeforeMinutes,
+        replayAvailableHours: session.replayAvailableHours
       },
       telegramUrl: env.TELEGRAM_GROUP_URL,
       telegramBotUrl: buildTelegramStartUrl()
@@ -257,7 +281,7 @@ async function sendTimeline(req: Request, res: Response, token?: string | null) 
   const now = new Date();
   const access = buildAccessPayload(registration, now);
   if (!access.canEnterRoom) {
-    throw new AppError(access.accessStatus === 'waiting' ? 423 : 403, access.accessStatus === 'waiting' ? 'Webinar has not started yet' : 'Replay access has expired');
+    throw roomAccessError(access.accessStatus);
   }
 
   const dbEvents = await prisma.webinarTimelineEvent.findMany({
@@ -269,7 +293,7 @@ async function sendTimeline(req: Request, res: Response, token?: string | null) 
 
   const hasFreshTimeline =
     dbEvents.length > 0 &&
-    dbEvents.every(event => event.offsetSeconds <= WEBINAR_VIDEO_DURATION_SECONDS);
+    dbEvents.every(event => event.offsetSeconds <= registration.webinarSession.videoDurationSeconds);
 
   const timeline = hasFreshTimeline
     ? dbEvents.map(event => ({
@@ -288,9 +312,11 @@ async function sendTimeline(req: Request, res: Response, token?: string | null) 
     accessStatus: access.accessStatus,
     webinarStatus: access.webinarStatus,
     replayExpiresAt: access.replayExpiresAt.toISOString(),
+    roomOpensAt: access.roomOpensAt.toISOString(),
     video: {
-      src: WEBINAR_VIDEO_PATH,
-      durationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
+      src: registration.webinarSession.videoUrl || WEBINAR_VIDEO_PATH,
+      durationSeconds: registration.webinarSession.videoDurationSeconds,
+      poster: registration.webinarSession.posterUrl,
       expected: true
     },
     timeline
@@ -464,7 +490,7 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
         data: { roomEnteredAt: registration.roomEnteredAt ?? now }
       });
       await saveEvent({ eventName: 'webinar_room_open', req, token, page: '/crisis_premium/webinar.html' });
-    } else if (access.accessStatus === 'waiting') {
+    } else if (access.accessStatus === 'waiting' || access.accessStatus === 'pre_live') {
       await saveEvent({ eventName: 'webinar_room_waiting', req, token, page: '/crisis_premium/webinar.html' });
     }
   }
@@ -474,8 +500,9 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
     serverTime: now.toISOString(),
     accessStatus: access.accessStatus,
     webinarStatus: access.webinarStatus,
-    replayExpiresAt: access.replayExpiresAt.toISOString(),
-    canEnterRoom: access.canEnterRoom,
+      replayExpiresAt: access.replayExpiresAt.toISOString(),
+      roomOpensAt: access.roomOpensAt.toISOString(),
+      canEnterRoom: access.canEnterRoom,
     telegramUrl: env.TELEGRAM_GROUP_URL,
     telegramBotUrl: buildTelegramStartUrl(requestToken || undefined),
     webinarUrl: requestToken ? buildFrontendUrl('/crisis_premium/webinar.html', requestToken) : buildFrontendUrl('/crisis_premium/webinar.html'),
@@ -494,12 +521,17 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
     },
     webinar: {
       id: registration.webinarSession.id,
-      title: registration.webinarSession.title,
-      scheduledAt: registration.webinarSession.scheduledAt.toISOString(),
-      durationMinutes: registration.webinarSession.durationMinutes,
-      status: access.webinarStatus,
-      countdown: access.countdown
-    }
+        title: registration.webinarSession.title,
+        scheduledAt: registration.webinarSession.scheduledAt.toISOString(),
+        roomOpensAt: access.roomOpensAt.toISOString(),
+        replayExpiresAt: access.replayExpiresAt.toISOString(),
+        durationMinutes: registration.webinarSession.durationMinutes,
+        videoDurationSeconds: registration.webinarSession.videoDurationSeconds,
+        replayAvailableHours: registration.webinarSession.replayAvailableHours,
+        replayEnabled: registration.webinarSession.replayEnabled,
+        status: access.webinarStatus,
+        countdown: access.countdown
+      }
   });
 }
 
@@ -563,7 +595,7 @@ publicRouter.post(
     }
     const access = buildAccessPayload(registration, new Date());
     if (!access.canEnterRoom) {
-      throw new AppError(access.accessStatus === 'waiting' ? 423 : 403, access.accessStatus === 'waiting' ? 'Webinar has not started yet' : 'Replay access has expired');
+      throw roomAccessError(access.accessStatus);
     }
 
     const application = await prisma.partnerApplication.create({
@@ -623,7 +655,7 @@ publicRouter.post(
     }
     const access = buildAccessPayload(registration, new Date());
     if (!access.canEnterRoom) {
-      throw new AppError(access.accessStatus === 'waiting' ? 423 : 403, access.accessStatus === 'waiting' ? 'Webinar has not started yet' : 'Replay access has expired');
+      throw roomAccessError(access.accessStatus);
     }
 
     const question = await prisma.question.create({

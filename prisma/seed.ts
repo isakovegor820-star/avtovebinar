@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { getNextWebinarDate } from '../src/lib/time.js';
+import { hashPassword } from '../src/lib/passwords.js';
 import { DEFAULT_TIMELINE_EVENTS } from '../src/lib/webinarTimeline.js';
 
 const prisma = new PrismaClient();
@@ -12,12 +13,24 @@ async function main() {
     update: {
       title: 'Экономика кризиса: как юристу зарабатывать на защите финансовых прав бизнеса',
       durationMinutes: 120,
+      videoUrl: '/crisis_premium/assets/webinar.mp4',
+      videoDurationSeconds: 568,
+      roomOpenBeforeMinutes: 15,
+      replayAvailableHours: 48,
+      replayEnabled: true,
+      liveMode: 'simulated',
       status: 'scheduled'
     },
     create: {
       title: 'Экономика кризиса: как юристу зарабатывать на защите финансовых прав бизнеса',
       scheduledAt,
       durationMinutes: 120,
+      videoUrl: '/crisis_premium/assets/webinar.mp4',
+      videoDurationSeconds: 568,
+      roomOpenBeforeMinutes: 15,
+      replayAvailableHours: 48,
+      replayEnabled: true,
+      liveMode: 'simulated',
       status: 'scheduled'
     }
   });
@@ -39,6 +52,25 @@ async function main() {
       }))
     });
   }
+
+  const adminLogin = process.env.ADMIN_LOGIN || 'admin';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+  const adminEmail = adminLogin.includes('@') ? adminLogin.toLowerCase() : `${adminLogin}@local.admin`;
+
+  await prisma.adminUser.upsert({
+    where: { email: adminEmail },
+    update: {
+      name: adminLogin,
+      role: 'owner',
+      isActive: true
+    },
+    create: {
+      name: adminLogin,
+      email: adminEmail,
+      passwordHash: hashPassword(adminPassword),
+      role: 'owner'
+    }
+  });
 }
 
 main()

@@ -1,7 +1,8 @@
 export const WEBINAR_TITLE = 'Экономика кризиса: как юристу зарабатывать на защите финансовых прав бизнеса';
 export const WEBINAR_DURATION_MINUTES = 120;
-export const WEBINAR_REPLAY_DAYS = 7;
-export type WebinarAccessStatus = 'waiting' | 'live' | 'replay' | 'expired';
+export const WEBINAR_REPLAY_HOURS = 48;
+export const WEBINAR_ROOM_OPEN_BEFORE_MINUTES = 15;
+export type WebinarAccessStatus = 'waiting' | 'pre_live' | 'live' | 'replay' | 'closed';
 
 type MoscowParts = {
   year: number;
@@ -52,28 +53,39 @@ export function getWebinarEndAt(scheduledAt: Date, durationMinutes = WEBINAR_DUR
   return new Date(scheduledAt.getTime() + durationMinutes * 60 * 1000);
 }
 
-export function getReplayExpiresAt(scheduledAt: Date, durationMinutes = WEBINAR_DURATION_MINUTES, replayDays = WEBINAR_REPLAY_DAYS) {
-  return new Date(getWebinarEndAt(scheduledAt, durationMinutes).getTime() + replayDays * 24 * 60 * 60 * 1000);
+export function getReplayExpiresAt(scheduledAt: Date, durationMinutes = WEBINAR_DURATION_MINUTES, replayAvailableHours = WEBINAR_REPLAY_HOURS) {
+  return new Date(getWebinarEndAt(scheduledAt, durationMinutes).getTime() + replayAvailableHours * 60 * 60 * 1000);
 }
 
-export function getWebinarAccess(now: Date, scheduledAt: Date, durationMinutes = WEBINAR_DURATION_MINUTES, replayDays = WEBINAR_REPLAY_DAYS) {
+export function getWebinarAccess(
+  now: Date,
+  scheduledAt: Date,
+  durationMinutes = WEBINAR_DURATION_MINUTES,
+  replayAvailableHours = WEBINAR_REPLAY_HOURS,
+  roomOpenBeforeMinutes = WEBINAR_ROOM_OPEN_BEFORE_MINUTES,
+  replayEnabled = true
+) {
   const webinarStatus = getSessionStatus(now, scheduledAt, durationMinutes);
-  const replayExpiresAt = getReplayExpiresAt(scheduledAt, durationMinutes, replayDays);
+  const replayExpiresAt = getReplayExpiresAt(scheduledAt, durationMinutes, replayAvailableHours);
+  const roomOpensAt = new Date(scheduledAt.getTime() - roomOpenBeforeMinutes * 60 * 1000);
   let accessStatus: WebinarAccessStatus;
 
-  if (webinarStatus === 'scheduled') {
+  if (now.getTime() < roomOpensAt.getTime()) {
     accessStatus = 'waiting';
   } else if (webinarStatus === 'live') {
     accessStatus = 'live';
-  } else if (now.getTime() <= replayExpiresAt.getTime()) {
+  } else if (webinarStatus === 'scheduled') {
+    accessStatus = 'pre_live';
+  } else if (replayEnabled && now.getTime() <= replayExpiresAt.getTime()) {
     accessStatus = 'replay';
   } else {
-    accessStatus = 'expired';
+    accessStatus = 'closed';
   }
 
   return {
     accessStatus,
     webinarStatus,
+    roomOpensAt,
     replayExpiresAt,
     canEnterRoom: accessStatus === 'live' || accessStatus === 'replay'
   };

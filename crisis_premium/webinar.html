@@ -140,7 +140,7 @@
 <span class="w-3 h-3 bg-secondary rounded-full animate-pulse"></span>
 <span class="font-label-md text-on-surface" id="webinarStatusText">Проверяем доступ к вебинарной комнате...</span>
 </div>
-<div class="flex items-center gap-4 text-on-surface-variant">
+<div class="flex items-center gap-4 text-on-surface-variant" id="countdownContainer">
 <span class="text-label-sm uppercase tracking-wider">Начало через:</span>
 <div class="flex gap-2 font-headline-md text-primary" id="countdown">
 <span>00</span>:<span>45</span>:<span>12</span>
@@ -148,20 +148,85 @@
 </div>
 </div>
 <!-- Autowebinar Player -->
-<div class="relative aspect-video bg-primary-container rounded-lg overflow-hidden shadow-lg group">
-<video id="webinarVideo" class="w-full h-full object-cover bg-primary" controls playsinline preload="metadata" poster="assets/webinar-poster.jpg">
-<source src="assets/webinar.mp4" type="video/mp4"/>
-</video>
-<div id="videoFallback" class="hidden absolute inset-0 flex flex-col items-center justify-center text-center p-8 bg-primary-container">
-<div class="w-20 h-20 bg-surface-container-lowest/10 backdrop-blur-md rounded-full flex items-center justify-center mb-6 border border-white/20">
-<span class="material-symbols-outlined text-white text-4xl">movie</span>
-</div>
-<h1 class="text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h1>
-<p class="text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Добавьте файл <strong>crisis_premium/assets/webinar.mp4</strong>, и эта комната сразу станет полноценным автовебинаром.</p>
-</div>
-<div class="absolute bottom-4 right-4 bg-black/40 backdrop-blur-sm px-3 py-1 rounded-full text-white text-label-sm" id="videoLiveBadge">
-                        АВТОЭФИР • 26 МИН
-                    </div>
+<!-- Autowebinar Player -->
+<div id="videoPlayerContainer" class="relative aspect-video bg-primary-container rounded-lg overflow-hidden shadow-lg group">
+  <!-- Remove controls to hide native player UI. Use pointer-events-none to prevent browser native overlays. -->
+  <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline preload="metadata" poster="assets/webinar-poster.jpg">
+    <source src="assets/webinar.mp4" type="video/mp4"/>
+  </video>
+
+  <!-- Fallback Screen when video cannot load -->
+  <div id="videoFallback" class="hidden absolute inset-0 flex flex-col items-center justify-center text-center p-8 bg-primary-container z-10">
+    <div class="w-20 h-20 bg-surface-container-lowest/10 backdrop-blur-md rounded-full flex items-center justify-center mb-6 border border-white/20">
+      <span class="material-symbols-outlined text-white text-4xl">movie</span>
+    </div>
+    <h1 class="text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h1>
+    <p class="text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Добавьте файл <strong>crisis_premium/assets/webinar.mp4</strong>, и эта комната сразу станет полноценным автовебинаром.</p>
+  </div>
+
+  <!-- Play/Unmute Overlay for Muted Autoplay Bypass -->
+  <div id="videoPlayOverlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 text-center p-6 cursor-pointer hover:bg-black/60 transition-all duration-300">
+    <div class="w-20 h-20 bg-red-600/90 rounded-full flex items-center justify-center mb-4 border border-white/20 animate-pulse hover:scale-110 transition-transform shadow-lg">
+      <span class="material-symbols-outlined text-white text-4xl font-bold">volume_up</span>
+    </div>
+    <p class="text-headline-md text-white font-bold tracking-wide uppercase">🔴 Трансляция уже идет</p>
+    <p class="text-body-lg text-white/80 mt-1 max-w-md">Нажмите для входа в комнату и включения звука</p>
+  </div>
+
+  <!-- Pause Overlay (only shown in Live mode when paused) -->
+  <div id="videoPauseOverlay" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 text-center p-6 cursor-pointer hover:bg-black/50 transition-all duration-300">
+    <div class="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4 border border-white/10 hover:scale-110 transition-transform">
+      <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
+    </div>
+    <p class="text-headline-md text-white font-bold tracking-wide uppercase">🔴 Эфир приостановлен</p>
+    <p class="text-body-lg text-white/80 mt-1">Нажмите для возврата в прямой эфир</p>
+  </div>
+
+  <!-- Custom Stream Controls Overlay (hidden by default, shown on hover/activity) -->
+  <div id="customPlayerControls" class="absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-4 pt-10 flex flex-col gap-2 transition-all duration-300 opacity-0 pointer-events-none">
+
+    <!-- Control Buttons -->
+    <div class="flex items-center justify-between w-full">
+      <div class="flex items-center gap-4">
+        <!-- Play/Pause Button -->
+        <button id="customPlayPauseBtn" type="button" class="text-white hover:text-red-500 transition-colors flex items-center justify-center">
+          <span class="material-symbols-outlined text-[28px]">play_arrow</span>
+        </button>
+
+        <!-- Live Indicator Badge -->
+        <div id="customLiveIndicator" class="flex items-center gap-1.5 text-red-500 font-bold text-xs uppercase tracking-wider bg-red-500/10 px-2.5 py-1 rounded-full border border-red-500/30">
+          <span class="w-1.5 h-1.5 bg-red-600 rounded-full animate-ping"></span>
+          <span>В эфире</span>
+        </div>
+
+        <!-- Viewer Count Badge -->
+        <div id="customViewerCount" class="flex items-center gap-1.5 text-white/80 text-xs bg-white/10 px-2.5 py-1 rounded-full">
+          <span class="material-symbols-outlined text-[16px] text-white/60">visibility</span>
+          <span id="viewerCountValue" class="font-semibold">--</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <!-- Volume / Mute Control -->
+        <div class="flex items-center gap-2 group/volume">
+          <button id="customMuteBtn" type="button" class="text-white hover:text-red-500 transition-colors flex items-center justify-center">
+            <span class="material-symbols-outlined text-[24px]">volume_up</span>
+          </button>
+          <input id="customVolumeSlider" type="range" min="0" max="1" step="0.05" value="1" class="w-16 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-red-600 hover:accent-red-500 transition-all"/>
+        </div>
+
+        <!-- Fullscreen Button -->
+        <button id="customFullscreenBtn" type="button" class="text-white hover:text-red-500 transition-colors flex items-center justify-center">
+          <span class="material-symbols-outlined text-[24px]">fullscreen</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Small top right badge for live mode if controls are hidden -->
+  <div class="absolute top-4 right-4 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md" id="videoLiveBadge">
+    <span class="w-1.5 h-1.5 bg-white rounded-full animate-ping"></span>🔴 ПРЯМОЙ ЭФИР
+  </div>
 </div>
 <div class="bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-5 shadow-sm" id="timelineActive">
 <p class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-wider mb-2">Сейчас в эфире</p>
@@ -170,8 +235,8 @@
 </div>
 </div>
 <!-- Questions Panel -->
-<div class="lg:col-span-4 h-full">
-<div class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[600px] lg:h-full overflow-hidden">
+<div class="lg:col-span-4">
+<div class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[600px] overflow-hidden">
 <div class="p-5 border-b border-outline-variant/10 flex items-center justify-between">
 <h3 class="text-headline-md font-headline-md text-primary">Вопросы к эксперту</h3>
 <span class="material-symbols-outlined text-on-surface-variant">chat_bubble</span>
@@ -210,17 +275,57 @@
 </div>
 </div>
 <section class="mt-10 grid grid-cols-1 lg:grid-cols-12 gap-8" id="partnerPath">
+<!-- Partner Program Info Panel (Static) -->
 <div class="lg:col-span-7 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-6 md:p-8 shadow-sm">
-<div class="flex items-center justify-between gap-4 mb-6">
-<div>
-<p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant">Сценарий эфира</p>
-<h2 class="text-headline-md font-headline-md text-primary">Таймлайн автовебинара</h2>
-</div>
-<span class="material-symbols-outlined text-primary">timeline</span>
-</div>
-<div class="space-y-3" id="webinarTimeline">
-<div class="rounded-xl border border-outline-variant/30 p-4 text-on-surface-variant">Загружаем события эфира...</div>
-</div>
+  <div class="flex items-center justify-between gap-4 mb-6">
+    <div>
+      <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant">Условия сотрудничества</p>
+      <h2 class="text-headline-md font-headline-md text-primary">О партнерской программе АСПБ</h2>
+    </div>
+    <span class="material-symbols-outlined text-primary text-3xl">handshake</span>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-4">
+    <div class="space-y-2">
+      <div class="flex items-center gap-2 text-primary font-bold text-body-md">
+        <span class="material-symbols-outlined text-secondary">description</span>
+        <span>Официальный договор</span>
+      </div>
+      <p class="text-body-md text-on-surface-variant leading-relaxed">
+        Все выплаты, проценты и условия взаимодействия фиксируются в официальном договоре. Прозрачная отчетность по каждому переданному клиенту.
+      </p>
+    </div>
+
+    <div class="space-y-2">
+      <div class="flex items-center gap-2 text-primary font-bold text-body-md">
+        <span class="material-symbols-outlined text-secondary">forward_to_inbox</span>
+        <span>Простой процесс передачи</span>
+      </div>
+      <p class="text-body-md text-on-surface-variant leading-relaxed">
+        От вас требуется только заметить проблему клиента и передать его контакт. Всю сложную работу — переговоры, диагностику и ведение дела — АСПБ берет на себя.
+      </p>
+    </div>
+
+    <div class="space-y-2">
+      <div class="flex items-center gap-2 text-primary font-bold text-body-md">
+        <span class="material-symbols-outlined text-secondary">verified_user</span>
+        <span>Сохранение лояльности</span>
+      </div>
+      <p class="text-body-md text-on-surface-variant leading-relaxed">
+        Ваши клиенты получают профессиональную диагностику от арбитражного управляющего. Вы помогаете им найти легальный выход и укрепляете доверие к себе.
+      </p>
+    </div>
+
+    <div class="space-y-2">
+      <div class="flex items-center gap-2 text-primary font-bold text-body-md">
+        <span class="material-symbols-outlined text-secondary">travel_explore</span>
+        <span>Работа по всей РФ</span>
+      </div>
+      <p class="text-body-md text-on-surface-variant leading-relaxed">
+        АСПБ работает во всех регионах России. Сопровождаем банкротство юридических лиц, налоговые споры, структурирование долгов и защиту активов под ключ.
+      </p>
+    </div>
+  </div>
 </div>
 <div class="lg:col-span-5 bg-primary text-on-primary rounded-lg p-6 md:p-8 shadow-lg" id="partnerApplication">
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-2">после вебинара</p>

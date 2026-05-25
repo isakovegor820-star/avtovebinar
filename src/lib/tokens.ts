@@ -24,33 +24,47 @@ function sign(value: string) {
   return crypto.createHmac('sha256', env.ADMIN_COOKIE_SECRET).update(value).digest('base64url');
 }
 
-export function createAdminSession() {
+export function createAdminSession(admin?: { id?: string; email?: string; role?: string }) {
   const payload = JSON.stringify({
     login: env.ADMIN_LOGIN,
+    adminId: admin?.id ?? null,
+    email: admin?.email ?? null,
+    role: admin?.role ?? 'owner',
     exp: Date.now() + 24 * 60 * 60 * 1000
   });
   const encoded = Buffer.from(payload).toString('base64url');
   return `${encoded}.${sign(encoded)}`;
 }
 
-export function verifyAdminSession(token: string | undefined) {
+export function parseAdminSession(token: string | undefined) {
   if (!token) {
-    return false;
+    return null;
   }
 
   const [encoded, signature] = token.split('.');
   if (!encoded || !signature || sign(encoded) !== signature) {
-    return false;
+    return null;
   }
 
   try {
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
       login?: string;
+      adminId?: string | null;
+      email?: string | null;
+      role?: string | null;
       exp?: number;
     };
 
-    return payload.login === env.ADMIN_LOGIN && typeof payload.exp === 'number' && payload.exp > Date.now();
+    if (payload.login !== env.ADMIN_LOGIN || typeof payload.exp !== 'number' || payload.exp <= Date.now()) {
+      return null;
+    }
+
+    return payload;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function verifyAdminSession(token: string | undefined) {
+  return Boolean(parseAdminSession(token));
 }

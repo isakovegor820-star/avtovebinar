@@ -181,13 +181,27 @@ function buildAccessPayload(registration: NonNullable<Awaited<ReturnType<typeof 
     registration.webinarSession.roomOpenBeforeMinutes,
     registration.webinarSession.replayEnabled
   );
+
+  if (env.NODE_ENV !== 'production' && env.WEBINAR_TEST_ROOM_MODE === 'on') {
+    return {
+      accessStatus: 'replay' as const,
+      webinarStatus: 'test',
+      roomOpensAt: now,
+      replayExpiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      canEnterRoom: true,
+      countdown: getCountdown(now, now),
+      testMode: true
+    };
+  }
+
   return {
     accessStatus: access.accessStatus,
     webinarStatus: access.webinarStatus,
     roomOpensAt: access.roomOpensAt,
     replayExpiresAt: access.replayExpiresAt,
     canEnterRoom: access.canEnterRoom,
-    countdown: getCountdown(now, registration.webinarSession.scheduledAt)
+    countdown: getCountdown(now, registration.webinarSession.scheduledAt),
+    testMode: false
   };
 }
 
@@ -311,6 +325,7 @@ async function sendTimeline(req: Request, res: Response, token?: string | null) 
     serverTime: now.toISOString(),
     accessStatus: access.accessStatus,
     webinarStatus: access.webinarStatus,
+    testMode: access.testMode,
     replayExpiresAt: access.replayExpiresAt.toISOString(),
     roomOpensAt: access.roomOpensAt.toISOString(),
     video: {
@@ -500,6 +515,7 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
     serverTime: now.toISOString(),
     accessStatus: access.accessStatus,
     webinarStatus: access.webinarStatus,
+    testMode: access.testMode,
       replayExpiresAt: access.replayExpiresAt.toISOString(),
       roomOpensAt: access.roomOpensAt.toISOString(),
       canEnterRoom: access.canEnterRoom,
@@ -529,6 +545,7 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
         videoDurationSeconds: registration.webinarSession.videoDurationSeconds,
         replayAvailableHours: registration.webinarSession.replayAvailableHours,
         replayEnabled: registration.webinarSession.replayEnabled,
+        testMode: access.testMode,
         status: access.webinarStatus,
         countdown: access.countdown
       }

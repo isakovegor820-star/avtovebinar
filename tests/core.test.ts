@@ -129,6 +129,7 @@ describe('security configuration', () => {
         TELEGRAM_NEWS_BROADCAST: 'off',
         TELEGRAM_NEWS_TIMES: '09:00',
         TELEGRAM_NEWS_RSS_URLS: '',
+        WEBINAR_TEST_ROOM_MODE: 'off',
         CORS_ORIGIN: 'https://example.com'
       })
     ).toThrow(/Production security configuration/);

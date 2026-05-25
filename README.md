@@ -128,6 +128,14 @@ waiting → live → replay → expired
 
 В dev-режиме token дополнительно хранится в `localStorage` для удобного тестирования. В production после проверки ссылки backend ставит `HttpOnly` cookie `aspb_room_token`, чтобы frontend не держал боевой token в открытом хранилище.
 
+Для локального тестирования включен режим:
+
+```text
+WEBINAR_TEST_ROOM_MODE=on
+```
+
+Он открывает комнату сразу и запускает запись с начала после обновления страницы. Для строгой проверки реального доступа поставьте `WEBINAR_TEST_ROOM_MODE=off`.
+
 ## CRM
 
 Админка доступна по адресу:

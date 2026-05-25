@@ -32,6 +32,7 @@ const envSchema = z.object({
   TELEGRAM_NEWS_RSS_URLS: z
     .string()
     .default('https://www.consultant.ru/rss/hotdocs.xml,https://www.consultant.ru/rss/nw.xml,https://www.consultant.ru/rss/db.xml'),
+  WEBINAR_TEST_ROOM_MODE: z.enum(['on', 'off']).default('on'),
   CORS_ORIGIN: z.string().optional().default('http://127.0.0.1:5174')
 });
 

@@ -234,6 +234,51 @@
     return getJson(registrationStatePath(view));
   }
 
+  function formatUtcIcsDate(value) {
+    return new Date(value).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  }
+
+  function bindSuccessCalendar(data) {
+    const button = document.getElementById('successCalendarButton');
+    if (!button || button.dataset.bound === 'true') return;
+
+    button.dataset.bound = 'true';
+    button.addEventListener('click', () => {
+      const start = new Date(data.webinar.scheduledAt);
+      const end = new Date(start.getTime() + Number(data.webinar.durationMinutes || 120) * 60 * 1000);
+      const webinarUrl = data.webinarUrl || (token ? `${window.location.origin}/crisis_premium/webinar.html?token=${encodeURIComponent(token)}` : `${window.location.origin}/crisis_premium/webinar.html`);
+      const title = 'Вебинар АСПБ: Экономика кризиса';
+      const description = [
+        'Автовебинар АСПБ для юристов и партнеров.',
+        `Персональная комната: ${webinarUrl}`
+      ].join('\\n');
+      const ics = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//ASPB//Autowebinar//RU',
+        'BEGIN:VEVENT',
+        `UID:${data.registration.id || Date.now()}@aspb-autowebinar`,
+        `DTSTAMP:${formatUtcIcsDate(new Date())}`,
+        `DTSTART:${formatUtcIcsDate(start)}`,
+        `DTEND:${formatUtcIcsDate(end)}`,
+        `SUMMARY:${title}`,
+        `DESCRIPTION:${description.replace(/\n/g, '\\\\n')}`,
+        `URL:${webinarUrl}`,
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\\r\\n');
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'aspb-webinar.ics';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      button.innerHTML = '<span class="material-symbols-outlined text-xl">event_available</span>Добавлено в календарь';
+    });
+  }
+
   async function hydrateSuccessPage() {
     if (!window.location.pathname.endsWith('success.html')) return;
 
@@ -248,6 +293,7 @@
       }
       const roomLink = document.getElementById('successRoomLink') || document.querySelector('a[href*="webinar.html"]');
       if (roomLink) roomLink.setAttribute('href', token ? `webinar.html?token=${encodeURIComponent(token)}` : 'webinar.html');
+      bindSuccessCalendar(data);
       const dateNode = document.getElementById('successWebinarDate');
       if (dateNode) {
         dateNode.textContent = new Intl.DateTimeFormat('ru-RU', {
@@ -341,15 +387,15 @@
       const serverTime = new Date(data.serverTime).getTime();
       serverTimeOffset = serverTime - Date.now();
 
-      webinarConfig = {
-	        scheduledAt: new Date(data.webinar.scheduledAt).getTime(),
-	        status: data.accessStatus === 'replay' ? 'replay' : data.webinar.status,
-	        durationMinutes: data.webinar.durationMinutes
-	      };
+	      webinarConfig = {
+		        scheduledAt: new Date(data.webinar.scheduledAt).getTime(),
+		        status: data.testMode ? 'test' : data.accessStatus === 'replay' ? 'replay' : data.webinar.status,
+		        durationMinutes: data.webinar.durationMinutes
+		      };
 
       updateTelegramLinks(data.telegramUrl);
       startCountdown(data.webinar.scheduledAt);
-	      updateRoomStatus({ ...data.webinar, accessStatus: data.accessStatus, replayExpiresAt: data.replayExpiresAt });
+	      updateRoomStatus({ ...data.webinar, accessStatus: data.accessStatus, replayExpiresAt: data.replayExpiresAt, testMode: data.testMode });
 	      await hydrateTimeline();
     } catch {
       renderLockedRoom('Не удалось проверить доступ. Попробуйте открыть ссылку из письма еще раз.');
@@ -360,7 +406,10 @@
     const node = document.getElementById('webinarStatusText');
     const countdownContainer = document.getElementById('countdownContainer');
     if (!node || !webinar) return;
-    if (webinar.accessStatus === 'live' || webinar.status === 'live') {
+    if (webinar.testMode) {
+      node.textContent = 'Тестовый режим: трансляция доступна всегда и после обновления начинается с начала.';
+      if (countdownContainer) countdownContainer.classList.add('hidden');
+    } else if (webinar.accessStatus === 'live' || webinar.status === 'live') {
       node.textContent = 'Эфир идет. Включайте запись и следите за подсказками АСПБ.';
       if (countdownContainer) countdownContainer.classList.add('hidden');
     } else if (webinar.accessStatus === 'replay' || webinar.status === 'finished') {
@@ -469,7 +518,6 @@
     const container = document.getElementById('videoPlayerContainer');
     const video = document.getElementById('webinarVideo');
     const fallback = document.getElementById('videoFallback');
-    const list = document.getElementById('webinarTimeline');
     const active = document.getElementById('timelineActive');
     const playOverlay = document.getElementById('videoPlayOverlay');
     const pauseOverlay = document.getElementById('videoPauseOverlay');
@@ -488,7 +536,7 @@
     const seekContainer = document.getElementById('customSeekBarContainer');
     const seekProgress = document.getElementById('customSeekBarProgress');
 
-    if (!list || !active || !video) return;
+    if (!active || !video) return;
 
     const data = await getJson(timelinePath());
     if (!data.ok) return;
@@ -508,7 +556,10 @@
 
     const liveBadge = document.getElementById('videoLiveBadge');
     if (liveBadge && webinarConfig) {
-      if (webinarConfig.status === 'live') {
+      if (webinarConfig.status === 'test') {
+        liveBadge.className = 'absolute top-4 right-4 bg-primary/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md';
+        liveBadge.textContent = 'ТЕСТОВАЯ ТРАНСЛЯЦИЯ';
+      } else if (webinarConfig.status === 'live') {
         liveBadge.className = 'absolute top-4 right-4 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md';
         liveBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-white rounded-full animate-ping"></span>🔴 ПРЯМОЙ ЭФИР';
       } else {
@@ -528,6 +579,7 @@
     }
 
     const isLive = webinarConfig && webinarConfig.status === 'live';
+    const isTestMode = webinarConfig && webinarConfig.status === 'test';
     let broadcastStarted = false;
 
     // No locked timeline list is rendered under the video (removed to prevent exposing autowebinar timing)
@@ -537,13 +589,18 @@
     if (volumeSlider) volumeSlider.value = 0;
     if (muteBtn) muteBtn.querySelector('span').textContent = 'volume_off';
 
-    video.play().catch(err => {
-      console.log('Muted autoplay was prevented by browser, waiting for user click.', err);
-    });
+    if (isTestMode) {
+      video.pause();
+      video.currentTime = 0;
+    } else {
+      video.play().catch(err => {
+        console.log('Muted autoplay was prevented by browser, waiting for user click.', err);
+      });
+    }
 
     if (isLive) {
       // Setup live layout
-      if (customLiveIndicator) customLiveIndicator.classList.remove('hidden');
+      if (liveIndicator) liveIndicator.classList.remove('hidden');
       if (customTimeDisplay) customTimeDisplay.classList.add('hidden');
       if (playPauseBtn) playPauseBtn.classList.add('hidden'); // Hide play/pause toggle in live stream
       if (seekContainer) seekContainer.classList.add('hidden'); // Completely hide seekbar in Live mode
@@ -559,11 +616,11 @@
       }, 8000);
     } else {
       // Replay mode setup
-      if (customLiveIndicator) customLiveIndicator.classList.add('hidden');
+      if (liveIndicator) liveIndicator.classList.add('hidden');
       const viewerBadge = document.getElementById('customViewerCount');
       if (viewerBadge) viewerBadge.classList.add('hidden');
       if (customTimeDisplay) customTimeDisplay.classList.remove('hidden');
-      if (videoLiveBadge) videoLiveBadge.classList.add('hidden');
+      if (liveBadge && webinarConfig?.status !== 'test') liveBadge.classList.add('hidden');
     }
 
     // Sync player position immediately

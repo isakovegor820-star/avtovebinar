@@ -244,7 +244,7 @@ export function notifyQuestion(input: NotifyQuestionInput) {
       `Телефон: ${input.phone}`,
       `Email: ${input.email}`,
       '',
-      `Вопрос: ${input.text.trim()}`,
+      `Вопрос в чате: ${input.text.trim()}`,
       '',
       `Админка: ${input.adminUrl}`
     ].join('\n')

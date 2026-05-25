@@ -1,0 +1,212 @@
+.flow-tabs {
+  position: sticky;
+  top: 64px;
+  z-index: 45;
+  width: 100%;
+  align-self: stretch;
+  background: rgba(248, 249, 250, 0.88);
+  border-bottom: 1px solid rgba(196, 198, 205, 0.45);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 10px 32px rgba(4, 22, 39, 0.035);
+  overflow: visible;
+}
+
+.flow-tabs__inner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: min(1280px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 12px 0;
+  min-width: 0;
+}
+
+.flow-tabs__label {
+  flex: 0 0 auto;
+  color: #74777d;
+  font-family: Manrope, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flow-tabs__list {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: none;
+  scroll-padding-inline: 8px;
+}
+
+.flow-tabs__list::-webkit-scrollbar {
+  display: none;
+}
+
+.flow-tabs__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  border: 1px solid rgba(196, 198, 205, 0.8);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #44474c;
+  font-family: Manrope, system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 16px;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(4, 22, 39, 0.04);
+  transform: translateY(0) scale(1);
+  transition:
+    border-color 200ms ease,
+    background 200ms ease,
+    box-shadow 200ms ease,
+    color 200ms ease,
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  isolation: isolate;
+}
+
+.flow-tabs__tab::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(circle at 30% 20%, rgba(210, 228, 251, 0.7), transparent 62%);
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.flow-tabs__tab:hover {
+  border-color: #041627;
+  color: #041627;
+  box-shadow: 0 14px 34px rgba(4, 22, 39, 0.1);
+  transform: translateY(-2px) scale(1.015);
+}
+
+.flow-tabs__tab:hover::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.flow-tabs__tab:active,
+.flow-tabs__tab--pressed {
+  transform: translateY(0) scale(0.985);
+}
+
+.flow-tabs__tab[aria-current="page"] {
+  border-color: #041627;
+  background: #041627;
+  color: #ffffff;
+  box-shadow: 0 16px 38px rgba(4, 22, 39, 0.16);
+}
+
+.flow-tabs__tab--locked {
+  background: #f3f4f5;
+  color: #74777d;
+}
+
+.flow-tabs__tab--locked:hover {
+  border-color: #bcc7dd;
+  color: #041627;
+}
+
+.flow-tabs__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(4, 22, 39, 0.08);
+  color: inherit;
+  font-size: 11px;
+}
+
+.flow-tabs__tab[aria-current="page"] .flow-tabs__index {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.flow-tabs__copy {
+  display: grid;
+  gap: 1px;
+  line-height: 16px;
+}
+
+.flow-tabs__meta {
+  color: currentColor;
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.68;
+}
+
+.flow-tabs__hint {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border-radius: 999px;
+  background: rgba(210, 228, 251, 0.58);
+  border: 1px solid rgba(183, 200, 222, 0.65);
+  padding: 8px 13px;
+  color: #74777d;
+  font-family: Manrope, system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  transition: background 220ms ease, color 220ms ease, transform 220ms ease;
+}
+
+.flow-tabs__hint:hover {
+  background: #d2e4fb;
+  color: #041627;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 820px) {
+  .flow-tabs {
+    top: 60px;
+  }
+
+  .flow-tabs__inner {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    width: min(100% - 32px, 1280px);
+    padding: 10px 0;
+  }
+
+  .flow-tabs__list {
+    width: 100%;
+    padding-bottom: 2px;
+  }
+
+  .flow-tabs__hint {
+    margin-left: 0;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 520px) {
+  .flow-tabs__label {
+    font-size: 11px;
+  }
+
+  .flow-tabs__tab {
+    min-height: 44px;
+    padding: 7px 12px;
+  }
+
+  .flow-tabs__copy {
+    line-height: 14px;
+  }
+}

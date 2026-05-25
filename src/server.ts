@@ -1,0 +1,113 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
+import { env } from './lib/env.js';
+import { publicRouter } from './routes/public.js';
+import { adminRouter } from './routes/admin.js';
+import { errorMiddleware } from './lib/http.js';
+import { startReminderScheduler } from './lib/reminders.js';
+import { startParticipantTelegramBot } from './lib/telegramParticipantBot.js';
+import { startAdminTelegramBot } from './lib/telegramAdminBot.js';
+import { startTelegramNewsScheduler } from './lib/telegramNews.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, '..');
+const frontendDir = path.join(rootDir, 'crisis_premium');
+
+const app = express();
+
+app.set('trust proxy', 1);
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.tailwindcss.com'],
+        scriptSrcAttr: ["'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+        mediaSrc: ["'self'", 'blob:', 'data:'],
+        connectSrc: ["'self'"],
+        formAction: ["'self'"]
+      }
+    }
+  })
+);
+app.use(
+  cors({
+    origin: env.NODE_ENV === 'production' ? env.CORS_ORIGIN.split(',').map(origin => origin.trim()) : true,
+    credentials: true
+  })
+);
+app.use(express.json({ limit: '256kb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+const formLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const tokenReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 90,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const eventLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Слишком много попыток входа. Попробуйте позже.' }
+});
+
+app.use('/api/register', formLimiter);
+app.use('/api/questions', formLimiter);
+app.use('/api/partner-application', formLimiter);
+app.use('/api/events', eventLimiter);
+app.use('/api/telegram-click', eventLimiter);
+app.use('/api/registration', tokenReadLimiter);
+app.use('/api/webinar/timeline', tokenReadLimiter);
+app.use('/api/admin/login', adminLoginLimiter);
+
+app.use('/api', publicRouter);
+app.use(adminRouter);
+
+app.use('/crisis_premium', express.static(frontendDir));
+app.use(express.static(frontendDir));
+
+app.get('/', (_req, res) => {
+  res.redirect('/crisis_premium/index.html');
+});
+
+app.use(errorMiddleware);
+
+app.listen(env.PORT, () => {
+  console.log(`АСПБ autowebinar backend: ${env.PUBLIC_SITE_URL}`);
+  console.log(`Admin panel: ${env.PUBLIC_SITE_URL}/admin`);
+});
+
+startReminderScheduler();
+startAdminTelegramBot();
+startParticipantTelegramBot();
+startTelegramNewsScheduler();

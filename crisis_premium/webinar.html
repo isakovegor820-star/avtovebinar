@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ru"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Вебинарная комната | АСПБ</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="flow-tabs.css" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed-dim": "#bcc7dd",
+                        "on-tertiary-fixed-variant": "#3c475a",
+                        "background": "#f8f9fa",
+                        "on-error": "#ffffff",
+                        "inverse-on-surface": "#f0f1f2",
+                        "secondary-fixed": "#ffdea5",
+                        "on-secondary-fixed": "#261900",
+                        "primary-fixed": "#d2e4fb",
+                        "on-secondary-fixed-variant": "#5d4201",
+                        "surface-container": "#edeeef",
+                        "on-tertiary-fixed": "#111c2c",
+                        "on-surface": "#191c1d",
+                        "on-secondary": "#ffffff",
+                        "surface": "#f8f9fa",
+                        "on-error-container": "#93000a",
+                        "inverse-primary": "#b7c8de",
+                        "secondary-fixed-dim": "#e9c176",
+                        "outline": "#74777d",
+                        "surface-tint": "#4f6073",
+                        "primary": "#041627",
+                        "on-primary-container": "#8192a7",
+                        "surface-dim": "#d9dadb",
+                        "surface-container-high": "#e7e8e9",
+                        "on-primary-fixed-variant": "#38485a",
+                        "on-background": "#191c1d",
+                        "tertiary-fixed": "#d8e3fa",
+                        "on-primary-fixed": "#0b1d2d",
+                        "outline-variant": "#c4c6cd",
+                        "surface-variant": "#e1e3e4",
+                        "on-tertiary": "#ffffff",
+                        "tertiary-container": "#1f2a3b",
+                        "surface-bright": "#f8f9fa",
+                        "secondary": "#775a19",
+                        "inverse-surface": "#2e3132",
+                        "surface-container-low": "#f3f4f5",
+                        "surface-container-highest": "#e1e3e4",
+                        "primary-fixed-dim": "#b7c8de",
+                        "on-secondary-container": "#785a1a",
+                        "secondary-container": "#fed488",
+                        "error": "#ba1a1a",
+                        "tertiary": "#0a1526",
+                        "on-surface-variant": "#44474c",
+                        "primary-container": "#1a2b3c",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary-container": "#8691a6",
+                        "on-primary": "#ffffff",
+                        "error-container": "#ffdad6"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "22px",
+                        "xl": "28px",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "container-max-width": "1280px",
+                        "margin-desktop": "48px",
+                        "unit": "4px",
+                        "margin-mobile": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Manrope"],
+                        "body-lg": ["Manrope"],
+                        "headline-xl": ["Manrope"],
+                        "headline-lg": ["Manrope"],
+                        "headline-md": ["Manrope"],
+                        "label-sm": ["Manrope"],
+                        "label-md": ["Manrope"],
+                        "body-md": ["Manrope"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="bg-background/90 backdrop-blur-md shadow-sm docked full-width top-0 sticky z-50">
+<div class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
+<a class="flex flex-col leading-tight shrink-0" href="index.html">
+<span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
+<span class="hidden sm:block text-[11px] leading-4 font-semibold text-on-surface-variant">Антикризисная служба помощи бизнесу</span>
+</a>
+<nav class="hidden md:flex gap-8">
+<a class="text-label-md font-label-md text-primary border-b-2 border-primary pb-1 transition-colors duration-300" href="index.html#about">О вебинаре</a>
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#why-now">Почему сейчас</a>
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#team">Команда</a>
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#faq">FAQ</a>
+</nav>
+<a class="bg-primary text-on-primary px-6 py-2.5 rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="register.html">Зарегистрироваться</a>
+</div>
+</header>
+<div data-current="webinar" data-flow-tabs></div>
+<main class="flex-grow max-w-container-max-width mx-auto w-full px-gutter py-8 md:py-12">
+<!-- Hero & Player Section -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Video & Registration Status -->
+<div class="lg:col-span-8 space-y-6">
+<!-- Status Bar -->
+<div class="flex flex-wrap items-center justify-between gap-4 bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
+<div class="flex items-center gap-3">
+<span class="w-3 h-3 bg-secondary rounded-full animate-pulse"></span>
+<span class="font-label-md text-on-surface" id="webinarStatusText">Проверяем доступ к вебинарной комнате...</span>
+</div>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<span class="text-label-sm uppercase tracking-wider">Начало через:</span>
+<div class="flex gap-2 font-headline-md text-primary" id="countdown">
+<span>00</span>:<span>45</span>:<span>12</span>
+</div>
+</div>
+</div>
+<!-- Autowebinar Player -->
+<div class="relative aspect-video bg-primary-container rounded-lg overflow-hidden shadow-lg group">
+<video id="webinarVideo" class="w-full h-full object-cover bg-primary" controls playsinline preload="metadata" poster="assets/webinar-poster.jpg">
+<source src="assets/webinar.mp4" type="video/mp4"/>
+</video>
+<div id="videoFallback" class="hidden absolute inset-0 flex flex-col items-center justify-center text-center p-8 bg-primary-container">
+<div class="w-20 h-20 bg-surface-container-lowest/10 backdrop-blur-md rounded-full flex items-center justify-center mb-6 border border-white/20">
+<span class="material-symbols-outlined text-white text-4xl">movie</span>
+</div>
+<h1 class="text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h1>
+<p class="text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Добавьте файл <strong>crisis_premium/assets/webinar.mp4</strong>, и эта комната сразу станет полноценным автовебинаром.</p>
+</div>
+<div class="absolute bottom-4 right-4 bg-black/40 backdrop-blur-sm px-3 py-1 rounded-full text-white text-label-sm" id="videoLiveBadge">
+                        АВТОЭФИР • 26 МИН
+                    </div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-5 shadow-sm" id="timelineActive">
+<p class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-wider mb-2">Сейчас в эфире</p>
+<h3 class="text-headline-md font-headline-md text-primary">Таймлайн загружается</h3>
+<p class="text-body-md text-on-surface-variant mt-2">Сценарные подсказки синхронизированы с записью и будут вести участника к вопросу или заявке.</p>
+</div>
+</div>
+<!-- Questions Panel -->
+<div class="lg:col-span-4 h-full">
+<div class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[600px] lg:h-full overflow-hidden">
+<div class="p-5 border-b border-outline-variant/10 flex items-center justify-between">
+<h3 class="text-headline-md font-headline-md text-primary">Вопросы к эксперту</h3>
+<span class="material-symbols-outlined text-on-surface-variant">chat_bubble</span>
+</div>
+<div class="flex-grow overflow-y-auto p-5 space-y-6" id="questionList">
+<!-- Message -->
+<div class="flex gap-3">
+<div class="w-8 h-8 rounded-full bg-tertiary-fixed-dim flex-shrink-0 flex items-center justify-center text-primary text-label-sm font-bold">АН</div>
+<div class="space-y-1">
+<div class="text-label-sm font-bold text-on-surface">Александр Н.</div>
+<div class="bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant">
+                                    Как понять, что клиенту уже нужна процедура, если я не веду банкротство полностью?
+                                </div>
+</div>
+</div>
+<!-- Message -->
+<div class="flex gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-fixed-dim flex-shrink-0 flex items-center justify-center text-primary text-label-sm font-bold">МВ</div>
+<div class="space-y-1">
+<div class="text-label-sm font-bold text-on-surface">Мария В.</div>
+<div class="bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant">
+                                    Что мне делать после передачи контакта, и как я вижу статус клиента в АСПБ?
+                                </div>
+</div>
+</div>
+</div>
+<div class="p-4 bg-surface-container-low">
+<div class="relative">
+<input id="questionInput" class="w-full bg-surface-container-lowest border-outline-variant/30 rounded-xl py-3 pl-4 pr-12 focus:ring-primary focus:border-primary text-body-md" placeholder="Задайте свой вопрос..." type="text"/>
+<button id="questionSubmit" class="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:scale-110 transition-transform" type="button">
+<span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<section class="mt-10 grid grid-cols-1 lg:grid-cols-12 gap-8" id="partnerPath">
+<div class="lg:col-span-7 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-6 md:p-8 shadow-sm">
+<div class="flex items-center justify-between gap-4 mb-6">
+<div>
+<p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant">Сценарий эфира</p>
+<h2 class="text-headline-md font-headline-md text-primary">Таймлайн автовебинара</h2>
+</div>
+<span class="material-symbols-outlined text-primary">timeline</span>
+</div>
+<div class="space-y-3" id="webinarTimeline">
+<div class="rounded-xl border border-outline-variant/30 p-4 text-on-surface-variant">Загружаем события эфира...</div>
+</div>
+</div>
+<div class="lg:col-span-5 bg-primary text-on-primary rounded-lg p-6 md:p-8 shadow-lg" id="partnerApplication">
+<p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-2">после вебинара</p>
+<h2 class="text-headline-md font-headline-md mb-3">Оставить заявку на партнерский договор</h2>
+<p class="text-body-md text-primary-fixed-dim mb-6">Расскажите о своем потоке клиентов. Менеджер АСПБ уточнит формат сотрудничества и условия договора.</p>
+<form class="space-y-3" id="partnerApplicationForm">
+<input class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="sphere" placeholder="Ваша сфера: юрпрактика, банкротство, налоги, консалтинг"/>
+<input class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="city" placeholder="Город"/>
+<select class="w-full rounded-xl border-white/20 bg-white/10 text-white focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="clientFlow">
+<option value="">Поток проблемных клиентов</option>
+<option>1-2 клиента в месяц</option>
+<option>3-5 клиентов в месяц</option>
+<option>Больше 5 клиентов в месяц</option>
+<option>Пока хочу понять модель</option>
+</select>
+<input class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="experience" placeholder="Опыт: юрпрактика, налоги, банкротство, финансы"/>
+<select class="w-full rounded-xl border-white/20 bg-white/10 text-white focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="preferredFormat">
+<option value="">Желаемый формат партнерства</option>
+<option>Передача клиентов в АСПБ</option>
+<option>Партнерство для юридической практики</option>
+<option>Хочу обсудить индивидуально</option>
+</select>
+<textarea class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="comment" rows="4" placeholder="Комментарий или вопрос по договору"></textarea>
+<button class="w-full bg-primary-fixed text-on-primary-fixed py-4 rounded-xl font-label-md hover:opacity-95 active:scale-[0.99] transition-all" type="submit">Оставить заявку</button>
+<p class="text-label-sm text-primary-fixed-dim" id="partnerApplicationStatus">Условия и вознаграждение фиксируются только в партнерском договоре.</p>
+</form>
+</div>
+</section>
+<!-- Program & CTA Bento Grid -->
+<section class="mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+<!-- Program Block -->
+<div class="lg:col-span-2 bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 shadow-sm">
+<div class="flex items-center gap-4 mb-8">
+<div class="w-12 h-12 bg-primary rounded-xl flex items-center justify-center">
+<span class="material-symbols-outlined text-white">format_list_bulleted</span>
+</div>
+<h2 class="text-headline-lg font-headline-lg text-primary">Программа вебинара</h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
+<div class="flex gap-4 group">
+<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">01</span>
+<p class="text-body-md text-on-surface-variant pt-1">Кризис: потери для одних или поток клиентов для подготовленного специалиста.</p>
+</div>
+<div class="flex gap-4 group">
+<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">02</span>
+<p class="text-body-md text-on-surface-variant pt-1">Почему проблемные клиенты уже приходят к юристам и консультантам.</p>
+</div>
+<div class="flex gap-4 group">
+<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">03</span>
+<p class="text-body-md text-on-surface-variant pt-1">Когда клиенту нужна не отсрочка, а законная финансовая перезагрузка.</p>
+</div>
+<div class="flex gap-4 group">
+<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">04</span>
+<p class="text-body-md text-on-surface-variant pt-1">Как АСПБ забирает на себя процедуру: диагностика, документы, суд, кредиторы.</p>
+</div>
+<div class="flex gap-4 group">
+<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">05</span>
+<p class="text-body-md text-on-surface-variant pt-1">Как передать клиента без давления и сохранить доверие к себе.</p>
+</div>
+<div class="flex gap-4 group">
+<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">06</span>
+<p class="text-body-md text-on-surface-variant pt-1">Партнерская модель: передали контакт — дальше работает АСПБ.</p>
+</div>
+<div class="flex gap-4 group">
+<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">07</span>
+<p class="text-body-md text-on-surface-variant pt-1">Ответы на вопросы и разбор ситуаций участников.</p>
+</div>
+</div>
+</div>
+<!-- CTA Block -->
+<div class="space-y-8">
+<!-- Partner CTA -->
+<div class="bg-primary p-8 rounded-lg text-on-primary flex flex-col justify-between min-h-[280px] shadow-lg relative overflow-hidden group">
+<div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 group-hover:scale-125 transition-transform duration-700"></div>
+<div>
+<h3 class="text-headline-md font-headline-md mb-3">Партнерский договор</h3>
+<p class="text-body-md text-on-primary-container/80 mb-6">После эфира оставьте заявку: условия сотрудничества и вознаграждение фиксируются официально.</p>
+</div>
+<a class="w-full bg-secondary-container text-on-secondary-container py-4 rounded-xl font-label-md hover:bg-secondary-fixed transition-colors flex items-center justify-center gap-2" href="#partnerApplication">
+<span>Оставить заявку на договор</span>
+<span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+</a>
+</div>
+<!-- Social CTA -->
+<div class="bg-surface-container-high p-8 rounded-lg border border-outline-variant/30 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-3 mb-4">
+<div class="w-10 h-10 bg-[#0088cc] rounded-full flex items-center justify-center text-white">
+<span class="material-symbols-outlined">send</span>
+</div>
+<span class="font-label-md text-on-surface">Уведомления АСПБ</span>
+</div>
+<p class="text-body-md text-on-surface-variant">Напоминания об эфире, новости платформы и материалы для партнеров АСПБ.</p>
+</div>
+<a class="mt-6 w-full border-2 border-primary text-primary py-3 rounded-xl font-label-md hover:bg-primary hover:text-white transition-all flex items-center justify-center" href="https://t.me/example" target="_blank" rel="noreferrer">
+                        Подключить уведомления
+                    </a>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="bg-surface-container rounded-t-xl mt-12">
+<div class="w-full py-12 px-gutter max-w-container-max-width mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
+<div class="flex flex-col gap-1 text-center md:text-left">
+<div class="text-headline-sm font-headline-sm font-bold text-primary">АСПБ</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">Антикризисная служба помощи бизнесу</div>
+</div>
+<div class="flex flex-wrap justify-center gap-6">
+<a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="privacy.html">Политика конфиденциальности</a>
+<a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="terms.html">Пользовательское соглашение</a>
+<a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="mailto:partners.local">Контакты</a>
+</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant opacity-80">© 2024 АСПБ. Все права защищены. Юридическая информация и оферта.</div>
+</div>
+</footer>
+<script>
+        // Simple countdown logic for visual effect
+        function startTimer(duration, display) {
+            var timer = duration, hours, minutes, seconds;
+            setInterval(function () {
+                hours = parseInt(timer / 3600, 10);
+                minutes = parseInt((timer % 3600) / 60, 10);
+                seconds = parseInt(timer % 60, 10);
+
+                hours = hours < 10 ? "0" + hours : hours;
+                minutes = minutes < 10 ? "0" + minutes : minutes;
+                seconds = seconds < 10 ? "0" + seconds : seconds;
+
+                display.innerHTML = `<span>${hours}</span>:<span>${minutes}</span>:<span>${seconds}</span>`;
+
+                if (--timer < 0) {
+                    timer = duration;
+                }
+            }, 1000);
+        }
+
+        window.onload = function () {
+            var fortyFiveMinutes = 45 * 60 + 12,
+                display = document.querySelector('#countdown');
+            startTimer(fortyFiveMinutes, display);
+        };
+    </script>
+<script src="aspb-api.js"></script>
+<script src="flow-tabs.js"></script>
+</body></html>

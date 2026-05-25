@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ru"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Экономика кризиса | АСПБ</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="flow-tabs.css" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary-fixed-dim": "#bcc7dd",
+                    "on-tertiary-fixed-variant": "#3c475a",
+                    "background": "#f8f9fa",
+                    "on-error": "#ffffff",
+                    "inverse-on-surface": "#f0f1f2",
+                    "secondary-fixed": "#ffdea5",
+                    "on-secondary-fixed": "#261900",
+                    "primary-fixed": "#d2e4fb",
+                    "on-secondary-fixed-variant": "#5d4201",
+                    "surface-container": "#edeeef",
+                    "on-tertiary-fixed": "#111c2c",
+                    "on-surface": "#191c1d",
+                    "on-secondary": "#ffffff",
+                    "surface": "#f8f9fa",
+                    "on-error-container": "#93000a",
+                    "inverse-primary": "#b7c8de",
+                    "secondary-fixed-dim": "#e9c176",
+                    "outline": "#74777d",
+                    "surface-tint": "#4f6073",
+                    "primary": "#041627",
+                    "on-primary-container": "#8192a7",
+                    "surface-dim": "#d9dadb",
+                    "surface-container-high": "#e7e8e9",
+                    "on-primary-fixed-variant": "#38485a",
+                    "on-background": "#191c1d",
+                    "tertiary-fixed": "#d8e3fa",
+                    "on-primary-fixed": "#0b1d2d",
+                    "outline-variant": "#c4c6cd",
+                    "surface-variant": "#e1e3e4",
+                    "on-tertiary": "#ffffff",
+                    "tertiary-container": "#1f2a3b",
+                    "surface-bright": "#f8f9fa",
+                    "secondary": "#775a19",
+                    "inverse-surface": "#2e3132",
+                    "surface-container-low": "#f3f4f5",
+                    "surface-container-highest": "#e1e3e4",
+                    "primary-fixed-dim": "#b7c8de",
+                    "on-secondary-container": "#785a1a",
+                    "secondary-container": "#fed488",
+                    "error": "#ba1a1a",
+                    "tertiary": "#0a1526",
+                    "on-surface-variant": "#44474c",
+                    "primary-container": "#1a2b3c",
+                    "surface-container-lowest": "#ffffff",
+                    "on-tertiary-container": "#8691a6",
+                    "on-primary": "#ffffff",
+                    "error-container": "#ffdad6"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "22px",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "gutter": "24px",
+                    "container-max-width": "1280px",
+                    "margin-desktop": "48px",
+                    "unit": "4px",
+                    "margin-mobile": "16px"
+            },
+            "fontFamily": {
+                    "headline-lg-mobile": ["Manrope"],
+                    "body-lg": ["Manrope"],
+                    "headline-xl": ["Manrope"],
+                    "headline-lg": ["Manrope"],
+                    "headline-md": ["Manrope"],
+                    "label-sm": ["Manrope"],
+                    "label-md": ["Manrope"],
+                    "body-md": ["Manrope"]
+            },
+            "fontSize": {
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                    "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        body {
+            background-color: #ffffff;
+            font-family: 'Manrope', sans-serif;
+        }
+        .form-input-focus:focus {
+            border-color: #041627;
+            box-shadow: 0 0 0 1px #041627;
+        }
+    </style>
+</head>
+<body class="text-on-surface selection:bg-primary-fixed">
+<!-- Top Navigation Anchor -->
+<header class="docked full-width top-0 sticky bg-background/90 backdrop-blur-md shadow-sm z-50">
+<nav class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
+<a class="flex flex-col leading-tight shrink-0" href="index.html">
+<span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
+<span class="hidden sm:block text-[11px] leading-4 font-semibold text-on-surface-variant">Антикризисная служба помощи бизнесу</span>
+</a>
+<div class="hidden md:flex gap-8 items-center">
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#about">О вебинаре</a>
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#why-now">Почему сейчас</a>
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#team">Команда</a>
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#faq">FAQ</a>
+</div>
+<a class="scale-95 active:scale-90 transition-transform bg-primary text-on-primary px-6 py-2.5 rounded-full font-label-md text-label-md shadow-sm" href="register.html">Зарегистрироваться</a>
+</nav>
+</header>
+<div data-current="register" data-flow-tabs></div>
+<main class="min-h-[calc(100vh-80px)] flex items-center justify-center py-12 px-gutter">
+<div class="max-w-[1100px] w-full grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+<!-- Left Side: Content -->
+<div class="space-y-8">
+<div>
+<span class="inline-flex items-center px-4 py-1.5 rounded-full bg-secondary-container text-on-secondary-container text-label-md font-label-md mb-6">
+<span class="material-symbols-outlined mr-2 text-[18px]">event</span>
+                        Вебинар завтра
+                    </span>
+<h1 class="text-headline-xl font-headline-xl text-primary mb-6 leading-tight">
+                        Экономика кризиса: <br/>как юристу зарабатывать на защите финансовых прав бизнеса
+                    </h1>
+<p class="text-body-lg font-body-lg text-on-surface-variant max-w-lg">
+                        Зарегистрируйтесь, чтобы увидеть, сколько клиентов с долговыми и банкротными рисками уже проходит через вашу юридическую практику, и как встроиться в цепочку АСПБ без расширения штата и лишней операционки.
+                    </p>
+</div>
+<div class="space-y-4">
+<div class="flex items-start gap-4 p-4 rounded-lg bg-surface-container-low border border-outline-variant/30">
+<span class="material-symbols-outlined text-primary" data-icon="verified">verified</span>
+<p class="text-body-md font-body-md">Почему кризис — это не только споры и долги, но и поток клиентов для подготовленного юриста</p>
+</div>
+<div class="flex items-start gap-4 p-4 rounded-lg bg-surface-container-low border border-outline-variant/30">
+<span class="material-symbols-outlined text-primary" data-icon="trending_up">trending_up</span>
+<p class="text-body-md font-body-md">Как не отпускать клиента после консультации и передавать сложную часть в АСПБ за партнерское вознаграждение</p>
+</div>
+</div>
+</div>
+<!-- Right Side: Registration Form Card -->
+<div class="bg-surface-container-lowest p-8 md:p-10 rounded-lg shadow-sm border border-outline-variant/50">
+<form action="/api/register" class="space-y-6" id="registrationForm" method="post" onsubmit="if (window.ASPBRegisterSubmit) { return window.ASPBRegisterSubmit(event, this); } event.preventDefault(); alert('Откройте регистрацию через dev-ссылку: http://127.0.0.1:5174/crisis_premium/register.html'); return false;">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="space-y-1.5">
+<label class="text-label-md font-label-md text-on-surface-variant">Имя</label>
+<input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="name" placeholder="Александр" required="" type="text"/>
+</div>
+<div class="space-y-1.5">
+<label class="text-label-md font-label-md text-on-surface-variant">Телефон</label>
+<input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="phone" placeholder="+7 (900) 000-00-00" required="" type="tel"/>
+</div>
+</div>
+<div class="grid grid-cols-1 gap-6">
+<div class="space-y-1.5">
+<label class="text-label-md font-label-md text-on-surface-variant">Email</label>
+<input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="email" placeholder="example@mail.com" required="" type="email"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="text-label-md font-label-md text-on-surface-variant">Статус</label>
+<select class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none appearance-none cursor-pointer" name="professionalStatus">
+<option>Юрист частной практики</option>
+<option>Сотрудник юридической фирмы</option>
+<option>Руководитель юридической практики</option>
+<option>Налоговый / корпоративный юрист</option>
+<option>Антикризисный специалист</option>
+</select>
+</div>
+<div class="space-y-4">
+<label class="text-label-md font-label-md text-on-surface-variant block">Есть ли сейчас клиенты с долгами или банкротными рисками, которых вы не берете в работу полностью?</label>
+<div class="flex flex-wrap gap-6">
+<label class="flex items-center cursor-pointer group">
+<input class="w-5 h-5 border-outline-variant text-primary focus:ring-primary mr-3" name="clients" type="radio" value="Да, много"/>
+<span class="text-body-md group-hover:text-primary transition-colors">Да, много</span>
+</label>
+<label class="flex items-center cursor-pointer group">
+<input class="w-5 h-5 border-outline-variant text-primary focus:ring-primary mr-3" name="clients" type="radio" value="Единичные случаи"/>
+<span class="text-body-md group-hover:text-primary transition-colors">Единичные случаи</span>
+</label>
+<label class="flex items-center cursor-pointer group">
+<input class="w-5 h-5 border-outline-variant text-primary focus:ring-primary mr-3" name="clients" type="radio" value="Пока нет"/>
+<span class="text-body-md group-hover:text-primary transition-colors">Пока нет</span>
+</label>
+</div>
+</div>
+<label class="flex items-start gap-3 rounded-lg bg-surface-container-low border border-outline-variant/30 p-4 cursor-pointer">
+<input class="mt-1 w-5 h-5 border-outline-variant text-primary focus:ring-primary" name="consent" required="" type="checkbox" value="true"/>
+<span class="text-label-sm font-label-sm text-on-surface-variant leading-relaxed">
+Я согласен на обработку персональных данных и принимаю условия
+<a class="text-primary underline" href="consent.html" target="_blank">согласия</a>,
+<a class="text-primary underline" href="privacy.html" target="_blank">политики конфиденциальности</a> и
+<a class="text-primary underline" href="terms.html" target="_blank">пользовательского соглашения</a>.
+</span>
+</label>
+<div class="pt-4">
+<button class="w-full py-4 bg-primary text-on-primary rounded-lg font-headline-md text-headline-md shadow-lg shadow-primary/10 hover:shadow-xl hover:bg-primary/95 transition-all transform active:scale-[0.98]" type="submit">
+                            Зарегистрироваться на вебинар
+                        </button>
+<p class="mt-4 text-center text-label-sm font-label-sm text-outline leading-relaxed px-4">
+                            После регистрации вы получите персональную ссылку на вебинарную комнату.
+                        </p>
+</div>
+</form>
+</div>
+</div>
+</main>
+<!-- Footer Anchor -->
+<footer class="bg-surface-container full-width rounded-t-xl mt-12">
+<div class="w-full py-12 px-gutter max-w-container-max-width mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
+<div class="flex flex-col gap-1 text-center md:text-left">
+<div class="text-headline-sm font-headline-sm font-bold text-primary">АСПБ</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">Антикризисная служба помощи бизнесу</div>
+</div>
+<div class="flex flex-wrap justify-center gap-6">
+<a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="privacy.html">Политика конфиденциальности</a>
+<a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="terms.html">Пользовательское соглашение</a>
+<a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="mailto:partners.local">Контакты</a>
+</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant opacity-80">
+                © 2024 АСПБ. Все права защищены. Юридическая информация и оферта.
+            </div>
+</div>
+</footer>
+<script>
+        // Simple parallax effect on scroll for atmospheric feel
+        window.addEventListener('scroll', () => {
+            const scrolled = window.pageYOffset;
+            const logo = document.querySelector('.text-headline-md');
+            if(scrolled > 50) {
+                logo.style.transform = 'scale(0.95)';
+            } else {
+                logo.style.transform = 'scale(1)';
+            }
+        });
+    </script>
+<script src="aspb-api.js"></script>
+<script src="flow-tabs.js"></script>
+</body></html>

@@ -239,11 +239,12 @@ export function notifyQuestion(input: NotifyQuestionInput) {
     text: [
       'Новый вопрос в вебинарной комнате',
       '',
+      'Данные участника:',
       `Участник: ${input.name}`,
       `Телефон: ${input.phone}`,
       `Email: ${input.email}`,
       '',
-      input.text,
+      `Вопрос: ${input.text.trim()}`,
       '',
       `Админка: ${input.adminUrl}`
     ].join('\n')

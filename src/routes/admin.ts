@@ -220,11 +220,47 @@ function adminPage() {
       <div class="layout">
         <div>
           <section class="panel">
+            <div class="top">
+              <div>
+                <h2>Маркетинговая воронка</h2>
+                <div class="sub">Период, источники, UTM и конверсии до заявки/договора.</div>
+              </div>
+              <button id="funnelRefreshBtn" class="ghost">Обновить</button>
+            </div>
+            <div class="filters">
+              <input id="funnelFrom" type="date" />
+              <input id="funnelTo" type="date" />
+              <select id="funnelGroupBy">
+                <option value="source">source</option>
+                <option value="utmSource">utm_source</option>
+                <option value="utmMedium">utm_medium</option>
+                <option value="utmCampaign">utm_campaign</option>
+              </select>
+            </div>
+            <div class="grid" id="funnelMetrics"></div>
+            <div id="funnelTable"></div>
+          </section>
+
+          <section class="panel">
             <h2>Регистрации и воронка</h2>
+            <div class="filters" id="queueTabs">
+              <button class="ghost" data-queue="all">Все</button>
+              <button class="ghost" data-queue="new">Новые</button>
+              <button class="ghost" data-queue="today">Сегодня</button>
+              <button class="ghost" data-queue="hot">Горячие</button>
+              <button class="ghost" data-queue="questions">Вопросы</button>
+              <button class="ghost" data-queue="applications">Заявки</button>
+              <button class="ghost" data-queue="contracts">Договоры</button>
+            </div>
             <div class="filters">
               <input id="query" placeholder="Имя, email, телефон" />
               <input id="date" type="date" />
               <select id="status"></select>
+              <select id="managerFilter"></select>
+              <select id="telegramFilter"><option value="">Telegram: все</option><option value="yes">подключен</option><option value="no">не подключен</option></select>
+              <select id="roomFilter"><option value="">Комната: все</option><option value="yes">заходил</option><option value="no">не заходил</option></select>
+              <select id="questionFilter"><option value="">Вопросы: все</option><option value="yes">есть вопрос</option></select>
+              <select id="applicationFilter"><option value="">Заявки: все</option><option value="yes">есть заявка</option></select>
               <button id="refreshBtn">Обновить</button>
             </div>
             <div id="registrations"></div>
@@ -267,6 +303,12 @@ function adminPage() {
     const queryInput = document.getElementById('query');
     const dateInput = document.getElementById('date');
     const statusFilter = document.getElementById('status');
+    const managerFilter = document.getElementById('managerFilter');
+    const telegramFilter = document.getElementById('telegramFilter');
+    const roomFilter = document.getElementById('roomFilter');
+    const questionFilter = document.getElementById('questionFilter');
+    const applicationFilter = document.getElementById('applicationFilter');
+    const queueTabs = document.getElementById('queueTabs');
     const registrationsNode = document.getElementById('registrations');
     const applicationsNode = document.getElementById('applications');
     const questionsNode = document.getElementById('questions');
@@ -277,6 +319,13 @@ function adminPage() {
     const broadcastText = document.getElementById('broadcastText');
     const broadcastBtn = document.getElementById('broadcastBtn');
     const broadcastStatus = document.getElementById('broadcastStatus');
+    const funnelFrom = document.getElementById('funnelFrom');
+    const funnelTo = document.getElementById('funnelTo');
+    const funnelGroupBy = document.getElementById('funnelGroupBy');
+    const funnelMetrics = document.getElementById('funnelMetrics');
+    const funnelTable = document.getElementById('funnelTable');
+    let currentQueue = 'all';
+    let activeManagers = [];
 
     async function api(path, options = {}) {
       const response = await fetch(path, {
@@ -333,6 +382,24 @@ function adminPage() {
       clear(statusFilter);
       statusFilter.append(node('option', { value:'', text:'Все CRM-статусы' }));
       CRM_STATUSES.forEach(item => statusFilter.append(node('option', { value:item.value, text:item.label })));
+    }
+
+    function fillManagerFilter() {
+      clear(managerFilter);
+      managerFilter.append(node('option', { value:'', text:'Все менеджеры' }));
+      activeManagers.forEach(manager => managerFilter.append(node('option', { value:manager.id, text:manager.name + ' · ' + manager.role })));
+    }
+
+    async function loadManagers() {
+      const data = await api('/api/admin/managers');
+      activeManagers = data.managers || [];
+      fillManagerFilter();
+      return activeManagers;
+    }
+
+    function managerName(id) {
+      const manager = activeManagers.find(item => item.id === id);
+      return manager ? manager.name : 'Не назначен';
     }
 
     function fillRoleSelect(roles) {
@@ -419,6 +486,74 @@ function adminPage() {
       });
     }
 
+    function pct(value) {
+      return Math.round((Number(value) || 0) * 1000) / 10 + '%';
+    }
+
+    function isoDate(date) {
+      return date.toISOString().slice(0, 10);
+    }
+
+    function initFunnelDates() {
+      const now = new Date();
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      funnelFrom.value = isoDate(from);
+      funnelTo.value = isoDate(now);
+    }
+
+    async function loadFunnel() {
+      const params = new URLSearchParams();
+      if (funnelFrom.value) params.set('from', funnelFrom.value);
+      if (funnelTo.value) params.set('to', funnelTo.value);
+      if (funnelGroupBy.value) params.set('groupBy', funnelGroupBy.value);
+      const data = await api('/api/admin/analytics/funnel?' + params.toString());
+      const summaryItems = [
+        ['Посетители', data.summary.visitors],
+        ['Регистрации', data.summary.registrations + ' / ' + pct(data.rates.registrationRate)],
+        ['TG clicks', data.summary.telegramClicks + ' / ' + pct(data.rates.telegramClickRate)],
+        ['TG подписки', data.summary.telegramSubscribers + ' / ' + pct(data.rates.telegramSubscribeRate)],
+        ['Комната', data.summary.roomEntries + ' / ' + pct(data.rates.roomEntryRate)],
+        ['Вопросы', data.summary.questions + ' / ' + pct(data.rates.questionRate)],
+        ['Заявки', data.summary.applications + ' / ' + pct(data.rates.applicationRate)],
+        ['Договоры', data.summary.contracts + ' / ' + pct(data.rates.contractRate)]
+      ];
+      clear(funnelMetrics);
+      summaryItems.forEach(([label, value]) => {
+        funnelMetrics.append(node('div', { class:'card' }, [
+          node('div', { class:'metric', text:String(value) }),
+          node('div', { class:'label', text:label })
+        ]));
+      });
+
+      clear(funnelTable);
+      const tbody = node('tbody');
+      data.groups.forEach(row => {
+        tbody.append(node('tr', {}, [
+          node('td', {}, [node('strong', { text:row.key })]),
+          node('td', { text:String(row.visitors) }),
+          node('td', { text:String(row.registrations) + ' / ' + pct(row.registrationRate) }),
+          node('td', { text:String(row.telegramSubscribers) + ' / ' + pct(row.telegramSubscribeRate) }),
+          node('td', { text:String(row.roomEntries) + ' / ' + pct(row.roomEntryRate) }),
+          node('td', { text:String(row.questions) }),
+          node('td', { text:String(row.applications) + ' / ' + pct(row.applicationRate) }),
+          node('td', { text:String(row.contracts) + ' / ' + pct(row.contractRate) })
+        ]));
+      });
+      funnelTable.append(node('table', {}, [
+        node('thead', {}, [node('tr', {}, [
+          node('th', { text:data.groupBy }),
+          node('th', { text:'Посетители' }),
+          node('th', { text:'Регистрации' }),
+          node('th', { text:'TG' }),
+          node('th', { text:'Комната' }),
+          node('th', { text:'Вопросы' }),
+          node('th', { text:'Заявки' }),
+          node('th', { text:'Договоры' })
+        ])]),
+        tbody
+      ]));
+    }
+
     async function loadHotLeads() {
       const data = await api('/api/admin/hot-leads');
       clear(hotLeadsNode);
@@ -452,9 +587,15 @@ function adminPage() {
 
     async function loadRegistrations() {
       const params = new URLSearchParams();
+      if (currentQueue && currentQueue !== 'all') params.set('queue', currentQueue);
       if (queryInput.value) params.set('query', queryInput.value);
       if (dateInput.value) params.set('date', dateInput.value);
       if (statusFilter.value) params.set('status', statusFilter.value);
+      if (managerFilter.value) params.set('managerId', managerFilter.value);
+      if (telegramFilter.value) params.set('telegram', telegramFilter.value);
+      if (roomFilter.value) params.set('room', roomFilter.value);
+      if (questionFilter.value) params.set('hasQuestion', questionFilter.value);
+      if (applicationFilter.value) params.set('hasApplication', applicationFilter.value);
       const data = await api('/api/admin/registrations?' + params.toString());
       clear(registrationsNode);
       const tbody = node('tbody');
@@ -469,6 +610,8 @@ function adminPage() {
           node('td', {}, [
             node('span', { class:'pill dark', text:crmLabel(item.crmStatus) }),
             item.isHot ? node('span', { class:'pill', text:'HOT' }) : node('span', { class:'hidden' }),
+            node('div', { class:'sub', text:'менеджер: ' + (item.assignedManager ? item.assignedManager.name : 'не назначен') }),
+            node('div', { class:'sub', text:'след. контакт: ' + fmtDate(item.nextContactAt) }),
             node('div', { class:'sub', text:'регистрация: ' + fmtDate(item.registeredAt) })
           ]),
           node('td', {}, [
@@ -505,6 +648,17 @@ function adminPage() {
       CRM_STATUSES.forEach(item => statusSelect.append(node('option', { value:item.value, text:item.label })));
       statusSelect.value = registration.crmStatus || 'new';
 
+      const managerSelect = node('select');
+      managerSelect.append(node('option', { value:'', text:'Не назначен' }));
+      activeManagers.forEach(manager => managerSelect.append(node('option', { value:manager.id, text:manager.name + ' · ' + manager.role })));
+      managerSelect.value = registration.assignedManagerId || '';
+
+      const nextContact = node('input', { type:'datetime-local' });
+      if (registration.nextContactAt) {
+        const date = new Date(registration.nextContactAt);
+        nextContact.value = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      }
+
       const note = node('textarea', { placeholder:'Заметка менеджера' });
       note.value = registration.managerNote || '';
       const tgUrl = telegramUrl(registration.lead);
@@ -523,6 +677,15 @@ function adminPage() {
           node('div', { class:'row' }, [node('span', { text:'Регистрация' }), node('strong', { text:fmtDate(registration.registeredAt) })]),
           node('div', { class:'row' }, [node('span', { text:'Эфир' }), node('strong', { text:fmtDate(registration.webinarSession.scheduledAt) })]),
           node('div', { class:'row' }, [node('span', { text:'Комната' }), node('strong', { text:registration.roomEnteredAt ? fmtDate(registration.roomEnteredAt) : 'не заходил' })]),
+          node('label', { class:'stack' }, [node('span', { text:'Ответственный менеджер' }), managerSelect]),
+          node('label', { class:'stack' }, [node('span', { text:'Следующий контакт' }), nextContact]),
+          node('button', { class:'secondary', text:'Сохранить менеджера/контакт', onclick:async () => {
+            await api('/api/admin/registrations/' + id + '/manager', {
+              method:'PATCH',
+              body:JSON.stringify({ assignedManagerId:managerSelect.value || null, nextContactAt:nextContact.value || null })
+            });
+            await Promise.all([loadRegistrations(), loadHotLeads(), loadRegistrationCard(id)]);
+          }}),
           node('div', { class:registration.lead.telegramChatId ? 'telegram-box connected' : 'telegram-box' }, [
             node('h3', { text:registration.lead.telegramChatId ? 'Telegram подключен' : 'Telegram не подключен' }),
             node('div', { class:'row' }, [node('span', { text:'Username' }), node('strong', { text:registration.lead.telegramUsername ? '@' + registration.lead.telegramUsername.replace(/^@/, '') : '—' })]),
@@ -557,6 +720,11 @@ function adminPage() {
             item.comment || ''
           ]),
           renderCardList('Вопросы', registration.questions, item => [item.text, fmtDate(item.createdAt)]),
+          renderCardList('История действий менеджеров', data.auditLogs || [], item => [
+            item.action,
+            item.adminUser ? item.adminUser.name + ' · ' + item.adminUser.role : 'system',
+            fmtDate(item.createdAt)
+          ]),
           renderCardList('История событий', registration.events, item => [item.eventName, item.page || '', fmtDate(item.createdAt)])
         ])
       );
@@ -648,7 +816,8 @@ function adminPage() {
     }
 
     async function loadAll() {
-      await Promise.all([loadSummary(), loadHotLeads(), loadRegistrations(), loadApplications(), loadQuestions(), loadUsers()]);
+      await loadManagers();
+      await Promise.all([loadSummary(), loadFunnel(), loadHotLeads(), loadRegistrations(), loadApplications(), loadQuestions(), loadUsers()]);
     }
 
     loginBtn.addEventListener('click', async () => {
@@ -676,7 +845,23 @@ function adminPage() {
     usersRefreshBtn.addEventListener('click', loadUsers);
     createUserBtn.addEventListener('click', createUser);
     broadcastBtn.addEventListener('click', sendBroadcast);
+    funnelRefreshBtn.addEventListener('click', loadFunnel);
+    [funnelFrom, funnelTo, funnelGroupBy].forEach(input => input.addEventListener('change', loadFunnel));
     fillStatusFilter();
+    initFunnelDates();
+    fillManagerFilter();
+    queueTabs.querySelectorAll('[data-queue]').forEach(button => {
+      button.addEventListener('click', async () => {
+        currentQueue = button.dataset.queue || 'all';
+        queueTabs.querySelectorAll('button').forEach(item => item.classList.toggle('secondary', item === button));
+        await loadRegistrations();
+      });
+    });
+    const defaultQueueButton = queueTabs.querySelector('[data-queue="all"]');
+    if (defaultQueueButton) defaultQueueButton.classList.add('secondary');
+    [managerFilter, telegramFilter, roomFilter, questionFilter, applicationFilter, statusFilter].forEach(input => {
+      input.addEventListener('change', loadRegistrations);
+    });
 
     loadAll()
       .then(() => {
@@ -748,6 +933,20 @@ adminRouter.get(
   requireAdmin,
   asyncHandler(async (req, res) => {
     res.json({ ok: true, admin: (req as AdminRequest).admin });
+  })
+);
+
+adminRouter.get(
+  '/api/admin/managers',
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    const managers = await prisma.adminUser.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, email: true, role: true },
+      orderBy: [{ role: 'asc' }, { name: 'asc' }]
+    });
+
+    res.json({ ok: true, managers });
   })
 );
 
@@ -885,7 +1084,13 @@ adminRouter.get(
       .object({
         query: z.string().optional(),
         date: z.string().optional(),
-        status: z.string().optional()
+        status: z.string().optional(),
+        queue: z.string().optional(),
+        managerId: z.string().optional(),
+        telegram: z.string().optional(),
+        room: z.string().optional(),
+        hasQuestion: z.string().optional(),
+        hasApplication: z.string().optional()
       })
       .parse(req.query);
 
@@ -896,20 +1101,52 @@ adminRouter.get(
         }
       : undefined;
 
+    const queueWhere: Prisma.RegistrationWhereInput =
+      query.queue === 'hot'
+        ? { OR: [{ isHot: true }, { questions: { some: {} } }, { partnerApplications: { some: {} } }, { roomEnteredAt: { not: null } }] }
+        : query.queue === 'questions'
+          ? { questions: { some: {} } }
+          : query.queue === 'applications'
+            ? { partnerApplications: { some: {} } }
+            : query.queue === 'contracts'
+              ? { crmStatus: { in: ['contract_pending', 'contract_signed', 'payout_due', 'paid'] } }
+              : query.queue === 'today'
+                ? { nextContactAt: { lte: new Date() } }
+                : query.queue === 'new'
+                  ? { crmStatus: 'new' }
+                  : {};
+
+    const leadFilters: Prisma.LeadWhereInput[] = [];
+    if (query.telegram === 'yes') {
+      leadFilters.push({ telegramChatId: { not: null } });
+    }
+    if (query.telegram === 'no') {
+      leadFilters.push({ telegramChatId: null });
+    }
+    if (query.query) {
+      leadFilters.push({
+        OR: [
+          { name: { contains: query.query, mode: 'insensitive' } },
+          { email: { contains: query.query, mode: 'insensitive' } },
+          { phone: { contains: query.query, mode: 'insensitive' } }
+        ]
+      });
+    }
+    const leadWhere: Prisma.LeadWhereInput | undefined = leadFilters.length ? { AND: leadFilters } : undefined;
+
+    const where: Prisma.RegistrationWhereInput = {
+      ...queueWhere,
+      crmStatus: query.status || undefined,
+      assignedManagerId: query.managerId || undefined,
+      roomEnteredAt: query.room === 'yes' ? { not: null } : query.room === 'no' ? null : undefined,
+      questions: query.hasQuestion === 'yes' ? { some: {} } : undefined,
+      partnerApplications: query.hasApplication === 'yes' ? { some: {} } : undefined,
+      webinarSession: dateFilter ? { scheduledAt: dateFilter } : undefined,
+      lead: leadWhere
+    };
+
     const registrations = await prisma.registration.findMany({
-      where: {
-        crmStatus: query.status || undefined,
-        webinarSession: dateFilter ? { scheduledAt: dateFilter } : undefined,
-        lead: query.query
-          ? {
-              OR: [
-                { name: { contains: query.query, mode: 'insensitive' } },
-                { email: { contains: query.query, mode: 'insensitive' } },
-                { phone: { contains: query.query, mode: 'insensitive' } }
-              ]
-            }
-          : undefined
-      },
+      where,
       include: {
         lead: true,
         webinarSession: true,
@@ -1037,7 +1274,14 @@ adminRouter.get(
       throw new AppError(404, 'Registration not found');
     }
 
-    res.json({ ok: true, registration });
+    const auditLogs = await prisma.auditLog.findMany({
+      where: { entityType: 'registration', entityId: id },
+      include: { adminUser: { select: { name: true, email: true, role: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 30
+    });
+
+    res.json({ ok: true, registration, auditLogs });
   })
 );
 
@@ -1424,6 +1668,129 @@ adminRouter.get(
         partnerApplications,
         registrationRate: pageViews ? Number((registrations / pageViews).toFixed(3)) : 0
       }
+    });
+  })
+);
+
+adminRouter.get(
+  '/api/admin/analytics/funnel',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const query = z
+      .object({
+        from: z.string().optional(),
+        to: z.string().optional(),
+        groupBy: z.enum(['source', 'utmSource', 'utmMedium', 'utmCampaign']).default('source')
+      })
+      .parse(req.query);
+    const now = new Date();
+    const from = query.from ? new Date(`${query.from}T00:00:00.000Z`) : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const to = query.to ? new Date(`${query.to}T23:59:59.999Z`) : now;
+    const dateRange = { gte: from, lte: to };
+    const groupField = query.groupBy;
+    const emptyGroup = () => ({
+      visitors: 0,
+      registrations: 0,
+      telegramClicks: 0,
+      telegramSubscribers: 0,
+      roomEntries: 0,
+      questions: 0,
+      applications: 0,
+      contracts: 0
+    });
+    const groups = new Map<string, ReturnType<typeof emptyGroup>>();
+    const keyOf = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : 'direct/unknown');
+    const groupFor = (value: unknown) => {
+      const key = keyOf(value);
+      if (!groups.has(key)) groups.set(key, emptyGroup());
+      return groups.get(key)!;
+    };
+
+    const [visitorEvents, telegramClickEvents, registrations, telegramSubscribers, roomEntries, questions, applications, contracts] = await Promise.all([
+      prisma.event.findMany({
+        where: { eventName: 'page_view', createdAt: dateRange },
+        select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true }
+      }),
+      prisma.event.findMany({
+        where: { eventName: 'telegram_click', createdAt: dateRange },
+        select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true }
+      }),
+      prisma.registration.findMany({
+        where: { registeredAt: dateRange },
+        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } }
+      }),
+      prisma.lead.findMany({
+        where: { telegramSubscribedAt: dateRange },
+        select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true }
+      }),
+      prisma.registration.findMany({
+        where: { roomEnteredAt: dateRange },
+        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } }
+      }),
+      prisma.question.findMany({
+        where: { createdAt: dateRange },
+        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } }
+      }),
+      prisma.partnerApplication.findMany({
+        where: { createdAt: dateRange },
+        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } }
+      }),
+      prisma.partnerApplication.findMany({
+        where: {
+          OR: [{ contractSignedAt: dateRange }, { status: { in: ['contract_signed', 'paid'] }, updatedAt: dateRange }]
+        },
+        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } }
+      })
+    ]);
+
+    visitorEvents.forEach(item => { groupFor(item[groupField]).visitors += 1; });
+    telegramClickEvents.forEach(item => { groupFor(item[groupField]).telegramClicks += 1; });
+    registrations.forEach(item => { groupFor(item.lead[groupField]).registrations += 1; });
+    telegramSubscribers.forEach(item => { groupFor(item[groupField]).telegramSubscribers += 1; });
+    roomEntries.forEach(item => { groupFor(item.lead[groupField]).roomEntries += 1; });
+    questions.forEach(item => { groupFor(item.lead[groupField]).questions += 1; });
+    applications.forEach(item => { groupFor(item.lead[groupField]).applications += 1; });
+    contracts.forEach(item => { groupFor(item.lead[groupField]).contracts += 1; });
+
+    const summary = emptyGroup();
+    for (const group of groups.values()) {
+      summary.visitors += group.visitors;
+      summary.registrations += group.registrations;
+      summary.telegramClicks += group.telegramClicks;
+      summary.telegramSubscribers += group.telegramSubscribers;
+      summary.roomEntries += group.roomEntries;
+      summary.questions += group.questions;
+      summary.applications += group.applications;
+      summary.contracts += group.contracts;
+    }
+    const rate = (part: number, total: number) => (total ? Number((part / total).toFixed(3)) : 0);
+    const rows = [...groups.entries()]
+      .map(([key, value]) => ({
+        key,
+        ...value,
+        registrationRate: rate(value.registrations, value.visitors),
+        telegramSubscribeRate: rate(value.telegramSubscribers, value.registrations),
+        roomEntryRate: rate(value.roomEntries, value.registrations),
+        applicationRate: rate(value.applications, value.registrations),
+        contractRate: rate(value.contracts, value.applications)
+      }))
+      .sort((a, b) => b.applications - a.applications || b.registrations - a.registrations || b.visitors - a.visitors);
+
+    res.json({
+      ok: true,
+      period: { from: from.toISOString(), to: to.toISOString() },
+      groupBy: groupField,
+      summary,
+      rates: {
+        registrationRate: rate(summary.registrations, summary.visitors),
+        telegramClickRate: rate(summary.telegramClicks, summary.registrations),
+        telegramSubscribeRate: rate(summary.telegramSubscribers, summary.registrations),
+        roomEntryRate: rate(summary.roomEntries, summary.registrations),
+        questionRate: rate(summary.questions, summary.roomEntries),
+        applicationRate: rate(summary.applications, summary.registrations),
+        contractRate: rate(summary.contracts, summary.applications)
+      },
+      groups: rows
     });
   })
 );

@@ -306,6 +306,32 @@
           minute: '2-digit'
         }).format(new Date(data.webinar.scheduledAt));
       }
+
+      const supportBtn = document.getElementById('successSupportBtn');
+      if (supportBtn) {
+        supportBtn.addEventListener('click', () => {
+          window.open(data.telegramBotUrl || data.telegramUrl || 'mailto:partners@aspb.ru', '_blank');
+        });
+      }
+
+      const copyBtn = document.getElementById('successCopyLinkBtn');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async () => {
+          try {
+            const shareUrl = window.location.origin + '/crisis_premium/index.html';
+            await navigator.clipboard.writeText(shareUrl);
+            const originalHTML = copyBtn.innerHTML;
+            copyBtn.innerHTML = 'Ссылка скопирована! <span class="material-symbols-outlined" style="margin-left:4px">done</span>';
+            copyBtn.style.color = '#4caf50';
+            setTimeout(() => {
+              copyBtn.innerHTML = originalHTML;
+              copyBtn.style.color = '';
+            }, 2000);
+          } catch (err) {
+            console.error('Failed to copy text: ', err);
+          }
+        });
+      }
     } catch {
       // Keep static success page readable.
     }

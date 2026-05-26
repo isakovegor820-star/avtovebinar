@@ -90,6 +90,7 @@ app.use('/api/partner-application', formLimiter);
 app.use('/api/events', eventLimiter);
 app.use('/api/telegram-click', eventLimiter);
 app.use('/api/registration', tokenReadLimiter);
+app.use('/api/webinar/current', tokenReadLimiter);
 app.use('/api/webinar/timeline', tokenReadLimiter);
 app.use('/api/admin/login', adminLoginLimiter);
 

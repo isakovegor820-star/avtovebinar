@@ -371,39 +371,49 @@ publicRouter.post(
     const session = await findOrCreateWebinarSession(scheduledAt);
     const professionalStatus = clean(data.professionalStatus) ?? clean(data.status);
 
-    const lead = await prisma.lead.upsert({
-      where: { email: data.email.toLowerCase() },
-      update: {
-        name: data.name,
-        phone: data.phone,
-        city: clean(data.city),
-        professionalStatus,
-        consent: data.consent,
-        marketingConsent: data.marketingConsent,
-        source: clean(data.source),
-        utmSource: clean(data.utmSource),
-        utmMedium: clean(data.utmMedium),
-        utmCampaign: clean(data.utmCampaign),
-        utmContent: clean(data.utmContent),
-        utmTerm: clean(data.utmTerm)
-      },
-      create: {
-        name: data.name,
-        phone: data.phone,
-        email: data.email.toLowerCase(),
-        city: clean(data.city),
-        professionalStatus,
-        consent: data.consent,
-        marketingConsent: data.marketingConsent,
-        source: clean(data.source),
-        utmSource: clean(data.utmSource),
-        utmMedium: clean(data.utmMedium),
-        utmCampaign: clean(data.utmCampaign),
-        utmContent: clean(data.utmContent),
-        utmTerm: clean(data.utmTerm),
-        firstSeenAt
-      }
+    const existingLead = await prisma.lead.findUnique({
+      where: { email: data.email.toLowerCase() }
     });
+
+    let lead;
+    if (existingLead) {
+      lead = await prisma.lead.update({
+        where: { id: existingLead.id },
+        data: {
+          name: existingLead.name || data.name,
+          phone: existingLead.phone || data.phone,
+          city: clean(data.city) ?? existingLead.city,
+          professionalStatus: professionalStatus ?? existingLead.professionalStatus,
+          consent: data.consent,
+          marketingConsent: data.marketingConsent || existingLead.marketingConsent,
+          source: clean(data.source) ?? existingLead.source,
+          utmSource: clean(data.utmSource) ?? existingLead.utmSource,
+          utmMedium: clean(data.utmMedium) ?? existingLead.utmMedium,
+          utmCampaign: clean(data.utmCampaign) ?? existingLead.utmCampaign,
+          utmContent: clean(data.utmContent) ?? existingLead.utmContent,
+          utmTerm: clean(data.utmTerm) ?? existingLead.utmTerm
+        }
+      });
+    } else {
+      lead = await prisma.lead.create({
+        data: {
+          name: data.name,
+          phone: data.phone,
+          email: data.email.toLowerCase(),
+          city: clean(data.city),
+          professionalStatus,
+          consent: data.consent,
+          marketingConsent: data.marketingConsent,
+          source: clean(data.source),
+          utmSource: clean(data.utmSource),
+          utmMedium: clean(data.utmMedium),
+          utmCampaign: clean(data.utmCampaign),
+          utmContent: clean(data.utmContent),
+          utmTerm: clean(data.utmTerm),
+          firstSeenAt
+        }
+      });
+    }
 
     const token = createAccessToken();
     const registration = await prisma.registration.create({

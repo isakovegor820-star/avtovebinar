@@ -990,6 +990,10 @@ adminRouter.post(
       throw new AppError(400, 'Invalid admin role');
     }
 
+    if (data.role === 'owner' && (req as AdminRequest).admin?.role !== 'owner') {
+      throw new AppError(403, 'Недостаточно прав для создания владельца');
+    }
+
     const user = await prisma.adminUser.create({
       data: {
         name: data.name,
@@ -1043,6 +1047,16 @@ adminRouter.patch(
 
     if (data.role && !isAdminRole(data.role)) {
       throw new AppError(400, 'Invalid admin role');
+    }
+
+    const actorRole = (req as AdminRequest).admin?.role;
+    if (actorRole !== 'owner') {
+      if (before.role === 'owner') {
+        throw new AppError(403, 'Недостаточно прав для изменения владельца');
+      }
+      if (data.role === 'owner') {
+        throw new AppError(403, 'Недостаточно прав для назначения роли владельца');
+      }
     }
 
     const user = await prisma.adminUser.update({

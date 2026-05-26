@@ -1,5 +1,31 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../src/lib/prisma.js', () => {
+  return {
+    prisma: {
+      adminUser: {
+        findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        count: vi.fn().mockResolvedValue(1)
+      },
+      auditLog: {
+        create: vi.fn()
+      }
+    }
+  };
+});
+
 import { createAccessToken, createAdminSession, hashToken, verifyAdminSession } from '../src/lib/tokens.js';
+import { adminRouter } from '../src/routes/admin.js';
+import { prisma } from '../src/lib/prisma.js';
+
+function getRouteHandler(router: any, path: string, method: string) {
+  const layer = router.stack.find((l: any) => l.route && l.route.path === path && l.route.methods[method]);
+  if (!layer) return null;
+  return layer.route.stack[layer.route.stack.length - 1].handle;
+}
 import { registerSchema } from '../src/routes/public.js';
 import {
   getCountdown,
@@ -243,5 +269,165 @@ describe('registration validation logic', () => {
 
   it('rejects registration without mandatory consent', () => {
     expect(() => registerSchema.parse({ ...validData, consent: false })).toThrow();
+  });
+});
+
+describe('admin privilege checks', () => {
+  const patchHandler = getRouteHandler(adminRouter, '/api/admin/users/:id', 'patch')!;
+  const postHandler = getRouteHandler(adminRouter, '/api/admin/users', 'post')!;
+
+  it('allows owner to modify anyone and promote to owner', async () => {
+    vi.mocked(prisma.adminUser.findUnique).mockResolvedValue({
+      id: 'user_2',
+      name: 'Manager',
+      email: 'manager@example.com',
+      role: 'manager',
+      isActive: true
+    } as any);
+
+    vi.mocked(prisma.adminUser.update).mockResolvedValue({
+      id: 'user_2',
+      name: 'Manager',
+      email: 'manager@example.com',
+      role: 'owner',
+      isActive: true
+    } as any);
+
+    const req = {
+      params: { id: 'user_2' },
+      body: { role: 'owner' },
+      admin: { id: 'owner_1', role: 'owner', email: 'owner@aspb.ru' },
+      headers: {},
+      socket: { remoteAddress: '127.0.0.1' }
+    };
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn()
+    };
+    const next = vi.fn();
+
+    await new Promise<void>((resolve) => {
+      const wrappedNext = (err: any) => {
+        next(err);
+        resolve();
+      };
+      res.json = vi.fn().mockImplementation(() => {
+        resolve();
+      });
+      patchHandler(req as any, res as any, wrappedNext);
+    });
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalled();
+  });
+
+  it('prevents admin from modifying an owner user', async () => {
+    vi.mocked(prisma.adminUser.findUnique).mockResolvedValue({
+      id: 'user_owner',
+      name: 'Real Owner',
+      email: 'owner@example.com',
+      role: 'owner',
+      isActive: true
+    } as any);
+
+    const req = {
+      params: { id: 'user_owner' },
+      body: { isActive: false },
+      admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },
+      headers: {}
+    };
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn()
+    };
+    const next = vi.fn();
+
+    await new Promise<void>((resolve) => {
+      const wrappedNext = (err: any) => {
+        next(err);
+        resolve();
+      };
+      res.json = vi.fn().mockImplementation(() => {
+        resolve();
+      });
+      patchHandler(req as any, res as any, wrappedNext);
+    });
+
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const error = next.mock.calls[0][0];
+    expect(error.statusCode).toBe(403);
+    expect(error.message).toContain('Недостаточно прав для изменения владельца');
+  });
+
+  it('prevents admin from promoting anyone to owner', async () => {
+    vi.mocked(prisma.adminUser.findUnique).mockResolvedValue({
+      id: 'user_manager',
+      name: 'Manager',
+      email: 'manager@example.com',
+      role: 'manager',
+      isActive: true
+    } as any);
+
+    const req = {
+      params: { id: 'user_manager' },
+      body: { role: 'owner' },
+      admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },
+      headers: {}
+    };
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn()
+    };
+    const next = vi.fn();
+
+    await new Promise<void>((resolve) => {
+      const wrappedNext = (err: any) => {
+        next(err);
+        resolve();
+      };
+      res.json = vi.fn().mockImplementation(() => {
+        resolve();
+      });
+      patchHandler(req as any, res as any, wrappedNext);
+    });
+
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const error = next.mock.calls[0][0];
+    expect(error.statusCode).toBe(403);
+    expect(error.message).toContain('Недостаточно прав для назначения роли владельца');
+  });
+
+  it('prevents admin from creating an owner', async () => {
+    const req = {
+      body: {
+        name: 'New Owner',
+        email: 'newowner@example.com',
+        password: 'Password123!',
+        role: 'owner'
+      },
+      admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },
+      headers: {}
+    };
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn()
+    };
+    const next = vi.fn();
+
+    await new Promise<void>((resolve) => {
+      const wrappedNext = (err: any) => {
+        next(err);
+        resolve();
+      };
+      res.json = vi.fn().mockImplementation(() => {
+        resolve();
+      });
+      postHandler(req as any, res as any, wrappedNext);
+    });
+
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const error = next.mock.calls[0][0];
+    expect(error.statusCode).toBe(403);
+    expect(error.message).toContain('Недостаточно прав для создания владельца');
   });
 });

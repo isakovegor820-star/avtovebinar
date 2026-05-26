@@ -450,33 +450,7 @@
 <div class="text-label-sm font-label-sm text-on-surface-variant opacity-80">© 2024 АСПБ. Все права защищены. Юридическая информация и оферта.</div>
 </div>
 </footer>
-<script>
-        // Simple countdown logic for visual effect
-        function startTimer(duration, display) {
-            var timer = duration, hours, minutes, seconds;
-            setInterval(function () {
-                hours = parseInt(timer / 3600, 10);
-                minutes = parseInt((timer % 3600) / 60, 10);
-                seconds = parseInt(timer % 60, 10);
 
-                hours = hours < 10 ? "0" + hours : hours;
-                minutes = minutes < 10 ? "0" + minutes : minutes;
-                seconds = seconds < 10 ? "0" + seconds : seconds;
-
-                display.innerHTML = `<span>${hours}</span>:<span>${minutes}</span>:<span>${seconds}</span>`;
-
-                if (--timer < 0) {
-                    timer = duration;
-                }
-            }, 1000);
-        }
-
-        window.onload = function () {
-            var fortyFiveMinutes = 45 * 60 + 12,
-                display = document.querySelector('#countdown');
-            startTimer(fortyFiveMinutes, display);
-        };
-    </script>
 <script src="aspb-api.js"></script>
 <script src="flow-tabs.js"></script>
 </body></html>

@@ -237,28 +237,36 @@
 <!-- Questions Panel -->
 <div class="lg:col-span-4">
 <div class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[600px] overflow-hidden">
-<div class="p-5 border-b border-outline-variant/10 flex items-center justify-between">
-<h3 class="text-headline-md font-headline-md text-primary">Вопросы к эксперту</h3>
-<span class="material-symbols-outlined text-on-surface-variant">chat_bubble</span>
+<div class="p-5 border-b border-outline-variant/10 flex items-center justify-between gap-4">
+<div>
+<h3 class="text-headline-md font-headline-md text-primary">Ключевые моменты</h3>
+<div class="text-label-sm text-on-surface-variant" id="chatActivity">Подсказки будут появляться по ходу эфира</div>
+</div>
+<div class="flex items-center gap-2 text-label-sm text-on-surface-variant">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span id="chatOnlineLabel">синхронно с видео</span>
+</div>
 </div>
 <div class="flex-grow overflow-y-auto p-5 space-y-6" id="questionList">
-<!-- Message -->
 <div class="flex gap-3">
-<div class="w-8 h-8 rounded-full bg-tertiary-fixed-dim flex-shrink-0 flex items-center justify-center text-primary text-label-sm font-bold">АН</div>
+<div class="w-8 h-8 rounded-full bg-primary text-on-primary flex-shrink-0 flex items-center justify-center text-label-sm font-bold">
+<span class="material-symbols-outlined text-[18px]">psychology</span>
+</div>
 <div class="space-y-1">
-<div class="text-label-sm font-bold text-on-surface">Александр Н.</div>
+<div class="text-label-sm font-bold text-on-surface">Что сейчас важно понять</div>
 <div class="bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant">
-                                    Как понять, что клиенту уже нужна процедура, если я не веду банкротство полностью?
+                                    Смотрите эфир через призму своей практики: какие клиенты уже приходят с долгами, блокировками, налогами или взысканиями.
                                 </div>
 </div>
 </div>
-<!-- Message -->
 <div class="flex gap-3">
-<div class="w-8 h-8 rounded-full bg-secondary-fixed-dim flex-shrink-0 flex items-center justify-center text-primary text-label-sm font-bold">МВ</div>
+<div class="w-8 h-8 rounded-full bg-primary-fixed-dim flex-shrink-0 flex items-center justify-center text-primary text-label-sm font-bold">
+<span class="material-symbols-outlined text-[18px]">edit_note</span>
+</div>
 <div class="space-y-1">
-<div class="text-label-sm font-bold text-on-surface">Мария В.</div>
+<div class="text-label-sm font-bold text-on-surface">Задайте вопрос по своему кейсу</div>
 <div class="bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant">
-                                    Что мне делать после передачи контакта, и как я вижу статус клиента в АСПБ?
+                                    Если вспомнили конкретного клиента, напишите вопрос ниже. Он сохранится в админке, и менеджер АСПБ увидит, кто его задал.
                                 </div>
 </div>
 </div>

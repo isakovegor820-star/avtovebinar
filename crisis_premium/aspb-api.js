@@ -429,77 +429,116 @@
     }
   }
 
-  const SIMULATED_CHAT_MESSAGES = [
-    { time: 8, name: 'Дмитрий К.', initial: 'ДК', text: 'Всем привет из Санкт-Петербурга! 👋', color: 'bg-tertiary-fixed-dim' },
-    { time: 18, name: 'Ольга В.', initial: 'ОВ', text: 'Привет! Звук и картинка отличные.', color: 'bg-secondary-fixed-dim' },
-    { time: 32, name: 'Сергей М.', initial: 'СМ', text: 'У меня как раз сейчас клиент с долгом 12 млн, бизнес закрывается. Очень вовремя вебинар.', color: 'bg-primary-fixed-dim' },
-    { time: 55, name: 'Илья Н.', initial: 'ИН', text: 'С АСПБ кто-то работал уже? Какие отзывы?', color: 'bg-tertiary-fixed-dim' },
-    { time: 80, name: 'Павел К.', initial: 'ПК', text: 'Илья, мы работали, передавали лида по банкротству юрлица, всё выплатили четко.', color: 'bg-secondary-fixed-dim' },
-    { time: 115, name: 'Анна С.', initial: 'АС', text: 'Да, налоги и блокировки счетов — это сейчас боль у всех знакомых предпринимателей 😟', color: 'bg-primary-fixed-dim' },
-    { time: 135, name: 'Иван Д.', initial: 'ИД', text: 'Мы обычно просто отсылаем клиентов к сторонним юристам, но процентов никаких не видим. Тут партнерка интересная.', color: 'bg-tertiary-fixed-dim' },
-    { time: 165, name: 'Елена П.', initial: 'ЕП', text: '17 000 успешных дел — внушительная цифра! Давно на рынке?', color: 'bg-secondary-fixed-dim' },
-    { time: 180, name: 'АСПБ Модератор', initial: 'АМ', text: 'Елена, работаем более 12 лет по всей России.', color: 'bg-primary-container text-white', isModerator: true },
-    { time: 205, name: 'Виктор Ф.', initial: 'ВФ', text: 'То есть мы просто передаем контакты, а дальше ваша команда сама закрывает?', color: 'bg-tertiary-fixed-dim' },
-    { time: 215, name: 'АСПБ Модератор', initial: 'АМ', text: 'Виктор, да, вы передаете контакт, а наши эксперты проводят диагностику и ведут процедуру под ключ.', color: 'bg-primary-container text-white', isModerator: true },
-    { time: 245, name: 'Ренат Т.', initial: 'РТ', text: 'Бесплатная диагностика — отличный инструмент, клиент охотно согласится.', color: 'bg-secondary-fixed-dim' },
-    { time: 285, name: 'Мария Д.', initial: 'МД', text: 'Договор заключается с АСПБ напрямую? Условия там фиксируются?', color: 'bg-primary-fixed-dim' },
-    { time: 300, name: 'АСПБ Модератор', initial: 'АМ', text: 'Мария, да, партнерский договор заключается официально с АСПБ. Все проценты и выплаты прописаны.', color: 'bg-primary-container text-white', isModerator: true },
-    { time: 355, name: 'Павел К.', initial: 'ПК', text: 'Если клиент не подходит под процедуру банкротства, что тогда?', color: 'bg-tertiary-fixed-dim' },
-    { time: 375, name: 'АСПБ Модератор', initial: 'АМ', text: 'Павел, тогда наши юристы предлагают альтернативные пути защиты активов или структурирования долгов.', color: 'bg-primary-container text-white', isModerator: true },
-    { time: 425, name: 'Светлана О.', initial: 'СО', text: 'А сколько в среднем занимает юридическая процедура по времени?', color: 'bg-secondary-fixed-dim' },
-    { time: 445, name: 'АСПБ Модератор', initial: 'АМ', text: 'Светлана, в среднем от 6 до 10 месяцев, зависит от объема долга и количества кредиторов.', color: 'bg-primary-container text-white', isModerator: true },
-    { time: 495, name: 'Артем Б.', initial: 'АБ', text: 'Анкету заполнил, жду звонка по договору! 🤝', color: 'bg-primary-fixed-dim' },
-    { time: 515, name: 'Наталья Е.', initial: 'НЕ', text: 'Спасибо за эфир! Все четко, по существу, без лишней воды.', color: 'bg-tertiary-fixed-dim' },
-    { time: 535, name: 'Сергей М.', initial: 'СМ', text: 'Отличная партнерская модель, будем работать.', color: 'bg-secondary-fixed-dim' }
+  const WEBINAR_INSIGHTS = [
+    {
+      time: 8,
+      icon: 'flag',
+      title: 'Старт эфира',
+      text: 'Сразу отметьте: вебинар не про теорию, а про то, как юристу увидеть долговой кейс и не отпустить клиента без маршрута.'
+    },
+    {
+      time: 45,
+      icon: 'warning',
+      title: 'Первый сигнал клиента',
+      text: 'Если клиент говорит про долги, взыскания, блокировки, ФНС или кассовый разрыв — это уже повод предложить диагностику АСПБ.'
+    },
+    {
+      time: 105,
+      icon: 'psychology',
+      title: 'Не давите словом "банкротство"',
+      text: 'Начинайте с безопасной формулировки: "Давайте посмотрим законный маршрут выхода из долговой нагрузки".'
+    },
+    {
+      time: 165,
+      icon: 'handshake',
+      title: 'Роль партнера',
+      text: 'Вы не ведете процедуру сами. Ваша задача — заметить сигнал, передать клиента и сохранить доверие.'
+    },
+    {
+      time: 230,
+      icon: 'edit_note',
+      title: 'Задайте вопрос',
+      text: 'Вспомните одного реального клиента и отправьте вопрос в поле ниже. Такой участник автоматически становится приоритетным для менеджера.'
+    },
+    {
+      time: 315,
+      icon: 'route',
+      title: 'Что берет АСПБ',
+      text: 'Диагностика, документы, суд, кредиторы и сопровождение процедуры остаются на стороне команды АСПБ.'
+    },
+    {
+      time: 430,
+      icon: 'description',
+      title: 'Условия фиксируются договором',
+      text: 'Партнерская модель работает только через прозрачную фиксацию источника клиента и условий в договоре.'
+    },
+    {
+      time: 520,
+      icon: 'rocket_launch',
+      title: 'Финальный шаг',
+      text: 'Если узнали своих клиентов в примерах, оставьте заявку на партнерский договор после эфира.'
+    }
   ];
 
-  let renderedMessageTimes = new Set();
+  let renderedInsightTimes = new Set();
 
-  function updateSimulatedChat(currentTime, isSyncing = false) {
+  function setChatActivity(text) {
+    const node = document.getElementById('chatActivity');
+    if (node) node.textContent = text;
+  }
+
+  function updateInsightHeader(currentTime) {
+    const label = document.getElementById('chatOnlineLabel');
+    if (!label) return;
+    const next = WEBINAR_INSIGHTS.find(item => item.time > currentTime);
+    label.textContent = next ? `следующий: ${formatTimelineTime(next.time)}` : 'финальный CTA';
+  }
+
+  function updateWebinarInsights(currentTime, isSyncing = false) {
     const list = document.getElementById('questionList');
     if (!list) return;
+    updateInsightHeader(currentTime);
 
-    const visibleMessages = SIMULATED_CHAT_MESSAGES.filter(msg => msg.time <= currentTime);
-    const currentSimulatedElements = list.querySelectorAll('.simulated-chat-msg');
+    const visibleItems = WEBINAR_INSIGHTS.filter(item => item.time <= currentTime);
+    const currentInsightElements = list.querySelectorAll('.webinar-insight-msg');
 
-    if (visibleMessages.length < renderedMessageTimes.size || isSyncing) {
-      currentSimulatedElements.forEach(el => el.remove());
-      renderedMessageTimes.clear();
+    if (visibleItems.length < renderedInsightTimes.size || isSyncing) {
+      currentInsightElements.forEach(el => el.remove());
+      renderedInsightTimes.clear();
     }
 
+    setChatActivity('Сценарные подсказки синхронизированы с записью');
+
     let appendedNew = false;
-    visibleMessages.forEach(msg => {
-      if (!renderedMessageTimes.has(msg.time)) {
-        renderedMessageTimes.add(msg.time);
-
+    visibleItems.forEach(insight => {
+      if (!renderedInsightTimes.has(insight.time)) {
+        renderedInsightTimes.add(insight.time);
         const item = document.createElement('div');
-        item.className = 'flex gap-3 simulated-chat-msg transition-all duration-500 ease-out opacity-0 translate-y-2';
+        item.className = 'flex gap-3 webinar-insight-msg transition-all duration-500 ease-out opacity-0 translate-y-2';
 
-        let avatarBg = msg.color || 'bg-tertiary-fixed-dim';
-        let nameStyle = 'text-on-surface';
-        let bubbleBg = 'bg-surface-container';
-        let textStyle = 'text-on-surface-variant';
+        const icon = document.createElement('div');
+        icon.className = 'w-8 h-8 rounded-full bg-primary text-on-primary flex-shrink-0 flex items-center justify-center';
+        const iconSymbol = document.createElement('span');
+        iconSymbol.className = 'material-symbols-outlined text-[18px]';
+        iconSymbol.textContent = insight.icon;
+        icon.append(iconSymbol);
 
-        if (msg.isModerator) {
-          avatarBg = 'bg-primary text-on-primary';
-          nameStyle = 'text-primary font-extrabold flex items-center gap-1';
-          bubbleBg = 'bg-primary-container/5 border border-primary/10';
-        }
+        const body = document.createElement('div');
+        body.className = 'space-y-1';
+        const title = document.createElement('div');
+        title.className = 'text-label-sm font-bold text-primary flex items-center gap-2';
+        title.textContent = insight.title;
+        const time = document.createElement('span');
+        time.className = 'text-[11px] font-medium text-on-surface-variant';
+        time.textContent = formatTimelineTime(insight.time);
+        title.append(time);
 
-        item.innerHTML = `
-          <div class="w-8 h-8 rounded-full ${avatarBg} flex-shrink-0 flex items-center justify-center text-primary text-label-sm font-bold">
-            ${msg.initial}
-          </div>
-          <div class="space-y-1">
-            <div class="text-label-sm font-bold ${nameStyle}">
-              ${msg.name} ${msg.isModerator ? '<span class="text-[9px] bg-primary text-white px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">Модератор</span>' : ''}
-            </div>
-            <div class="${bubbleBg} p-3 rounded-xl rounded-tl-none text-body-md ${textStyle}">
-              ${msg.text}
-            </div>
-          </div>
-        `;
+        const bubble = document.createElement('div');
+        bubble.className = 'bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant border border-outline-variant/20';
+        bubble.textContent = insight.text;
 
+        body.append(title, bubble);
+        item.append(icon, body);
         list.appendChild(item);
         appendedNew = true;
 
@@ -601,6 +640,7 @@
     if (isLive) {
       // Setup live layout
       if (liveIndicator) liveIndicator.classList.remove('hidden');
+      if (liveIndicator) liveIndicator.querySelector('span:last-child').textContent = 'Идет эфир';
       if (customTimeDisplay) customTimeDisplay.classList.add('hidden');
       if (playPauseBtn) playPauseBtn.classList.add('hidden'); // Hide play/pause toggle in live stream
       if (seekContainer) seekContainer.classList.add('hidden'); // Completely hide seekbar in Live mode
@@ -608,6 +648,7 @@
       // Fluctuating viewers count simulation
       let viewers = Math.floor(Math.random() * (165 - 145) + 145);
       if (viewerCountValue) viewerCountValue.textContent = String(viewers);
+      setChatActivity('Подсказки будут появляться по мере просмотра');
 
       setInterval(() => {
         const change = Math.floor(Math.random() * 7) - 3; // -3 to +3
@@ -646,7 +687,7 @@
     video.addEventListener('timeupdate', () => {
       const current = video.currentTime;
       activateTimelineEvent(current, data.timeline || []);
-      updateSimulatedChat(current);
+      updateWebinarInsights(current);
 
       if (!isLive) {
         // Update seek progress & time text in Replay mode
@@ -659,7 +700,7 @@
     });
 
     activateTimelineEvent(video.currentTime, data.timeline || []);
-    updateSimulatedChat(video.currentTime, true);
+    updateWebinarInsights(video.currentTime, true);
 
     function startBroadcastFromClick() {
       if (isLive) {

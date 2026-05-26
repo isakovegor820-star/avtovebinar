@@ -108,13 +108,23 @@ function setRoomTokenCookie(res: Response, token: string, replayExpiresAt?: Date
   });
 }
 
+function getRoomTokenExpiresAt(session: { scheduledAt: Date; durationMinutes: number; replayAvailableHours: number }) {
+  return getReplayExpiresAt(session.scheduledAt, session.durationMinutes, session.replayAvailableHours);
+}
+
 async function findOrCreateWebinarSession(scheduledAt: Date) {
   const now = new Date();
   const status = getSessionStatus(now, scheduledAt, WEBINAR_DURATION_MINUTES);
 
   return prisma.webinarSession.upsert({
     where: { scheduledAt },
-    update: { status },
+    update: {
+      status,
+      videoUrl: WEBINAR_VIDEO_PATH,
+      roomOpenBeforeMinutes: 15,
+      replayAvailableHours: WEBINAR_REPLAY_HOURS,
+      replayEnabled: true
+    },
     create: {
       title: WEBINAR_TITLE,
       scheduledAt,
@@ -122,7 +132,7 @@ async function findOrCreateWebinarSession(scheduledAt: Date) {
       videoUrl: WEBINAR_VIDEO_PATH,
       videoDurationSeconds: 568,
       roomOpenBeforeMinutes: 15,
-      replayAvailableHours: 48,
+      replayAvailableHours: WEBINAR_REPLAY_HOURS,
       replayEnabled: true,
       liveMode: 'simulated',
       status
@@ -132,18 +142,6 @@ async function findOrCreateWebinarSession(scheduledAt: Date) {
 
 async function findRegistrationByToken(token: string) {
   const accessTokenHash = hashToken(token);
-  const direct = await prisma.registration.findUnique({
-    where: { accessTokenHash },
-    include: {
-      lead: true,
-      webinarSession: true
-    }
-  });
-
-  if (direct) {
-    return direct;
-  }
-
   const tokenRecord = await prisma.registrationToken.findUnique({
     where: { tokenHash: accessTokenHash },
     include: {
@@ -157,7 +155,17 @@ async function findRegistrationByToken(token: string) {
   });
 
   if (!tokenRecord || (tokenRecord.expiresAt && tokenRecord.expiresAt < new Date())) {
-    return null;
+    if (tokenRecord?.expiresAt && tokenRecord.expiresAt < new Date()) {
+      return null;
+    }
+    const direct = await prisma.registration.findUnique({
+      where: { accessTokenHash },
+      include: {
+        lead: true,
+        webinarSession: true
+      }
+    });
+    return direct;
   }
 
   return tokenRecord.registration;
@@ -407,13 +415,14 @@ publicRouter.post(
       data: {
         registrationId: registration.id,
         tokenHash: hashToken(token),
-        purpose: 'registration'
+        purpose: 'registration',
+        expiresAt: getRoomTokenExpiresAt(session)
       }
     });
 
     const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html', token);
     const successUrl = buildFrontendUrl('/crisis_premium/success.html', token);
-    setRoomTokenCookie(res, token, getReplayExpiresAt(session.scheduledAt, session.durationMinutes));
+    setRoomTokenCookie(res, token, getRoomTokenExpiresAt(session));
     await sendRegistrationEmail({
       to: lead.email,
       name: lead.name,
@@ -486,6 +495,8 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
   const now = new Date();
   const access = buildAccessPayload(registration, now);
   const requestToken = clean(token) ?? clean(req.cookies?.aspb_room_token);
+  const explicitToken = clean(token);
+  const tokenForLinks = explicitToken ?? (env.NODE_ENV === 'production' ? null : requestToken);
   if (requestToken) {
     setRoomTokenCookie(res, requestToken, access.replayExpiresAt);
   }
@@ -520,8 +531,8 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
       roomOpensAt: access.roomOpensAt.toISOString(),
       canEnterRoom: access.canEnterRoom,
     telegramUrl: env.TELEGRAM_GROUP_URL,
-    telegramBotUrl: buildTelegramStartUrl(requestToken || undefined),
-    webinarUrl: requestToken ? buildFrontendUrl('/crisis_premium/webinar.html', requestToken) : buildFrontendUrl('/crisis_premium/webinar.html'),
+    telegramBotUrl: buildTelegramStartUrl(tokenForLinks || undefined),
+    webinarUrl: tokenForLinks ? buildFrontendUrl('/crisis_premium/webinar.html', tokenForLinks) : buildFrontendUrl('/crisis_premium/webinar.html'),
     lead: {
       name: registration.lead.name,
       email: registration.lead.email,

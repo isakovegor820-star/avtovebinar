@@ -9,6 +9,7 @@ import { env } from '../lib/env.js';
 import { CRM_STATUS_LABELS, CRM_STATUSES, isCrmStatus } from '../lib/crm.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
 import { formatMoscowDate, sendTelegramMessageToChat } from '../lib/telegram.js';
+import { getReplayExpiresAt } from '../lib/time.js';
 
 export const adminRouter = Router();
 
@@ -1407,7 +1408,12 @@ adminRouter.post(
       data: {
         registrationId: registration.id,
         tokenHash: hashToken(accessToken),
-        purpose: 'admin_manual_telegram_reminder'
+        purpose: 'admin_manual_telegram_reminder',
+        expiresAt: getReplayExpiresAt(
+          registration.webinarSession.scheduledAt,
+          registration.webinarSession.durationMinutes,
+          registration.webinarSession.replayAvailableHours
+        )
       }
     });
 

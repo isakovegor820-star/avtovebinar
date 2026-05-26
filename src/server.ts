@@ -37,6 +37,9 @@ app.use(
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
         mediaSrc: ["'self'", 'blob:', 'data:'],
         connectSrc: ["'self'"],
+        frameSrc: ["'none'"],
+        workerSrc: ["'self'"],
+        manifestSrc: ["'self'"],
         formAction: ["'self'"]
       }
     }

@@ -13,6 +13,7 @@ import {
   participantTelegramApiUrl,
   sendTelegramMessageToChat
 } from './telegram.js';
+import { getReplayExpiresAt } from './time.js';
 
 type TelegramUpdate = {
   update_id: number;
@@ -38,13 +39,6 @@ function buildFrontendUrl(pathname: string, token?: string) {
 
 async function findRegistrationByToken(token: string) {
   const accessTokenHash = hashToken(token);
-  const direct = await prisma.registration.findUnique({
-    where: { accessTokenHash },
-    include: { lead: true, webinarSession: true }
-  });
-
-  if (direct) return direct;
-
   const tokenRecord = await prisma.registrationToken.findUnique({
     where: { tokenHash: accessTokenHash },
     include: {
@@ -55,7 +49,14 @@ async function findRegistrationByToken(token: string) {
   });
 
   if (!tokenRecord || (tokenRecord.expiresAt && tokenRecord.expiresAt < new Date())) {
-    return null;
+    if (tokenRecord?.expiresAt && tokenRecord.expiresAt < new Date()) {
+      return null;
+    }
+
+    return prisma.registration.findUnique({
+      where: { accessTokenHash },
+      include: { lead: true, webinarSession: true }
+    });
   }
 
   return tokenRecord.registration;
@@ -63,11 +64,25 @@ async function findRegistrationByToken(token: string) {
 
 async function createRoomUrl(registrationId: string, purpose = 'telegram_room') {
   const token = createAccessToken();
+  const registration = await prisma.registration.findUnique({
+    where: { id: registrationId },
+    include: { webinarSession: true }
+  });
+
+  if (!registration) {
+    throw new Error('Registration not found for Telegram room token');
+  }
+
   await prisma.registrationToken.create({
     data: {
       registrationId,
       tokenHash: hashToken(token),
-      purpose
+      purpose,
+      expiresAt: getReplayExpiresAt(
+        registration.webinarSession.scheduledAt,
+        registration.webinarSession.durationMinutes,
+        registration.webinarSession.replayAvailableHours
+      )
     }
   });
   return buildFrontendUrl('/crisis_premium/webinar.html', token);

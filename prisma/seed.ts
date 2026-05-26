@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { getNextWebinarDate } from '../src/lib/time.js';
+import { getNextWebinarDate, WEBINAR_REPLAY_HOURS } from '../src/lib/time.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import { DEFAULT_TIMELINE_EVENTS } from '../src/lib/webinarTimeline.js';
 
@@ -16,7 +16,7 @@ async function main() {
       videoUrl: '/crisis_premium/assets/webinar.mp4',
       videoDurationSeconds: 568,
       roomOpenBeforeMinutes: 15,
-      replayAvailableHours: 48,
+      replayAvailableHours: WEBINAR_REPLAY_HOURS,
       replayEnabled: true,
       liveMode: 'simulated',
       status: 'scheduled'
@@ -28,7 +28,7 @@ async function main() {
       videoUrl: '/crisis_premium/assets/webinar.mp4',
       videoDurationSeconds: 568,
       roomOpenBeforeMinutes: 15,
-      replayAvailableHours: 48,
+      replayAvailableHours: WEBINAR_REPLAY_HOURS,
       replayEnabled: true,
       liveMode: 'simulated',
       status: 'scheduled'

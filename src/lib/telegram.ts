@@ -85,6 +85,11 @@ function shouldLogParticipantTelegram() {
   return env.TELEGRAM_NOTIFY_MODE === 'log' || !participantBotToken();
 }
 
+function maskChatId(value: string) {
+  if (value.length <= 4) return '***';
+  return `${value.slice(0, 2)}***${value.slice(-2)}`;
+}
+
 export function telegramApiUrl(method: string) {
   return `https://api.telegram.org/bot${adminBotToken()}/${method}`;
 }
@@ -145,7 +150,7 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
   const text = input.text.slice(0, 3900);
 
   if (shouldLogAdminTelegram()) {
-    console.log('[ASPБ telegram log]', { text });
+    console.log('[ASPБ telegram log]', { textLength: text.length, hasReplyMarkup: Boolean(input.replyMarkup) });
     return { sent: false, mode: 'log' as const };
   }
 
@@ -181,7 +186,7 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
   const message = text.slice(0, 3900);
 
   if (shouldLogParticipantTelegram()) {
-    console.log('[ASPБ telegram participant log]', { chatId, text: message });
+    console.log('[ASPБ telegram participant log]', { chatId: maskChatId(chatId), textLength: message.length });
     return { sent: false, mode: 'log' as const };
   }
 

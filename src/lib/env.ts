@@ -46,6 +46,13 @@ function isStrongPassword(value: string) {
   return value.length >= 12 && /[a-zа-я]/i.test(value) && /\d/.test(value);
 }
 
+function parseOrigins(value: string) {
+  return value
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+}
+
 export function validateProductionSecurity(config: EnvConfig) {
   if (config.NODE_ENV !== 'production') {
     return config;
@@ -64,8 +71,24 @@ export function validateProductionSecurity(config: EnvConfig) {
   if (config.IP_HASH_SECRET === DEV_IP_HASH_SECRET || config.IP_HASH_SECRET.length < 32) {
     errors.push('IP_HASH_SECRET must be unique and at least 32 characters in production');
   }
-  if (!config.CORS_ORIGIN.trim()) {
+  const corsOrigins = parseOrigins(config.CORS_ORIGIN);
+  if (!corsOrigins.length) {
     errors.push('CORS_ORIGIN is required in production');
+  }
+  if (corsOrigins.includes('*')) {
+    errors.push('CORS_ORIGIN must not contain wildcard "*" in production');
+  }
+  if (!config.PUBLIC_SITE_URL.startsWith('https://')) {
+    errors.push('PUBLIC_SITE_URL must use https in production');
+  }
+  if (config.EMAIL_MODE !== 'send') {
+    errors.push('EMAIL_MODE must be "send" in production');
+  }
+  if (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS) {
+    errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required in production');
+  }
+  if (config.WEBINAR_TEST_ROOM_MODE === 'on') {
+    errors.push('WEBINAR_TEST_ROOM_MODE must be "off" in production');
   }
 
   if (errors.length) {

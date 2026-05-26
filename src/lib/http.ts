@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
+import { env } from './env.js';
 
 export class AppError extends Error {
   constructor(
@@ -45,7 +46,13 @@ export function errorMiddleware(error: unknown, _req: Request, res: Response, _n
     });
   }
 
-  console.error(error);
+  if (env.NODE_ENV === 'production') {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[ASPБ api error]', { message });
+  } else {
+    console.error(error);
+  }
+
   return res.status(500).json({
     ok: false,
     error: 'Internal server error'

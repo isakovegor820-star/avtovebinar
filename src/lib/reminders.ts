@@ -3,6 +3,7 @@ import { env } from './env.js';
 import { sendReminderEmail, type ReminderKind } from './email.js';
 import { createAccessToken, hashToken } from './tokens.js';
 import { sendTelegramMessageToChat, formatMoscowDate } from './telegram.js';
+import { getReplayExpiresAt, WEBINAR_REPLAY_HOURS } from './time.js';
 
 type ReminderCandidate = {
   id: string;
@@ -16,7 +17,7 @@ type ReminderCandidate = {
   lead?: {
     professionalStatus?: string | null;
   };
-  webinarSession: { scheduledAt: Date; durationMinutes?: number };
+  webinarSession: { scheduledAt: Date; durationMinutes?: number; replayAvailableHours?: number };
 };
 
 const REMINDER_THRESHOLDS: Array<{ kind: ReminderKind; msBefore: number; field: keyof ReminderCandidate }> = [
@@ -85,6 +86,14 @@ function buildFrontendUrl(pathname: string, token?: string) {
   return url.toString();
 }
 
+function getRoomTokenExpiresAt(registration: ReminderCandidate) {
+  return getReplayExpiresAt(
+    registration.webinarSession.scheduledAt,
+    registration.webinarSession.durationMinutes ?? 120,
+    registration.webinarSession.replayAvailableHours ?? WEBINAR_REPLAY_HOURS
+  );
+}
+
 function buildSegmentTip(status?: string | null) {
   const value = (status || '').toLowerCase();
   if (value.includes('юрист') || value.includes('антикризис')) {
@@ -133,7 +142,8 @@ export async function runReminderJobOnce(now = new Date()) {
       data: {
         registrationId: registration.id,
         tokenHash: hashToken(accessToken),
-        purpose: `reminder_${kind}`
+        purpose: `reminder_${kind}`,
+        expiresAt: getRoomTokenExpiresAt(registration)
       }
     });
 
@@ -193,7 +203,8 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
       data: {
         registrationId: registration.id,
         tokenHash: hashToken(accessToken),
-        purpose: `telegram_reminder_${kind}`
+        purpose: `telegram_reminder_${kind}`,
+        expiresAt: getRoomTokenExpiresAt(registration)
       }
     });
 
@@ -270,7 +281,8 @@ export async function runTelegramFollowupJobOnce(now = new Date()) {
       data: {
         registrationId: registration.id,
         tokenHash: hashToken(accessToken),
-        purpose: 'telegram_post_webinar_partner'
+        purpose: 'telegram_post_webinar_partner',
+        expiresAt: getRoomTokenExpiresAt(registration)
       }
     });
 

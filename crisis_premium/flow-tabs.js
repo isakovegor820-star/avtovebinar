@@ -3,76 +3,118 @@
   if (!mount) return;
 
   const current = mount.dataset.current || "landing";
-  const token = new URLSearchParams(window.location.search).get("token") || "";
-  const storedToken = localStorage.getItem("crisisPremiumToken") || "";
-  const accessToken = token || storedToken;
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get("token") || "";
+  const allowLocalTokenStorage =
+    window.location.protocol === "file:" ||
+    ["localhost", "127.0.0.1", ""].includes(window.location.hostname);
 
-  if (token) {
-    localStorage.setItem("crisisPremiumToken", token);
+  const storage = {
+    get(key) {
+      try {
+        if (key === "crisisPremiumToken" && !allowLocalTokenStorage) return "";
+        return window.localStorage.getItem(key) || "";
+      } catch {
+        return "";
+      }
+    },
+    set(key, value) {
+      try {
+        if (key === "crisisPremiumToken" && !allowLocalTokenStorage) return;
+        window.localStorage.setItem(key, value);
+      } catch {
+        // Storage can be blocked in file previews; cookie/session access still works.
+      }
+    }
+  };
+
+  const storedToken = storage.get("crisisPremiumToken");
+  const accessToken = urlToken || storedToken;
+
+  if (urlToken) {
+    storage.set("crisisPremiumToken", urlToken);
   }
 
   if ((current === "success" || current === "webinar") && accessToken) {
-    localStorage.setItem("crisisPremiumRegistered", "true");
+    storage.set("crisisPremiumRegistered", "true");
   }
 
-  const isRegistered = localStorage.getItem("crisisPremiumRegistered") === "true";
-  const roomUnlocked = isRegistered && Boolean(accessToken);
+  function webinarHref(token) {
+    return token ? `webinar.html?token=${encodeURIComponent(token)}` : "webinar.html";
+  }
 
-  if (!roomUnlocked) {
-    mount.remove();
+  function el(tag, options = {}, children = []) {
+    const node = document.createElement(tag);
+    if (options.className) node.className = options.className;
+    if (options.text) node.textContent = options.text;
+    if (options.href) node.setAttribute("href", options.href);
+    if (options.ariaCurrent) node.setAttribute("aria-current", options.ariaCurrent);
+    children.forEach((child) => node.appendChild(child));
+    return node;
+  }
+
+  function render(token, hintText) {
+    const activeTab = current === "webinar" ? "webinar" : current === "landing" ? "landing" : "";
+    const stages = [
+      { id: "landing", label: "Сайт", href: "index.html", meta: "Главная" },
+      { id: "webinar", label: "Вебинар", href: webinarHref(token), meta: "Доступ открыт" }
+    ];
+
+    mount.className = "flow-tabs";
+    mount.replaceChildren();
+
+    const inner = el("div", { className: "flow-tabs__inner" });
+    inner.appendChild(el("div", { className: "flow-tabs__label", text: "Разделы" }));
+
+    const nav = el("nav", { className: "flow-tabs__list" });
+    nav.setAttribute("aria-label", "Разделы вебинара");
+
+    stages.forEach((stage, index) => {
+      const tab = el("a", {
+        className: "flow-tabs__tab",
+        href: stage.href,
+        ariaCurrent: stage.id === activeTab ? "page" : ""
+      });
+      tab.appendChild(el("span", { className: "flow-tabs__index", text: String(index + 1) }));
+
+      const copy = el("span", { className: "flow-tabs__copy" });
+      copy.appendChild(el("span", { text: stage.label }));
+      copy.appendChild(el("span", { className: "flow-tabs__meta", text: stage.meta }));
+      tab.appendChild(copy);
+
+      tab.addEventListener("pointerdown", () => {
+        tab.classList.add("flow-tabs__tab--pressed");
+      });
+
+      ["pointerup", "pointercancel", "mouseleave"].forEach((eventName) => {
+        tab.addEventListener(eventName, () => {
+          window.setTimeout(() => tab.classList.remove("flow-tabs__tab--pressed"), 120);
+        });
+      });
+
+      nav.appendChild(tab);
+    });
+
+    inner.appendChild(nav);
+    inner.appendChild(el("div", { className: "flow-tabs__hint", text: hintText }));
+    mount.appendChild(inner);
+  }
+
+  const isRegistered = storage.get("crisisPremiumRegistered") === "true";
+  if (accessToken || isRegistered) {
+    render(accessToken, current === "success" ? "Регистрация принята" : "Вебинар доступен");
     return;
   }
 
-  const activeTab = current === "webinar" ? "webinar" : current === "landing" ? "landing" : "";
-  const stages = [
-    { id: "landing", label: "Сайт", href: "index.html", meta: "Главная" },
-    {
-      id: "webinar",
-      label: "Вебинар",
-      href: `webinar.html?token=${encodeURIComponent(accessToken)}`,
-      meta: "Доступ открыт"
-    }
-  ];
-  const hint =
-    current === "success"
-      ? "Регистрация принята"
-      : "Вебинар доступен";
-
-  mount.className = "flow-tabs";
-  mount.innerHTML = `
-    <div class="flow-tabs__inner">
-      <div class="flow-tabs__label">Разделы</div>
-      <nav class="flow-tabs__list" aria-label="Разделы вебинара">
-        ${stages
-          .map((stage) => {
-            const index = stages.findIndex((item) => item.id === stage.id) + 1;
-            const currentAttr = stage.id === activeTab ? ' aria-current="page"' : "";
-            const lockedClass = stage.isLocked ? " flow-tabs__tab--locked" : "";
-            return `
-              <a class="flow-tabs__tab${lockedClass}" href="${stage.href}"${currentAttr}>
-                <span class="flow-tabs__index">${index}</span>
-                <span class="flow-tabs__copy">
-                  <span>${stage.label}</span>
-                  <span class="flow-tabs__meta">${stage.meta}</span>
-                </span>
-              </a>
-            `;
-          })
-          .join("")}
-      </nav>
-      <div class="flow-tabs__hint">${hint}</div>
-    </div>
-  `;
-
-  mount.querySelectorAll(".flow-tabs__tab").forEach((tab) => {
-    tab.addEventListener("pointerdown", () => {
-      tab.classList.add("flow-tabs__tab--pressed");
-    });
-
-    ["pointerup", "pointercancel", "mouseleave"].forEach((eventName) => {
-      tab.addEventListener(eventName, () => {
-        window.setTimeout(() => tab.classList.remove("flow-tabs__tab--pressed"), 120);
-      });
-    });
-  });
+  const api = window.location.protocol === "file:" ? "http://127.0.0.1:5174/api" : "/api";
+  fetch(`${api}/registration/session/current`, { credentials: "include" })
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data) => {
+      if (!data?.ok) {
+        mount.remove();
+        return;
+      }
+      render("", "Вебинар доступен");
+    })
+    .catch(() => mount.remove());
 })();

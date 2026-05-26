@@ -15,6 +15,12 @@ function shouldLogEmail() {
   return env.EMAIL_MODE === 'log' || !env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS;
 }
 
+function maskEmail(value: string) {
+  const [name, domain] = value.split('@');
+  if (!name || !domain) return '[redacted-email]';
+  return `${name.slice(0, 2)}***@${domain}`;
+}
+
 function formatScheduled(date: Date) {
   return new Intl.DateTimeFormat('ru-RU', {
     timeZone: 'Europe/Moscow',
@@ -46,12 +52,12 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
 
   if (shouldLogEmail()) {
     console.log('[ASPБ email log]', {
-      to: input.to,
+      to: maskEmail(input.to),
       subject: input.subject,
       scheduled,
-      webinarUrl: input.webinarUrl,
-      telegram: env.TELEGRAM_GROUP_URL,
-      partnerUrl: input.partnerUrl ?? null
+      webinarUrl: '[redacted-personal-link]',
+      telegramConfigured: Boolean(env.TELEGRAM_GROUP_URL),
+      partnerUrl: input.partnerUrl ? '[redacted-personal-link]' : null
     });
     return { sent: false, mode: 'log' as const };
   }

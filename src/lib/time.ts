@@ -1,6 +1,6 @@
 export const WEBINAR_TITLE = 'Экономика кризиса: как юристу зарабатывать на защите финансовых прав бизнеса';
 export const WEBINAR_DURATION_MINUTES = 120;
-export const WEBINAR_REPLAY_HOURS = 48;
+export const WEBINAR_REPLAY_HOURS = 24 * 7;
 export const WEBINAR_ROOM_OPEN_BEFORE_MINUTES = 15;
 export type WebinarAccessStatus = 'waiting' | 'pre_live' | 'live' | 'replay' | 'closed';
 

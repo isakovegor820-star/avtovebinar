@@ -54,6 +54,7 @@ model Lead {
   city                 String?
   professionalStatus   String?              @map("professional_status")
   consent              Boolean              @default(false)
+  marketingConsent     Boolean              @default(false) @map("marketing_consent")
   source               String?
   utmSource            String?              @map("utm_source")
   utmMedium            String?              @map("utm_medium")

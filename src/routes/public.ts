@@ -43,7 +43,7 @@ const utmSchema = {
   utmTerm: z.string().trim().max(120).optional().or(z.literal(''))
 };
 
-const registerSchema = z.object({
+export const registerSchema = z.object({
   name: z.string().trim().min(2).max(120),
   phone: z.string().trim().min(6).max(40),
   email: z.string().trim().email().max(160),
@@ -52,6 +52,7 @@ const registerSchema = z.object({
   status: z.string().trim().max(120).optional().or(z.literal('')),
   clientsProblem: z.string().trim().max(120).optional().or(z.literal('')),
   consent: z.coerce.boolean().refine(value => value === true, 'Consent is required'),
+  marketingConsent: z.coerce.boolean().optional().default(false),
   ...utmSchema
 });
 
@@ -378,6 +379,7 @@ publicRouter.post(
         city: clean(data.city),
         professionalStatus,
         consent: data.consent,
+        marketingConsent: data.marketingConsent,
         source: clean(data.source),
         utmSource: clean(data.utmSource),
         utmMedium: clean(data.utmMedium),
@@ -392,6 +394,7 @@ publicRouter.post(
         city: clean(data.city),
         professionalStatus,
         consent: data.consent,
+        marketingConsent: data.marketingConsent,
         source: clean(data.source),
         utmSource: clean(data.utmSource),
         utmMedium: clean(data.utmMedium),

@@ -164,6 +164,7 @@
     const data = new FormData(form);
     const clients = form.querySelector('input[name="clients"]:checked');
     const consent = form.querySelector('input[name="consent"]');
+    const marketingConsent = form.querySelector('input[name="marketingConsent"]');
 
     if (consent && !consent.checked) {
       alert('Пожалуйста, подтвердите согласие на обработку персональных данных.');
@@ -184,7 +185,8 @@
         city: data.get('city') || '',
         professionalStatus: data.get('professionalStatus'),
         clientsProblem: clients ? clients.value : '',
-        consent: data.get('consent') === 'true' || data.get('consent') === 'on',
+        consent: consent ? consent.checked : false,
+        marketingConsent: marketingConsent ? marketingConsent.checked : false,
         ...utm()
       });
 

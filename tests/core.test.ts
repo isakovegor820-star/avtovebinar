@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAccessToken, createAdminSession, hashToken, verifyAdminSession } from '../src/lib/tokens.js';
+import { registerSchema } from '../src/routes/public.js';
 import {
   getCountdown,
   getNextWebinarDate,
@@ -217,5 +218,30 @@ describe('Telegram news scheduler', () => {
 
   it('waits when no news slot is due yet', () => {
     expect(getDueNewsSlot(new Date('2026-05-22T04:30:00.000Z'), '09:00,11:30')).toBeNull();
+  });
+});
+
+describe('registration validation logic', () => {
+  const validData = {
+    name: 'Иван',
+    phone: '+79000000000',
+    email: 'ivan@example.com',
+    consent: true
+  };
+
+  it('validates correct registration data and sets default marketingConsent to false', () => {
+    const parsed = registerSchema.parse(validData);
+    expect(parsed.name).toBe('Иван');
+    expect(parsed.consent).toBe(true);
+    expect(parsed.marketingConsent).toBe(false);
+  });
+
+  it('accepts explicit marketingConsent', () => {
+    const parsed = registerSchema.parse({ ...validData, marketingConsent: true });
+    expect(parsed.marketingConsent).toBe(true);
+  });
+
+  it('rejects registration without mandatory consent', () => {
+    expect(() => registerSchema.parse({ ...validData, consent: false })).toThrow();
   });
 });

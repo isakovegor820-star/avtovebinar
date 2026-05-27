@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      PORT: 5174
+      PUBLIC_SITE_URL: http://127.0.0.1:5174
+      DATABASE_URL: postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=public
+      ADMIN_LOGIN: admin@example.com
+      ADMIN_PASSWORD: StrongAdmin123
+      ADMIN_COOKIE_SECRET: ci-admin-cookie-secret-32-plus-chars
+      IP_HASH_SECRET: ci-ip-hash-secret-32-plus-chars
+      EMAIL_MODE: log
+      EMAIL_FROM: "АСПБ <no-reply@example.com>"
+      TELEGRAM_GROUP_URL: https://t.me/example
+      TELEGRAM_NOTIFY_MODE: log
+      WEBINAR_TEST_ROOM_MODE: off
+      CORS_ORIGIN: http://127.0.0.1:5174
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
+      - name: Docker build smoke test
+        run: docker build -t aspb-autowebinar:ci .

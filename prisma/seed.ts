@@ -67,7 +67,7 @@ async function main() {
     create: {
       name: adminLogin,
       email: adminEmail,
-      passwordHash: hashPassword(adminPassword),
+      passwordHash: await hashPassword(adminPassword),
       role: 'owner'
     }
   });

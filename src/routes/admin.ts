@@ -79,7 +79,7 @@ async function ensureDefaultAdminUser() {
     data: {
       name: env.ADMIN_LOGIN,
       email: env.ADMIN_LOGIN.includes('@') ? env.ADMIN_LOGIN.toLowerCase() : `${env.ADMIN_LOGIN}@local.admin`,
-      passwordHash: hashPassword(env.ADMIN_PASSWORD),
+      passwordHash: await hashPassword(env.ADMIN_PASSWORD),
       role: 'owner'
     }
   });
@@ -896,8 +896,8 @@ adminRouter.post(
       }
     });
 
-    const isLegacyLogin = data.login === env.ADMIN_LOGIN && data.password === env.ADMIN_PASSWORD;
-    const isDbLogin = adminUser ? verifyPassword(data.password, adminUser.passwordHash) : false;
+    const isLegacyLogin = env.NODE_ENV !== 'production' && data.login === env.ADMIN_LOGIN && data.password === env.ADMIN_PASSWORD;
+    const isDbLogin = adminUser ? await verifyPassword(data.password, adminUser.passwordHash) : false;
 
     if (!isDbLogin && !isLegacyLogin) {
       throw new AppError(401, 'Неверный логин или пароль');
@@ -998,7 +998,7 @@ adminRouter.post(
       data: {
         name: data.name,
         email: data.email.toLowerCase(),
-        passwordHash: hashPassword(data.password),
+        passwordHash: await hashPassword(data.password),
         role: data.role
       },
       select: {
@@ -1065,7 +1065,7 @@ adminRouter.patch(
         name: data.name,
         role: data.role,
         isActive: data.isActive,
-        passwordHash: data.password ? hashPassword(data.password) : undefined
+        passwordHash: data.password ? await hashPassword(data.password) : undefined
       },
       select: {
         id: true,

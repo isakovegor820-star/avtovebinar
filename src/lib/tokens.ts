@@ -24,6 +24,12 @@ function sign(value: string) {
   return crypto.createHmac('sha256', env.ADMIN_COOKIE_SECRET).update(value).digest('base64url');
 }
 
+function timingSafeEqualString(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
 export function createAdminSession(admin?: { id?: string; email?: string; role?: string }) {
   const payload = JSON.stringify({
     login: env.ADMIN_LOGIN,
@@ -42,7 +48,7 @@ export function parseAdminSession(token: string | undefined) {
   }
 
   const [encoded, signature] = token.split('.');
-  if (!encoded || !signature || sign(encoded) !== signature) {
+  if (!encoded || !signature || !timingSafeEqualString(sign(encoded), signature)) {
     return null;
   }
 

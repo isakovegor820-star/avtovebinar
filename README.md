@@ -58,6 +58,32 @@ http://127.0.0.1:5174/admin
 admin / admin123
 ```
 
+## Production-минимум
+
+Для production добавлены:
+
+- `Dockerfile` для приложения;
+- `docker-compose.production.yml` для app + PostgreSQL;
+- `.env.production.example`;
+- GitHub Actions CI;
+- backup/restore scripts;
+- runbook: `docs/production-runbook.md`.
+
+Быстрая проверка всего проекта:
+
+```bash
+npm run check
+```
+
+Production compose:
+
+```bash
+cp .env.production.example .env.production
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+```
+
+Перед реальным запуском обязательно заполните `.env.production`, подключите домен/SSL, SMTP и Telegram-ботов. `.env.production` нельзя коммитить.
+
 ## Основные API
 
 ```text

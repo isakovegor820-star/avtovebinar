@@ -40,6 +40,7 @@ import { getDueReminderKind, getDueTelegramReminderKind, getPostWebinarFollowupD
 import { getDueNewsSlot } from '../src/lib/telegramNews.js';
 import { validateProductionSecurity } from '../src/lib/env.js';
 import { PUBLIC_ANALYTICS_EVENTS } from '../src/lib/events.js';
+import { hashPassword, verifyPassword } from '../src/lib/passwords.js';
 
 describe('webinar time logic', () => {
   it('schedules webinar at 11:00 Moscow on the next Moscow day', () => {
@@ -89,6 +90,15 @@ describe('token logic', () => {
     const session = createAdminSession();
     expect(verifyAdminSession(session)).toBe(true);
     expect(verifyAdminSession(`${session}x`)).toBe(false);
+  });
+});
+
+describe('password hashing', () => {
+  it('uses async scrypt hashes and verifies with timing-safe comparison', async () => {
+    const stored = await hashPassword('StrongPassword123');
+    expect(stored.startsWith('scrypt:')).toBe(true);
+    await expect(verifyPassword('StrongPassword123', stored)).resolves.toBe(true);
+    await expect(verifyPassword('WrongPassword123', stored)).resolves.toBe(false);
   });
 });
 

@@ -34,12 +34,17 @@
 .flow-tabs__list {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(196, 198, 205, 0.45);
+  border-radius: 999px;
+  padding: 4px;
   min-width: 0;
   overflow-x: auto;
   overflow-y: visible;
   scrollbar-width: none;
   scroll-padding-inline: 8px;
+  box-shadow: inset 0 2px 5px rgba(4, 22, 39, 0.03);
 }
 
 .flow-tabs__list::-webkit-scrollbar {
@@ -51,72 +56,45 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 48px;
-  border: 1px solid rgba(196, 198, 205, 0.8);
+  min-height: 40px;
+  border: none;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
+  background: transparent;
   color: #44474c;
   font-family: Manrope, system-ui, sans-serif;
   font-size: 13px;
   font-weight: 700;
-  padding: 8px 16px;
+  padding: 6px 16px;
   text-decoration: none;
   white-space: nowrap;
-  box-shadow: 0 8px 24px rgba(4, 22, 39, 0.04);
   transform: translateY(0) scale(1);
   transition:
-    border-color 200ms ease,
-    background 200ms ease,
-    box-shadow 200ms ease,
-    color 200ms ease,
-    transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    background 220ms ease,
+    color 220ms ease,
+    box-shadow 220ms ease,
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
   isolation: isolate;
 }
 
-.flow-tabs__tab::after {
-  content: "";
-  position: absolute;
-  inset: 7px;
-  z-index: -1;
-  border-radius: inherit;
-  background: radial-gradient(circle at 30% 20%, rgba(210, 228, 251, 0.7), transparent 62%);
-  opacity: 0;
-  transform: scale(0.96);
-  transition: opacity 220ms ease, transform 220ms ease;
-}
-
-.flow-tabs__tab:hover {
-  border-color: #041627;
+.flow-tabs__tab:hover:not([aria-current="page"]) {
+  background: rgba(4, 22, 39, 0.05);
   color: #041627;
-  box-shadow: 0 14px 34px rgba(4, 22, 39, 0.1);
-  transform: translateY(-2px) scale(1.015);
-}
-
-.flow-tabs__tab:hover::after {
-  opacity: 1;
-  transform: scale(1);
 }
 
 .flow-tabs__tab:active,
 .flow-tabs__tab--pressed {
-  transform: translateY(0) scale(0.985);
+  transform: translateY(0) scale(0.97);
 }
 
 .flow-tabs__tab[aria-current="page"] {
-  border-color: #041627;
   background: #041627;
   color: #ffffff;
-  box-shadow: 0 16px 38px rgba(4, 22, 39, 0.16);
+  box-shadow: 0 4px 12px rgba(4, 22, 39, 0.15);
 }
 
 .flow-tabs__tab--locked {
-  background: #f3f4f5;
-  color: #74777d;
-}
-
-.flow-tabs__tab--locked:hover {
-  border-color: #bcc7dd;
-  color: #041627;
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .flow-tabs__index {
@@ -208,5 +186,32 @@
 
   .flow-tabs__copy {
     line-height: 14px;
+  }
+}
+
+.flow-tabs__live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #ff3b30;
+  border-radius: 50%;
+  margin-right: 6px;
+  box-shadow: 0 0 8px #ff3b30;
+  animation: flow-tabs-pulse 1.5s infinite;
+}
+
+@keyframes flow-tabs-pulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+    box-shadow: 0 0 12px #ff3b30;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0.6;
   }
 }

@@ -10,9 +10,17 @@ backups/
 
 .DS_Store
 *.log
+*.docx
 
 .omx/
 scratch/
 stitch_/
 stitch_6/
 /index.html
+
+# Служебные diff-снапшоты — не должны попадать в публичную static-директорию
+crisis_premium/_diffs_*
+crisis_premium/_full_diffs*
+
+# Большие бинарники (видео хранится в LFS / CDN)
+crisis_premium/assets/webinar.mp4

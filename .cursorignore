@@ -1,0 +1,31 @@
+# Зависимости
+node_modules/
+
+# Сборка
+dist/
+
+# Покрытие тестов
+coverage/
+
+# Тяжёлое видео (54 МБ)
+crisis_premium/assets/webinar.mp4
+
+# Устаревшая документация
+docs/
+
+# Резервные копии БД
+backups/
+*.sql.gz
+
+# Lock-файл (огромный, не несёт смысловой нагрузки для ИИ)
+package-lock.json
+
+# Автосгенерированные миграции Prisma
+prisma/migrations/
+
+# Служебные директории
+.omx/
+scratch/
+stitch_/
+stitch_6/
+.git/

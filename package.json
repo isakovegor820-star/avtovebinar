@@ -3,11 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "build": "tsc",
     "test": "vitest run",
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "check": "npm run build && npm test && npm audit --omit=dev",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -15,7 +19,14 @@
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "backup:db": "bash scripts/backup-postgres.sh",
-    "restore:db": "bash scripts/restore-postgres.sh"
+    "restore:db": "bash scripts/restore-postgres.sh",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,ts,jsx,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
@@ -36,6 +47,13 @@
     "@types/node": "^24.10.1",
     "@types/nodemailer": "^8.0.0",
     "@types/supertest": "^7.2.0",
+    "@typescript-eslint/eslint-plugin": "7.18.0",
+    "@typescript-eslint/parser": "7.18.0",
+    "eslint": "8.57.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
+    "mjson": "^0.4.2",
+    "prettier": "3.3.3",
     "supertest": "^7.2.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",

@@ -9,6 +9,22 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aspb
+          POSTGRES_PASSWORD: aspb
+          POSTGRES_DB: aspb_autowebinar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aspb -d aspb_autowebinar"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     env:
       NODE_ENV: test
       PORT: 5174
@@ -41,8 +57,14 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      - name: Run migrations
+        run: npx prisma migrate deploy
+
       - name: Build
         run: npm run build
+
+      - name: Lint
+        run: npm run lint
 
       - name: Test
         run: npm test
@@ -52,3 +74,25 @@ jobs:
 
       - name: Docker build smoke test
         run: docker build -t aspb-autowebinar:ci .
+
+  lint-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint

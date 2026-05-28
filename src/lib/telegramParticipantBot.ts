@@ -11,7 +11,7 @@ import {
   notifyTelegramBotStart,
   notifyTelegramSubscription,
   participantTelegramApiUrl,
-  sendTelegramMessageToChat
+  sendTelegramMessageToChat,
 } from './telegram.js';
 import { getReplayExpiresAt } from './time.js';
 
@@ -43,20 +43,17 @@ async function findRegistrationByToken(token: string) {
     where: { tokenHash: accessTokenHash },
     include: {
       registration: {
-        include: { lead: true, webinarSession: true }
-      }
-    }
+        include: { lead: true, webinarSession: true },
+      },
+    },
   });
 
-  if (!tokenRecord || (tokenRecord.expiresAt && tokenRecord.expiresAt < new Date())) {
-    if (tokenRecord?.expiresAt && tokenRecord.expiresAt < new Date()) {
-      return null;
-    }
+  if (!tokenRecord) {
+    return null;
+  }
 
-    return prisma.registration.findUnique({
-      where: { accessTokenHash },
-      include: { lead: true, webinarSession: true }
-    });
+  if (tokenRecord.expiresAt && tokenRecord.expiresAt < new Date()) {
+    return null;
   }
 
   return tokenRecord.registration;
@@ -66,7 +63,7 @@ async function createRoomUrl(registrationId: string, purpose = 'telegram_room') 
   const token = createAccessToken();
   const registration = await prisma.registration.findUnique({
     where: { id: registrationId },
-    include: { webinarSession: true }
+    include: { webinarSession: true },
   });
 
   if (!registration) {
@@ -81,9 +78,9 @@ async function createRoomUrl(registrationId: string, purpose = 'telegram_room') 
       expiresAt: getReplayExpiresAt(
         registration.webinarSession.scheduledAt,
         registration.webinarSession.durationMinutes,
-        registration.webinarSession.replayAvailableHours
-      )
-    }
+        registration.webinarSession.replayAvailableHours,
+      ),
+    },
   });
   return buildFrontendUrl('/crisis_premium/webinar.html', token);
 }
@@ -92,14 +89,14 @@ async function findLatestRegistrationByChat(chatId: string) {
   return prisma.registration.findFirst({
     where: {
       lead: {
-        telegramChatId: chatId
-      }
+        telegramChatId: chatId,
+      },
     },
     include: {
       lead: true,
-      webinarSession: true
+      webinarSession: true,
     },
-    orderBy: { registeredAt: 'desc' }
+    orderBy: { registeredAt: 'desc' },
   });
 }
 
@@ -118,8 +115,8 @@ async function saveBotEvent(input: {
       webinarSessionId: input.webinarSessionId ?? null,
       page: 'telegram_bot',
       source: 'telegram',
-      metadataJson: input.metadata as Prisma.InputJsonValue | undefined
-    }
+      metadataJson: input.metadata as Prisma.InputJsonValue | undefined,
+    },
   });
 }
 
@@ -150,7 +147,7 @@ function getTelegramProfile(update: TelegramUpdate) {
   return {
     telegramUserId: update.message?.from?.id ? String(update.message.from.id) : null,
     telegramUsername: update.message?.from?.username ?? null,
-    telegramFirstName: update.message?.from?.first_name ?? null
+    telegramFirstName: update.message?.from?.first_name ?? null,
   };
 }
 
@@ -166,8 +163,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
           telegramChatId: chatId,
           telegramUsername,
           telegramFirstName,
-          telegramSubscribedAt: existingRegistration.lead.telegramSubscribedAt ?? new Date()
-        }
+          telegramSubscribedAt: existingRegistration.lead.telegramSubscribedAt ?? new Date(),
+        },
       });
       const roomUrl = await createRoomUrl(existingRegistration.id, 'telegram_repeat_start_room');
       await saveBotEvent({
@@ -178,8 +175,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
         metadata: {
           username: telegramUsername,
           telegramFirstName,
-          telegramUserId
-        }
+          telegramUserId,
+        },
       });
       notifyAdminSafely(
         notifyTelegramSubscription({
@@ -200,8 +197,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
           telegramUsername,
           telegramFirstName,
           registrationId: existingRegistration.id,
-          adminUrl: buildFrontendUrl('/admin')
-        })
+          adminUrl: buildFrontendUrl('/admin'),
+        }),
       );
       await sendTelegramMessageToChat(
         chatId,
@@ -216,8 +213,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
           '',
           'Команды:',
           '/status — проверить регистрацию',
-          '/room — получить ссылку в комнату'
-        ].join('\n')
+          '/room — получить ссылку в комнату',
+        ].join('\n'),
       );
       return;
     }
@@ -228,8 +225,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
         chatId,
         username: telegramUsername,
         telegramFirstName,
-        telegramUserId
-      }
+        telegramUserId,
+      },
     });
     notifyAdminSafely(
       notifyTelegramBotStart({
@@ -237,8 +234,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
         telegramUserId,
         telegramUsername,
         telegramFirstName,
-        registrationUrl: buildFrontendUrl('/crisis_premium/register.html')
-      })
+        registrationUrl: buildFrontendUrl('/crisis_premium/register.html'),
+      }),
     );
 
     await sendTelegramMessageToChat(
@@ -248,8 +245,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
         '',
         'Чтобы подключить персональные напоминания, зарегистрируйтесь на вебинар и нажмите кнопку Telegram на странице успешной регистрации.',
         '',
-        `Регистрация: ${buildFrontendUrl('/crisis_premium/register.html')}`
-      ].join('\n')
+        `Регистрация: ${buildFrontendUrl('/crisis_premium/register.html')}`,
+      ].join('\n'),
     );
     return;
   }
@@ -261,8 +258,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
       [
         'Не удалось привязать регистрацию.',
         '',
-        'Откройте Telegram-кнопку именно со страницы “Вы зарегистрированы” или зарегистрируйтесь заново.'
-      ].join('\n')
+        'Откройте Telegram-кнопку именно со страницы “Вы зарегистрированы” или зарегистрируйтесь заново.',
+      ].join('\n'),
     );
     return;
   }
@@ -276,13 +273,13 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
       telegramChatId: chatId,
       telegramUsername,
       telegramFirstName,
-      telegramSubscribedAt: new Date()
-    }
+      telegramSubscribedAt: new Date(),
+    },
   });
 
   await prisma.registration.update({
     where: { id: registration.id },
-    data: { telegramClickedAt: registration.telegramClickedAt ?? new Date() }
+    data: { telegramClickedAt: registration.telegramClickedAt ?? new Date() },
   });
 
   await saveBotEvent({
@@ -294,8 +291,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
       username: telegramUsername,
       telegramFirstName,
       telegramUserId,
-      isRebind
-    }
+      isRebind,
+    },
   });
 
   const roomUrl = await createRoomUrl(registration.id, 'telegram_start_room');
@@ -319,8 +316,8 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
       telegramFirstName,
       registrationId: registration.id,
       isRebind,
-      adminUrl: buildFrontendUrl('/admin')
-    })
+      adminUrl: buildFrontendUrl('/admin'),
+    }),
   );
 
   await sendTelegramMessageToChat(
@@ -337,15 +334,18 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
       '',
       `Ваша персональная комната: ${roomUrl}`,
       '',
-      'Я напомню о вебинаре заранее и пришлю важные новости АСПБ.'
-    ].join('\n')
+      'Я напомню о вебинаре заранее и пришлю важные новости АСПБ.',
+    ].join('\n'),
   );
 }
 
 async function handleStatus(chatId: string) {
   const registration = await findLatestRegistrationByChat(chatId);
   if (!registration) {
-    await sendTelegramMessageToChat(chatId, 'Пока не вижу привязанной регистрации. Зарегистрируйтесь на сайте и нажмите Telegram-кнопку на success-странице.');
+    await sendTelegramMessageToChat(
+      chatId,
+      'Пока не вижу привязанной регистрации. Зарегистрируйтесь на сайте и нажмите Telegram-кнопку на success-странице.',
+    );
     return;
   }
 
@@ -359,15 +359,18 @@ async function handleStatus(chatId: string) {
       `Эфир: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
       `Статус: ${registration.status}`,
       '',
-      `Комната: ${roomUrl}`
-    ].join('\n')
+      `Комната: ${roomUrl}`,
+    ].join('\n'),
   );
 }
 
 async function handleRoom(chatId: string) {
   const registration = await findLatestRegistrationByChat(chatId);
   if (!registration) {
-    await sendTelegramMessageToChat(chatId, 'Сначала привяжите регистрацию через Telegram-кнопку на странице успешной регистрации.');
+    await sendTelegramMessageToChat(
+      chatId,
+      'Сначала привяжите регистрацию через Telegram-кнопку на странице успешной регистрации.',
+    );
     return;
   }
 
@@ -385,8 +388,8 @@ async function handleHelp(chatId: string) {
       '/room — получить персональную ссылку в комнату',
       '/help — помощь',
       '',
-      `Регистрация: ${buildFrontendUrl('/crisis_premium/register.html')}`
-    ].join('\n')
+      `Регистрация: ${buildFrontendUrl('/crisis_premium/register.html')}`,
+    ].join('\n'),
   );
 }
 
@@ -416,7 +419,10 @@ async function handleUpdate(update: TelegramUpdate) {
     return;
   }
 
-  await sendTelegramMessageToChat(chatId, 'Сообщение получил. Для проверки регистрации используйте /status, для ссылки на вебинарную комнату — /room.');
+  await sendTelegramMessageToChat(
+    chatId,
+    'Сообщение получил. Для проверки регистрации используйте /status, для ссылки на вебинарную комнату — /room.',
+  );
 }
 
 async function pollOnce() {

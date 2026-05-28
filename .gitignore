@@ -24,3 +24,6 @@ crisis_premium/_full_diffs*
 
 # Большие бинарники (видео хранится в LFS / CDN)
 crisis_premium/assets/webinar.mp4
+
+# Editor
+.vscode/

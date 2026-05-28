@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css" rel="stylesheet"/>
+<link href="buttons.css" rel="stylesheet"/>
 <script id="tailwind-config">
       tailwind.config = {
         darkMode: "class",
@@ -613,10 +614,176 @@
             0% { opacity: 0.62; transform: translate(-50%, -50%) scale(0.4); }
             100% { opacity: 0; transform: translate(-50%, -50%) scale(4.8); }
         }
+        [aria-controls="regScalePanel"][aria-selected="true"] {
+            border-color: rgba(4, 22, 39, 0.27);
+            background: rgba(255, 255, 255, 0.94);
+            box-shadow: 0 8px 22px rgba(4, 22, 39, 0.08);
+        }
         @keyframes emotion-panel-pop {
             0% { transform: scale(1); }
             45% { transform: scale(1.012); }
             100% { transform: scale(1); }
+        }
+
+        /* Card reveal animation on scroll */
+        .card-reveal {
+            opacity: 0;
+            transform: translateY(16px);
+            animation: cardRevealIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            animation-play-state: paused;
+        }
+        .card-reveal.is-visible {
+            animation-play-state: running;
+        }
+        .card-reveal--delay {
+            animation-delay: 0.15s;
+        }
+        @keyframes cardRevealIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Bento card interactive — gradient shift + icon animate */
+        .bento-card-interactive {
+            position: relative;
+            transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                        box-shadow 0.35s ease,
+                        background 0.4s ease,
+                        border-color 0.3s ease !important;
+            cursor: pointer;
+        }
+        .bento-card-interactive:hover,
+        .bento-card-interactive:focus-within {
+            transform: translateY(-4px) !important;
+            box-shadow: 0 20px 48px rgba(4, 22, 39, 0.10), 0 6px 16px rgba(4, 22, 39, 0.06) !important;
+            border-color: rgba(4, 22, 39, 0.15) !important;
+        }
+        .bento-card-interactive:active {
+            transform: translateY(-1px) scale(0.985) !important;
+            transition-duration: 0.1s;
+        }
+        .bento-card-interactive--dark:hover,
+        .bento-card-interactive--dark:focus-within {
+            background: linear-gradient(135deg, rgba(210, 228, 251, 0.08) 0%, rgba(4, 22, 39, 1) 50%) !important;
+        }
+
+        /* SVG icon animations on card hover */
+        .bento-card-interactive .bento-icon-svg {
+            transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .bento-card-interactive:hover .bento-icon-svg,
+        .bento-card-interactive:active .bento-icon-svg {
+            transform: scale(1.1) rotate(-3deg);
+        }
+
+        /* Shield icon pulse */
+        .bento-card-interactive:hover .bento-icon-svg--shield {
+            animation: iconPulse 0.8s ease-in-out;
+        }
+        @keyframes iconPulse {
+            0%, 100% { transform: scale(1.1) rotate(-3deg); }
+            50% { transform: scale(1.2) rotate(-3deg); }
+        }
+
+        /* Graph icon — nodes drift */
+        .bento-card-interactive:hover .bento-icon-svg--graph .graph-node--left {
+            animation: nodeDrift 0.7s ease-in-out;
+        }
+        .bento-card-interactive:hover .bento-icon-svg--graph .graph-node--right {
+            animation: nodeDrift 0.7s ease-in-out 0.1s;
+        }
+        .bento-card-interactive:hover .bento-icon-svg--graph .graph-node--top {
+            animation: nodeDrift 0.7s ease-in-out 0.2s;
+        }
+        @keyframes nodeDrift {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(1px, -1.5px); }
+        }
+
+        /* Trend arrow draw */
+        .bento-card-interactive:hover .inline-trend-icon polyline {
+            stroke-dasharray: 40;
+            stroke-dashoffset: 40;
+            animation: drawLine 0.8s ease forwards;
+        }
+        @keyframes drawLine {
+            to { stroke-dashoffset: 0; }
+        }
+
+        /* Wallet flap */
+        .bento-card-interactive:hover .wallet-flap-group {
+            animation: walletFlap 0.5s ease-in-out;
+        }
+        @keyframes walletFlap {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(2px); }
+        }
+
+        /* Route path draw */
+        .bento-card-interactive:hover .route-path {
+            stroke-dasharray: 30;
+            stroke-dashoffset: 30;
+            animation: drawLine 1s ease forwards;
+        }
+
+        /* Chart lines wave */
+        .bento-card-interactive:hover .chart-line-1 {
+            animation: chartWave 0.8s ease-in-out;
+        }
+        .bento-card-interactive:hover .chart-line-2 {
+            animation: chartWave 0.8s ease-in-out 0.15s;
+        }
+        @keyframes chartWave {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-2px); }
+        }
+
+        /* Alert mark bounce */
+        .bento-card-interactive:hover .alert-mark {
+            animation: alertBounce 0.6s ease-in-out;
+        }
+        .bento-card-interactive:hover .alert-dot {
+            animation: alertBounce 0.6s ease-in-out 0.1s;
+        }
+        @keyframes alertBounce {
+            0%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-2px); }
+        }
+
+        /* Bento 3D image — seamless mask dissolve */
+        .bento-3d-image-container {
+            opacity: 0.8;
+            mix-blend-mode: lighten;
+        }
+        .bento-3d-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center;
+            -webkit-mask-image: linear-gradient(to right, transparent 0%, transparent 35%, rgba(0,0,0,0.5) 55%, rgba(0,0,0,0.85) 75%, rgba(0,0,0,0.5) 92%, transparent 100%),
+                               linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+            -webkit-mask-composite: destination-in;
+            mask-image: linear-gradient(to right, transparent 0%, transparent 35%, rgba(0,0,0,0.5) 55%, rgba(0,0,0,0.85) 75%, rgba(0,0,0,0.5) 92%, transparent 100%),
+                        linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+            mask-composite: intersect;
+        }
+
+        /* Bento card 3D tilt on hover */
+        .bento-card-tilt {
+            transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.4s ease;
+            will-change: transform;
+        }
+        .bento-card-tilt:hover {
+            box-shadow: 0 25px 60px rgba(4, 22, 39, 0.25), 0 8px 24px rgba(4, 22, 39, 0.15);
+        }
+
+        @media (max-width: 1023px) {
+            .bento-3d-image-container {
+                opacity: 0.2;
+                width: 100%;
+            }
         }
     </style>
 </head>
@@ -738,67 +905,80 @@
 </div>
 </section>
 <!-- Registration Motivation -->
-<section class="py-16 bg-background border-y border-outline-variant/20">
-<div class="max-w-container-max-width mx-auto px-gutter">
-<div class="grid lg:grid-cols-[0.9fr_1.1fr] gap-8 items-stretch">
-<div class="bg-primary text-white rounded-xl p-8 md:p-10 shadow-xl flex flex-col justify-between overflow-hidden relative">
-<div class="absolute -right-16 -bottom-16 w-48 h-48 rounded-full border border-primary-fixed-dim/15"></div>
-<div class="relative z-10">
-<p class="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-4 py-2 text-label-sm font-label-sm text-primary-fixed-dim mb-6">
-<span class="material-symbols-outlined text-[18px]">bolt</span>
-                            почему стоит записаться
-                        </p>
-<h2 class="text-headline-lg font-headline-lg mb-5">Клиент не должен уходить “куда-то по рекламе”</h2>
-<p class="text-body-lg text-primary-fixed-dim leading-relaxed">
-                            Если доверитель пришел к вам с долгами, кредиторами или риском банкротства, вы уже находитесь в точке решения. На вебинаре покажем, как не отпускать такого клиента, а подключать АСПБ как сильную антикризисную команду.
-                        </p>
-</div>
-<div class="relative z-10 mt-8 rounded-xl bg-white/[0.08] border border-white/10 p-5">
-<p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-2">формула вебинара</p>
-<p class="text-headline-md font-headline-md">Вы видите сигнал → АСПБ ведет сложную часть → клиент получает законный маршрут</p>
-</div>
-</div>
-<div class="grid sm:grid-cols-2 gap-5">
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
-<span class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-5">
-<span class="material-symbols-outlined">route</span>
-</span>
-<h3 class="text-headline-md font-headline-md text-primary mb-3">Не берете процедуру на себя</h3>
-<p class="text-body-md text-on-surface-variant leading-relaxed">Ваша роль — заметить банкротный риск и открыть клиенту маршрут. Диагностику, документы, суд и кредиторов ведет команда АСПБ.</p>
-</div>
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
-<span class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-5">
-<span class="material-symbols-outlined">verified_user</span>
-</span>
-<h3 class="text-headline-md font-headline-md text-primary mb-3">Защищаете репутацию</h3>
-<p class="text-body-md text-on-surface-variant leading-relaxed">АСПБ берет в работу только те ситуации, где есть понятный законный маршрут. Это важно, потому что клиент приходит по вашему доверию.</p>
-</div>
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
-<span class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-5">
-<span class="material-symbols-outlined">psychology</span>
-</span>
-<h3 class="text-headline-md font-headline-md text-primary mb-3">Переупаковываете банкротство</h3>
-<p class="text-body-md text-on-surface-variant leading-relaxed">Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.</p>
-</div>
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
-<span class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-5">
-<span class="material-symbols-outlined">groups</span>
-</span>
-<h3 class="text-headline-md font-headline-md text-primary mb-3">Подключаете масштаб</h3>
-<p class="text-body-md text-on-surface-variant leading-relaxed">За вашей рекомендацией стоит команда АУ и 17 000+ успешных дел. Это сильнее, чем вести сложный кейс в одиночку.</p>
-</div>
-</div>
-</div>
-<div class="mt-8 rounded-xl bg-surface-container-low p-5 md:p-6 border border-outline-variant/30 flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+<section class="py-12 bg-background border-y border-outline-variant/20">
+<div class="max-w-container-max-width mx-auto px-gutter space-y-5">
+
+<!-- Row 1: Dark card full width -->
+<div class="bg-primary text-white rounded-xl p-6 md:p-8 shadow-xl overflow-hidden relative">
+<div class="absolute -right-12 -bottom-12 w-36 h-36 rounded-full border border-primary-fixed-dim/15"></div>
+<div class="relative z-10 grid lg:grid-cols-[1.1fr_0.9fr] gap-6 items-center">
 <div>
-<p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-1">главный крючок вебинара</p>
-<p class="text-headline-md font-headline-md text-primary">Деньги приходят на новую нишу, которую юрист понял раньше остальных.</p>
+<p class="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-3 py-1.5 text-label-sm font-label-sm text-primary-fixed-dim mb-4">
+<span class="material-symbols-outlined text-[16px]">bolt</span>
+почему стоит записаться
+</p>
+<h2 class="text-headline-lg font-headline-lg mb-3">Клиент не должен уходить “куда-то по рекламе”</h2>
+<p class="text-body-md text-primary-fixed-dim leading-relaxed">
+Если доверитель пришел к вам с долгами, кредиторами или риском банкротства, вы уже находитесь в точке решения. На вебинаре покажем, как не отпускать такого клиента, а подключать АСПБ как сильную антикризисную команду.
+</p>
 </div>
-<a class="inline-flex items-center justify-center gap-2 bg-primary text-on-primary px-6 py-4 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0 text-center" href="register.html">
-                        Зарегистрироваться на вебинар
-<span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+<div class="rounded-xl bg-white/[0.08] border border-white/10 p-5">
+<p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-1.5">формула вебинара</p>
+<p class="text-body-lg font-semibold">Вы видите сигнал → АСПБ ведет сложную часть → клиент получает законный маршрут</p>
+</div>
+</div>
+</div>
+
+<!-- Row 2: Two horizontal benefit cards -->
+<div class="grid sm:grid-cols-2 gap-5">
+<div class="card-reveal bento-card-interactive bg-surface-container-lowest rounded-xl border border-outline-variant/10 p-5 flex items-start gap-4">
+<div class="w-10 h-10 rounded-lg bg-primary-fixed text-primary flex items-center justify-center shrink-0">
+  <svg class="bento-icon-svg bento-icon-svg--graph" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="2"></circle>
+    <circle cx="5" cy="18" r="1.5" class="graph-node--left"></circle>
+    <circle cx="19" cy="18" r="1.5" class="graph-node--right"></circle>
+    <circle cx="12" cy="4" r="1.5" class="graph-node--top"></circle>
+    <line x1="12" y1="10" x2="12" y2="5.5"></line>
+    <line x1="10.5" y1="13" x2="6.5" y2="17"></line>
+    <line x1="13.5" y1="13" x2="17.5" y2="17"></line>
+  </svg>
+</div>
+<div>
+<h3 class="text-body-lg font-semibold text-primary mb-1">Не берете процедуру на себя</h3>
+<p class="text-body-sm text-on-surface-variant leading-relaxed">Ваша роль — заметить банкротный риск и открыть клиенту маршрут. Диагностику, документы, суд и кредиторов ведет команда АСПБ.</p>
+</div>
+</div>
+<div class="card-reveal card-reveal--delay bento-card-interactive bg-surface-container-lowest rounded-xl border border-outline-variant/10 p-5 flex items-start gap-4">
+<div class="w-10 h-10 rounded-lg bg-primary-fixed text-primary flex items-center justify-center shrink-0">
+  <svg class="bento-icon-svg bento-icon-svg--shield" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+    <polyline points="9 12 11 14 15 10"></polyline>
+  </svg>
+</div>
+<div>
+<h3 class="text-body-lg font-semibold text-primary mb-1">Защищаете репутацию</h3>
+<p class="text-body-sm text-on-surface-variant leading-relaxed">АСПБ берет в работу только те ситуации, где есть понятный законный маршрут. Это важно, потому что клиент приходит по вашему доверию.</p>
+</div>
+</div>
+</div>
+
+<!-- Row 3: Tabs + CTA bar -->
+<div class="grid sm:grid-cols-[1fr_auto] gap-4 items-center">
+<div>
+<div class="flex gap-1.5" role="tablist" aria-label="Дополнительные возможности">
+<button class="flex-1 py-1.5 px-3 rounded-lg text-[12px] font-semibold text-center transition-all" role="tab" aria-selected="true" aria-controls="regScalePanel" id="regScaleTab1" type="button" style="background:#041627;color:#fff">Переупаковываете банкротство</button>
+<button class="flex-1 py-1.5 px-3 rounded-lg text-[12px] font-semibold text-center transition-all bg-surface-container-high text-on-surface-variant" role="tab" aria-selected="false" aria-controls="regScalePanel" id="regScaleTab2" type="button">Подключаете масштаб</button>
+</div>
+<div class="mt-2 p-3 bg-surface-container-low rounded-xl" role="tabpanel" id="regScalePanel">
+<p class="text-[14px] leading-relaxed text-on-surface-variant" id="regScaleText">Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.</p>
+</div>
+</div>
+<a class="btn-premium inline-flex items-center justify-center gap-1.5 bg-primary text-on-primary px-5 py-2.5 rounded-lg text-[13px] leading-none font-semibold hover:opacity-90 active:scale-95 transition-all shrink-0 self-end" href="register.html">
+Зарегистрироваться
+<span class="material-symbols-outlined text-[17px]">arrow_forward</span>
 </a>
 </div>
+
 </div>
 </section>
 <!-- Problem Cards -->
@@ -806,18 +986,37 @@
 <div class="max-w-container-max-width mx-auto px-gutter">
 <h2 class="text-headline-md md:text-headline-lg font-headline-lg text-primary text-center mb-12">Проблемные клиенты не где-то далеко — они уже рядом</h2>
 <div class="grid md:grid-cols-3 gap-6">
-<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card text-left p-8 bg-surface-container-lowest rounded-xl border border-outline-variant/30 hover:border-primary/20 hover:-translate-y-1 hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Именно здесь клиент обычно уходит молча: бизнес уже не тянет обязательства, но до публичного банкротства дело может не дойти. АСПБ помогает превратить этот ранний сигнал в законный маршрут, где вы остаетесь доверенным советником." data-emotion-title="АСПБ включается там, где бизнес уже молчит." type="button">
-<span class="material-symbols-outlined text-primary mb-4 text-[32px]">account_balance_wallet</span>
+<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card bento-card-interactive text-left p-8 bg-surface-container-lowest rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Именно здесь клиент обычно уходит молча: бизнес уже не тянет обязательства, но до публичного банкротства дело может не дойти. АСПБ помогает превратить этот ранний сигнал в законный маршрут, где вы остаетесь доверенным советником." data-emotion-title="АСПБ включается там, где бизнес уже молчит." type="button">
+<div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-4">
+<svg class="bento-icon-svg emotion-icon-svg--wallet" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"></path>
+  <path d="M3 5v14a2 2 0 0 0 2 2h16v-5"></path>
+  <path d="M18 12a2 2 0 0 0 0 4h4v-4z" class="wallet-flap-group"></path>
+</svg>
+</div>
 <span class="block text-headline-md font-headline-md mb-3">Клиент приходит не только за иском</span>
 <span class="block text-body-md text-on-surface-variant leading-relaxed">«Не тяну долги», «давит банк», «есть риск субсидиарки», «как закрыть бизнес без хаоса». Для юриста это сигнал: клиенту нужна антикризисная диагностика.</span>
 </button>
-<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card text-left p-8 bg-surface-container-lowest rounded-xl border border-outline-variant/30 hover:border-primary/20 hover:-translate-y-1 hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Когда человек сам ищет законный выход из долгов, ему нужен не общий совет, а понятный маршрут. В этот момент рекомендация в АСПБ звучит как помощь, а не продажа." data-emotion-title="АСПБ дает клиенту маршрут, когда самому уже страшно." type="button">
-<span class="material-symbols-outlined text-primary mb-4 text-[32px]">block</span>
+<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card bento-card-interactive text-left p-8 bg-surface-container-lowest rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Когда человек сам ищет законный выход из долгов, ему нужен не общий совет, а понятный маршрут. В этот момент рекомендация в АСПБ звучит как помощь, а не продажа." data-emotion-title="АСПБ дает клиенту маршрут, когда самому уже страшно." type="button">
+<div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-4">
+<svg class="bento-icon-svg emotion-icon-svg--block" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="10"></circle>
+  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+</svg>
+</div>
 <span class="block text-headline-md font-headline-md mb-3">Юридический вопрос уже стал финансовым риском</span>
 <span class="block text-body-md text-on-surface-variant leading-relaxed">Сначала это претензия, спор или консультация. Потом выясняется: долги, кредиторы, ФНС, банкротные риски. В этот момент клиенту нужен маршрут, а не разовый совет.</span>
 </button>
-<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card text-left p-8 bg-surface-container-lowest rounded-xl border border-outline-variant/30 hover:border-primary/20 hover:-translate-y-1 hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Вы видите кассовый разрыв, блокировку счета или налоговый долг раньше всех. Это точка, где можно не разводить руками, а направить клиента в АСПБ и сохранить доверие." data-emotion-title="Ваш ранний сигнал становится входом в АСПБ." type="button">
-<span class="material-symbols-outlined text-primary mb-4 text-[32px]">history_toggle_off</span>
+<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card bento-card-interactive text-left p-8 bg-surface-container-lowest rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Вы видите кассовый разрыв, блокировку счета или налоговый долг раньше всех. Это точка, где можно не разводить руками, а направить клиента в АСПБ и сохранить доверие." data-emotion-title="Ваш ранний сигнал становится входом в АСПБ." type="button">
+<div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-4">
+<svg class="bento-icon-svg emotion-icon-svg--timer" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="13" r="8" class="timer-ring" stroke-dasharray="4 2"></circle>
+  <path d="M12 9v4l2 2" class="timer-hand"></path>
+  <path d="M5 3L2 6"></path>
+  <path d="M22 6l-3-3"></path>
+  <line x1="12" y1="1" x2="12" y2="3"></line>
+</svg>
+</div>
 <span class="block text-headline-md font-headline-md mb-3">Передайте сложную часть в АСПБ</span>
 <span class="block text-body-md text-on-surface-variant leading-relaxed">Вам не нужно закрывать всю процедуру внутри своей практики. Вы передаете ситуацию в АСПБ, а команда проверяет долги, риски и законный маршрут.</span>
 </button>
@@ -848,7 +1047,7 @@
 </div>
 </div>
 </div>
-<a class="inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-5 py-3 rounded-xl font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0" href="register.html">
+<a class="btn-premium btn-premium--light inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-5 py-3 rounded-xl font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0" href="register.html">
 <span>Показать маршрут АСПБ</span>
 <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
 </a>
@@ -860,11 +1059,16 @@
 <section class="py-20 bg-surface border-y border-outline-variant/20" id="why-now">
 <div class="max-w-container-max-width mx-auto px-gutter">
 <div class="grid lg:grid-cols-[0.95fr_1.05fr] gap-8 items-stretch">
-<div class="bg-primary text-on-primary rounded-xl p-8 md:p-10 shadow-xl flex flex-col justify-between overflow-hidden relative">
-<div class="absolute -right-10 -top-10 w-40 h-40 rounded-full border border-primary-fixed-dim/15"></div>
-<div class="relative z-10 space-y-6">
+<div class="bento-card-tilt bento-card-interactive bento-card-interactive--dark text-on-primary rounded-xl p-8 md:p-10 shadow-xl flex flex-col justify-between overflow-hidden relative" style="transform-style:preserve-3d;perspective:800px">
+<div class="bento-3d-image-container absolute right-0 top-0 bottom-0 w-full lg:w-[48%] pointer-events-none overflow-hidden" style="transform:translateZ(-20px)">
+<img src="assets/market-growth-3d.png" alt="" class="bento-3d-image" loading="lazy"/>
+</div>
+<div class="relative z-10 space-y-6" style="transform:translateZ(20px)">
 <span class="inline-flex w-fit items-center gap-2 rounded-full bg-white/10 border border-white/10 px-4 py-2 text-label-sm font-label-sm text-primary-fixed-dim">
-<span class="material-symbols-outlined text-[18px]">monitoring</span>
+<svg class="bento-icon-svg inline-trend-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
+  <polyline points="16 7 22 7 22 13"></polyline>
+</svg>
                                 сигнал рынка
                             </span>
 <h2 class="text-headline-lg font-headline-lg">Почему эта ниша растет в кризис</h2>
@@ -872,9 +1076,13 @@
                             Без паники и без розовых очков: долговая нагрузка растет, а банкротство стало нормальным финансовым инструментом. Для юриста это момент не отпускать клиента после разовой консультации, а дать ему законный антикризисный маршрут вместе с командой АСПБ.
                         </p>
 </div>
-<div class="relative z-10 mt-8 flex gap-4 rounded-xl border border-primary-fixed-dim/20 bg-white/10 p-5">
+<div class="relative z-10 mt-8 flex gap-4 rounded-xl border border-primary-fixed-dim/20 bg-transparent p-5">
 <div class="w-11 h-11 rounded-xl bg-primary-fixed-dim/15 border border-primary-fixed-dim/30 flex items-center justify-center shrink-0">
-<span class="material-symbols-outlined text-primary-fixed-dim text-[24px]">route</span>
+<svg class="bento-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="6" cy="18" r="2" class="route-node-start"></circle>
+  <circle cx="18" cy="6" r="2" class="route-node-end"></circle>
+  <path d="M6 16 C 6 10, 18 14, 18 8" class="route-path"></path>
+</svg>
 </div>
 <div>
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim/80 mb-1">главный вывод</p>
@@ -885,25 +1093,37 @@
 </div>
 </div>
 <div class="grid sm:grid-cols-2 gap-5">
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-7 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
+<div class="bento-card-interactive rounded-xl p-7">
 <div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-8">
-<span class="material-symbols-outlined">person_alert</span>
+<svg class="bento-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+  <circle cx="12" cy="7" r="4"></circle>
+  <line x1="18" y1="2" x2="18" y2="6" class="alert-mark"></line>
+  <circle cx="18" cy="8" r="0.5" class="alert-dot"></circle>
+</svg>
 </div>
 <div class="text-headline-xl font-headline-xl text-primary mb-2">568 000</div>
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-4">граждан и ИП в 2025</p>
 <p class="text-body-md text-on-surface-variant leading-relaxed">За цифрой стоят люди и предприниматели, которые уже ищут законный выход из долгов.</p>
 </div>
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-7 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
+<div class="bento-card-interactive rounded-xl p-7">
 <div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-8">
-<span class="material-symbols-outlined">stacked_line_chart</span>
+<svg class="bento-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <line x1="2" y1="20" x2="22" y2="20"></line>
+  <polyline points="4 16 8 10 12 14 16 8 20 12" class="chart-line-1"></polyline>
+  <polyline points="4 18 8 14 12 16 16 10 20 14" class="chart-line-2"></polyline>
+</svg>
 </div>
 <div class="text-headline-xl font-headline-xl text-primary mb-2">2.2 млн</div>
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-4">прошли процедуру за 10 лет</p>
 <p class="text-body-md text-on-surface-variant leading-relaxed">Банкротство стало массовым финансовым маршрутом, а не редкой крайностью.</p>
 </div>
-<div class="sm:col-span-2 bg-surface-container-low rounded-xl border border-outline-variant/30 p-6 flex flex-col md:flex-row md:items-center gap-5">
+<div class="sm:col-span-2 bento-card-interactive bg-surface-container-low rounded-xl p-6 flex flex-col md:flex-row md:items-center gap-5">
 <div class="w-12 h-12 rounded-xl bg-primary text-on-primary flex items-center justify-center shrink-0">
-<span class="material-symbols-outlined">task_alt</span>
+<svg class="bento-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="10" class="task-circle"></circle>
+  <polyline points="9 12 11 14 15 10" class="task-check"></polyline>
+</svg>
 </div>
 <div>
 <p class="text-label-md font-label-md text-primary mb-1">Что это значит для юриста</p>
@@ -1003,7 +1223,7 @@
 </div>
 </div>
 </div>
-<a class="inline-flex items-center justify-center gap-2 bg-primary text-on-primary px-6 py-3 rounded-xl font-label-md text-label-md hover:opacity-90 active:scale-95 transition-all shrink-0" href="register.html">
+<a class="btn-premium inline-flex items-center justify-center gap-2 bg-primary text-on-primary px-6 py-3 rounded-xl font-label-md text-label-md hover:opacity-90 active:scale-95 transition-all shrink-0" href="register.html">
 <span>Запустить сценарий АСПБ</span>
 <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
 </a>
@@ -1044,7 +1264,7 @@
 </div>
 </div>
 </div>
-<div class="chain-steps grid sm:grid-cols-3 lg:grid-cols-1 gap-3 w-full lg:max-w-[440px] lg:mx-auto" role="tablist" aria-label="Роль партнера в цепочке АСПБ">
+<div class="chain-steps grid sm:grid-cols-3 lg:grid-cols-1 gap-3 w-full lg:max-w-[440px] lg:mx-auto" role="group" aria-label="Роль партнера в цепочке АСПБ">
 <button aria-pressed="true" class="chain-choice relative z-10 text-left rounded-lg border border-white/[0.12] bg-white/10 p-4 transition-all hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-fixed-dim" data-chain-icon="shield_person" data-chain-text="Вы видите проблему и направляете клиента к решению. АСПБ берет на себя диагностику, документы, суд, кредиторов и завершение процедуры. Никакого офиса, лицензий и самостоятельных судов." data-chain-title="Вы не теряете клиента — вы становитесь точкой опоры" type="button">
 <span class="flex items-start gap-4">
 <span class="chain-dot flex w-8 h-8 rounded-full items-center justify-center text-label-sm font-label-sm shrink-0">1</span>
@@ -1093,21 +1313,21 @@
 <div class="grid md:grid-cols-3 gap-8">
 <div class="group">
 <div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500" data-alt="Portrait of a senior male bankruptcy lawyer in a tailored navy blue suit, standing in a bright minimalist office with legal books in the background. The lighting is soft and natural, emphasizing a high-trust professional atmosphere. The overall style is clean, modern, and intellectually rigorous." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvZigpiyUH8NgNPOF8ghFZQDYsG8q0Mc6ob31ieCofW-6DXDpJghw3-cCpyckbbA1Rw0V4AjksiVKIIN771osLArQIFXYdKI1KyDyiP9PLTeYW-67RpMP8i8XOIKUxUJ9ZE5cxiTGpCLzui53rhGh_sd9vtPOagMDa6XCMLJvxeJo7aBYUXuAYSIzn8GWebvb2-vW8sbX8lqppeh-wnYT2MhX9GCb46RNx-v3n58WSZUPKmaXF9QL0vZSOWABw4GwpfQvAZ0VG6gk"/>
+<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" data-alt="Portrait of a senior male bankruptcy lawyer in a tailored navy blue suit, standing in a bright minimalist office with legal books in the background. The lighting is soft and natural, emphasizing a high-trust professional atmosphere. The overall style is clean, modern, and intellectually rigorous." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvZigpiyUH8NgNPOF8ghFZQDYsG8q0Mc6ob31ieCofW-6DXDpJghw3-cCpyckbbA1Rw0V4AjksiVKIIN771osLArQIFXYdKI1KyDyiP9PLTeYW-67RpMP8i8XOIKUxUJ9ZE5cxiTGpCLzui53rhGh_sd9vtPOagMDa6XCMLJvxeJo7aBYUXuAYSIzn8GWebvb2-vW8sbX8lqppeh-wnYT2MhX9GCb46RNx-v3n58WSZUPKmaXF9QL0vZSOWABw4GwpfQvAZ0VG6gk"/>
 </div>
 <h4 class="text-headline-md font-headline-md text-primary">Александр Волков</h4>
 <p class="text-label-md text-on-surface-variant">АУ по процедурам банкротства граждан и бизнеса, отвечает за стратегию защиты клиента.</p>
 </div>
 <div class="group">
 <div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500" data-alt="Portrait of a confident female legal professional in a sharp charcoal blazer, presenting with poise in a modern glass-walled board room. High-key professional lighting with subtle cool tones. The image conveys modern efficiency and legal authority with a sophisticated corporate aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWF81X8fQhlWURFce2-lE52gEjtwF_nbdfXGq16A7Wbh7h1faNYesU_pVE2KBypdPJnS3bzxEIldCSlfyb_DFBVNOQOEL54qs1Odn6upnAXnUkAaVdBP7dJRgVfOkmXKebXXiKozrR-vsXE8J0rX1t0MxmcA7IcjuHEdEvbvF12LnJZkIVc6o1wMrBwfvo2pu7pBHO-5ljjxUiCIxcMqUuE-PocHSNZ4eyM7k4qkty0MzBosOoyVoQaDKS9MHI0hC854_CLDw74js"/>
+<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" data-alt="Portrait of a confident female legal professional in a sharp charcoal blazer, presenting with poise in a modern glass-walled board room. High-key professional lighting with subtle cool tones. The image conveys modern efficiency and legal authority with a sophisticated corporate aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWF81X8fQhlWURFce2-lE52gEjtwF_nbdfXGq16A7Wbh7h1faNYesU_pVE2KBypdPJnS3bzxEIldCSlfyb_DFBVNOQOEL54qs1Odn6upnAXnUkAaVdBP7dJRgVfOkmXKebXXiKozrR-vsXE8J0rX1t0MxmcA7IcjuHEdEvbvF12LnJZkIVc6o1wMrBwfvo2pu7pBHO-5ljjxUiCIxcMqUuE-PocHSNZ4eyM7k4qkty0MzBosOoyVoQaDKS9MHI0hC854_CLDw74js"/>
 </div>
 <h4 class="text-headline-md font-headline-md text-primary">Мария Соколова</h4>
 <p class="text-label-md text-on-surface-variant">Эксперт по диагностике долговой нагрузки и рисков перед запуском процедуры.</p>
 </div>
 <div class="group">
 <div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500" data-alt="Portrait of a male legal expert with a focused and calm expression, dressed in business casual attire within a high-end contemporary office space. The background features architectural lines and soft bokeh, creating a premium and bespoke feel. Lighting is warm yet precise." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWyByM-iOcxPMO-xmRm5eGU27jTvpPYTrOxnIG7ALs8t1OUakhV8Lz1CUoDHUC5aHMkmJ_eojP98d19ip7oVGw0omOT1YYudaVw3TTdFCSdHwU6zI_nmiZQ0o3DoXz9pzAeAQfr19kk_BZ5LlE390J1YrjVdRhp5ptpKDd1D-pQREO2W-edMjiXtp7Ke-UHBtZoVqzOZ88of-_IpaiEuethayn7ewSjzE66_-4DxakPamBnbIu846BChh4d5TDXyhjrgHuI6MLuHU"/>
+<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" data-alt="Portrait of a male legal expert with a focused and calm expression, dressed in business casual attire within a high-end contemporary office space. The background features architectural lines and soft bokeh, creating a premium and bespoke feel. Lighting is warm yet precise." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWyByM-iOcxPMO-xmRm5eGU27jTvpPYTrOxnIG7ALs8t1OUakhV8Lz1CUoDHUC5aHMkmJ_eojP98d19ip7oVGw0omOT1YYudaVw3TTdFCSdHwU6zI_nmiZQ0o3DoXz9pzAeAQfr19kk_BZ5LlE390J1YrjVdRhp5ptpKDd1D-pQREO2W-edMjiXtp7Ke-UHBtZoVqzOZ88of-_IpaiEuethayn7ewSjzE66_-4DxakPamBnbIu846BChh4d5TDXyhjrgHuI6MLuHU"/>
 </div>
 <h4 class="text-headline-md font-headline-md text-primary">Дмитрий Романов</h4>
 <p class="text-label-md text-on-surface-variant">Специалист по защите от взыскания, кредиторского давления и субсидиарных рисков.</p>
@@ -1143,7 +1363,7 @@
 </div>
 </div>
 </div>
-<div class="grid gap-3" role="tablist" aria-label="Программа вебинара АСПБ">
+<div class="grid gap-3" role="group" aria-label="Программа вебинара АСПБ">
 <button aria-pressed="true" class="program-card text-left rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-5 transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-program-icon="query_stats" data-program-result="Вы увидите, где начинается возможность АСПБ в обычной юридической практике." data-program-text="Поймете, почему закрытие бизнеса и рост долгов создают не только тревогу, но и понятную партнерскую нишу для юристов и антикризисных специалистов." data-program-title="Кризис как юридический поток" type="button">
 <span class="flex gap-4">
 <span class="program-number flex w-11 h-11 rounded-lg bg-surface-container text-primary items-center justify-center font-bold shrink-0">01</span>
@@ -1272,7 +1492,7 @@
 <h3 class="text-headline-md font-headline-md mb-1">Узнали себя хотя бы в одном пункте?</h3>
 <p class="text-body-md text-white/78">На вебинаре покажем, как превратить такие обращения в партнерский маршрут АСПБ.</p>
 </div>
-<a class="inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-6 py-4 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0 text-center" href="register.html">
+<a class="btn-premium btn-premium--light inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-6 py-4 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0 text-center" href="register.html">
                     Зарегистрироваться на вебинар
 <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
 </a>
@@ -1301,7 +1521,7 @@
 <p class="text-body-md text-white/78 mb-6">
                         АСПБ берет диагностику, документы, суд, кредиторов и сопровождение. Ваша роль — вовремя заметить сигнал и передать человека в надежные руки.
                     </p>
-<a class="inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-5 py-3 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all" href="register.html">
+<a class="btn-premium btn-premium--light inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-5 py-3 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all" href="register.html">
                         Стать партнером
 <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
 </a>
@@ -1411,7 +1631,7 @@
                     Вместо ответа «это не мой профиль» покажите клиенту законный маршрут: передайте ситуацию в АСПБ, сохраните доверие и превратите уже существующий поток обращений в партнерскую линию.
                 </p>
 <div class="flex flex-col sm:flex-row gap-4 justify-center">
-<a class="bg-primary-fixed text-on-primary-fixed px-10 py-5 rounded-xl font-headline-md text-headline-md hover:scale-105 active:scale-95 transition-all" href="register.html">
+<a class="btn-premium btn-premium--light bg-primary-fixed text-on-primary-fixed px-10 py-5 rounded-xl font-headline-md text-headline-md hover:scale-105 active:scale-95 transition-all" href="register.html">
                         Зарегистрироваться на вебинар
                     </a>
 <a class="bg-transparent border border-primary-fixed-dim text-primary-fixed-dim px-10 py-5 rounded-xl font-headline-md text-headline-md hover:bg-white/5 transition-all" href="https://t.me/example" target="_blank" rel="noreferrer">
@@ -1719,6 +1939,22 @@
             });
         });
 
+        (function() {
+          const scaleTabs = document.querySelectorAll('#regScaleTab1, #regScaleTab2');
+          const scaleText = document.getElementById('regScaleText');
+          const scaleContents = {
+            regScaleTab1: 'Банкротство — не "поражение", а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.',
+            regScaleTab2: 'За вашей рекомендацией стоит команда АУ и 17 000+ успешных дел. Это сильнее, чем вести сложный кейс в одиночку.'
+          };
+          scaleTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+              scaleTabs.forEach(t => t.setAttribute('aria-selected', 'false'));
+              tab.setAttribute('aria-selected', 'true');
+              scaleText.textContent = scaleContents[tab.id] || '';
+            });
+          });
+        })();
+
         function initSiteClickRipple() {
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
                 return;
@@ -1742,4 +1978,31 @@
     </script>
 <script src="aspb-api.js"></script>
 <script src="flow-tabs.js"></script>
+<script src="buttons.js"></script>
+<script>
+(function(){
+  const observer = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if(entry.isIntersecting){
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  },{threshold:0.15});
+  document.querySelectorAll('.card-reveal').forEach(function(el){observer.observe(el);});
+
+  // 3D Tilt effect for bento cards
+  document.querySelectorAll('.bento-card-tilt').forEach(function(card){
+    card.addEventListener('mousemove', function(e){
+      var rect = card.getBoundingClientRect();
+      var x = (e.clientX - rect.left) / rect.width - 0.5;
+      var y = (e.clientY - rect.top) / rect.height - 0.5;
+      card.style.transform = 'rotateY(' + (x * 6) + 'deg) rotateX(' + (-y * 4) + 'deg) scale(1.01)';
+    });
+    card.addEventListener('mouseleave', function(){
+      card.style.transform = 'rotateY(0deg) rotateX(0deg) scale(1)';
+    });
+  });
+})();
+</script>
 </body></html>

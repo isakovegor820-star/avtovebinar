@@ -109,6 +109,53 @@
             backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.3);
         }
+
+        /* Card reveal animation */
+        .card-reveal {
+            opacity: 0;
+            transform: translateY(16px);
+            animation: cardRevealIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            animation-play-state: paused;
+        }
+        .card-reveal.is-visible {
+            animation-play-state: running;
+        }
+        @keyframes cardRevealIn {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Program item hover — number lights up */
+        .program-item:hover .program-number {
+            opacity: 1 !important;
+            transform: scale(1.2);
+            color: #041627;
+        }
+        .program-number {
+            opacity: 0.3;
+        }
+
+        /* Program icon subtle pulse */
+        .program-icon-pulse {
+            animation: iconSoftPulse 3s ease-in-out infinite;
+        }
+        @keyframes iconSoftPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(4, 22, 39, 0.1); }
+            50% { box-shadow: 0 0 0 8px rgba(4, 22, 39, 0); }
+        }
+
+        /* Notify icon pulse */
+        .notify-icon-pulse {
+            animation: notifyPulse 2.5s ease-in-out infinite;
+        }
+        @keyframes notifyPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 136, 204, 0.2); }
+            50% { box-shadow: 0 0 0 6px rgba(0, 136, 204, 0); }
+        }
+
+        /* Notify button hover glow */
+        .notify-btn:hover {
+            box-shadow: 0 0 20px rgba(4, 22, 39, 0.15);
+        }
     </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
@@ -294,7 +341,7 @@
   </div>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-4">
-    <div class="space-y-2">
+    <div class="space-y-2 card-reveal">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
         <span class="material-symbols-outlined text-secondary">description</span>
         <span>Официальный договор</span>
@@ -304,7 +351,7 @@
       </p>
     </div>
 
-    <div class="space-y-2">
+    <div class="space-y-2 card-reveal" style="animation-delay:0.1s">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
         <span class="material-symbols-outlined text-secondary">forward_to_inbox</span>
         <span>Простой процесс передачи</span>
@@ -314,7 +361,7 @@
       </p>
     </div>
 
-    <div class="space-y-2">
+    <div class="space-y-2 card-reveal" style="animation-delay:0.2s">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
         <span class="material-symbols-outlined text-secondary">verified_user</span>
         <span>Сохранение лояльности</span>
@@ -324,7 +371,7 @@
       </p>
     </div>
 
-    <div class="space-y-2">
+    <div class="space-y-2 card-reveal" style="animation-delay:0.3s">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
         <span class="material-symbols-outlined text-secondary">travel_explore</span>
         <span>Работа по всей РФ</span>
@@ -333,6 +380,14 @@
         АСПБ работает во всех регионах России. Сопровождаем банкротство юридических лиц, налоговые споры, структурирование долгов и защиту активов под ключ.
       </p>
     </div>
+  </div>
+
+  <!-- Market data quote -->
+  <div class="mt-6 pt-5 border-t border-outline-variant/20">
+    <p class="text-[13px] text-on-surface-variant/80 leading-relaxed italic">
+      «Розничный кредитный портфель достиг 37,37 трлн руб. Действующие займы имеют 47,6 млн человек. Около половины всей задолженности приходится на граждан с высоким уровнем долговой нагрузки (ПДН выше 50%), а каждый пятый заемщик имеет просрочки платежей более 30 дней.»
+    </p>
+    <p class="text-[11px] text-on-surface-variant/60 mt-2 font-semibold uppercase tracking-wider">— ФЦБГ</p>
   </div>
 </div>
 <div class="lg:col-span-5 bg-primary text-on-primary rounded-lg p-6 md:p-8 shadow-lg" id="partnerApplication">
@@ -362,76 +417,62 @@
 </form>
 </div>
 </section>
-<!-- Program & CTA Bento Grid -->
-<section class="mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+<!-- Program & Notifications -->
+<section class="mt-16 space-y-8">
 <!-- Program Block -->
-<div class="lg:col-span-2 bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 shadow-sm">
+<div class="bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 shadow-sm">
 <div class="flex items-center gap-4 mb-8">
-<div class="w-12 h-12 bg-primary rounded-xl flex items-center justify-center">
+<div class="w-12 h-12 bg-primary rounded-xl flex items-center justify-center program-icon-pulse">
 <span class="material-symbols-outlined text-white">format_list_bulleted</span>
 </div>
 <h2 class="text-headline-lg font-headline-lg text-primary">Программа вебинара</h2>
 </div>
 <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">01</span>
-<p class="text-body-md text-on-surface-variant pt-1">Кризис: потери для одних или поток клиентов для подготовленного специалиста.</p>
+<div class="flex gap-4 group card-reveal program-item">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">01</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Кризис: потери для одних или поток клиентов для подготовленного специалиста.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">02</span>
-<p class="text-body-md text-on-surface-variant pt-1">Почему проблемные клиенты уже приходят к юристам и консультантам.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.08s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">02</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Почему проблемные клиенты уже приходят к юристам и консультантам.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">03</span>
-<p class="text-body-md text-on-surface-variant pt-1">Когда клиенту нужна не отсрочка, а законная финансовая перезагрузка.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.16s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">03</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Когда клиенту нужна не отсрочка, а законная финансовая перезагрузка.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">04</span>
-<p class="text-body-md text-on-surface-variant pt-1">Как АСПБ забирает на себя процедуру: диагностика, документы, суд, кредиторы.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.24s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">04</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Как АСПБ забирает на себя процедуру: диагностика, документы, суд, кредиторы.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">05</span>
-<p class="text-body-md text-on-surface-variant pt-1">Как передать клиента без давления и сохранить доверие к себе.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.32s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">05</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Как передать клиента без давления и сохранить доверие к себе.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">06</span>
-<p class="text-body-md text-on-surface-variant pt-1">Партнерская модель: передали контакт — дальше работает АСПБ.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.4s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">06</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Партнерская модель: передали контакт — дальше работает АСПБ.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">07</span>
-<p class="text-body-md text-on-surface-variant pt-1">Ответы на вопросы и разбор ситуаций участников.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.48s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">07</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Ответы на вопросы и разбор ситуаций участников.</p>
 </div>
 </div>
 </div>
-<!-- CTA Block -->
-<div class="space-y-8">
-<!-- Partner CTA -->
-<div class="bg-primary p-8 rounded-lg text-on-primary flex flex-col justify-between min-h-[280px] shadow-lg relative overflow-hidden group">
-<div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 group-hover:scale-125 transition-transform duration-700"></div>
-<div>
-<h3 class="text-headline-md font-headline-md mb-3">Партнерский договор</h3>
-<p class="text-body-md text-on-primary-container/80 mb-6">После эфира оставьте заявку: условия сотрудничества и вознаграждение фиксируются официально.</p>
-</div>
-<a class="w-full bg-secondary-container text-on-secondary-container py-4 rounded-xl font-label-md hover:bg-secondary-fixed transition-colors flex items-center justify-center gap-2" href="#partnerApplication">
-<span>Оставить заявку на договор</span>
-<span class="material-symbols-outlined text-[20px]">arrow_forward</span>
-</a>
-</div>
-<!-- Social CTA -->
-<div class="bg-surface-container-high p-8 rounded-lg border border-outline-variant/30 flex flex-col justify-between">
-<div>
-<div class="flex items-center gap-3 mb-4">
-<div class="w-10 h-10 bg-[#0088cc] rounded-full flex items-center justify-center text-white">
+<!-- Notifications CTA -->
+<div class="bg-primary rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 card-reveal" style="animation-delay:0.55s">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-white/15 rounded-full flex items-center justify-center text-white shrink-0 notify-icon-pulse">
 <span class="material-symbols-outlined">send</span>
 </div>
-<span class="font-label-md text-on-surface">Уведомления АСПБ</span>
+<div>
+<span class="font-label-md text-white block">Уведомления АСПБ</span>
+<p class="text-body-sm text-white/70">Напоминания об эфире, новости и материалы для партнеров.</p>
 </div>
-<p class="text-body-md text-on-surface-variant">Напоминания об эфире, новости платформы и материалы для партнеров АСПБ.</p>
 </div>
-<a class="mt-6 w-full border-2 border-primary text-primary py-3 rounded-xl font-label-md hover:bg-primary hover:text-white transition-all flex items-center justify-center" href="https://t.me/example" target="_blank" rel="noreferrer">
-                        Подключить уведомления
-                    </a>
-</div>
+<a class="shrink-0 bg-white text-primary py-3 px-6 rounded-xl font-label-md hover:bg-white/90 active:scale-95 transition-all flex items-center justify-center gap-2 notify-btn" href="https://t.me/example" target="_blank" rel="noreferrer">
+<span class="material-symbols-outlined text-[18px]">send</span>
+Подключить
+</a>
 </div>
 </section>
 </main>
@@ -453,4 +494,17 @@
 
 <script src="aspb-api.js"></script>
 <script src="flow-tabs.js"></script>
+<script>
+(function(){
+  var observer = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if(entry.isIntersecting){
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  },{threshold:0.15});
+  document.querySelectorAll('.card-reveal').forEach(function(el){observer.observe(el);});
+})();
+</script>
 </body></html>

@@ -625,6 +625,67 @@
             100% { transform: scale(1); }
         }
 
+        /* Hero image hover — fan cards appear beside the photo */
+        .hero-image-hover {
+            overflow: visible !important;
+        }
+        .hero-fan-cards {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .hero-fan-card {
+            position: absolute;
+            width: 170px;
+            padding: 14px;
+            border-radius: 14px;
+            background: rgba(4, 22, 39, 0.92);
+            border: 1px solid rgba(210, 228, 251, 0.3);
+            color: #fff;
+            opacity: 0;
+            transition: opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+                        transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+            box-shadow: 0 10px 28px rgba(4, 22, 39, 0.18);
+        }
+        /* Card 1 — top-right outside */
+        .hero-fan-card--1 {
+            top: 5%;
+            right: -185px;
+            transform: translateX(-15px);
+        }
+        /* Card 2 — middle-right outside */
+        .hero-fan-card--2 {
+            top: 40%;
+            right: -185px;
+            transform: translateX(-15px);
+            transition-delay: 0.07s;
+        }
+        /* Card 3 — bottom-right outside */
+        .hero-fan-card--3 {
+            bottom: 10%;
+            right: -185px;
+            transform: translateX(-15px);
+            transition-delay: 0.14s;
+        }
+        .hero-image-hover:hover .hero-fan-card {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        @media (max-width: 1280px) {
+            .hero-fan-card--1,
+            .hero-fan-card--2,
+            .hero-fan-card--3 { right: -165px; }
+            .hero-fan-card { width: 155px; padding: 12px; }
+        }
+        @media (max-width: 1024px) {
+            .hero-fan-card--1 { top: auto; bottom: -50px; right: auto; left: 5%; transform: translateY(-10px); }
+            .hero-fan-card--2 { top: auto; bottom: -50px; right: auto; left: 37%; transform: translateY(-10px); }
+            .hero-fan-card--3 { bottom: -50px; right: auto; left: 69%; transform: translateY(-10px); }
+            .hero-image-hover:hover .hero-fan-card { transform: translateY(0); }
+            .hero-fan-card { width: 140px; }
+        }
+
         /* Card reveal animation on scroll */
         .card-reveal {
             opacity: 0;
@@ -898,9 +959,33 @@
                         </a>
 </div>
 </div>
-<div class="relative group h-[420px] sm:h-[520px] md:h-[640px] lg:h-[700px]">
+<div class="relative group h-[420px] sm:h-[520px] md:h-[640px] lg:h-[700px] hero-image-hover">
 <div class="absolute -inset-4 bg-primary/5 rounded-3xl blur-2xl group-hover:bg-primary/10 transition-all duration-500"></div>
-<img alt="Юрист и команда АСПБ разбирают долговую ситуацию клиента перед запуском антикризисного маршрута" class="relative rounded-xl shadow-2xl w-full h-full object-cover object-center" src="assets/aspb-hero-consultation.png"/>
+<img alt="Юрист и команда АСПБ разбирают долговую ситуацию клиента перед запуском антикризисного маршрута" class="relative rounded-xl shadow-2xl w-full h-full object-cover object-center transition-all duration-500 group-hover:scale-[1.02]" src="assets/aspb-hero-consultation.png"/>
+<!-- 3 mini-cards fan out on hover -->
+<div class="hero-fan-cards">
+<div class="hero-fan-card hero-fan-card--1">
+<div class="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center mb-2">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+</div>
+<p class="text-[13px] font-bold leading-tight">Диагностика</p>
+<p class="text-[11px] leading-snug opacity-80 mt-1">АСПБ проверяет ситуацию клиента и строит маршрут</p>
+</div>
+<div class="hero-fan-card hero-fan-card--2">
+<div class="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center mb-2">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+</div>
+<p class="text-[13px] font-bold leading-tight">Процедура</p>
+<p class="text-[11px] leading-snug opacity-80 mt-1">Команда ведёт банкротство, суд и кредиторов</p>
+</div>
+<div class="hero-fan-card hero-fan-card--3">
+<div class="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center mb-2">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+</div>
+<p class="text-[13px] font-bold leading-tight">Партнёрство</p>
+<p class="text-[11px] leading-snug opacity-80 mt-1">Юрист получает вознаграждение за каждую передачу</p>
+</div>
+</div>
 </div>
 </div>
 </section>
@@ -1680,95 +1765,9 @@
             });
         });
 
-        function getMoscowDateParts(date = new Date()) {
-            const parts = new Intl.DateTimeFormat('ru-RU', {
-                timeZone: 'Europe/Moscow',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            }).formatToParts(date);
+        function getMoscowDateParts() {}
 
-            return Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, Number(part.value)]));
-        }
-
-        function createTomorrowWebinarTarget() {
-            const moscowToday = getMoscowDateParts();
-            return Date.UTC(moscowToday.year, moscowToday.month - 1, moscowToday.day + 1, 8, 0, 0);
-        }
-
-        function getStoredWebinarTarget() {
-            const storageKey = 'aspbWebinarTargetMsk';
-            let savedTarget = NaN;
-            const now = Date.now();
-
-            try {
-                savedTarget = Number(window.localStorage?.getItem(storageKey));
-            } catch (error) {
-                savedTarget = NaN;
-            }
-
-            if (Number.isFinite(savedTarget) && savedTarget > now) {
-                return savedTarget;
-            }
-
-            const target = createTomorrowWebinarTarget();
-
-            try {
-                window.localStorage?.setItem(storageKey, String(target));
-            } catch (error) {
-                // Countdown still works when storage is unavailable.
-            }
-
-            return target;
-        }
-
-        function initHeroCountdown() {
-            const countdown = document.getElementById('heroCountdown');
-            if (!countdown) {
-                return;
-            }
-
-            const target = getStoredWebinarTarget();
-            const label = document.getElementById('webinarTargetLabel');
-            const targetLabel = new Intl.DateTimeFormat('ru-RU', {
-                timeZone: 'Europe/Moscow',
-                day: 'numeric',
-                month: 'long',
-                hour: '2-digit',
-                minute: '2-digit'
-            }).format(new Date(target));
-
-            if (label) {
-                label.textContent = `${targetLabel} МСК`;
-            }
-
-            const units = {
-                days: countdown.querySelector('[data-countdown-days]'),
-                hours: countdown.querySelector('[data-countdown-hours]'),
-                minutes: countdown.querySelector('[data-countdown-minutes]'),
-                seconds: countdown.querySelector('[data-countdown-seconds]')
-            };
-
-            const format = value => String(value).padStart(2, '0');
-
-            function renderCountdown() {
-                const distance = Math.max(0, target - Date.now());
-                const days = Math.floor(distance / 86400000);
-                const hours = Math.floor((distance % 86400000) / 3600000);
-                const minutes = Math.floor((distance % 3600000) / 60000);
-                const seconds = Math.floor((distance % 60000) / 1000);
-
-                units.days.textContent = format(days);
-                units.hours.textContent = format(hours);
-                units.minutes.textContent = format(minutes);
-                units.seconds.textContent = format(seconds);
-            }
-
-            renderCountdown();
-            setInterval(renderCountdown, 1000);
-        }
-
-        initHeroCountdown();
+        try { localStorage.removeItem('aspbWebinarTargetMsk'); } catch(e) {}
 
         const emotionCards = document.querySelectorAll('.emotion-card');
         const problemEmotionPanel = document.getElementById('problemEmotionPanel');

@@ -79,8 +79,31 @@
     return String(value).padStart(2, '0');
   }
 
-	  function startCountdown(scheduledAt) {
-	    const target = new Date(scheduledAt).getTime();
+let countdownInterval = null;
+  let countdownRetries = 0;
+
+  function getNextLocalTarget() {
+    // Compute next 11:00 MSK (08:00 UTC) from client clock
+    const now = new Date();
+    const msk = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(now);
+    const m = {};
+    msk.forEach(function(p) { if (p.type !== 'literal') m[p.type] = Number(p.value); });
+    const todayTarget = Date.UTC(m.year, m.month - 1, m.day, 8, 0, 0);
+    if (todayTarget > Date.now()) return todayTarget;
+    return Date.UTC(m.year, m.month - 1, m.day + 1, 8, 0, 0);
+  }
+
+  function startCountdown(scheduledAt) {
+    let target = new Date(scheduledAt).getTime();
+    const now = Date.now() + serverTimeOffset;
+
+    // If server returned a past date (e.g. test mode), use local calculation
+    if (target <= now) {
+      target = getNextLocalTarget();
+    }
+
     const nodes = {
       days: document.querySelector('[data-countdown-days]'),
       hours: document.querySelector('[data-countdown-hours]'),
@@ -92,8 +115,15 @@
       return;
     }
 
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+    }
+
+    countdownRetries = 0;
+
     function tick() {
-	      const diff = Math.max(0, target - (Date.now() + serverTimeOffset));
+      const diff = Math.max(0, target - (Date.now() + serverTimeOffset));
       const total = Math.floor(diff / 1000);
       const days = Math.floor(total / 86400);
       const hours = Math.floor((total % 86400) / 3600);
@@ -109,10 +139,19 @@
       if (compact) {
         compact.innerHTML = `<span>${pad(hours + days * 24)}</span>:<span>${pad(minutes)}</span>:<span>${pad(seconds)}</span>`;
       }
+
+      if (diff <= 0 && countdownRetries < 1) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+        countdownRetries++;
+        // Recalculate locally for next day instead of hammering the server
+        target = getNextLocalTarget();
+        countdownInterval = setInterval(tick, 1000);
+      }
     }
 
     tick();
-    window.setInterval(tick, 1000);
+    countdownInterval = setInterval(tick, 1000);
   }
 
   async function hydrateCurrentWebinar() {

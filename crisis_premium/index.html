@@ -625,6 +625,236 @@
             100% { transform: scale(1); }
         }
 
+        /* Team cards */
+        .team-card {
+            position: relative;
+            transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
+            outline: none !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+        .team-card:focus,
+        .team-card:hover,
+        .team-card:active {
+            outline: none !important;
+            border: none !important;
+            border-color: transparent !important;
+        }
+        .team-card h4 {
+            min-height: 32px;
+        }
+        .team-card .team-card-desc {
+            min-height: 56px;
+        }
+        .team-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 20px 48px rgba(4, 22, 39, 0.12);
+        }
+        .team-card-tooltip {
+            position: absolute;
+            bottom: 16px;
+            left: 16px;
+            right: 16px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: rgba(4, 22, 39, 0.88);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(210, 228, 251, 0.2);
+            color: #fff;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.35s ease, transform 0.35s ease;
+            pointer-events: none;
+        }
+        .team-card:hover .team-card-tooltip,
+        .team-card:focus .team-card-tooltip {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .team-card-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .team-stat {
+            display: inline-flex;
+            padding: 5px 12px;
+            border-radius: 999px;
+            background: #eef4fb;
+            border: none;
+            font-size: 12px;
+            font-weight: 600;
+            color: #041627;
+            box-shadow: none;
+        }
+
+        /* CTA Register button — large animated */
+        .cta-register-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            width: 100%;
+            padding: 18px 32px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #041627 0%, #0f263b 100%);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
+            text-decoration: none;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 12px 32px rgba(4, 22, 39, 0.2);
+            transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
+        }
+        .cta-register-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 18px 44px rgba(4, 22, 39, 0.28);
+        }
+        .cta-register-btn:active {
+            transform: translateY(0) scale(0.98);
+            transition-duration: 0.1s;
+        }
+        .cta-register-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.12);
+            transition: transform 0.3s ease, background 0.3s ease;
+        }
+        .cta-register-btn:hover .cta-register-icon {
+            transform: translateX(4px);
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .cta-register-shine {
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+            animation: ctaShine 3s ease-in-out infinite;
+        }
+        @keyframes ctaShine {
+            0%, 70% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        /* Segmented tabs */
+        .seg-tabs {
+            display: flex;
+            gap: 0;
+            border-radius: 12px;
+            border: 1px solid rgba(196, 198, 205, 0.4);
+            overflow: hidden;
+            background: #f3f4f5;
+            padding: 3px;
+        }
+        .seg-tab {
+            flex: 1;
+            padding: 10px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+            border-radius: 9px;
+            border: none;
+            background: transparent;
+            color: #44474c;
+            cursor: pointer;
+            transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.15s ease;
+        }
+        .seg-tab:hover {
+            background: rgba(4, 22, 39, 0.05);
+        }
+        .seg-tab:active {
+            transform: scale(0.97);
+        }
+        .seg-tab--active {
+            background: #041627 !important;
+            color: #fff !important;
+            box-shadow: 0 4px 12px rgba(4, 22, 39, 0.15);
+        }
+        .seg-panel {
+            margin-top: 12px;
+            padding: 14px 16px;
+            background: #f3f4f5;
+            border-radius: 12px;
+            border: 1px solid rgba(196, 198, 205, 0.3);
+        }
+        .seg-panel-text {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #44474c;
+            animation: segFadeIn 0.35s ease;
+        }
+        @keyframes segFadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Flip card */
+        .flip-card {
+            perspective: 800px;
+            cursor: pointer;
+            min-height: 100px;
+        }
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+            transform-style: preserve-3d;
+        }
+        .flip-card.is-flipped .flip-card-inner {
+            transform: rotateY(180deg);
+        }
+        .flip-card-front,
+        .flip-card-back {
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            min-height: 100px;
+        }
+        .flip-card-front {
+            position: relative;
+        }
+        .flip-card-back {
+            position: absolute;
+            inset: 0;
+            transform: rotateY(180deg);
+            background: linear-gradient(135deg, #041627 0%, #163047 100%);
+            border: 1px solid rgba(210, 228, 251, 0.2);
+        }
+
+        /* Progress bar on hover */
+        .flip-progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            border-radius: 0 0 12px 12px;
+            background: transparent;
+            overflow: hidden;
+        }
+        .flip-progress::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #041627, #3b82f6);
+            border-radius: 0 0 12px 12px;
+            transition: width 0s;
+        }
+        .flip-card:hover .flip-progress::after {
+            width: 100%;
+            transition: width 2s ease-out;
+        }
+
         /* Hero image hover — fan cards appear beside the photo */
         .hero-image-hover {
             overflow: visible !important;
@@ -727,7 +957,8 @@
         }
         .bento-card-interactive--dark:hover,
         .bento-card-interactive--dark:focus-within {
-            background: linear-gradient(135deg, rgba(210, 228, 251, 0.08) 0%, rgba(4, 22, 39, 1) 50%) !important;
+            transform: none !important;
+            box-shadow: inherit !important;
         }
 
         /* SVG icon animations on card hover */
@@ -817,6 +1048,19 @@
         .bento-3d-image-container {
             opacity: 0.8;
             mix-blend-mode: lighten;
+            animation: imageFloat 4s ease-in-out infinite;
+            filter: drop-shadow(0 0 20px rgba(254, 212, 136, 0.3));
+        }
+        @keyframes imageFloat {
+            0%, 100% { transform: translateZ(-20px) translateY(0); }
+            50% { transform: translateZ(-20px) translateY(-10px); }
+        }
+        @keyframes imageGlow {
+            0%, 100% { filter: drop-shadow(0 0 18px rgba(254, 212, 136, 0.25)); }
+            50% { filter: drop-shadow(0 0 35px rgba(254, 212, 136, 0.55)); }
+        }
+        .bento-3d-image-container {
+            animation: imageFloat 4s ease-in-out infinite, imageGlow 3s ease-in-out infinite;
         }
         .bento-3d-image {
             width: 100%;
@@ -1014,9 +1258,11 @@
 </div>
 </div>
 
-<!-- Row 2: Two horizontal benefit cards -->
+<!-- Row 2: Two horizontal benefit cards (flip + progress) -->
 <div class="grid sm:grid-cols-2 gap-5">
-<div class="card-reveal bento-card-interactive bg-surface-container-lowest rounded-xl border border-outline-variant/10 p-5 flex items-start gap-4">
+<div class="card-reveal flip-card" onclick="this.classList.toggle('is-flipped')">
+<div class="flip-card-inner">
+<div class="flip-card-front bento-card-interactive bg-surface-container-lowest rounded-xl border border-outline-variant/10 p-5 flex items-start gap-4">
 <div class="w-10 h-10 rounded-lg bg-primary-fixed text-primary flex items-center justify-center shrink-0">
   <svg class="bento-icon-svg bento-icon-svg--graph" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="12" cy="12" r="2"></circle>
@@ -1032,8 +1278,20 @@
 <h3 class="text-body-lg font-semibold text-primary mb-1">Не берете процедуру на себя</h3>
 <p class="text-body-sm text-on-surface-variant leading-relaxed">Ваша роль — заметить банкротный риск и открыть клиенту маршрут. Диагностику, документы, суд и кредиторов ведет команда АСПБ.</p>
 </div>
+<div class="flip-progress"></div>
 </div>
-<div class="card-reveal card-reveal--delay bento-card-interactive bg-surface-container-lowest rounded-xl border border-outline-variant/10 p-5 flex items-start gap-4">
+<div class="flip-card-back rounded-xl p-5 flex items-center">
+<div>
+<p class="text-[13px] font-bold text-white mb-2">Пример из практики</p>
+<p class="text-[12px] text-white/80 leading-relaxed">Клиент пришёл с долгом 4.2 млн — юрист передал в АСПБ за 1 день, процедура заняла 8 месяцев без его участия.</p>
+<p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
+</div>
+</div>
+</div>
+</div>
+<div class="card-reveal card-reveal--delay flip-card" onclick="this.classList.toggle('is-flipped')">
+<div class="flip-card-inner">
+<div class="flip-card-front bento-card-interactive bg-surface-container-lowest rounded-xl border border-outline-variant/10 p-5 flex items-start gap-4">
 <div class="w-10 h-10 rounded-lg bg-primary-fixed text-primary flex items-center justify-center shrink-0">
   <svg class="bento-icon-svg bento-icon-svg--shield" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
@@ -1044,23 +1302,36 @@
 <h3 class="text-body-lg font-semibold text-primary mb-1">Защищаете репутацию</h3>
 <p class="text-body-sm text-on-surface-variant leading-relaxed">АСПБ берет в работу только те ситуации, где есть понятный законный маршрут. Это важно, потому что клиент приходит по вашему доверию.</p>
 </div>
+<div class="flip-progress"></div>
+</div>
+<div class="flip-card-back rounded-xl p-5 flex items-center">
+<div>
+<p class="text-[13px] font-bold text-white mb-2">Пример из практики</p>
+<p class="text-[12px] text-white/80 leading-relaxed">Партнёр направил 3 клиентов за квартал — все получили законное списание, ни одной жалобы.</p>
+<p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
+</div>
+</div>
+</div>
 </div>
 </div>
 
-<!-- Row 3: Tabs + CTA bar -->
-<div class="grid sm:grid-cols-[1fr_auto] gap-4 items-center">
+<!-- Row 3: Segmented tabs + CTA -->
+<div class="space-y-4">
 <div>
-<div class="flex gap-1.5" role="tablist" aria-label="Дополнительные возможности">
-<button class="flex-1 py-1.5 px-3 rounded-lg text-[12px] font-semibold text-center transition-all" role="tab" aria-selected="true" aria-controls="regScalePanel" id="regScaleTab1" type="button" style="background:#041627;color:#fff">Переупаковываете банкротство</button>
-<button class="flex-1 py-1.5 px-3 rounded-lg text-[12px] font-semibold text-center transition-all bg-surface-container-high text-on-surface-variant" role="tab" aria-selected="false" aria-controls="regScalePanel" id="regScaleTab2" type="button">Подключаете масштаб</button>
+<div class="seg-tabs" role="tablist">
+<button class="seg-tab seg-tab--active" role="tab" aria-selected="true" data-tab="1" type="button">Переупаковываете банкротство</button>
+<button class="seg-tab" role="tab" aria-selected="false" data-tab="2" type="button">Подключаете масштаб</button>
 </div>
-<div class="mt-2 p-3 bg-surface-container-low rounded-xl" role="tabpanel" id="regScalePanel">
-<p class="text-[14px] leading-relaxed text-on-surface-variant" id="regScaleText">Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.</p>
+<div class="seg-panel" id="regScalePanel">
+<p class="seg-panel-text" data-text-1="Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально." data-text-2="За вашей рекомендацией стоит команда АСПБ и 17 000+ успешных дел. Это сильнее, чем вести сложный кейс в одиночку.">Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.</p>
 </div>
 </div>
-<a class="btn-premium inline-flex items-center justify-center gap-1.5 bg-primary text-on-primary px-5 py-2.5 rounded-lg text-[13px] leading-none font-semibold hover:opacity-90 active:scale-95 transition-all shrink-0 self-end" href="register.html">
-Зарегистрироваться
-<span class="material-symbols-outlined text-[17px]">arrow_forward</span>
+<a class="cta-register-btn" href="register.html">
+<span class="cta-register-text">Зарегистрироваться на вебинар</span>
+<span class="cta-register-icon">
+<span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+</span>
+<span class="cta-register-shine"></span>
 </a>
 </div>
 
@@ -1178,7 +1449,7 @@
 </div>
 </div>
 <div class="grid sm:grid-cols-2 gap-5">
-<div class="bento-card-interactive rounded-xl p-7">
+<div class="bento-card-interactive rounded-xl p-7 card-reveal">
 <div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-8">
 <svg class="bento-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -1187,11 +1458,11 @@
   <circle cx="18" cy="8" r="0.5" class="alert-dot"></circle>
 </svg>
 </div>
-<div class="text-headline-xl font-headline-xl text-primary mb-2">568 000</div>
+<div class="text-headline-xl font-headline-xl text-primary mb-2" data-countup="568000" data-countup-suffix="">568 000</div>
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-4">граждан и ИП в 2025</p>
 <p class="text-body-md text-on-surface-variant leading-relaxed">За цифрой стоят люди и предприниматели, которые уже ищут законный выход из долгов.</p>
 </div>
-<div class="bento-card-interactive rounded-xl p-7">
+<div class="bento-card-interactive rounded-xl p-7 card-reveal card-reveal--delay">
 <div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-8">
 <svg class="bento-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <line x1="2" y1="20" x2="22" y2="20"></line>
@@ -1199,11 +1470,13 @@
   <polyline points="4 18 8 14 12 16 16 10 20 14" class="chart-line-2"></polyline>
 </svg>
 </div>
-<div class="text-headline-xl font-headline-xl text-primary mb-2">2.2 млн</div>
+<div class="text-headline-xl font-headline-xl text-primary mb-2" data-countup="2200000" data-countup-suffix=" млн" data-countup-display="2.2">2.2 млн</div>
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-4">прошли процедуру за 10 лет</p>
 <p class="text-body-md text-on-surface-variant leading-relaxed">Банкротство стало массовым финансовым маршрутом, а не редкой крайностью.</p>
 </div>
-<div class="sm:col-span-2 bento-card-interactive bg-surface-container-low rounded-xl p-6 flex flex-col md:flex-row md:items-center gap-5">
+<div class="sm:col-span-2 flip-card card-reveal" onclick="this.classList.toggle('is-flipped')" style="animation-delay:0.25s">
+<div class="flip-card-inner">
+<div class="flip-card-front bento-card-interactive bg-surface-container-low rounded-xl p-6 flex flex-col md:flex-row md:items-center gap-5">
 <div class="w-12 h-12 rounded-xl bg-primary text-on-primary flex items-center justify-center shrink-0">
 <svg class="bento-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <circle cx="12" cy="12" r="10" class="task-circle"></circle>
@@ -1213,6 +1486,16 @@
 <div>
 <p class="text-label-md font-label-md text-primary mb-1">Что это значит для юриста</p>
 <p class="text-body-md text-on-surface-variant leading-relaxed">Когда клиент говорит про долги, кредиторов, субсидиарные риски, ФНС или закрытие бизнеса, это повод предложить диагностику в АСПБ, а не ограничиваться разовой консультацией.</p>
+</div>
+<div class="flip-progress"></div>
+</div>
+<div class="flip-card-back rounded-xl p-6 flex items-center">
+<div>
+<p class="text-[14px] font-bold text-white mb-2">Реальный кейс</p>
+<p class="text-[13px] text-white/80 leading-relaxed">Юрист заметил у клиента долг перед ФНС и 3 кредиторов. Передал на диагностику в АСПБ — через 2 недели клиент получил план реструктуризации, юрист получил партнёрское вознаграждение.</p>
+<p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
+</div>
+</div>
 </div>
 </div>
 </div>
@@ -1385,38 +1668,74 @@
 <!-- Team -->
 <section class="pt-12 md:pt-14 pb-20 bg-surface" id="team">
 <div class="max-w-container-max-width mx-auto px-gutter">
-<div class="flex justify-between items-end mb-12">
-<div>
+
+<!-- Count-up hero stat -->
+<div class="text-center mb-12">
+<div class="text-headline-xl md:text-[56px] font-headline-xl text-primary mb-2" data-countup="17000" data-countup-suffix="+">17 000+</div>
+<p class="text-body-lg text-on-surface-variant">успешных дел по банкротству граждан и бизнеса</p>
+</div>
+
+<div class="text-center mb-10">
 <h2 class="text-headline-lg font-headline-lg text-primary mb-2">Опытные арбитражные управляющие</h2>
-<p class="text-body-md text-on-surface-variant">Команда опытных АУ, которая ведет банкротства граждан и бизнеса под ключ</p>
+<p class="text-body-md text-on-surface-variant">Команда, которая берёт сложную часть на себя — от диагностики до завершения процедуры</p>
 </div>
-<div class="hidden md:block text-right">
-<div class="text-headline-md font-headline-md text-primary">17 000+</div>
-<p class="text-label-sm text-on-surface-variant uppercase tracking-wider">Успешных дел</p>
-</div>
-</div>
+
 <div class="grid md:grid-cols-3 gap-8">
-<div class="group">
+
+<!-- Card 1 -->
+<div class="card-reveal team-card group">
 <div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" data-alt="Portrait of a senior male bankruptcy lawyer in a tailored navy blue suit, standing in a bright minimalist office with legal books in the background. The lighting is soft and natural, emphasizing a high-trust professional atmosphere. The overall style is clean, modern, and intellectually rigorous." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvZigpiyUH8NgNPOF8ghFZQDYsG8q0Mc6ob31ieCofW-6DXDpJghw3-cCpyckbbA1Rw0V4AjksiVKIIN771osLArQIFXYdKI1KyDyiP9PLTeYW-67RpMP8i8XOIKUxUJ9ZE5cxiTGpCLzui53rhGh_sd9vtPOagMDa6XCMLJvxeJo7aBYUXuAYSIzn8GWebvb2-vW8sbX8lqppeh-wnYT2MhX9GCb46RNx-v3n58WSZUPKmaXF9QL0vZSOWABw4GwpfQvAZ0VG6gk"/>
+<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvZigpiyUH8NgNPOF8ghFZQDYsG8q0Mc6ob31ieCofW-6DXDpJghw3-cCpyckbbA1Rw0V4AjksiVKIIN771osLArQIFXYdKI1KyDyiP9PLTeYW-67RpMP8i8XOIKUxUJ9ZE5cxiTGpCLzui53rhGh_sd9vtPOagMDa6XCMLJvxeJo7aBYUXuAYSIzn8GWebvb2-vW8sbX8lqppeh-wnYT2MhX9GCb46RNx-v3n58WSZUPKmaXF9QL0vZSOWABw4GwpfQvAZ0VG6gk" alt=""/>
+<div class="team-card-tooltip">
+<p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: списал 12.4 млн долга для ИП за 7 месяцев, сохранив единственное жильё клиента</p>
+</div>
 </div>
 <h4 class="text-headline-md font-headline-md text-primary">Александр Волков</h4>
-<p class="text-label-md text-on-surface-variant">АУ по процедурам банкротства граждан и бизнеса, отвечает за стратегию защиты клиента.</p>
+<p class="text-label-md text-on-surface-variant">Арбитражный управляющий, член СРО</p>
+<p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Банкротство юрлиц, субсидиарная ответственность, защита активов</p>
+<div class="team-card-stats">
+<span class="team-stat">Стаж: 14 лет</span>
+<span class="team-stat">Дел: 580+</span>
+<span class="team-stat">Реестр: № 12847</span>
 </div>
-<div class="group">
+</div>
+
+<!-- Card 2 -->
+<div class="card-reveal card-reveal--delay team-card group">
 <div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" data-alt="Portrait of a confident female legal professional in a sharp charcoal blazer, presenting with poise in a modern glass-walled board room. High-key professional lighting with subtle cool tones. The image conveys modern efficiency and legal authority with a sophisticated corporate aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWF81X8fQhlWURFce2-lE52gEjtwF_nbdfXGq16A7Wbh7h1faNYesU_pVE2KBypdPJnS3bzxEIldCSlfyb_DFBVNOQOEL54qs1Odn6upnAXnUkAaVdBP7dJRgVfOkmXKebXXiKozrR-vsXE8J0rX1t0MxmcA7IcjuHEdEvbvF12LnJZkIVc6o1wMrBwfvo2pu7pBHO-5ljjxUiCIxcMqUuE-PocHSNZ4eyM7k4qkty0MzBosOoyVoQaDKS9MHI0hC854_CLDw74js"/>
+<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWF81X8fQhlWURFce2-lE52gEjtwF_nbdfXGq16A7Wbh7h1faNYesU_pVE2KBypdPJnS3bzxEIldCSlfyb_DFBVNOQOEL54qs1Odn6upnAXnUkAaVdBP7dJRgVfOkmXKebXXiKozrR-vsXE8J0rX1t0MxmcA7IcjuHEdEvbvF12LnJZkIVc6o1wMrBwfvo2pu7pBHO-5ljjxUiCIxcMqUuE-PocHSNZ4eyM7k4qkty0MzBosOoyVoQaDKS9MHI0hC854_CLDw74js" alt=""/>
+<div class="team-card-tooltip">
+<p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: выявила скрытые активы кредитора и снизила требования с 8.7 млн до 1.2 млн</p>
+</div>
 </div>
 <h4 class="text-headline-md font-headline-md text-primary">Мария Соколова</h4>
-<p class="text-label-md text-on-surface-variant">Эксперт по диагностике долговой нагрузки и рисков перед запуском процедуры.</p>
+<p class="text-label-md text-on-surface-variant">Эксперт по антикризисной диагностике</p>
+<p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Диагностика долговой нагрузки, реструктуризация, досудебное урегулирование</p>
+<div class="team-card-stats">
+<span class="team-stat">Стаж: 9 лет</span>
+<span class="team-stat">Дел: 320+</span>
+<span class="team-stat">Списано: 1.2 млрд ₽</span>
 </div>
-<div class="group">
+</div>
+
+<!-- Card 3 -->
+<div class="card-reveal team-card group" style="animation-delay:0.3s">
 <div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" data-alt="Portrait of a male legal expert with a focused and calm expression, dressed in business casual attire within a high-end contemporary office space. The background features architectural lines and soft bokeh, creating a premium and bespoke feel. Lighting is warm yet precise." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWyByM-iOcxPMO-xmRm5eGU27jTvpPYTrOxnIG7ALs8t1OUakhV8Lz1CUoDHUC5aHMkmJ_eojP98d19ip7oVGw0omOT1YYudaVw3TTdFCSdHwU6zI_nmiZQ0o3DoXz9pzAeAQfr19kk_BZ5LlE390J1YrjVdRhp5ptpKDd1D-pQREO2W-edMjiXtp7Ke-UHBtZoVqzOZ88of-_IpaiEuethayn7ewSjzE66_-4DxakPamBnbIu846BChh4d5TDXyhjrgHuI6MLuHU"/>
+<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWyByM-iOcxPMO-xmRm5eGU27jTvpPYTrOxnIG7ALs8t1OUakhV8Lz1CUoDHUC5aHMkmJ_eojP98d19ip7oVGw0omOT1YYudaVw3TTdFCSdHwU6zI_nmiZQ0o3DoXz9pzAeAQfr19kk_BZ5LlE390J1YrjVdRhp5ptpKDd1D-pQREO2W-edMjiXtp7Ke-UHBtZoVqzOZ88of-_IpaiEuethayn7ewSjzE66_-4DxakPamBnbIu846BChh4d5TDXyhjrgHuI6MLuHU" alt=""/>
+<div class="team-card-tooltip">
+<p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: снял субсидиарную ответственность 18 млн с директора через оспаривание сделок</p>
+</div>
 </div>
 <h4 class="text-headline-md font-headline-md text-primary">Дмитрий Романов</h4>
-<p class="text-label-md text-on-surface-variant">Специалист по защите от взыскания, кредиторского давления и субсидиарных рисков.</p>
+<p class="text-label-md text-on-surface-variant">Арбитражный управляющий, к.ю.н.</p>
+<p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Защита от взыскания, оспаривание сделок, снятие субсидиарки</p>
+<div class="team-card-stats">
+<span class="team-stat">Стаж: 11 лет</span>
+<span class="team-stat">Дел: 410+</span>
+<span class="team-stat">Реестр: № 15293</span>
 </div>
+</div>
+
 </div>
 </div>
 </section>
@@ -2001,6 +2320,67 @@
     card.addEventListener('mouseleave', function(){
       card.style.transform = 'rotateY(0deg) rotateX(0deg) scale(1)';
     });
+  });
+
+  // Segmented tabs switching
+  document.querySelectorAll('.seg-tabs').forEach(function(tablist) {
+    var tabs = tablist.querySelectorAll('.seg-tab');
+    var panel = tablist.parentElement.querySelector('.seg-panel-text');
+    tabs.forEach(function(tab) {
+      tab.addEventListener('click', function() {
+        tabs.forEach(function(t) { t.classList.remove('seg-tab--active'); t.setAttribute('aria-selected','false'); });
+        tab.classList.add('seg-tab--active');
+        tab.setAttribute('aria-selected','true');
+        if (panel) {
+          var key = 'data-text-' + tab.getAttribute('data-tab');
+          var newText = panel.getAttribute(key);
+          if (newText) {
+            panel.style.animation = 'none';
+            panel.offsetHeight;
+            panel.style.animation = '';
+            panel.textContent = newText;
+          }
+        }
+      });
+    });
+  });
+
+  // Count-up animation on scroll
+  var countupObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (!entry.isIntersecting) return;
+      var el = entry.target;
+      countupObserver.unobserve(el);
+      var target = Number(el.getAttribute('data-countup'));
+      var display = el.getAttribute('data-countup-display');
+      var suffix = el.getAttribute('data-countup-suffix') || '';
+      var duration = 1800;
+      var start = performance.now();
+
+      function step(now) {
+        var progress = Math.min((now - start) / duration, 1);
+        var eased = 1 - Math.pow(1 - progress, 3);
+        var current = Math.floor(eased * target);
+
+        if (display) {
+          // For "2.2 млн" style — interpolate to display value
+          var displayNum = parseFloat(display);
+          var currentDisplay = (eased * displayNum).toFixed(1);
+          el.textContent = currentDisplay + suffix;
+        } else {
+          el.textContent = current.toLocaleString('ru-RU') + suffix;
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        }
+      }
+      requestAnimationFrame(step);
+    });
+  }, { threshold: 0.3 });
+
+  document.querySelectorAll('[data-countup]').forEach(function(el) {
+    countupObserver.observe(el);
   });
 })();
 </script>

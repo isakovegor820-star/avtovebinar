@@ -1,19 +1,20 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { env } from './env.js';
+import { logger } from './logger.js';
 
 export class AppError extends Error {
   constructor(
     public statusCode: number,
     message: string,
-    public details?: unknown
+    public details?: unknown,
   ) {
     super(message);
   }
 }
 
 export function asyncHandler<T extends Request>(
-  handler: (req: T, res: Response, next: NextFunction) => Promise<unknown>
+  handler: (req: T, res: Response, next: NextFunction) => Promise<unknown>,
 ) {
   return (req: T, res: Response, next: NextFunction) => {
     handler(req, res, next).catch(next);
@@ -34,7 +35,7 @@ export function errorMiddleware(error: unknown, _req: Request, res: Response, _n
     return res.status(error.statusCode).json({
       ok: false,
       error: error.message,
-      details: error.details
+      details: error.details,
     });
   }
 
@@ -42,19 +43,19 @@ export function errorMiddleware(error: unknown, _req: Request, res: Response, _n
     return res.status(400).json({
       ok: false,
       error: 'Validation failed',
-      details: error.flatten()
+      details: error.flatten(),
     });
   }
 
   if (env.NODE_ENV === 'production') {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[ASPБ api error]', { message });
+    logger.error({ err: error, message }, 'Unhandled API error');
   } else {
-    console.error(error);
+    logger.error(error, 'Unhandled API error');
   }
 
   return res.status(500).json({
     ok: false,
-    error: 'Internal server error'
+    error: 'Internal server error',
   });
 }

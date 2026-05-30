@@ -7,8 +7,11 @@ dist/
 # Покрытие тестов
 coverage/
 
-# Тяжёлое видео (54 МБ)
-crisis_premium/assets/webinar.mp4
+# Тяжёлые медиа-файлы (видео, большие картинки)
+crisis_premium/assets/*.mp4
+crisis_premium/assets/*.webm
+crisis_premium/assets/*.mov
+crisis_premium/assets/*.png
 
 # Устаревшая документация
 docs/

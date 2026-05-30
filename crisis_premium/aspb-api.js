@@ -405,26 +405,48 @@ let countdownInterval = null;
         : 'Эфир еще не начался';
     const text =
       data.accessStatus === 'closed'
-        ? 'Срок доступа к записи по этой персональной ссылке истек. Если вам нужна помощь, оставьте новую заявку через регистрацию.'
+        ? 'Срок доступа к записи по этой персональной ссылке истек.'
         : data.accessStatus === 'pre_live'
-          ? `Вы пришли вовремя. Эфир стартует ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК, страница обновится автоматически ближе к старту.`
-        : `Вы зарегистрированы. Комната откроется автоматически к началу эфира: ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК.`;
+          ? `Эфир стартует ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК. Страница обновится автоматически.`
+        : `Комната откроется к началу эфира: ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК.`;
+
+    const countdownHtml = (data.accessStatus === 'waiting' || data.accessStatus === 'pre_live') ? `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:32px;max-width:420px;margin-left:auto;margin-right:auto">
+        <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(210,228,251,0.2);border-radius:16px;padding:20px 10px;text-align:center">
+          <strong data-countdown-days style="font-size:36px;font-weight:800;background:linear-gradient(135deg,#b7d4f7,#7ec8f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">00</strong>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:6px;text-transform:uppercase;letter-spacing:0.05em">дней</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(210,228,251,0.2);border-radius:16px;padding:20px 10px;text-align:center">
+          <strong data-countdown-hours style="font-size:36px;font-weight:800;background:linear-gradient(135deg,#b7d4f7,#7ec8f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">00</strong>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:6px;text-transform:uppercase;letter-spacing:0.05em">часов</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(210,228,251,0.2);border-radius:16px;padding:20px 10px;text-align:center">
+          <strong data-countdown-minutes style="font-size:36px;font-weight:800;background:linear-gradient(135deg,#b7d4f7,#7ec8f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">00</strong>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:6px;text-transform:uppercase;letter-spacing:0.05em">минут</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(210,228,251,0.2);border-radius:16px;padding:20px 10px;text-align:center">
+          <strong data-countdown-seconds style="font-size:36px;font-weight:800;background:linear-gradient(135deg,#b7d4f7,#7ec8f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">00</strong>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:6px;text-transform:uppercase;letter-spacing:0.05em">секунд</div>
+        </div>
+      </div>
+    ` : '';
+
     const action =
       data.accessStatus === 'closed'
-        ? '<a href="register.html" style="display:inline-flex;margin-top:20px;background:#041627;color:#fff;text-decoration:none;padding:16px 24px;border-radius:14px;font-weight:700">Зарегистрироваться заново</a>'
-        : '<a href="success.html" style="display:inline-flex;margin-top:20px;background:#d2e4fb;color:#041627;text-decoration:none;padding:16px 24px;border-radius:14px;font-weight:800">Проверить регистрацию</a>';
+        ? '<a href="register.html" style="display:inline-flex;margin-top:28px;background:#fff;color:#041627;text-decoration:none;padding:16px 28px;border-radius:14px;font-weight:700;font-size:15px;box-shadow:0 4px 16px rgba(0,0,0,0.1)">Зарегистрироваться заново</a>'
+        : '<a href="success.html" style="display:inline-flex;margin-top:28px;background:rgba(255,255,255,0.1);border:1px solid rgba(210,228,251,0.3);color:#d2e4fb;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:600;font-size:14px;backdrop-filter:blur(8px)">Проверить регистрацию</a>';
 
     document.body.innerHTML = `
-      <main style="min-height:100vh;display:grid;place-items:center;background:#f8f9fa;color:#041627;font-family:Manrope,Arial,sans-serif;padding:24px">
-        <section style="max-width:640px;background:#fff;border:1px solid #d2e4fb;border-radius:24px;padding:36px;text-align:center;box-shadow:0 24px 70px rgba(4,22,39,.08)">
-          <p style="margin:0 0 10px;color:#4f6073;font-weight:800;letter-spacing:.08em;text-transform:uppercase;font-size:12px">АСПБ автовебинар</p>
-          <h1 style="font-size:34px;margin:0 0 12px">${title}</h1>
-          <p style="font-size:18px;color:#44474c;line-height:1.55;margin:0">${text}</p>
-          ${
-            data.accessStatus === 'waiting' || data.accessStatus === 'pre_live'
-              ? '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:24px"><div style="background:#f3f4f5;border-radius:16px;padding:14px"><strong data-countdown-days style="font-size:28px">00</strong><br><span>дней</span></div><div style="background:#f3f4f5;border-radius:16px;padding:14px"><strong data-countdown-hours style="font-size:28px">00</strong><br><span>часов</span></div><div style="background:#f3f4f5;border-radius:16px;padding:14px"><strong data-countdown-minutes style="font-size:28px">00</strong><br><span>минут</span></div><div style="background:#f3f4f5;border-radius:16px;padding:14px"><strong data-countdown-seconds style="font-size:28px">00</strong><br><span>секунд</span></div></div>'
-              : ''
-          }
+      <main style="min-height:100vh;display:grid;place-items:center;background:#041627;color:#fff;font-family:Manrope,Arial,sans-serif;padding:24px;position:relative;overflow:hidden">
+        <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 30%,rgba(56,78,183,0.15),transparent 60%),radial-gradient(ellipse at 80% 70%,rgba(108,52,163,0.1),transparent 50%);pointer-events:none"></div>
+        <section style="max-width:560px;text-align:center;position:relative;z-index:1">
+          <div style="width:56px;height:56px;margin:0 auto 20px;border-radius:50%;background:rgba(210,228,251,0.1);border:1px solid rgba(210,228,251,0.2);display:flex;align-items:center;justify-content:center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#b7d4f7" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </div>
+          <p style="margin:0 0 8px;color:rgba(210,228,251,0.6);font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:11px">АСПБ автовебинар</p>
+          <h1 style="font-size:32px;font-weight:800;margin:0 0 12px;line-height:1.2">${title}</h1>
+          <p style="font-size:16px;color:rgba(255,255,255,0.6);line-height:1.6;margin:0">${text}</p>
+          ${countdownHtml}
           ${action}
         </section>
       </main>`;

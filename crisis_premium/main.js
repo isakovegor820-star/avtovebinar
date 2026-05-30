@@ -83,3 +83,49 @@
     countupObserver.observe(el);
   });
 })();
+
+
+  // Auto-flip first card as hint
+  var flipCards = document.querySelectorAll('.flip-card');
+  if (flipCards.length > 0) {
+    var flipObserver = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          flipObserver.unobserve(entry.target);
+          // Auto-flip after 3 seconds
+          setTimeout(function() {
+            entry.target.classList.add('is-flipped');
+            // Flip back after 2.5 seconds
+            setTimeout(function() {
+              entry.target.classList.remove('is-flipped');
+            }, 2500);
+          }, 3000);
+        }
+      });
+    }, { threshold: 0.5 });
+
+    // Observe only the first flip-card in each group
+    var observed = new Set();
+    flipCards.forEach(function(card) {
+      var parent = card.parentElement;
+      if (!observed.has(parent)) {
+        observed.add(parent);
+        flipObserver.observe(card);
+      }
+    });
+  }
+
+
+  // Income steps — animate arrows on scroll
+  var incomeSteps = document.querySelector('.income-steps');
+  if (incomeSteps) {
+    var stepsObserver = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          stepsObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.3 });
+    stepsObserver.observe(incomeSteps);
+  }

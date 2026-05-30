@@ -22,8 +22,10 @@ stitch_6/
 crisis_premium/_diffs_*
 crisis_premium/_full_diffs*
 
-# Большие бинарники (видео хранится в LFS / CDN)
-crisis_premium/assets/webinar.mp4
+# Большие медиа-файлы (видео хранится локально, не в git)
+crisis_premium/assets/*.mp4
+crisis_premium/assets/*.webm
+crisis_premium/assets/*.mov
 
 # Editor
 .vscode/

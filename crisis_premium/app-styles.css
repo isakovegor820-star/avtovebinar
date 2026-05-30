@@ -986,3 +986,123 @@
                 width: 100%;
             }
         }
+
+
+/* Flip card hint — pulsing corner icon */
+.flip-card-front::after {
+    content: "↻";
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #041627;
+    opacity: 0.4;
+    border-radius: 50%;
+    background: rgba(210, 228, 251, 0.5);
+    animation: flipHintPulse 2.5s ease-in-out infinite;
+}
+@keyframes flipHintPulse {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(1.15); }
+}
+.flip-card.is-flipped .flip-card-front::after {
+    display: none;
+}
+
+
+/* Animated gradient mesh — Apple-style */
+.gradient-mesh-bg {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+        radial-gradient(ellipse at 20% 50%, rgba(56, 78, 183, 0.4) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 20%, rgba(108, 52, 163, 0.35) 0%, transparent 45%),
+        radial-gradient(ellipse at 60% 80%, rgba(30, 64, 175, 0.3) 0%, transparent 50%),
+        radial-gradient(ellipse at 10% 90%, rgba(79, 70, 229, 0.2) 0%, transparent 40%);
+    animation: meshShift 12s ease-in-out infinite alternate;
+    opacity: 0.9;
+}
+@keyframes meshShift {
+    0% {
+        background-position: 0% 0%, 100% 0%, 50% 100%, 0% 100%;
+        filter: hue-rotate(0deg);
+    }
+    33% {
+        background-position: 30% 20%, 70% 50%, 20% 80%, 80% 30%;
+        filter: hue-rotate(15deg);
+    }
+    66% {
+        background-position: 60% 40%, 30% 80%, 80% 20%, 50% 60%;
+        filter: hue-rotate(-10deg);
+    }
+    100% {
+        background-position: 10% 70%, 90% 30%, 40% 50%, 70% 90%;
+        filter: hue-rotate(5deg);
+    }
+}
+
+
+/* Income steps — redesign */
+.income-step {
+    transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    position: relative;
+    min-height: 160px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+}
+.income-step:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(4, 22, 39, 0.06), 0 0 16px rgba(66, 133, 244, 0.15);
+    border-color: rgba(66, 133, 244, 0.3);
+}
+.income-step::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), rgba(139, 92, 246, 0.15), transparent);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    z-index: -1;
+}
+.income-step:hover::before {
+    opacity: 1;
+}
+.income-step-arrow {
+    opacity: 0.4;
+}
+.income-steps .income-arrow-path {
+    stroke-dasharray: 40;
+    stroke-dashoffset: 40;
+    transition: stroke-dashoffset 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.income-steps.is-visible .income-arrow-path {
+    stroke-dashoffset: 0;
+}
+.income-steps.is-visible .income-step {
+    animation: stepGlow 0.6s ease forwards;
+}
+.income-steps.is-visible .income-step:nth-child(3) { animation-delay: 0.15s; }
+.income-steps.is-visible .income-step:nth-child(5) { animation-delay: 0.3s; }
+@keyframes stepGlow {
+    0% { box-shadow: 0 0 0 rgba(66, 133, 244, 0); }
+    50% { box-shadow: 0 0 20px rgba(66, 133, 244, 0.2), 0 4px 12px rgba(4, 22, 39, 0.06); }
+    100% { box-shadow: 0 2px 8px rgba(4, 22, 39, 0.04); }
+}
+
+
+/* Income detail panel — fixed height to prevent jumping */
+#incomeDetail {
+    min-height: 340px;
+}
+#incomeDetail p[id="incomeDetailText"] {
+    min-height: 72px;
+}

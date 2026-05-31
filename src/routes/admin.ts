@@ -15,7 +15,19 @@ import { getAdminHtml } from '../responses/adminPage.js';
 export const adminRouter = Router();
 
 const ADMIN_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
+const DUMMY_ADMIN_PASSWORD_HASH =
+  'scrypt:admin-login-dummy-salt:CerOz3aHxt6NzbG-pJctVCcjy_tDNReAF7E8wOBQOSL5JVx-inJsk-aH3oePIjb67IePc8YqQsujVx7eLuE9MQ';
+const TELEGRAM_BROADCAST_DELAY_MS = 40;
 type AdminRole = (typeof ADMIN_ROLES)[number];
+
+type TelegramBroadcastJob = {
+  id: string;
+  text: string;
+  chatIds: string[];
+  startedAt: Date;
+};
+
+let activeTelegramBroadcastJob: (Pick<TelegramBroadcastJob, 'id' | 'startedAt'> & { total: number }) | null = null;
 
 function isAdminRole(value: string): value is AdminRole {
   return ADMIN_ROLES.includes(value as AdminRole);
@@ -117,6 +129,73 @@ async function audit(
   });
 }
 
+function wait(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function createBroadcastJobId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function runTelegramBroadcastJob(job: TelegramBroadcastJob) {
+  let sent = 0;
+  let failed = 0;
+
+  try {
+    for (const [index, chatId] of job.chatIds.entries()) {
+      try {
+        await sendTelegramMessageToChat(chatId, job.text);
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        console.error('[ASPБ telegram broadcast]', { jobId: job.id, chatId, error });
+      }
+
+      if (index < job.chatIds.length - 1) {
+        await wait(TELEGRAM_BROADCAST_DELAY_MS);
+      }
+    }
+
+    await prisma.event.create({
+      data: {
+        eventName: 'telegram_broadcast_completed',
+        source: 'admin',
+        metadataJson: {
+          jobId: job.id,
+          total: job.chatIds.length,
+          sent,
+          failed,
+          textLength: job.text.length,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('[ASPБ telegram broadcast job]', { jobId: job.id, error });
+  } finally {
+    clearTelegramBroadcastJob(job.id);
+  }
+}
+
+function reserveTelegramBroadcastJob(job: TelegramBroadcastJob) {
+  activeTelegramBroadcastJob = {
+    id: job.id,
+    total: job.chatIds.length,
+    startedAt: job.startedAt,
+  };
+}
+
+function clearTelegramBroadcastJob(jobId: string) {
+  if (activeTelegramBroadcastJob && activeTelegramBroadcastJob.id === jobId) {
+    activeTelegramBroadcastJob = null;
+  }
+}
+
+function startTelegramBroadcastJob(job: TelegramBroadcastJob) {
+  setTimeout(() => {
+    void runTelegramBroadcastJob(job);
+  }, 0);
+}
+
 adminRouter.get('/admin', (_req, res) => {
   res.type('html').send(getAdminHtml());
 });
@@ -137,7 +216,8 @@ adminRouter.post(
 
     const isLegacyLogin =
       env.NODE_ENV !== 'production' && data.login === env.ADMIN_LOGIN && data.password === env.ADMIN_PASSWORD;
-    const isDbLogin = adminUser ? await verifyPassword(data.password, adminUser.passwordHash) : false;
+    const passwordMatches = await verifyPassword(data.password, adminUser?.passwordHash ?? DUMMY_ADMIN_PASSWORD_HASH);
+    const isDbLogin = Boolean(adminUser && passwordMatches);
 
     if (!isDbLogin && !isLegacyLogin) {
       throw new AppError(401, 'Неверный логин или пароль');
@@ -794,51 +874,73 @@ adminRouter.post(
   requireRole(['owner', 'admin']),
   asyncHandler(async (req, res) => {
     const data = z.object({ text: z.string().trim().min(3).max(2000) }).parse(req.body);
+
+    if (activeTelegramBroadcastJob) {
+      throw new AppError(409, 'Telegram-рассылка уже выполняется');
+    }
+
     const leads = await prisma.lead.findMany({
       where: {
         telegramChatId: { not: null },
       },
       select: {
-        id: true,
         telegramChatId: true,
       },
-      take: 1000,
     });
 
     const chatIds = Array.from(new Set(leads.map(lead => lead.telegramChatId).filter(Boolean))) as string[];
-    let sent = 0;
-    let failed = 0;
-
-    for (const chatId of chatIds) {
-      try {
-        await sendTelegramMessageToChat(chatId, data.text);
-        sent += 1;
-      } catch (error) {
-        failed += 1;
-        console.error('[ASPБ telegram broadcast]', error);
-      }
+    if (activeTelegramBroadcastJob) {
+      throw new AppError(409, 'Telegram-рассылка уже выполняется');
     }
 
-    await prisma.event.create({
-      data: {
-        eventName: 'telegram_broadcast',
-        source: 'admin',
-        metadataJson: {
-          total: chatIds.length,
-          sent,
-          failed,
-          textLength: data.text.length,
+    const jobId = createBroadcastJobId();
+    const job = {
+      id: jobId,
+      text: data.text,
+      chatIds,
+      startedAt: new Date(),
+    };
+
+    if (chatIds.length > 0) {
+      reserveTelegramBroadcastJob(job);
+    }
+
+    try {
+      await prisma.event.create({
+        data: {
+          eventName: 'telegram_broadcast',
+          source: 'admin',
+          metadataJson: {
+            status: 'queued',
+            jobId,
+            total: chatIds.length,
+            textLength: data.text.length,
+          },
         },
-      },
-    });
+      });
 
-    await audit(req as AdminRequest, {
-      action: 'telegram.broadcast.send',
-      entityType: 'telegram_broadcast',
-      after: { total: chatIds.length, sent, failed, textLength: data.text.length },
-    });
+      await audit(req as AdminRequest, {
+        action: 'telegram.broadcast.queue',
+        entityType: 'telegram_broadcast',
+        entityId: jobId,
+        after: { total: chatIds.length, textLength: data.text.length },
+      });
+    } catch (error) {
+      clearTelegramBroadcastJob(jobId);
+      throw error;
+    }
 
-    res.json({ ok: true, total: chatIds.length, sent, failed });
+    if (chatIds.length > 0) {
+      startTelegramBroadcastJob(job);
+    }
+
+    res.status(chatIds.length > 0 ? 202 : 200).json({
+      ok: true,
+      queued: chatIds.length > 0,
+      jobId,
+      total: chatIds.length,
+      delayMs: TELEGRAM_BROADCAST_DELAY_MS,
+    });
   }),
 );
 

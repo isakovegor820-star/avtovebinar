@@ -9,6 +9,10 @@ import { clean, saveEvent } from './helpers.js';
 
 export const eventsRouter = Router();
 
+const MAX_METADATA_KEYS = 20;
+const MAX_METADATA_BYTES = 4096;
+const MAX_METADATA_DEPTH = 4;
+
 const utmSchema = {
   source: z.string().trim().max(120).optional().or(z.literal('')),
   utmSource: z.string().trim().max(120).optional().or(z.literal('')),
@@ -18,11 +22,47 @@ const utmSchema = {
   utmTerm: z.string().trim().max(120).optional().or(z.literal('')),
 };
 
-const eventSchema = z.object({
+function isMetadataTooDeep(value: unknown, depth = 0): boolean {
+  if (depth > MAX_METADATA_DEPTH) {
+    return true;
+  }
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const values = Array.isArray(value) ? value : Object.values(value);
+  return values.some(item => isMetadataTooDeep(item, depth + 1));
+}
+
+const metadataSchema = z.record(z.string(), z.unknown()).superRefine((metadata, ctx) => {
+  if (Object.keys(metadata).length > MAX_METADATA_KEYS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `metadata must contain at most ${MAX_METADATA_KEYS} keys`,
+    });
+  }
+
+  const serialized = JSON.stringify(metadata);
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_METADATA_BYTES) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `metadata must be at most ${MAX_METADATA_BYTES} bytes`,
+    });
+  }
+
+  if (isMetadataTooDeep(metadata)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `metadata nesting must be at most ${MAX_METADATA_DEPTH} levels`,
+    });
+  }
+});
+
+export const eventSchema = z.object({
   eventName: z.enum(PUBLIC_ANALYTICS_EVENTS),
   token: z.string().trim().optional(),
   page: z.string().trim().max(160).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  metadata: metadataSchema.optional(),
   ...utmSchema,
 });
 

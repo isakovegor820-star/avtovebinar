@@ -26,7 +26,7 @@ app.use(
         baseUri: ["'self'"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.tailwindcss.com'],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
         scriptSrcAttr: ["'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
@@ -36,16 +36,16 @@ app.use(
         frameSrc: ["'none'"],
         workerSrc: ["'self'"],
         manifestSrc: ["'self'"],
-        formAction: ["'self'"]
-      }
-    }
-  })
+        formAction: ["'self'"],
+      },
+    },
+  }),
 );
 app.use(
   cors({
     origin: env.NODE_ENV === 'production' ? env.CORS_ORIGIN.split(',').map(origin => origin.trim()) : true,
-    credentials: true
-  })
+    credentials: true,
+  }),
 );
 app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -55,21 +55,21 @@ const formLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 20,
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
 });
 
 const tokenReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 90,
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
 });
 
 const eventLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 120,
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
 });
 
 const adminLoginLimiter = rateLimit({
@@ -77,7 +77,15 @@ const adminLoginLimiter = rateLimit({
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { ok: false, error: 'Слишком много попыток входа. Попробуйте позже.' }
+  message: { ok: false, error: 'Слишком много попыток входа. Попробуйте позже.' },
+});
+
+const adminBroadcastLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Слишком много запусков рассылки. Попробуйте позже.' },
 });
 
 app.use('/api/register', formLimiter);
@@ -89,6 +97,7 @@ app.use('/api/registration', tokenReadLimiter);
 app.use('/api/webinar/current', tokenReadLimiter);
 app.use('/api/webinar/timeline', tokenReadLimiter);
 app.use('/api/admin/login', adminLoginLimiter);
+app.use('/api/admin/telegram/broadcast', adminBroadcastLimiter);
 
 app.use('/api', publicRouter);
 app.use(adminRouter);

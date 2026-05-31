@@ -13,8 +13,14 @@ export const PUBLIC_ANALYTICS_EVENTS = [
   'video_progress_75',
   'video_finish',
   'question_submit',
+  'question_submit_attempt',
+  'question_submitted',
+  'question_submit_error',
   'partner_application_submit',
-  'partner_request_click'
+  'partner_application_submitted',
+  'partner_application_error',
+  'partner_form_opened',
+  'partner_request_click',
 ] as const;
 
 export type PublicAnalyticsEvent = (typeof PUBLIC_ANALYTICS_EVENTS)[number];

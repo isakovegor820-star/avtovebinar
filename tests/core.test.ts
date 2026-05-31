@@ -8,12 +8,12 @@ vi.mock('../src/lib/prisma.js', () => {
         findFirst: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
-        count: vi.fn().mockResolvedValue(1)
+        count: vi.fn().mockResolvedValue(1),
       },
       auditLog: {
-        create: vi.fn()
-      }
-    }
+        create: vi.fn(),
+      },
+    },
   };
 });
 
@@ -33,7 +33,7 @@ import {
   getReplayExpiresAt,
   getSessionStatus,
   getWebinarAccess,
-  WEBINAR_REPLAY_HOURS
+  WEBINAR_REPLAY_HOURS,
 } from '../src/lib/time.js';
 import { CRM_STATUSES, isCrmStatus } from '../src/lib/crm.js';
 import { getDueReminderKind, getDueTelegramReminderKind, getPostWebinarFollowupDueAt } from '../src/lib/reminders.js';
@@ -112,7 +112,7 @@ describe('email reminder logic', () => {
       reminder3hSentAt: null,
       reminder30mSentAt: null,
       webinarSession: { scheduledAt },
-      ...overrides
+      ...overrides,
     };
   }
 
@@ -126,19 +126,27 @@ describe('email reminder logic', () => {
 
   it('does not send the same reminder twice', () => {
     expect(
-      getDueReminderKind(candidate({ reminder30mSentAt: new Date('2026-05-22T07:31:00.000Z') }), new Date('2026-05-22T07:45:00.000Z'))
+      getDueReminderKind(
+        candidate({ reminder30mSentAt: new Date('2026-05-22T07:31:00.000Z') }),
+        new Date('2026-05-22T07:45:00.000Z'),
+      ),
     ).toBeNull();
   });
 
   it('uses separate fields for Telegram reminders', () => {
     expect(getDueTelegramReminderKind(candidate(), new Date('2026-05-21T09:00:00.000Z'))).toBe('24h');
     expect(
-      getDueTelegramReminderKind(candidate({ telegramReminder24hSentAt: new Date('2026-05-21T09:01:00.000Z') }), new Date('2026-05-21T09:10:00.000Z'))
+      getDueTelegramReminderKind(
+        candidate({ telegramReminder24hSentAt: new Date('2026-05-21T09:01:00.000Z') }),
+        new Date('2026-05-21T09:10:00.000Z'),
+      ),
     ).toBeNull();
   });
 
   it('schedules post-webinar follow-up after the webinar is over', () => {
-    expect(getPostWebinarFollowupDueAt(new Date('2026-05-22T08:00:00.000Z'), 120).toISOString()).toBe('2026-05-22T10:10:00.000Z');
+    expect(getPostWebinarFollowupDueAt(new Date('2026-05-22T08:00:00.000Z'), 120).toISOString()).toBe(
+      '2026-05-22T10:10:00.000Z',
+    );
   });
 });
 
@@ -175,7 +183,7 @@ describe('security configuration', () => {
       TELEGRAM_NEWS_RSS_URLS: '',
       WEBINAR_TEST_ROOM_MODE: 'off',
       CORS_ORIGIN: 'https://aspb.example.com',
-      ...overrides
+      ...overrides,
     } as const;
   }
 
@@ -211,8 +219,8 @@ describe('security configuration', () => {
         TELEGRAM_NEWS_TIMES: '09:00',
         TELEGRAM_NEWS_RSS_URLS: '',
         WEBINAR_TEST_ROOM_MODE: 'off',
-        CORS_ORIGIN: 'https://example.com'
-      })
+        CORS_ORIGIN: 'https://example.com',
+      }),
     ).toThrow(/Production security configuration/);
   });
 
@@ -221,9 +229,9 @@ describe('security configuration', () => {
       validateProductionSecurity(
         secureProductionConfig({
           EMAIL_MODE: 'log',
-          WEBINAR_TEST_ROOM_MODE: 'on'
-        })
-      )
+          WEBINAR_TEST_ROOM_MODE: 'on',
+        }),
+      ),
     ).toThrow(/EMAIL_MODE.*WEBINAR_TEST_ROOM_MODE/s);
   });
 
@@ -262,7 +270,7 @@ describe('registration validation logic', () => {
     name: 'Иван',
     phone: '+79000000000',
     email: 'ivan@example.com',
-    consent: true
+    consent: true,
   };
 
   it('validates correct registration data and sets default marketingConsent to false', () => {
@@ -292,7 +300,7 @@ describe('admin privilege checks', () => {
       name: 'Manager',
       email: 'manager@example.com',
       role: 'manager',
-      isActive: true
+      isActive: true,
     } as any);
 
     vi.mocked(prisma.adminUser.update).mockResolvedValue({
@@ -300,7 +308,7 @@ describe('admin privilege checks', () => {
       name: 'Manager',
       email: 'manager@example.com',
       role: 'owner',
-      isActive: true
+      isActive: true,
     } as any);
 
     const req = {
@@ -308,15 +316,15 @@ describe('admin privilege checks', () => {
       body: { role: 'owner' },
       admin: { id: 'owner_1', role: 'owner', email: 'owner@aspb.ru' },
       headers: {},
-      socket: { remoteAddress: '127.0.0.1' }
+      socket: { remoteAddress: '127.0.0.1' },
     };
     const res = {
       status: vi.fn().mockReturnThis(),
-      json: vi.fn()
+      json: vi.fn(),
     };
     const next = vi.fn();
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       const wrappedNext = (err: any) => {
         next(err);
         resolve();
@@ -337,22 +345,22 @@ describe('admin privilege checks', () => {
       name: 'Real Owner',
       email: 'owner@example.com',
       role: 'owner',
-      isActive: true
+      isActive: true,
     } as any);
 
     const req = {
       params: { id: 'user_owner' },
       body: { isActive: false },
       admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },
-      headers: {}
+      headers: {},
     };
     const res = {
       status: vi.fn().mockReturnThis(),
-      json: vi.fn()
+      json: vi.fn(),
     };
     const next = vi.fn();
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       const wrappedNext = (err: any) => {
         next(err);
         resolve();
@@ -375,22 +383,22 @@ describe('admin privilege checks', () => {
       name: 'Manager',
       email: 'manager@example.com',
       role: 'manager',
-      isActive: true
+      isActive: true,
     } as any);
 
     const req = {
       params: { id: 'user_manager' },
       body: { role: 'owner' },
       admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },
-      headers: {}
+      headers: {},
     };
     const res = {
       status: vi.fn().mockReturnThis(),
-      json: vi.fn()
+      json: vi.fn(),
     };
     const next = vi.fn();
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       const wrappedNext = (err: any) => {
         next(err);
         resolve();
@@ -413,18 +421,18 @@ describe('admin privilege checks', () => {
         name: 'New Owner',
         email: 'newowner@example.com',
         password: 'Password123!',
-        role: 'owner'
+        role: 'owner',
       },
       admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },
-      headers: {}
+      headers: {},
     };
     const res = {
       status: vi.fn().mockReturnThis(),
-      json: vi.fn()
+      json: vi.fn(),
     };
     const next = vi.fn();
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       const wrappedNext = (err: any) => {
         next(err);
         resolve();

@@ -80,19 +80,6 @@
   // Check every 500ms
   setInterval(checkMessages, 500);
 
-  // Also handle user's own question submission
-  var input = document.getElementById('questionInput');
-  var submitBtn = document.getElementById('questionSubmit');
-  if (input && submitBtn) {
-    function sendQuestion() {
-      var text = input.value.trim();
-      if (!text) return;
-      addMessage({ name: 'Вы', icon: 'person', color: '#041627', text: text });
-      input.value = '';
-    }
-    submitBtn.addEventListener('click', sendQuestion);
-    input.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') sendQuestion();
-    });
-  }
+  // Экспортируем addMessage глобально — questions.js вызовет после успешной отправки на сервер
+  window.__liveChatAddMessage = addMessage;
 })();

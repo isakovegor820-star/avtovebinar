@@ -124,6 +124,12 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
+        /* Chat message animation */
+        @keyframes chatMsgIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
         /* Program item hover — number lights up */
         .program-item:hover .program-number {
             opacity: 1 !important;
@@ -284,45 +290,24 @@
 <!-- Questions Panel -->
 <div class="lg:col-span-4">
 <div class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[600px] overflow-hidden">
-<div class="p-5 border-b border-outline-variant/10 flex items-center justify-between gap-4">
+<div class="p-4 border-b border-outline-variant/10 flex items-center justify-between gap-4">
 <div>
-<h3 class="text-headline-md font-headline-md text-primary">Ключевые моменты</h3>
-<div class="text-label-sm text-on-surface-variant" id="chatActivity">Подсказки будут появляться по ходу эфира</div>
+<h3 class="text-label-md font-bold text-primary">Чат эфира</h3>
+<div class="text-[11px] text-on-surface-variant" id="chatActivity">Сообщения появляются по ходу трансляции</div>
 </div>
-<div class="flex items-center gap-2 text-label-sm text-on-surface-variant">
-<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
-<span id="chatOnlineLabel">синхронно с видео</span>
-</div>
-</div>
-<div class="flex-grow overflow-y-auto p-5 space-y-6" id="questionList">
-<div class="flex gap-3">
-<div class="w-8 h-8 rounded-full bg-primary text-on-primary flex-shrink-0 flex items-center justify-center text-label-sm font-bold">
-<span class="material-symbols-outlined text-[18px]">psychology</span>
-</div>
-<div class="space-y-1">
-<div class="text-label-sm font-bold text-on-surface">Что сейчас важно понять</div>
-<div class="bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant">
-                                    Смотрите эфир через призму своей практики: какие клиенты уже приходят с долгами, блокировками, налогами или взысканиями.
-                                </div>
+<div class="flex items-center gap-2 text-[11px] text-on-surface-variant">
+<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+<span id="chatOnlineLabel">онлайн</span>
 </div>
 </div>
-<div class="flex gap-3">
-<div class="w-8 h-8 rounded-full bg-primary-fixed-dim flex-shrink-0 flex items-center justify-center text-primary text-label-sm font-bold">
-<span class="material-symbols-outlined text-[18px]">edit_note</span>
+<div class="flex-grow overflow-y-auto p-4 space-y-3" id="liveChatMessages">
+<!-- Auto messages will be injected here by JS -->
 </div>
-<div class="space-y-1">
-<div class="text-label-sm font-bold text-on-surface">Задайте вопрос по своему кейсу</div>
-<div class="bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant">
-                                    Если вспомнили конкретного клиента, напишите вопрос ниже. Он сохранится в админке, и менеджер АСПБ увидит, кто его задал.
-                                </div>
-</div>
-</div>
-</div>
-<div class="p-4 bg-surface-container-low">
+<div class="p-3 bg-surface-container-low border-t border-outline-variant/10">
 <div class="relative">
-<input id="questionInput" class="w-full bg-surface-container-lowest border-outline-variant/30 rounded-xl py-3 pl-4 pr-12 focus:ring-primary focus:border-primary text-body-md" placeholder="Задайте свой вопрос..." type="text"/>
+<input id="questionInput" class="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl py-2.5 pl-4 pr-11 focus:ring-primary focus:border-primary text-[14px]" placeholder="Задайте вопрос..." type="text"/>
 <button id="questionSubmit" class="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:scale-110 transition-transform" type="button">
-<span class="material-symbols-outlined">send</span>
+<span class="material-symbols-outlined text-[20px]">send</span>
 </button>
 </div>
 </div>
@@ -487,6 +472,7 @@
 
 <script src="aspb-api.js"></script>
 <script src="flow-tabs.js"></script>
+<script src="live-chat.js"></script>
 <script>
 (function(){
   var observer = new IntersectionObserver(function(entries){

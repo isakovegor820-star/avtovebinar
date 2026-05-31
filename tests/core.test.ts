@@ -42,12 +42,18 @@ import { getDueNewsSlot } from '../src/lib/telegramNews.js';
 import { validateProductionSecurity } from '../src/lib/env.js';
 import { PUBLIC_ANALYTICS_EVENTS } from '../src/lib/events.js';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.js';
+import { eventSchema } from '../src/routes/public/events.js';
 
 describe('webinar time logic', () => {
   it('schedules webinar at 11:00 Moscow on the next Moscow day', () => {
     const firstSeen = new Date('2026-05-21T09:15:00.000Z');
     const scheduledAt = getNextWebinarDate(firstSeen);
     expect(scheduledAt.toISOString()).toBe('2026-05-22T08:00:00.000Z');
+  });
+
+  it('schedules across the end of a month', () => {
+    const scheduledAt = getNextWebinarDate(new Date('2026-05-31T09:15:00.000Z'));
+    expect(scheduledAt.toISOString()).toBe('2026-06-01T08:00:00.000Z');
   });
 
   it('returns scheduled, live and finished statuses', () => {
@@ -256,6 +262,36 @@ describe('security configuration', () => {
     expect(PUBLIC_ANALYTICS_EVENTS).toContain('page_view');
     expect(PUBLIC_ANALYTICS_EVENTS).toContain('video_finish');
     expect(PUBLIC_ANALYTICS_EVENTS).not.toContain('made_up_event');
+  });
+
+  it('keeps historical server-side submit events distinguishable from client form lifecycle events', () => {
+    expect(PUBLIC_ANALYTICS_EVENTS).toContain('question_submit');
+    expect(PUBLIC_ANALYTICS_EVENTS).toContain('question_submitted');
+    expect(PUBLIC_ANALYTICS_EVENTS).toContain('partner_application_submit');
+    expect(PUBLIC_ANALYTICS_EVENTS).toContain('partner_application_submitted');
+  });
+
+  it('limits public event metadata shape and size', () => {
+    expect(() =>
+      eventSchema.parse({
+        eventName: 'question_submit_error',
+        metadata: { error: 'Network error' },
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      eventSchema.parse({
+        eventName: 'question_submit_error',
+        metadata: Object.fromEntries(Array.from({ length: 21 }, (_, index) => [`key_${index}`, index])),
+      }),
+    ).toThrow(/metadata must contain at most/);
+
+    expect(() =>
+      eventSchema.parse({
+        eventName: 'question_submit_error',
+        metadata: { error: 'x'.repeat(4097) },
+      }),
+    ).toThrow(/metadata must be at most/);
   });
 });
 

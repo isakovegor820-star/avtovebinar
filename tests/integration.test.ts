@@ -61,7 +61,7 @@ describe('critical path integration scenarios', () => {
     expect(registerResponse.body.token).toBeDefined();
     expect(registerResponse.body.webinarUrl).toContain(registerResponse.body.token);
 
-    const token = registerResponse.body.token;
+    let token = registerResponse.body.token;
 
     // Check lead insertion
     const lead = await prisma.lead.findUnique({
@@ -97,7 +97,11 @@ describe('critical path integration scenarios', () => {
     const accessTokenCount = await prisma.registrationToken.count({
       where: { registrationId: registrationsAfterRepeat[0].id },
     });
-    expect(accessTokenCount).toBe(2);
+    expect(accessTokenCount).toBe(1);
+
+    const oldTokenResponse = await request(app).get(`/api/registration/${token}?view=success`);
+    expect(oldTokenResponse.status).toBe(404);
+    token = repeatRegisterResponse.body.token;
 
     // 2. SUCCESS VIEW (GET /api/registration/:token)
     const successResponse = await request(app)

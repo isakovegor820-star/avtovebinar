@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 import { env } from './env.js';
 
 type BaseEmailInput = {
@@ -10,6 +10,34 @@ type BaseEmailInput = {
 };
 
 export type ReminderKind = '24h' | '3h' | '30m';
+
+// Синглтон-транспортер с пулом соединений — переиспользуется между письмами,
+// чтобы не открывать новое TLS-соединение на каждую отправку.
+let cachedTransporter: Transporter | null = null;
+
+function getTransporter() {
+  if (cachedTransporter) {
+    return cachedTransporter;
+  }
+
+  cachedTransporter = nodemailer.createTransport({
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    // 465 = implicit TLS; остальные порты (587 и пр.) используют STARTTLS,
+    // requireTLS гарантирует, что соединение не останется незашифрованным.
+    secure: env.SMTP_PORT === 465,
+    requireTLS: env.SMTP_PORT !== 465,
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
+    auth: {
+      user: env.SMTP_USER,
+      pass: env.SMTP_PASS,
+    },
+  });
+
+  return cachedTransporter;
+}
 
 function shouldLogEmail() {
   return env.EMAIL_MODE === 'log' || !env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS;
@@ -25,7 +53,7 @@ function formatScheduled(date: Date) {
   return new Intl.DateTimeFormat('ru-RU', {
     timeZone: 'Europe/Moscow',
     dateStyle: 'long',
-    timeStyle: 'short'
+    timeStyle: 'short',
   }).format(date);
 }
 
@@ -41,7 +69,7 @@ function buildEmailText(input: BaseEmailInput, intro: string) {
     `Telegram-уведомления: ${env.TELEGRAM_GROUP_URL}`,
     input.partnerUrl ? `Заявка на партнерский договор: ${input.partnerUrl}` : '',
     '',
-    'АСПБ — Антикризисная служба помощи бизнесу'
+    'АСПБ — Антикризисная служба помощи бизнесу',
   ]
     .filter(Boolean)
     .join('\n');
@@ -57,26 +85,18 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
       scheduled,
       webinarUrl: '[redacted-personal-link]',
       telegramConfigured: Boolean(env.TELEGRAM_GROUP_URL),
-      partnerUrl: input.partnerUrl ? '[redacted-personal-link]' : null
+      partnerUrl: input.partnerUrl ? '[redacted-personal-link]' : null,
     });
     return { sent: false, mode: 'log' as const };
   }
 
-  const transporter = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
-    auth: {
-      user: env.SMTP_USER,
-      pass: env.SMTP_PASS
-    }
-  });
+  const transporter = getTransporter();
 
   await transporter.sendMail({
     from: env.EMAIL_FROM,
     to: input.to,
     subject: input.subject,
-    text: input.text
+    text: input.text,
   });
 
   return { sent: true, mode: 'send' as const };
@@ -93,19 +113,19 @@ export async function sendReminderEmail(input: BaseEmailInput & { kind: Reminder
   const scheduled = new Intl.DateTimeFormat('ru-RU', {
     timeZone: 'Europe/Moscow',
     dateStyle: 'long',
-    timeStyle: 'short'
+    timeStyle: 'short',
   }).format(input.scheduledAt);
 
   const labelByKind: Record<ReminderKind, string> = {
     '24h': 'до эфира осталось около 24 часов',
     '3h': 'до эфира осталось около 3 часов',
-    '30m': 'до эфира осталось около 30 минут'
+    '30m': 'до эфира осталось около 30 минут',
   };
 
   const subject = `Напоминание АСПБ: эфир ${scheduled} МСК`;
   const text = buildEmailText(
     input,
-    `${labelByKind[input.kind]}. Сохраните персональную ссылку и зайдите в комнату вовремя.`
+    `${labelByKind[input.kind]}. Сохраните персональную ссылку и зайдите в комнату вовремя.`,
   );
 
   return deliverEmail({ ...input, subject, text });

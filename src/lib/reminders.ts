@@ -23,7 +23,7 @@ type ReminderCandidate = {
 const REMINDER_THRESHOLDS: Array<{ kind: ReminderKind; msBefore: number; field: keyof ReminderCandidate }> = [
   { kind: '30m', msBefore: 30 * 60 * 1000, field: 'reminder30mSentAt' },
   { kind: '3h', msBefore: 3 * 60 * 60 * 1000, field: 'reminder3hSentAt' },
-  { kind: '24h', msBefore: 24 * 60 * 60 * 1000, field: 'reminder24hSentAt' }
+  { kind: '24h', msBefore: 24 * 60 * 60 * 1000, field: 'reminder24hSentAt' },
 ];
 
 export function getDueReminderKind(registration: ReminderCandidate, now = new Date()): ReminderKind | null {
@@ -46,7 +46,7 @@ function reminderField(kind: ReminderKind) {
   return {
     '24h': 'reminder24hSentAt',
     '3h': 'reminder3hSentAt',
-    '30m': 'reminder30mSentAt'
+    '30m': 'reminder30mSentAt',
   }[kind] as 'reminder24hSentAt' | 'reminder3hSentAt' | 'reminder30mSentAt';
 }
 
@@ -54,7 +54,7 @@ function telegramReminderField(kind: ReminderKind) {
   return {
     '24h': 'telegramReminder24hSentAt',
     '3h': 'telegramReminder3hSentAt',
-    '30m': 'telegramReminder30mSentAt'
+    '30m': 'telegramReminder30mSentAt',
   }[kind] as 'telegramReminder24hSentAt' | 'telegramReminder3hSentAt' | 'telegramReminder30mSentAt';
 }
 
@@ -90,7 +90,7 @@ function getRoomTokenExpiresAt(registration: ReminderCandidate) {
   return getReplayExpiresAt(
     registration.webinarSession.scheduledAt,
     registration.webinarSession.durationMinutes ?? 120,
-    registration.webinarSession.replayAvailableHours ?? WEBINAR_REPLAY_HOURS
+    registration.webinarSession.replayAvailableHours ?? WEBINAR_REPLAY_HOURS,
   );
 }
 
@@ -111,138 +111,177 @@ function buildSegmentTip(status?: string | null) {
   return 'Подготовьте один пример клиента с долгами, кредиторами, налогами или риском банкротства — на эфире покажем, когда стоит передавать на диагностику.';
 }
 
+// Размер батча и предохранитель от бесконечного цикла при курсорной пагинации.
+const REMINDER_BATCH_SIZE = 100;
+const REMINDER_MAX_BATCHES = 50;
+
 export async function runReminderJobOnce(now = new Date()) {
-  const registrations = await prisma.registration.findMany({
-    where: {
-      status: 'registered',
-      webinarSession: {
-        scheduledAt: {
-          gt: now,
-          lte: new Date(now.getTime() + 24 * 60 * 60 * 1000)
-        }
-      }
-    },
-    include: {
-      lead: true,
-      webinarSession: true
-    },
-    take: 100
-  });
-
+  let checked = 0;
   let sent = 0;
+  let cursor: string | undefined;
 
-  for (const registration of registrations) {
-    const kind = getDueReminderKind(registration, now);
-    if (!kind) {
-      continue;
+  for (let batch = 0; batch < REMINDER_MAX_BATCHES; batch += 1) {
+    const registrations = await prisma.registration.findMany({
+      where: {
+        status: 'registered',
+        webinarSession: {
+          scheduledAt: {
+            gt: now,
+            lte: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+          },
+        },
+      },
+      include: {
+        lead: true,
+        webinarSession: true,
+      },
+      orderBy: { id: 'asc' },
+      take: REMINDER_BATCH_SIZE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    });
+
+    if (registrations.length === 0) {
+      break;
     }
 
-    const accessToken = createAccessToken();
-    await prisma.registrationToken.create({
-      data: {
-        registrationId: registration.id,
-        tokenHash: hashToken(accessToken),
-        purpose: `reminder_${kind}`,
-        expiresAt: getRoomTokenExpiresAt(registration)
-      }
-    });
+    checked += registrations.length;
+    cursor = registrations[registrations.length - 1].id;
 
-    await sendReminderEmail({
-      kind,
-      to: registration.lead.email,
-      name: registration.lead.name,
-      scheduledAt: registration.webinarSession.scheduledAt,
-      webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html', accessToken),
-      partnerUrl: `${buildFrontendUrl('/crisis_premium/webinar.html', accessToken)}#partnerApplication`
-    });
-
-    const field = reminderField(kind);
-    await prisma.registration.update({
-      where: { id: registration.id },
-      data: {
-        [field]: now,
-        reminderSentAt: now
+    for (const registration of registrations) {
+      const kind = getDueReminderKind(registration, now);
+      if (!kind) {
+        continue;
       }
-    });
-    sent += 1;
+
+      const accessToken = createAccessToken();
+      await prisma.registrationToken.create({
+        data: {
+          registrationId: registration.id,
+          tokenHash: hashToken(accessToken),
+          purpose: `reminder_${kind}`,
+          expiresAt: getRoomTokenExpiresAt(registration),
+        },
+      });
+
+      await sendReminderEmail({
+        kind,
+        to: registration.lead.email,
+        name: registration.lead.name,
+        scheduledAt: registration.webinarSession.scheduledAt,
+        webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html', accessToken),
+        partnerUrl: `${buildFrontendUrl('/crisis_premium/webinar.html', accessToken)}#partnerApplication`,
+      });
+
+      const field = reminderField(kind);
+      await prisma.registration.update({
+        where: { id: registration.id },
+        data: {
+          [field]: now,
+          reminderSentAt: now,
+        },
+      });
+      sent += 1;
+    }
+
+    if (registrations.length < REMINDER_BATCH_SIZE) {
+      break;
+    }
   }
 
-  return { checked: registrations.length, sent };
+  return { checked, sent };
 }
 
 export async function runTelegramReminderJobOnce(now = new Date()) {
-  const registrations = await prisma.registration.findMany({
-    where: {
-      status: 'registered',
-      lead: {
-        telegramChatId: { not: null }
-      },
-      webinarSession: {
-        scheduledAt: {
-          gt: now,
-          lte: new Date(now.getTime() + 24 * 60 * 60 * 1000)
-        }
-      }
-    },
-    include: {
-      lead: true,
-      webinarSession: true
-    },
-    take: 100
-  });
-
+  let checked = 0;
   let sent = 0;
-  for (const registration of registrations) {
-    const kind = getDueTelegramReminderKind(registration, now);
-    if (!kind || !registration.lead.telegramChatId) {
-      continue;
+  let cursor: string | undefined;
+
+  for (let batch = 0; batch < REMINDER_MAX_BATCHES; batch += 1) {
+    const registrations = await prisma.registration.findMany({
+      where: {
+        status: 'registered',
+        lead: {
+          telegramChatId: { not: null },
+        },
+        webinarSession: {
+          scheduledAt: {
+            gt: now,
+            lte: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+          },
+        },
+      },
+      include: {
+        lead: true,
+        webinarSession: true,
+      },
+      orderBy: { id: 'asc' },
+      take: REMINDER_BATCH_SIZE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    });
+
+    if (registrations.length === 0) {
+      break;
     }
 
-    const accessToken = createAccessToken();
-    await prisma.registrationToken.create({
-      data: {
-        registrationId: registration.id,
-        tokenHash: hashToken(accessToken),
-        purpose: `telegram_reminder_${kind}`,
-        expiresAt: getRoomTokenExpiresAt(registration)
+    checked += registrations.length;
+    cursor = registrations[registrations.length - 1].id;
+
+    for (const registration of registrations) {
+      const kind = getDueTelegramReminderKind(registration, now);
+      if (!kind || !registration.lead.telegramChatId) {
+        continue;
       }
-    });
 
-    const label = {
-      '24h': 'завтра',
-      '3h': 'через несколько часов',
-      '30m': 'через 30 минут'
-    }[kind];
-    const roomUrl = buildFrontendUrl('/crisis_premium/webinar.html', accessToken);
+      const accessToken = createAccessToken();
+      await prisma.registrationToken.create({
+        data: {
+          registrationId: registration.id,
+          tokenHash: hashToken(accessToken),
+          purpose: `telegram_reminder_${kind}`,
+          expiresAt: getRoomTokenExpiresAt(registration),
+        },
+      });
 
-    await sendTelegramMessageToChat(
-      registration.lead.telegramChatId,
-      [
-        `Напоминание АСПБ: вебинар ${label}.`,
-        '',
-        kind === '24h'
-          ? buildSegmentTip(registration.lead.professionalStatus)
-          : kind === '3h'
-            ? 'Подготовьте один вопрос по клиенту с долгами — его можно будет задать в вебинарной комнате.'
-            : 'Эфир скоро. Переходите по персональной ссылке и подключайтесь к комнате.',
-        '',
-        `Тема: ${registration.webinarSession.title}`,
-        `Начало: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
-        '',
-        `Ваша персональная комната: ${roomUrl}`
-      ].join('\n')
-    );
+      const label = {
+        '24h': 'завтра',
+        '3h': 'через несколько часов',
+        '30m': 'через 30 минут',
+      }[kind];
+      const roomUrl = buildFrontendUrl('/crisis_premium/webinar.html', accessToken);
 
-    await prisma.registration.update({
-      where: { id: registration.id },
-      data: {
-        [telegramReminderField(kind)]: now
-      }
-    });
-    sent += 1;
+      await sendTelegramMessageToChat(
+        registration.lead.telegramChatId,
+        [
+          `Напоминание АСПБ: вебинар ${label}.`,
+          '',
+          kind === '24h'
+            ? buildSegmentTip(registration.lead.professionalStatus)
+            : kind === '3h'
+              ? 'Подготовьте один вопрос по клиенту с долгами — его можно будет задать в вебинарной комнате.'
+              : 'Эфир скоро. Переходите по персональной ссылке и подключайтесь к комнате.',
+          '',
+          `Тема: ${registration.webinarSession.title}`,
+          `Начало: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
+          '',
+          `Ваша персональная комната: ${roomUrl}`,
+        ].join('\n'),
+      );
+
+      await prisma.registration.update({
+        where: { id: registration.id },
+        data: {
+          [telegramReminderField(kind)]: now,
+        },
+      });
+      sent += 1;
+    }
+
+    if (registrations.length < REMINDER_BATCH_SIZE) {
+      break;
+    }
   }
 
-  return { checked: registrations.length, sent };
+  return { checked, sent };
 }
 
 export async function runTelegramFollowupJobOnce(now = new Date()) {
@@ -252,26 +291,29 @@ export async function runTelegramFollowupJobOnce(now = new Date()) {
       telegramFollowupSentAt: null,
       partnerApplications: { none: {} },
       lead: {
-        telegramChatId: { not: null }
+        telegramChatId: { not: null },
       },
       webinarSession: {
         scheduledAt: {
           lte: now,
-          gte: new Date(now.getTime() - 12 * 60 * 60 * 1000)
-        }
-      }
+          gte: new Date(now.getTime() - 12 * 60 * 60 * 1000),
+        },
+      },
     },
     include: {
       lead: true,
-      webinarSession: true
+      webinarSession: true,
     },
-    take: 100
+    take: 100,
   });
 
   let sent = 0;
   for (const registration of registrations) {
     if (!registration.lead.telegramChatId) continue;
-    const dueAt = getPostWebinarFollowupDueAt(registration.webinarSession.scheduledAt, registration.webinarSession.durationMinutes);
+    const dueAt = getPostWebinarFollowupDueAt(
+      registration.webinarSession.scheduledAt,
+      registration.webinarSession.durationMinutes,
+    );
     if (now < dueAt || now.getTime() - dueAt.getTime() > 3 * 60 * 60 * 1000) {
       continue;
     }
@@ -282,8 +324,8 @@ export async function runTelegramFollowupJobOnce(now = new Date()) {
         registrationId: registration.id,
         tokenHash: hashToken(accessToken),
         purpose: 'telegram_post_webinar_partner',
-        expiresAt: getRoomTokenExpiresAt(registration)
-      }
+        expiresAt: getRoomTokenExpiresAt(registration),
+      },
     });
 
     const partnerUrl = `${buildFrontendUrl('/crisis_premium/webinar.html', accessToken)}#partnerApplication`;
@@ -294,18 +336,83 @@ export async function runTelegramFollowupJobOnce(now = new Date()) {
         '',
         'Оставьте заявку на партнерский договор: менеджер АСПБ покажет, как передавать такие ситуации и фиксировать условия сотрудничества.',
         '',
-        `Заявка: ${partnerUrl}`
-      ].join('\n')
+        `Заявка: ${partnerUrl}`,
+      ].join('\n'),
     );
 
     await prisma.registration.update({
       where: { id: registration.id },
-      data: { telegramFollowupSentAt: now }
+      data: { telegramFollowupSentAt: now },
     });
     sent += 1;
   }
 
   return { checked: registrations.length, sent };
+}
+
+export async function cleanupExpiredRegistrationTokens(now = new Date()) {
+  const result = await prisma.registrationToken.deleteMany({
+    where: {
+      expiresAt: {
+        lt: now,
+      },
+    },
+  });
+
+  return { deleted: result.count };
+}
+
+// Guard-флаг: не запускаем новый прогон джоб, пока предыдущий не завершился.
+// Защищает от дублей напоминаний, если джобы не успели за интервал тика.
+let reminderCycleRunning = false;
+
+// Уникальный ключ для Postgres advisory lock (защита от дублей при multi-instance).
+const REMINDER_ADVISORY_LOCK_KEY = 4815162342;
+
+async function tryAcquireAdvisoryLock(): Promise<boolean> {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ locked: boolean }>>`
+      SELECT pg_try_advisory_lock(${REMINDER_ADVISORY_LOCK_KEY}) AS locked
+    `;
+    return rows[0]?.locked === true;
+  } catch (error) {
+    console.error('[ASPБ reminder lock] advisory lock acquire failed', error);
+    // Если лок недоступен (например, не Postgres) — не блокируем работу одиночного инстанса.
+    return true;
+  }
+}
+
+async function releaseAdvisoryLock() {
+  try {
+    await prisma.$queryRaw`SELECT pg_advisory_unlock(${REMINDER_ADVISORY_LOCK_KEY})`;
+  } catch (error) {
+    console.error('[ASPБ reminder lock] advisory unlock failed', error);
+  }
+}
+
+async function runReminderCycle() {
+  // Локальный guard — защита от наложения тиков в одном процессе.
+  if (reminderCycleRunning) {
+    return;
+  }
+  reminderCycleRunning = true;
+
+  // Распределённый lock — защита от дублей при нескольких репликах.
+  const acquired = await tryAcquireAdvisoryLock();
+  if (!acquired) {
+    reminderCycleRunning = false;
+    return;
+  }
+
+  try {
+    await runReminderJobOnce().catch(error => console.error('[ASPБ reminders]', error));
+    await runTelegramReminderJobOnce().catch(error => console.error('[ASPБ telegram reminders]', error));
+    await runTelegramFollowupJobOnce().catch(error => console.error('[ASPБ telegram followup]', error));
+    await cleanupExpiredRegistrationTokens().catch(error => console.error('[ASPБ token cleanup]', error));
+  } finally {
+    await releaseAdvisoryLock();
+    reminderCycleRunning = false;
+  }
 }
 
 export function startReminderScheduler() {
@@ -314,27 +421,11 @@ export function startReminderScheduler() {
   }
 
   const interval = setInterval(() => {
-    runReminderJobOnce().catch(error => {
-      console.error('[ASPБ reminders]', error);
-    });
-    runTelegramReminderJobOnce().catch(error => {
-      console.error('[ASPБ telegram reminders]', error);
-    });
-    runTelegramFollowupJobOnce().catch(error => {
-      console.error('[ASPБ telegram followup]', error);
-    });
+    runReminderCycle().catch(error => console.error('[ASPБ reminder cycle]', error));
   }, 60 * 1000);
 
   setTimeout(() => {
-    runReminderJobOnce().catch(error => {
-      console.error('[ASPБ reminders]', error);
-    });
-    runTelegramReminderJobOnce().catch(error => {
-      console.error('[ASPБ telegram reminders]', error);
-    });
-    runTelegramFollowupJobOnce().catch(error => {
-      console.error('[ASPБ telegram followup]', error);
-    });
+    runReminderCycle().catch(error => console.error('[ASPБ reminder cycle]', error));
   }, 5000);
 
   return interval;

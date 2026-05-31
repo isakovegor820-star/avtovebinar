@@ -4,16 +4,10 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { createAccessToken, hashToken } from '../../lib/tokens.js';
-import {
-  getNextWebinarDate,
-  getSessionStatus,
-  WEBINAR_DURATION_MINUTES,
-  WEBINAR_REPLAY_HOURS,
-  WEBINAR_TITLE,
-} from '../../lib/time.js';
+import { getNextWebinarDate } from '../../lib/time.js';
 import { sendRegistrationEmail } from '../../lib/email.js';
-import { WEBINAR_VIDEO_PATH } from '../../lib/webinarTimeline.js';
 import { buildTelegramStartUrl, notifyRegistration } from '../../lib/telegram.js';
+import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import {
   buildAccessPayload,
   buildFrontendUrl,
@@ -49,34 +43,6 @@ export const registerSchema = z.object({
   marketingConsent: z.coerce.boolean().optional().default(false),
   ...utmSchema,
 });
-
-async function findOrCreateWebinarSession(scheduledAt: Date) {
-  const now = new Date();
-  const status = getSessionStatus(now, scheduledAt, WEBINAR_DURATION_MINUTES);
-
-  return prisma.webinarSession.upsert({
-    where: { scheduledAt },
-    update: {
-      status,
-      videoUrl: WEBINAR_VIDEO_PATH,
-      roomOpenBeforeMinutes: 15,
-      replayAvailableHours: WEBINAR_REPLAY_HOURS,
-      replayEnabled: true,
-    },
-    create: {
-      title: WEBINAR_TITLE,
-      scheduledAt,
-      durationMinutes: WEBINAR_DURATION_MINUTES,
-      videoUrl: WEBINAR_VIDEO_PATH,
-      videoDurationSeconds: 568,
-      roomOpenBeforeMinutes: 15,
-      replayAvailableHours: WEBINAR_REPLAY_HOURS,
-      replayEnabled: true,
-      liveMode: 'simulated',
-      status,
-    },
-  });
-}
 
 registrationRouter.post(
   '/register',
@@ -143,6 +109,13 @@ registrationRouter.post(
           webinarSessionId: session.id,
           accessTokenHash: tokenHash,
           status: 'registered',
+        },
+      });
+
+      await tx.registrationToken.deleteMany({
+        where: {
+          registrationId: registration.id,
+          purpose: 'registration',
         },
       });
 

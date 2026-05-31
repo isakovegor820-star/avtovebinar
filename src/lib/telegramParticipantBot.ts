@@ -4,7 +4,6 @@ import { prisma } from './prisma.js';
 import { createAccessToken, hashToken } from './tokens.js';
 import {
   buildTelegramStartUrl,
-  compact,
   formatMoscowDate,
   hasParticipantTelegramBot,
   isParticipantBotPollingEnabled,
@@ -70,18 +69,30 @@ async function createRoomUrl(registrationId: string, purpose = 'telegram_room') 
     throw new Error('Registration not found for Telegram room token');
   }
 
-  await prisma.registrationToken.create({
-    data: {
-      registrationId,
-      tokenHash: hashToken(token),
-      purpose,
-      expiresAt: getReplayExpiresAt(
-        registration.webinarSession.scheduledAt,
-        registration.webinarSession.durationMinutes,
-        registration.webinarSession.replayAvailableHours,
-      ),
-    },
+  const expiresAt = getReplayExpiresAt(
+    registration.webinarSession.scheduledAt,
+    registration.webinarSession.durationMinutes,
+    registration.webinarSession.replayAvailableHours,
+  );
+
+  await prisma.$transaction(async tx => {
+    await tx.registrationToken.deleteMany({
+      where: {
+        registrationId,
+        purpose,
+      },
+    });
+
+    await tx.registrationToken.create({
+      data: {
+        registrationId,
+        tokenHash: hashToken(token),
+        purpose,
+        expiresAt,
+      },
+    });
   });
+
   return buildFrontendUrl('/crisis_premium/webinar.html', token);
 }
 
@@ -443,8 +454,13 @@ async function pollOnce() {
     }
 
     for (const update of payload.result || []) {
-      nextOffset = Math.max(nextOffset, update.update_id + 1);
-      await handleUpdate(update);
+      try {
+        await handleUpdate(update);
+      } catch (error) {
+        console.error('[ASPБ telegram bot update]', { updateId: update.update_id, error });
+      } finally {
+        nextOffset = Math.max(nextOffset, update.update_id + 1);
+      }
     }
   } finally {
     polling = false;

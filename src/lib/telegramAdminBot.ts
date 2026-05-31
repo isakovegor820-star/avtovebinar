@@ -26,8 +26,8 @@ async function answerCallbackQuery(callbackQueryId: string, text: string) {
     body: JSON.stringify({
       callback_query_id: callbackQueryId,
       text,
-      show_alert: false
-    })
+      show_alert: false,
+    }),
   });
   const payload = (await response.json()) as { ok: boolean; description?: string };
   if (!payload.ok) {
@@ -54,7 +54,7 @@ async function handleCallback(update: AdminTelegramUpdate) {
 
   const registration = await prisma.registration.findUnique({
     where: { id: registrationId },
-    include: { lead: true }
+    include: { lead: true },
   });
 
   if (!registration) {
@@ -65,17 +65,20 @@ async function handleCallback(update: AdminTelegramUpdate) {
   if (action === 'crm') {
     await prisma.registration.update({
       where: { id: registrationId },
-      data: { crmStatus: value || 'contacted' }
+      data: { crmStatus: value || 'contacted' },
     });
-    await answerCallbackQuery(callback.id, `Статус: ${CRM_STATUS_LABELS[value as keyof typeof CRM_STATUS_LABELS] || value}`);
+    await answerCallbackQuery(
+      callback.id,
+      `Статус: ${CRM_STATUS_LABELS[value as keyof typeof CRM_STATUS_LABELS] || value}`,
+    );
     await sendTelegramMessage({
       text: [
         'CRM-статус обновлен',
         '',
         `Участник: ${registration.lead.name}`,
         `Статус: ${CRM_STATUS_LABELS[value as keyof typeof CRM_STATUS_LABELS] || value}`,
-        `Админка: ${env.PUBLIC_SITE_URL}/admin?registration=${registrationId}`
-      ].join('\n')
+        `Админка: ${env.PUBLIC_SITE_URL}/admin?registration=${registrationId}`,
+      ].join('\n'),
     });
     return;
   }
@@ -83,7 +86,7 @@ async function handleCallback(update: AdminTelegramUpdate) {
   if (action === 'hot') {
     await prisma.registration.update({
       where: { id: registrationId },
-      data: { isHot: true }
+      data: { isHot: true },
     });
     await answerCallbackQuery(callback.id, 'Помечен как горячий лид');
     await sendTelegramMessage({
@@ -93,8 +96,8 @@ async function handleCallback(update: AdminTelegramUpdate) {
         `Участник: ${registration.lead.name}`,
         `Телефон: ${registration.lead.phone}`,
         `Email: ${registration.lead.email}`,
-        `Админка: ${env.PUBLIC_SITE_URL}/admin?registration=${registrationId}`
-      ].join('\n')
+        `Админка: ${env.PUBLIC_SITE_URL}/admin?registration=${registrationId}`,
+      ].join('\n'),
     });
     return;
   }
@@ -120,8 +123,13 @@ async function pollOnce() {
     }
 
     for (const update of payload.result || []) {
-      nextOffset = Math.max(nextOffset, update.update_id + 1);
-      await handleCallback(update);
+      try {
+        await handleCallback(update);
+      } catch (error) {
+        console.error('[ASPБ admin telegram bot update]', { updateId: update.update_id, error });
+      } finally {
+        nextOffset = Math.max(nextOffset, update.update_id + 1);
+      }
     }
   } finally {
     polling = false;

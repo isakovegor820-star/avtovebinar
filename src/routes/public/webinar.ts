@@ -3,47 +3,13 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
-import {
-  getCountdown,
-  getNextWebinarDate,
-  getSessionStatus,
-  WEBINAR_DURATION_MINUTES,
-  WEBINAR_REPLAY_HOURS,
-  WEBINAR_TITLE,
-} from '../../lib/time.js';
+import { getCountdown, getNextWebinarDate, getSessionStatus } from '../../lib/time.js';
 import { DEFAULT_TIMELINE_EVENTS, WEBINAR_VIDEO_PATH } from '../../lib/webinarTimeline.js';
 import { buildTelegramStartUrl } from '../../lib/telegram.js';
+import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import { buildAccessPayload, findRegistrationForRequest, getFirstSeen, roomAccessError } from './helpers.js';
 
 export const webinarRouter = Router();
-
-async function findOrCreateWebinarSession(scheduledAt: Date) {
-  const now = new Date();
-  const status = getSessionStatus(now, scheduledAt, WEBINAR_DURATION_MINUTES);
-
-  return prisma.webinarSession.upsert({
-    where: { scheduledAt },
-    update: {
-      status,
-      videoUrl: WEBINAR_VIDEO_PATH,
-      roomOpenBeforeMinutes: 15,
-      replayAvailableHours: WEBINAR_REPLAY_HOURS,
-      replayEnabled: true,
-    },
-    create: {
-      title: WEBINAR_TITLE,
-      scheduledAt,
-      durationMinutes: WEBINAR_DURATION_MINUTES,
-      videoUrl: WEBINAR_VIDEO_PATH,
-      videoDurationSeconds: 568,
-      roomOpenBeforeMinutes: 15,
-      replayAvailableHours: WEBINAR_REPLAY_HOURS,
-      replayEnabled: true,
-      liveMode: 'simulated',
-      status,
-    },
-  });
-}
 
 webinarRouter.get(
   '/webinar/current',

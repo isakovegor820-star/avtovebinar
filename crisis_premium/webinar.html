@@ -4,102 +4,11 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Вебинарная комната | АСПБ</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="css/styles.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css" rel="stylesheet"/>
-<script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "tertiary-fixed-dim": "#bcc7dd",
-                        "on-tertiary-fixed-variant": "#3c475a",
-                        "background": "#f8f9fa",
-                        "on-error": "#ffffff",
-                        "inverse-on-surface": "#f0f1f2",
-                        "secondary-fixed": "#ffdea5",
-                        "on-secondary-fixed": "#261900",
-                        "primary-fixed": "#d2e4fb",
-                        "on-secondary-fixed-variant": "#5d4201",
-                        "surface-container": "#edeeef",
-                        "on-tertiary-fixed": "#111c2c",
-                        "on-surface": "#191c1d",
-                        "on-secondary": "#ffffff",
-                        "surface": "#f8f9fa",
-                        "on-error-container": "#93000a",
-                        "inverse-primary": "#b7c8de",
-                        "secondary-fixed-dim": "#e9c176",
-                        "outline": "#74777d",
-                        "surface-tint": "#4f6073",
-                        "primary": "#041627",
-                        "on-primary-container": "#8192a7",
-                        "surface-dim": "#d9dadb",
-                        "surface-container-high": "#e7e8e9",
-                        "on-primary-fixed-variant": "#38485a",
-                        "on-background": "#191c1d",
-                        "tertiary-fixed": "#d8e3fa",
-                        "on-primary-fixed": "#0b1d2d",
-                        "outline-variant": "#c4c6cd",
-                        "surface-variant": "#e1e3e4",
-                        "on-tertiary": "#ffffff",
-                        "tertiary-container": "#1f2a3b",
-                        "surface-bright": "#f8f9fa",
-                        "secondary": "#775a19",
-                        "inverse-surface": "#2e3132",
-                        "surface-container-low": "#f3f4f5",
-                        "surface-container-highest": "#e1e3e4",
-                        "primary-fixed-dim": "#b7c8de",
-                        "on-secondary-container": "#785a1a",
-                        "secondary-container": "#fed488",
-                        "error": "#ba1a1a",
-                        "tertiary": "#0a1526",
-                        "on-surface-variant": "#44474c",
-                        "primary-container": "#1a2b3c",
-                        "surface-container-lowest": "#ffffff",
-                        "on-tertiary-container": "#8691a6",
-                        "on-primary": "#ffffff",
-                        "error-container": "#ffdad6"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "0.25rem",
-                        "lg": "22px",
-                        "xl": "28px",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "gutter": "24px",
-                        "container-max-width": "1280px",
-                        "margin-desktop": "48px",
-                        "unit": "4px",
-                        "margin-mobile": "16px"
-                    },
-                    "fontFamily": {
-                        "headline-lg-mobile": ["Manrope"],
-                        "body-lg": ["Manrope"],
-                        "headline-xl": ["Manrope"],
-                        "headline-lg": ["Manrope"],
-                        "headline-md": ["Manrope"],
-                        "label-sm": ["Manrope"],
-                        "label-md": ["Manrope"],
-                        "body-md": ["Manrope"]
-                    },
-                    "fontSize": {
-                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
-                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                        "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
-                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
-                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
-                    }
-                },
-            },
-        }
-    </script>
 <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -173,12 +82,9 @@
 <span class="hidden sm:block text-[11px] leading-4 font-semibold text-on-surface-variant">Антикризисная служба помощи бизнесу</span>
 </a>
 <nav class="hidden md:flex gap-8">
-<a class="text-label-md font-label-md text-primary border-b-2 border-primary pb-1 transition-colors duration-300" href="index.html#about">О вебинаре</a>
-<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#why-now">Почему сейчас</a>
-<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#team">Команда</a>
-<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#faq">FAQ</a>
+<!-- FIX 1: nav и кнопка регистрации удалены — пользователь уже в комнате -->
 </nav>
-<a class="bg-primary text-on-primary px-6 py-2.5 rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="register.html">Зарегистрироваться</a>
+<a class="bg-primary text-on-primary px-6 py-2.5 rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="#partnerApplication">Оставить заявку</a>
 </div>
 </header>
 <div data-current="webinar" data-flow-tabs></div>
@@ -238,6 +144,16 @@
   <!-- Custom Stream Controls Overlay (hidden by default, shown on hover/activity) -->
   <div id="customPlayerControls" class="absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-4 pt-10 flex flex-col gap-2 transition-all duration-300 opacity-0 pointer-events-none">
 
+    <!-- FIX 5: seekbar для replay-режима — в live-режиме скрыт через JS -->
+    <div id="customSeekBarContainer"
+         class="w-full h-2 bg-white/20 rounded-full cursor-pointer group/seek relative mb-1">
+      <div id="customSeekBarProgress"
+           class="h-full bg-red-500 rounded-full pointer-events-none transition-all"
+           style="width: 0%">
+      </div>
+      <div class="absolute inset-y-0 left-0 right-0 rounded-full opacity-0 group-hover/seek:opacity-100 bg-white/10 transition-opacity"></div>
+    </div>
+
     <!-- Control Buttons -->
     <div class="flex items-center justify-between w-full">
       <div class="flex items-center gap-4">
@@ -255,7 +171,8 @@
         <!-- Viewer Count Badge -->
         <div id="customViewerCount" class="flex items-center gap-1.5 text-white/80 text-xs bg-white/10 px-2.5 py-1 rounded-full">
           <span class="material-symbols-outlined text-[16px] text-white/60">visibility</span>
-          <span id="viewerCountValue" class="font-semibold">--</span>
+          <!-- FIX 2: правдоподобное начальное число, JS обновит его после загрузки -->
+          <span id="viewerCountValue" class="font-semibold">147</span>
         </div>
       </div>
 
@@ -289,7 +206,8 @@
 </div>
 <!-- Questions Panel -->
 <div class="lg:col-span-4">
-<div class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[600px] overflow-hidden">
+<!-- FIX 3: адаптивная высота — на мобилке 400px, на десктопе 600px -->
+<div class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[400px] md:h-[600px] overflow-hidden">
 <div class="p-4 border-b border-outline-variant/10 flex items-center justify-between gap-4">
 <div>
 <h3 class="text-label-md font-bold text-primary">Чат эфира</h3>
@@ -391,7 +309,8 @@
 </select>
 <textarea class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="comment" rows="4" placeholder="Комментарий или вопрос по договору"></textarea>
 <button class="w-full bg-primary-fixed text-on-primary-fixed py-4 rounded-xl font-label-md hover:opacity-95 active:scale-[0.99] transition-all" type="submit">Оставить заявку</button>
-<p class="text-label-sm text-primary-fixed-dim" id="partnerApplicationStatus">Условия и вознаграждение фиксируются только в партнерском договоре.</p>
+<!-- FIX 4: объясняем что контакты из регистрации подтянутся автоматически -->
+<p class="text-label-sm text-primary-fixed-dim" id="partnerApplicationStatus">Ваши имя и контакт из регистрации будут добавлены автоматически. Условия и вознаграждение фиксируются в партнёрском договоре.</p>
 </form>
 </div>
 </section>
@@ -403,7 +322,11 @@
 <div class="w-12 h-12 bg-primary rounded-xl flex items-center justify-center program-icon-pulse">
 <span class="material-symbols-outlined text-white">format_list_bulleted</span>
 </div>
-<h2 class="text-headline-lg font-headline-lg text-primary">Программа вебинара</h2>
+<!-- FIX 8: переработан из дублирующего таймлайна в навигатор для опоздавших -->
+<div>
+<h2 class="text-headline-lg font-headline-lg text-primary">Что разбираем на эфире</h2>
+<p class="text-body-md text-on-surface-variant mt-1">Подключились позже? Вот ключевые темы — динамические подсказки в панели справа синхронизированы с записью.</p>
+</div>
 </div>
 <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
 <div class="flex gap-4 group card-reveal program-item">
@@ -470,7 +393,7 @@
 </div>
 </footer>
 
-<script src="aspb-api.js"></script>
+<script type="module" src="js/main.js"></script>
 <script src="flow-tabs.js"></script>
 <script src="live-chat.js"></script>
 <script>

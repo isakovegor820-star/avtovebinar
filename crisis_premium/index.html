@@ -4,103 +4,12 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>АСПБ — Экономика кризиса</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="css/styles.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css" rel="stylesheet"/>
 <link href="buttons.css" rel="stylesheet"/>
-<script id="tailwind-config">
-      tailwind.config = {
-        darkMode: "class",
-        theme: {
-          extend: {
-            "colors": {
-                    "tertiary-fixed-dim": "#bcc7dd",
-                    "on-tertiary-fixed-variant": "#3c475a",
-                    "background": "#f8f9fa",
-                    "on-error": "#ffffff",
-                    "inverse-on-surface": "#f0f1f2",
-                    "secondary-fixed": "#ffdea5",
-                    "on-secondary-fixed": "#261900",
-                    "primary-fixed": "#d2e4fb",
-                    "on-secondary-fixed-variant": "#5d4201",
-                    "surface-container": "#edeeef",
-                    "on-tertiary-fixed": "#111c2c",
-                    "on-surface": "#191c1d",
-                    "on-secondary": "#ffffff",
-                    "surface": "#f8f9fa",
-                    "on-error-container": "#93000a",
-                    "inverse-primary": "#b7c8de",
-                    "secondary-fixed-dim": "#e9c176",
-                    "outline": "#74777d",
-                    "surface-tint": "#4f6073",
-                    "primary": "#041627",
-                    "on-primary-container": "#8192a7",
-                    "surface-dim": "#d9dadb",
-                    "surface-container-high": "#e7e8e9",
-                    "on-primary-fixed-variant": "#38485a",
-                    "on-background": "#191c1d",
-                    "tertiary-fixed": "#d8e3fa",
-                    "on-primary-fixed": "#0b1d2d",
-                    "outline-variant": "#c4c6cd",
-                    "surface-variant": "#e1e3e4",
-                    "on-tertiary": "#ffffff",
-                    "tertiary-container": "#1f2a3b",
-                    "surface-bright": "#f8f9fa",
-                    "secondary": "#775a19",
-                    "inverse-surface": "#2e3132",
-                    "surface-container-low": "#f3f4f5",
-                    "surface-container-highest": "#e1e3e4",
-                    "primary-fixed-dim": "#b7c8de",
-                    "on-secondary-container": "#785a1a",
-                    "secondary-container": "#fed488",
-                    "error": "#ba1a1a",
-                    "tertiary": "#0a1526",
-                    "on-surface-variant": "#44474c",
-                    "primary-container": "#1a2b3c",
-                    "surface-container-lowest": "#ffffff",
-                    "on-tertiary-container": "#8691a6",
-                    "on-primary": "#ffffff",
-                    "error-container": "#ffdad6"
-            },
-            "borderRadius": {
-                    "DEFAULT": "0.25rem",
-                    "lg": "22px",
-                    "xl": "24px",
-                    "full": "9999px"
-            },
-            "spacing": {
-                    "gutter": "24px",
-                    "container-max-width": "1280px",
-                    "margin-desktop": "48px",
-                    "unit": "4px",
-                    "margin-mobile": "16px"
-            },
-            "fontFamily": {
-                    "headline-lg-mobile": ["Manrope"],
-                    "body-lg": ["Manrope"],
-                    "headline-xl": ["Manrope"],
-                    "headline-lg": ["Manrope"],
-                    "headline-md": ["Manrope"],
-                    "label-sm": ["Manrope"],
-                    "label-md": ["Manrope"],
-                    "body-md": ["Manrope"]
-            },
-            "fontSize": {
-                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
-                    "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                    "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
-                    "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
-                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
-            }
-          },
-        },
-      }
-    </script>
 <link href="app-styles.css" rel="stylesheet"/>
 </head>
 <body class="bg-background text-on-surface font-body-md selection:bg-primary-fixed selection:text-on-primary-fixed">
@@ -261,9 +170,9 @@
 <p class="text-body-md text-primary-fixed-dim leading-relaxed">
 Если доверитель пришел к вам с долгами, кредиторами или риском банкротства, вы уже находитесь в точке решения. На вебинаре покажем, как не отпускать такого клиента, а подключать АСПБ как сильную антикризисную команду.
 </p>
-<div class="mt-4 rounded-lg bg-white/[0.05] border border-white/10 px-4 py-3">
-<p class="text-[12px] text-primary-fixed-dim/80 leading-relaxed italic">Общий долг россиян по кредитам превысил 37 трлн рублей. Займы выплачивают 47,6 млн человек. У половины из них больше половины дохода уходит на погашение долгов, а каждый пятый уже просрочил платежи больше чем на месяц.</p>
-<p class="text-[10px] text-primary-fixed-dim/50 mt-1 font-semibold uppercase tracking-wider">— ФЦБГ</p>
+<div class="mt-6 rounded-xl bg-white/[0.07] border border-white/15 px-5 py-4">
+<p class="text-[15px] text-primary-fixed-dim leading-relaxed">Общий долг россиян по кредитам превысил <strong class="text-white font-bold">37 трлн рублей</strong>. Займы выплачивают <strong class="text-white font-bold">47,6 млн человек</strong>. У половины из них больше половины дохода уходит на погашение долгов, а каждый пятый уже просрочил платежи больше чем на месяц.</p>
+<p class="text-[11px] text-primary-fixed-dim/60 mt-2 font-semibold uppercase tracking-wider">— ФЦБГ</p>
 </div>
 </div>
 <div class="rounded-xl bg-white/[0.08] border border-white/10 p-5">
@@ -1308,7 +1217,7 @@
 
         initSiteClickRipple();
     </script>
-<script src="aspb-api.js"></script>
+<script type="module" src="js/main.js"></script>
 <script src="flow-tabs.js"></script>
 <script src="buttons.js"></script>
 <script src="particles-bg.js"></script>

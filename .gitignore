@@ -3,6 +3,9 @@ dist/
 coverage/
 backups/
 
+# Tailwind build output
+crisis_premium/css/styles.css
+
 .env
 .env.*
 !.env.example

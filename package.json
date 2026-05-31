@@ -7,9 +7,11 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "bash scripts/check-video.sh && tsx watch src/server.ts",
+    "dev": "bash scripts/check-video.sh && npm run css:build && tsx watch src/server.ts",
     "start": "node dist/server.js",
     "build": "tsc",
+    "css:build": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --minify",
+    "css:watch": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --watch",
     "test": "vitest run",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "check": "npm run build && npm test && npm audit --omit=dev",
@@ -42,6 +44,8 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@tailwindcss/container-queries": "^0.1.1",
+    "@tailwindcss/forms": "^0.5.11",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.5",
@@ -55,6 +59,7 @@
     "lint-staged": "^17.0.5",
     "prettier": "3.3.3",
     "supertest": "^7.2.2",
+    "tailwindcss": "^3.4.19",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14"

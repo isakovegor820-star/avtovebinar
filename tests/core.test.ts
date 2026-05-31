@@ -27,6 +27,7 @@ function getRouteHandler(router: any, path: string, method: string) {
   return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 import { registerSchema } from '../src/routes/public.js';
+import { resolveFirstSeenAt } from '../src/routes/public/helpers.js';
 import {
   getCountdown,
   getNextWebinarDate,
@@ -75,6 +76,18 @@ describe('webinar time logic', () => {
     const scheduledAt = new Date('2026-05-22T08:00:00.000Z');
     expect(WEBINAR_REPLAY_HOURS).toBe(168);
     expect(getReplayExpiresAt(scheduledAt, 120).toISOString()).toBe('2026-05-29T10:00:00.000Z');
+  });
+
+  it('keeps firstSeen while the assigned webinar replay is still open', () => {
+    const firstSeen = '2026-05-21T09:15:00.000Z';
+    const resolved = resolveFirstSeenAt(firstSeen, new Date('2026-05-29T09:59:00.000Z'));
+    expect(resolved.toISOString()).toBe(firstSeen);
+  });
+
+  it('resets firstSeen after the assigned webinar replay expires', () => {
+    const now = new Date('2026-05-30T08:00:00.000Z');
+    const resolved = resolveFirstSeenAt('2026-05-21T09:15:00.000Z', now);
+    expect(resolved).toBe(now);
   });
 });
 

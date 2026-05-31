@@ -84,8 +84,16 @@ export function bindQuestionForm() {
   const button = document.getElementById('questionSubmit');
   const list = document.getElementById('questionList');
   if (!input || !button) return;
+  const errorParent = input.parentElement;
+
+  function clearQuestionError() {
+    errorParent?.querySelector('[data-question-error="true"]')?.remove();
+  }
 
   async function submitQuestion() {
+    if (button.disabled) return;
+
+    clearQuestionError();
     const text = input.value.trim();
     if (!text) return;
 
@@ -118,10 +126,12 @@ export function bindQuestionForm() {
     } catch (error) {
       // FIX 6b: вместо alert — inline-ошибка под полем ввода
       track('question_submit_error', { error: error.message });
+      clearQuestionError();
       const errNode = document.createElement('p');
+      errNode.dataset.questionError = 'true';
       errNode.className = 'text-label-sm text-error mt-1 px-1';
       errNode.textContent = 'Не удалось отправить — проверьте соединение и попробуйте снова';
-      input.parentNode.appendChild(errNode);
+      errorParent?.appendChild(errNode);
       setTimeout(() => errNode.remove(), 4000);
     } finally {
       button.disabled = false;

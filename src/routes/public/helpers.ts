@@ -9,9 +9,11 @@ import { hashIp, hashToken } from '../../lib/tokens.js';
 import { getClientIp } from '../../lib/http.js';
 import {
   getCountdown,
+  getNextWebinarDate,
   getReplayExpiresAt,
   getWebinarAccess,
   parseFirstSeenCookie,
+  WEBINAR_DURATION_MINUTES,
   WEBINAR_REPLAY_HOURS,
 } from '../../lib/time.js';
 import { prisma } from '../../lib/prisma.js';
@@ -36,8 +38,16 @@ export function setFirstSeenCookie(res: Response, firstSeenAt: Date) {
   });
 }
 
+export function resolveFirstSeenAt(value: unknown, now = new Date()) {
+  const firstSeenAt = parseFirstSeenCookie(value) ?? now;
+  const scheduledAt = getNextWebinarDate(firstSeenAt);
+  const replayExpiresAt = getReplayExpiresAt(scheduledAt, WEBINAR_DURATION_MINUTES, WEBINAR_REPLAY_HOURS);
+
+  return replayExpiresAt < now ? now : firstSeenAt;
+}
+
 export function getFirstSeen(req: Request, res: Response) {
-  const firstSeenAt = parseFirstSeenCookie(req.cookies?.aspb_first_seen_at) ?? new Date();
+  const firstSeenAt = resolveFirstSeenAt(req.cookies?.aspb_first_seen_at);
   setFirstSeenCookie(res, firstSeenAt);
   return firstSeenAt;
 }

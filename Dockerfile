@@ -10,6 +10,10 @@ FROM deps AS build
 COPY prisma ./prisma
 RUN npx prisma generate
 
+COPY tailwind.config.cjs ./
+COPY crisis_premium ./crisis_premium
+RUN npm run css:build
+
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
@@ -26,7 +30,7 @@ RUN npm ci --omit=dev \
   && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
-COPY crisis_premium ./crisis_premium
+COPY --from=build /app/crisis_premium ./crisis_premium
 
 EXPOSE 5174
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

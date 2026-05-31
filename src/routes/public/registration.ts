@@ -87,35 +87,32 @@ registrationRouter.post(
     const session = await findOrCreateWebinarSession(scheduledAt);
     const professionalStatus = clean(data.professionalStatus) ?? clean(data.status);
 
-    const existingLead = await prisma.lead.findUnique({
-      where: { email: data.email.toLowerCase() },
-    });
+    const email = data.email.toLowerCase();
+    const token = createAccessToken();
+    const tokenHash = hashToken(token);
+    const tokenExpiresAt = getRoomTokenExpiresAt(session);
 
-    let lead;
-    if (existingLead) {
-      lead = await prisma.lead.update({
-        where: { id: existingLead.id },
-        data: {
-          name: existingLead.name || data.name,
-          phone: existingLead.phone || data.phone,
-          city: clean(data.city) ?? existingLead.city,
-          professionalStatus: professionalStatus ?? existingLead.professionalStatus,
-          consent: data.consent,
-          marketingConsent: data.marketingConsent || existingLead.marketingConsent,
-          source: clean(data.source) ?? existingLead.source,
-          utmSource: clean(data.utmSource) ?? existingLead.utmSource,
-          utmMedium: clean(data.utmMedium) ?? existingLead.utmMedium,
-          utmCampaign: clean(data.utmCampaign) ?? existingLead.utmCampaign,
-          utmContent: clean(data.utmContent) ?? existingLead.utmContent,
-          utmTerm: clean(data.utmTerm) ?? existingLead.utmTerm,
-        },
-      });
-    } else {
-      lead = await prisma.lead.create({
-        data: {
+    const { lead, registration } = await prisma.$transaction(async tx => {
+      const lead = await tx.lead.upsert({
+        where: { email },
+        update: {
           name: data.name,
           phone: data.phone,
-          email: data.email.toLowerCase(),
+          city: clean(data.city) ?? undefined,
+          professionalStatus: professionalStatus ?? undefined,
+          consent: data.consent,
+          marketingConsent: data.marketingConsent ? true : undefined,
+          source: clean(data.source) ?? undefined,
+          utmSource: clean(data.utmSource) ?? undefined,
+          utmMedium: clean(data.utmMedium) ?? undefined,
+          utmCampaign: clean(data.utmCampaign) ?? undefined,
+          utmContent: clean(data.utmContent) ?? undefined,
+          utmTerm: clean(data.utmTerm) ?? undefined,
+        },
+        create: {
+          name: data.name,
+          phone: data.phone,
+          email,
           city: clean(data.city),
           professionalStatus,
           consent: data.consent,
@@ -129,29 +126,41 @@ registrationRouter.post(
           firstSeenAt,
         },
       });
-    }
 
-    const token = createAccessToken();
-    const registration = await prisma.registration.create({
-      data: {
-        leadId: lead.id,
-        webinarSessionId: session.id,
-        accessTokenHash: hashToken(token),
-        status: 'registered',
-      },
-    });
-    await prisma.registrationToken.create({
-      data: {
-        registrationId: registration.id,
-        tokenHash: hashToken(token),
-        purpose: 'registration',
-        expiresAt: getRoomTokenExpiresAt(session),
-      },
+      const registration = await tx.registration.upsert({
+        where: {
+          leadId_webinarSessionId: {
+            leadId: lead.id,
+            webinarSessionId: session.id,
+          },
+        },
+        update: {
+          accessTokenHash: tokenHash,
+          status: 'registered',
+        },
+        create: {
+          leadId: lead.id,
+          webinarSessionId: session.id,
+          accessTokenHash: tokenHash,
+          status: 'registered',
+        },
+      });
+
+      await tx.registrationToken.create({
+        data: {
+          registrationId: registration.id,
+          tokenHash,
+          purpose: 'registration',
+          expiresAt: tokenExpiresAt,
+        },
+      });
+
+      return { lead, registration };
     });
 
     const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html', token);
     const successUrl = buildFrontendUrl('/crisis_premium/success.html', token);
-    setRoomTokenCookie(res, token, getRoomTokenExpiresAt(session));
+    setRoomTokenCookie(res, token, tokenExpiresAt);
     await sendRegistrationEmail({
       to: lead.email,
       name: lead.name,

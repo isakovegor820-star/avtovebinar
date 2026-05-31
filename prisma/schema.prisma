@@ -147,6 +147,7 @@ model Registration {
   @@index([isHot])
   @@index([assignedManagerId])
   @@index([nextContactAt])
+  @@unique([leadId, webinarSessionId])
   @@map("registrations")
 }
 

@@ -71,6 +71,34 @@ describe('critical path integration scenarios', () => {
     expect(lead?.name).toBe('Алексей Тестовый');
     expect(lead?.marketingConsent).toBe(true);
 
+    // Re-submitting the same form for the same webinar refreshes access but does not create a duplicate registration.
+    const repeatRegisterResponse = await request(app).post('/api/register').send({
+      name: 'Алексей Тестовый',
+      phone: '+79998887766',
+      email: 'alex.test@aspb.ru',
+      city: 'Москва',
+      professionalStatus: 'Юрист',
+      consent: true,
+      marketingConsent: true,
+      utmSource: 'yandex',
+      utmMedium: 'cpc',
+    });
+
+    expect(repeatRegisterResponse.status).toBe(201);
+    expect(repeatRegisterResponse.body.ok).toBe(true);
+    expect(repeatRegisterResponse.body.registration.id).toBeDefined();
+
+    const registrationsAfterRepeat = await prisma.registration.findMany({
+      where: { leadId: lead?.id },
+    });
+    expect(registrationsAfterRepeat.length).toBe(1);
+    expect(registrationsAfterRepeat[0].id).toBe(repeatRegisterResponse.body.registration.id);
+
+    const accessTokenCount = await prisma.registrationToken.count({
+      where: { registrationId: registrationsAfterRepeat[0].id },
+    });
+    expect(accessTokenCount).toBe(2);
+
     // 2. SUCCESS VIEW (GET /api/registration/:token)
     const successResponse = await request(app)
       .get(`/api/registration/${token}?view=success`)

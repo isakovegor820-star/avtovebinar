@@ -54,6 +54,7 @@ export async function hydrateSuccessPage() {
   try {
     const data = await getRegistrationState('success');
     if (!data.ok) return;
+    const roomHref = data.webinarUrl || (token ? `webinar.html?token=${encodeURIComponent(token)}` : 'webinar.html');
     state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
     updateTelegramLinks(data.telegramUrl);
     const telegramLink = document.getElementById('successTelegramLink');
@@ -61,7 +62,7 @@ export async function hydrateSuccessPage() {
       telegramLink.setAttribute('href', data.telegramBotUrl || data.telegramUrl);
     }
     const roomLink = document.getElementById('successRoomLink') || document.querySelector('a[href*="webinar.html"]');
-    if (roomLink) roomLink.setAttribute('href', token ? `webinar.html?token=${encodeURIComponent(token)}` : 'webinar.html');
+    if (roomLink) roomLink.setAttribute('href', roomHref);
     bindSuccessCalendar(data);
     const dateNode = document.getElementById('successWebinarDate');
     if (dateNode) {

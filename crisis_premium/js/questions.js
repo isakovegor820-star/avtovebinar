@@ -82,7 +82,6 @@ export function updateWebinarInsights(currentTime, isSyncing = false) {
 export function bindQuestionForm() {
   const input = document.getElementById('questionInput');
   const button = document.getElementById('questionSubmit');
-  const list = document.getElementById('questionList');
   if (!input || !button) return;
   const errorParent = input.parentElement;
 
@@ -107,22 +106,10 @@ export function bindQuestionForm() {
       // FIX 6a: трекаем успешную отправку
       track('question_submitted');
 
-      // Добавляем в визуальный live-chat (если live-chat.js загружен)
-      if (window.__liveChatAddMessage) {
-        window.__liveChatAddMessage({ name: 'Вы', icon: 'person', color: '#041627', text });
-      }
-
-      const item = document.createElement('div');
-      item.className = 'flex gap-3';
-      item.innerHTML = `
-        <div class="w-8 h-8 rounded-full bg-primary-fixed-dim flex-shrink-0 flex items-center justify-center text-primary text-label-sm font-bold">Вы</div>
-        <div class="space-y-1">
-          <div class="text-label-sm font-bold text-on-surface">Ваш вопрос</div>
-          <div class="bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant"></div>
-        </div>`;
-      item.querySelector('.bg-surface-container').textContent = text;
-      if (list) list.appendChild(item);
       input.value = '';
+      if (window.__liveChatRefresh) {
+        window.__liveChatRefresh();
+      }
     } catch (error) {
       // FIX 6b: вместо alert — inline-ошибка под полем ввода
       track('question_submit_error', { error: error.message });

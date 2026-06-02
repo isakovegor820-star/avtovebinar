@@ -1,0 +1,161 @@
+export type ScriptedChatMessage = {
+  id: string;
+  offsetSeconds: number;
+  authorName: string;
+  authorRole: string;
+  authorCity: string;
+  message: string;
+  kind: 'scripted_user';
+  isSynthetic: true;
+  videoBlock: string;
+};
+
+export const SCRIPTED_CHAT_MESSAGES: ScriptedChatMessage[] = [
+  {
+    id: 'scripted_001',
+    offsetSeconds: 8,
+    authorName: 'Марина',
+    authorRole: 'юрист',
+    authorCity: 'Москва',
+    message: 'Коллеги, добрый день. Интересно, как это применять именно в юридической практике.',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Старт эфира',
+  },
+  {
+    id: 'scripted_002',
+    offsetSeconds: 24,
+    authorName: 'Игорь',
+    authorRole: 'адвокат',
+    authorCity: 'Казань',
+    message: 'Тема актуальная, клиенты с долгами стали приходить чаще.',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Старт эфира',
+  },
+  {
+    id: 'scripted_003',
+    offsetSeconds: 48,
+    authorName: 'Елена',
+    authorRole: 'налоговый консультант',
+    authorCity: 'Екатеринбург',
+    message: 'Если у клиента уже блокировка счета по налогам, это тоже тот самый сигнал?',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Сигналы долгового клиента',
+  },
+  {
+    id: 'scripted_004',
+    offsetSeconds: 88,
+    authorName: 'Дмитрий',
+    authorRole: 'юрист',
+    authorCity: 'Новосибирск',
+    message: 'Согласен про риск отпустить клиента. Обычно после консультации он уходит искать решение сам.',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Проблема потери клиента',
+  },
+  {
+    id: 'scripted_005',
+    offsetSeconds: 118,
+    authorName: 'Антон',
+    authorRole: 'финансовый консультант',
+    authorCity: 'Самара',
+    message: 'А как корректно говорить с клиентом, чтобы не обещать ему невозможного?',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Безопасная коммуникация',
+  },
+  {
+    id: 'scripted_006',
+    offsetSeconds: 158,
+    authorName: 'Ольга',
+    authorRole: 'юрист',
+    authorCity: 'Ростов-на-Дону',
+    message: 'Правильно понимаю, что документы и процедуру берет на себя команда АСПБ?',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Что берет на себя АСПБ',
+  },
+  {
+    id: 'scripted_007',
+    offsetSeconds: 204,
+    authorName: 'Марина',
+    authorRole: 'юрист',
+    authorCity: 'Москва',
+    message: 'Для партнеров важно, чтобы не пришлось самим вести банкротство. Это как раз боль.',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Роль партнера',
+  },
+  {
+    id: 'scripted_008',
+    offsetSeconds: 246,
+    authorName: 'Сергей',
+    authorRole: 'арбитражный юрист',
+    authorCity: 'Пермь',
+    message: 'Есть кейсы, где клиент боится слова банкротство. Диагностика звучит спокойнее.',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Диагностика вместо давления',
+  },
+  {
+    id: 'scripted_009',
+    offsetSeconds: 292,
+    authorName: 'Елена',
+    authorRole: 'налоговый консультант',
+    authorCity: 'Екатеринбург',
+    message: 'Про ФНС и кредиторов очень узнаваемо. Вопрос в том, когда уже пора передавать дальше.',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Когда передавать клиента',
+  },
+  {
+    id: 'scripted_010',
+    offsetSeconds: 338,
+    authorName: 'Игорь',
+    authorRole: 'адвокат',
+    authorCity: 'Казань',
+    message: 'Если клиент ИП, маршрут отличается от юрлица или сначала все равно диагностика?',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Типы клиентов',
+  },
+  {
+    id: 'scripted_011',
+    offsetSeconds: 382,
+    authorName: 'Дмитрий',
+    authorRole: 'юрист',
+    authorCity: 'Новосибирск',
+    message: 'Условия партнерства фиксируются договором - это правильно, без устных договоренностей спокойнее.',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Партнерская модель',
+  },
+  {
+    id: 'scripted_012',
+    offsetSeconds: 438,
+    authorName: 'Ольга',
+    authorRole: 'юрист',
+    authorCity: 'Ростов-на-Дону',
+    message: 'Вспомнила двух клиентов за май: долги, кредиторы и просроченные налоги.',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Вопрос участникам',
+  },
+  {
+    id: 'scripted_013',
+    offsetSeconds: 508,
+    authorName: 'Антон',
+    authorRole: 'финансовый консультант',
+    authorCity: 'Самара',
+    message: 'После эфира оставлю заявку, хочу понять формат передачи клиентов.',
+    kind: 'scripted_user',
+    isSynthetic: true,
+    videoBlock: 'Финальный шаг',
+  },
+];
+
+export function getScriptedChatMessagesUntil(offsetSeconds: number) {
+  return SCRIPTED_CHAT_MESSAGES.filter(message => message.offsetSeconds <= offsetSeconds);
+}

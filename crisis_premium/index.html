@@ -170,9 +170,9 @@
 <p class="text-body-md text-primary-fixed-dim leading-relaxed">
 Если доверитель пришел к вам с долгами, кредиторами или риском банкротства, вы уже находитесь в точке решения. На вебинаре покажем, как не отпускать такого клиента, а подключать АСПБ как сильную антикризисную команду.
 </p>
-<div class="mt-6 rounded-xl bg-white/[0.07] border border-white/15 px-5 py-4">
-<p class="text-[15px] text-primary-fixed-dim leading-relaxed">Общий долг россиян по кредитам превысил <strong class="text-white font-bold">37 трлн рублей</strong>. Займы выплачивают <strong class="text-white font-bold">47,6 млн человек</strong>. У половины из них больше половины дохода уходит на погашение долгов, а каждый пятый уже просрочил платежи больше чем на месяц.</p>
-<p class="text-[11px] text-primary-fixed-dim/60 mt-2 font-semibold uppercase tracking-wider">— ФЦБГ</p>
+<div class="debt-alert-card mt-6 rounded-xl px-5 py-5 md:px-6 md:py-5">
+<p class="debt-alert-text">Общий долг россиян по кредитам превысил <strong>37 трлн рублей</strong>. Займы выплачивают <strong>47,6 млн человек</strong>. У половины из них больше половины дохода уходит на погашение долгов, а каждый пятый уже просрочил платежи больше чем на месяц.</p>
+<p class="debt-alert-source">— ФЦБГ</p>
 </div>
 </div>
 <div class="rounded-xl bg-white/[0.08] border border-white/10 p-5">
@@ -589,31 +589,80 @@
 </div>
 </section>
 <!-- Team -->
-<section class="pt-12 md:pt-14 pb-20 bg-surface" id="team">
+<section class="pt-10 md:pt-12 pb-14 md:pb-16 bg-surface" id="team">
 <div class="max-w-container-max-width mx-auto px-gutter">
 
 <!-- Count-up hero stat -->
-<div class="text-center mb-12">
+<div class="text-center mb-8">
 <div class="text-headline-xl md:text-[56px] font-headline-xl text-primary mb-2" data-countup="17000" data-countup-suffix="+">17 000+</div>
 <p class="text-body-lg text-on-surface-variant">успешных дел по банкротству граждан и бизнеса</p>
 </div>
 
-<div class="text-center mb-10">
+<div class="text-center mb-8">
 <h2 class="text-headline-lg font-headline-lg text-primary mb-2">Опытные арбитражные управляющие</h2>
 <p class="text-body-md text-on-surface-variant">Команда, которая берёт сложную часть на себя — от диагностики до завершения процедуры</p>
 </div>
 
-<div class="grid md:grid-cols-3 gap-8">
+<div class="grid md:grid-cols-3 gap-6">
 
-<!-- Card 1 -->
-<div class="card-reveal team-card group">
-<div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvZigpiyUH8NgNPOF8ghFZQDYsG8q0Mc6ob31ieCofW-6DXDpJghw3-cCpyckbbA1Rw0V4AjksiVKIIN771osLArQIFXYdKI1KyDyiP9PLTeYW-67RpMP8i8XOIKUxUJ9ZE5cxiTGpCLzui53rhGh_sd9vtPOagMDa6XCMLJvxeJo7aBYUXuAYSIzn8GWebvb2-vW8sbX8lqppeh-wnYT2MhX9GCb46RNx-v3n58WSZUPKmaXF9QL0vZSOWABw4GwpfQvAZ0VG6gk" alt=""/>
+<!-- Founder card -->
+<div class="card-reveal team-card team-founder-card group md:col-span-3">
+<div class="grid lg:grid-cols-[0.9fr_1.1fr] lg:min-h-[350px]">
+<div class="relative overflow-hidden rounded-xl lg:rounded-r-none h-[300px] sm:h-[340px] lg:h-auto bg-white">
+<img class="w-full h-full object-contain object-bottom origin-bottom group-hover:scale-[1.018] transition-transform duration-500 pointer-events-none select-none" src="assets/vasiliy-artin.jpg" alt="Василий Артин"/>
+<div class="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-primary text-white px-4 py-2 text-label-sm font-label-sm">
+<span class="material-symbols-outlined text-[18px]">workspace_premium</span>
+                            Основатель АСПБ
+                        </div>
+<div class="team-card-tooltip">
+<p class="text-[12px] text-white/90 leading-relaxed">Основал АСПБ и курирует стратегию сопровождения самых сложных банкротных дел</p>
+</div>
+</div>
+<div class="p-5 md:p-6 lg:p-8 flex flex-col justify-center">
+<p class="text-label-sm font-label-sm uppercase text-secondary mb-2">Лицо команды</p>
+<h4 class="text-headline-lg font-headline-lg text-primary mb-2">Василий Артин</h4>
+<p class="text-label-md text-on-surface-variant mb-3">Основатель АСПБ, арбитражный управляющий</p>
+<p class="text-body-md text-on-surface-variant mb-4 team-card-desc">Создал АСПБ и ведет стратегию сложных дел. Самый большой практический стаж в команде помогает выстраивать для клиентов спокойный, законный и понятный маршрут.</p>
+<div class="team-founder-quote mb-4">
+<span class="material-symbols-outlined text-[22px]">format_quote</span>
+<p>Наша задача — не обещать чудо, а собрать сильную правовую позицию и довести клиента до результата без хаоса.</p>
+</div>
+<div class="team-card-stats">
+<span class="team-stat">16+ лет практики</span>
+<span class="team-stat">Основатель АСПБ</span>
+<span class="team-stat">Стратегия сложных дел</span>
+</div>
+</div>
+</div>
+</div>
+
+<!-- Card 2 -->
+<div class="card-reveal card-reveal--delay team-card group">
+<div class="relative overflow-hidden rounded-xl mb-3 h-[320px] sm:h-[340px] bg-surface-container">
+<img class="w-full h-full object-cover object-center origin-center group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" src="assets/lyashchenko-elena.jpg" alt="Лященко Елена"/>
+<div class="team-card-tooltip">
+<p class="text-[12px] text-white/90 leading-relaxed">Сопровождает процедуру так, чтобы клиент понимал каждый этап: документы, сроки, суд и коммуникация с кредиторами</p>
+</div>
+</div>
+<h4 class="text-headline-md font-headline-md text-primary">Лященко Елена</h4>
+<p class="text-label-md text-on-surface-variant">Эксперт по сопровождению банкротных процедур</p>
+<p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Помогает клиентам пройти процедуру спокойно: собирает фактуру, держит сроки и снижает стресс на каждом этапе</p>
+<div class="team-card-stats">
+<span class="team-stat">Стаж: 15 лет</span>
+<span class="team-stat">Документы и сроки</span>
+<span class="team-stat">Работа с кредиторами</span>
+</div>
+</div>
+
+<!-- Card 3 -->
+<div class="card-reveal team-card group" style="animation-delay:0.24s">
+<div class="relative overflow-hidden rounded-xl mb-3 h-[320px] sm:h-[340px] bg-surface-container">
+<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" src="assets/gerasimov-alexander.jpg" alt="Александр Герасимов"/>
 <div class="team-card-tooltip">
 <p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: списал 12.4 млн долга для ИП за 7 месяцев, сохранив единственное жильё клиента</p>
 </div>
 </div>
-<h4 class="text-headline-md font-headline-md text-primary">Александр Волков</h4>
+<h4 class="text-headline-md font-headline-md text-primary">Александр Герасимов</h4>
 <p class="text-label-md text-on-surface-variant">Арбитражный управляющий, член СРО</p>
 <p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Банкротство юрлиц, субсидиарная ответственность, защита активов</p>
 <div class="team-card-stats">
@@ -623,33 +672,15 @@
 </div>
 </div>
 
-<!-- Card 2 -->
-<div class="card-reveal card-reveal--delay team-card group">
-<div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWF81X8fQhlWURFce2-lE52gEjtwF_nbdfXGq16A7Wbh7h1faNYesU_pVE2KBypdPJnS3bzxEIldCSlfyb_DFBVNOQOEL54qs1Odn6upnAXnUkAaVdBP7dJRgVfOkmXKebXXiKozrR-vsXE8J0rX1t0MxmcA7IcjuHEdEvbvF12LnJZkIVc6o1wMrBwfvo2pu7pBHO-5ljjxUiCIxcMqUuE-PocHSNZ4eyM7k4qkty0MzBosOoyVoQaDKS9MHI0hC854_CLDw74js" alt=""/>
-<div class="team-card-tooltip">
-<p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: выявила скрытые активы кредитора и снизила требования с 8.7 млн до 1.2 млн</p>
-</div>
-</div>
-<h4 class="text-headline-md font-headline-md text-primary">Мария Соколова</h4>
-<p class="text-label-md text-on-surface-variant">Эксперт по антикризисной диагностике</p>
-<p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Диагностика долговой нагрузки, реструктуризация, досудебное урегулирование</p>
-<div class="team-card-stats">
-<span class="team-stat">Стаж: 9 лет</span>
-<span class="team-stat">Дел: 320+</span>
-<span class="team-stat">Списано: 1.2 млрд ₽</span>
-</div>
-</div>
-
-<!-- Card 3 -->
+<!-- Card 4 -->
 <div class="card-reveal team-card group" style="animation-delay:0.3s">
-<div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWyByM-iOcxPMO-xmRm5eGU27jTvpPYTrOxnIG7ALs8t1OUakhV8Lz1CUoDHUC5aHMkmJ_eojP98d19ip7oVGw0omOT1YYudaVw3TTdFCSdHwU6zI_nmiZQ0o3DoXz9pzAeAQfr19kk_BZ5LlE390J1YrjVdRhp5ptpKDd1D-pQREO2W-edMjiXtp7Ke-UHBtZoVqzOZ88of-_IpaiEuethayn7ewSjzE66_-4DxakPamBnbIu846BChh4d5TDXyhjrgHuI6MLuHU" alt=""/>
+<div class="relative overflow-hidden rounded-xl mb-3 h-[320px] sm:h-[340px] bg-surface-container">
+<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500 pointer-events-none select-none" src="assets/andrey-abukaev.jpg" alt="Андрей Абукаев"/>
 <div class="team-card-tooltip">
 <p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: снял субсидиарную ответственность 18 млн с директора через оспаривание сделок</p>
 </div>
 </div>
-<h4 class="text-headline-md font-headline-md text-primary">Дмитрий Романов</h4>
+<h4 class="text-headline-md font-headline-md text-primary">Андрей Абукаев</h4>
 <p class="text-label-md text-on-surface-variant">Арбитражный управляющий, к.ю.н.</p>
 <p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Защита от взыскания, оспаривание сделок, снятие субсидиарки</p>
 <div class="team-card-stats">

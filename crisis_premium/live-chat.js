@@ -1,85 +1,176 @@
 /**
- * Live Chat — автоматические сообщения синхронизированные с видео.
- * Создаёт эффект живого эфира с участниками.
+ * Server-backed live chat for the autowebinar room.
+ * Chat state follows webinar server time, not local video playback.
  */
 (function() {
+  var API = window.location.protocol === 'file:' ? 'http://127.0.0.1:5174/api' : '/api';
+  var allowLocalTokenStorage = window.location.protocol === 'file:' ||
+    ['localhost', '127.0.0.1', ''].indexOf(window.location.hostname) !== -1;
+  var urlToken = new URLSearchParams(window.location.search).get('token') || '';
+  var storedToken = '';
+
+  try {
+    storedToken = allowLocalTokenStorage ? window.localStorage.getItem('crisisPremiumToken') || '' : '';
+  } catch {
+    storedToken = '';
+  }
+
+  var token = urlToken || storedToken;
   var chatContainer = document.getElementById('liveChatMessages');
-  var video = document.getElementById('webinarVideo');
-  if (!chatContainer || !video) return;
+  var chatPanel = document.getElementById('webinarChatPanel');
+  var input = document.getElementById('questionInput');
+  var submit = document.getElementById('questionSubmit');
+  var activity = document.getElementById('chatActivity');
+  var onlineLabel = document.getElementById('chatOnlineLabel');
+  if (!chatContainer) return;
 
-  // Автосообщения — привязаны к секундам видео
-  var AUTO_MESSAGES = [
-    { time: 5, name: 'Модератор', icon: 'support_agent', color: '#041627', text: 'Добро пожаловать на эфир АСПБ! Задавайте вопросы в чате.' },
-    { time: 15, name: 'Алексей К.', icon: null, text: 'Добрый день! Подключился из Москвы.' },
-    { time: 25, name: 'Ирина В.', icon: null, text: 'Привет всем! Юрист, 8 лет практики.' },
-    { time: 45, name: 'Дмитрий Р.', icon: null, text: 'Интересная тема, давно хотел разобраться.' },
-    { time: 70, name: 'Модератор', icon: 'support_agent', color: '#041627', text: 'Напоминаю: вопросы можно задавать прямо в чате. Спикер ответит в конце.' },
-    { time: 100, name: 'Марина С.', icon: null, text: 'У меня клиент с долгом 3 млн, ФНС давит. Это подходит?' },
-    { time: 120, name: 'Модератор', icon: 'support_agent', color: '#041627', text: 'Марина, да — именно такие ситуации разберём. Оставайтесь до конца.' },
-    { time: 155, name: 'Олег Н.', icon: null, text: 'А если клиент ИП и хочет закрыться с долгами?' },
-    { time: 180, name: 'Анна Л.', icon: null, text: 'Подскажите, субсидиарка тоже входит в работу АСПБ?' },
-    { time: 210, name: 'Модератор', icon: 'support_agent', color: '#041627', text: 'Олег, Анна — да, оба случая. Подробности будут через пару минут.' },
-    { time: 240, name: 'Сергей М.', icon: null, text: 'Я из Новосибирска. АСПБ работает по регионам?' },
-    { time: 270, name: 'Модератор', icon: 'support_agent', color: '#041627', text: 'Сергей — да, вся РФ. Процедура дистанционная.' },
-    { time: 300, name: 'Елена Т.', icon: null, text: 'Очень полезно! Записываю.' },
-    { time: 330, name: 'Виктор А.', icon: null, text: 'А какой процент вознаграждения для партнёра?' },
-    { time: 365, name: 'Модератор', icon: 'support_agent', color: '#041627', text: 'Виктор — условия фиксируются в договоре. После эфира можно оставить заявку.' },
-    { time: 400, name: 'Наталья К.', icon: null, text: 'У меня 3 таких клиента за последний месяц было. Жаль что раньше не знала.' },
-    { time: 440, name: 'Игорь Б.', icon: null, text: 'Вопрос: нужно ли мне самому разбираться в банкротстве?' },
-    { time: 470, name: 'Модератор', icon: 'support_agent', color: '#041627', text: 'Игорь — нет. Вы только передаёте контакт, всё остальное делает команда АСПБ.' },
-    { time: 505, name: 'Алексей К.', icon: null, text: 'Отличный формат. Буду оставлять заявку.' },
-    { time: 530, name: 'Марина С.', icon: null, text: 'Спасибо за эфир! Очень конкретно и по делу.' },
-    { time: 550, name: 'Модератор', icon: 'support_agent', color: '#041627', text: 'Спасибо всем! Не забудьте оставить заявку на партнёрский договор ниже.' }
-  ];
-
-  var shownMessages = new Set();
+  var renderedMessages = new Set();
+  var isHiddenAfterEnd = false;
   var COLORS = ['#1e40af', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#4338ca'];
 
+  function chatUrl() {
+    return token
+      ? API + '/webinar/chat/' + encodeURIComponent(token)
+      : API + '/webinar/chat/session/current';
+  }
+
+  function setActivity(text) {
+    if (activity) activity.textContent = text;
+  }
+
+  function setOnlineLabel(text) {
+    if (onlineLabel) onlineLabel.textContent = text;
+  }
+
+  function setInputState(disabled, placeholder) {
+    if (input) {
+      input.disabled = disabled;
+      input.placeholder = placeholder || 'Задайте вопрос...';
+    }
+    if (submit) {
+      submit.disabled = disabled;
+      submit.classList.toggle('opacity-40', disabled);
+      submit.classList.toggle('pointer-events-none', disabled);
+    }
+  }
+
   function getInitials(name) {
-    return name.split(' ').map(function(w) { return w[0]; }).join('').substring(0, 2);
+    return String(name || '?')
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(function(part) { return part[0]; })
+      .join('')
+      .toUpperCase();
   }
 
   function getColor(name) {
     var hash = 0;
-    for (var i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    var value = String(name || '');
+    for (var i = 0; i < value.length; i++) hash = value.charCodeAt(i) + ((hash << 5) - hash);
     return COLORS[Math.abs(hash) % COLORS.length];
   }
 
+  function authorLabel(msg) {
+    if (msg.kind === 'ai_manager') return msg.authorName;
+    return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
+  }
+
   function addMessage(msg) {
-    var div = document.createElement('div');
-    div.className = 'flex gap-2.5 chat-msg-enter';
-    div.style.animation = 'chatMsgIn 0.3s ease forwards';
+    if (!msg || renderedMessages.has(msg.id)) return;
+    renderedMessages.add(msg.id);
 
-    var avatarColor = msg.color || getColor(msg.name);
-    var avatarContent = msg.icon
-      ? '<span class="material-symbols-outlined text-[14px]">' + msg.icon + '</span>'
-      : '<span style="font-size:11px;font-weight:700">' + getInitials(msg.name) + '</span>';
+    var item = document.createElement('div');
+    item.className = 'flex gap-2.5 chat-msg-enter';
+    item.style.animation = 'chatMsgIn 0.3s ease forwards';
 
-    div.innerHTML =
-      '<div style="width:28px;height:28px;border-radius:50%;background:' + avatarColor + ';color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0">' + avatarContent + '</div>' +
-      '<div style="flex:1;min-width:0">' +
-        '<span style="font-size:11px;font-weight:700;color:' + avatarColor + '">' + msg.name + '</span>' +
-        '<p style="font-size:13px;color:#44474c;line-height:1.4;margin:2px 0 0;word-wrap:break-word">' + msg.text + '</p>' +
-      '</div>';
+    var avatarColor = msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
+    var avatar = document.createElement('div');
+    avatar.style.width = '28px';
+    avatar.style.height = '28px';
+    avatar.style.borderRadius = '50%';
+    avatar.style.background = avatarColor;
+    avatar.style.color = '#fff';
+    avatar.style.display = 'flex';
+    avatar.style.alignItems = 'center';
+    avatar.style.justifyContent = 'center';
+    avatar.style.flexShrink = '0';
+    avatar.style.fontSize = '11px';
+    avatar.style.fontWeight = '700';
+    avatar.textContent = getInitials(msg.authorName);
 
-    chatContainer.appendChild(div);
+    var body = document.createElement('div');
+    body.style.flex = '1';
+    body.style.minWidth = '0';
+
+    var author = document.createElement('span');
+    author.style.fontSize = '11px';
+    author.style.fontWeight = '700';
+    author.style.color = avatarColor;
+    author.textContent = authorLabel(msg);
+
+    var text = document.createElement('p');
+    text.style.fontSize = '13px';
+    text.style.color = '#44474c';
+    text.style.lineHeight = '1.4';
+    text.style.margin = '2px 0 0';
+    text.style.wordWrap = 'break-word';
+    text.textContent = msg.message;
+
+    body.append(author, text);
+    item.append(avatar, body);
+    chatContainer.appendChild(item);
     chatContainer.scrollTop = chatContainer.scrollHeight;
   }
 
-  function checkMessages() {
-    var currentTime = video.currentTime;
-    for (var i = 0; i < AUTO_MESSAGES.length; i++) {
-      var msg = AUTO_MESSAGES[i];
-      if (!shownMessages.has(i) && currentTime >= msg.time) {
-        shownMessages.add(i);
-        addMessage(msg);
+  function renderChatState(data) {
+    var chatStatus = data.liveState && data.liveState.chatStatus;
+    var demoLive = data.testMode === true;
+
+    if (!demoLive && (chatStatus === 'ended' || data.accessStatus === 'replay')) {
+      if (chatPanel) chatPanel.classList.remove('hidden');
+      isHiddenAfterEnd = false;
+      setInputState(true, 'Эфир завершен');
+      setActivity('Эфир завершен');
+      setOnlineLabel('завершен');
+      return;
+    }
+
+    if (isHiddenAfterEnd && chatPanel) {
+      chatPanel.classList.remove('hidden');
+      isHiddenAfterEnd = false;
+    }
+
+    if (!demoLive && chatStatus === 'locked') {
+      setInputState(true, 'Чат откроется в момент старта эфира');
+      setActivity('Чат откроется в момент старта эфира');
+      setOnlineLabel('ожидание');
+      return;
+    }
+
+    setInputState(false, 'Задайте вопрос...');
+    setActivity('Чат идет в live-режиме');
+    setOnlineLabel('онлайн');
+  }
+
+  async function refreshChat() {
+    try {
+      var response = await fetch(chatUrl(), { credentials: 'same-origin' });
+      var data = await response.json().catch(function() { return {}; });
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Ошибка загрузки чата');
+
+      renderChatState(data);
+      if (Array.isArray(data.messages)) {
+        data.messages.forEach(addMessage);
       }
+    } catch {
+      setActivity('Чат временно недоступен, переподключаемся...');
     }
   }
 
-  // Check every 500ms
-  setInterval(checkMessages, 500);
-
-  // Экспортируем addMessage глобально — questions.js вызовет после успешной отправки на сервер
+  window.__liveChatRefresh = refreshChat;
   window.__liveChatAddMessage = addMessage;
+
+  refreshChat();
+  window.setInterval(refreshChat, 2500);
 })();

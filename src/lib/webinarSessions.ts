@@ -1,9 +1,14 @@
 import { prisma } from './prisma.js';
 import { getSessionStatus, WEBINAR_DURATION_MINUTES, WEBINAR_REPLAY_HOURS, WEBINAR_TITLE } from './time.js';
 import { WEBINAR_VIDEO_DURATION_SECONDS, WEBINAR_VIDEO_PATH } from './webinarTimeline.js';
+import { getEffectiveVideoDurationMinutes } from './webinarLive.js';
 
 export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Date()) {
-  const status = getSessionStatus(now, scheduledAt, WEBINAR_DURATION_MINUTES);
+  const status = getSessionStatus(
+    now,
+    scheduledAt,
+    getEffectiveVideoDurationMinutes({ videoDurationSeconds: WEBINAR_VIDEO_DURATION_SECONDS }),
+  );
 
   return prisma.webinarSession.upsert({
     where: { scheduledAt },

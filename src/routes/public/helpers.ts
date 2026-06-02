@@ -16,6 +16,7 @@ import {
   WEBINAR_DURATION_MINUTES,
   WEBINAR_REPLAY_HOURS,
 } from '../../lib/time.js';
+import { getEffectiveVideoDurationMinutes } from '../../lib/webinarLive.js';
 import { prisma } from '../../lib/prisma.js';
 
 export function roomAccessError(accessStatus: string) {
@@ -66,9 +67,14 @@ export function setRoomTokenCookie(res: Response, token: string, replayExpiresAt
 export function getRoomTokenExpiresAt(session: {
   scheduledAt: Date;
   durationMinutes: number;
+  videoDurationSeconds?: number | null;
   replayAvailableHours: number;
 }) {
-  return getReplayExpiresAt(session.scheduledAt, session.durationMinutes, session.replayAvailableHours);
+  return getReplayExpiresAt(
+    session.scheduledAt,
+    getEffectiveVideoDurationMinutes(session),
+    session.replayAvailableHours,
+  );
 }
 
 export async function findRegistrationByToken(token: string) {
@@ -111,7 +117,7 @@ export function buildAccessPayload(
   const access = getWebinarAccess(
     now,
     registration.webinarSession.scheduledAt,
-    registration.webinarSession.durationMinutes,
+    getEffectiveVideoDurationMinutes(registration.webinarSession),
     registration.webinarSession.replayAvailableHours,
     registration.webinarSession.roomOpenBeforeMinutes,
     registration.webinarSession.replayEnabled,
@@ -124,6 +130,7 @@ export function buildAccessPayload(
       roomOpensAt: now,
       replayExpiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
       canEnterRoom: true,
+      canViewRoom: true,
       countdown: getCountdown(now, now),
       testMode: true,
     };
@@ -135,6 +142,7 @@ export function buildAccessPayload(
     roomOpensAt: access.roomOpensAt,
     replayExpiresAt: access.replayExpiresAt,
     canEnterRoom: access.canEnterRoom,
+    canViewRoom: access.canEnterRoom || access.accessStatus === 'pre_live',
     countdown: getCountdown(now, registration.webinarSession.scheduledAt),
     testMode: false,
   };

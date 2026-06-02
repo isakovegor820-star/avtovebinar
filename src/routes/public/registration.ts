@@ -5,6 +5,7 @@ import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { createAccessToken, hashToken } from '../../lib/tokens.js';
 import { getNextWebinarDate } from '../../lib/time.js';
+import { getWebinarLiveState } from '../../lib/webinarLive.js';
 import { sendRegistrationEmail } from '../../lib/email.js';
 import { buildTelegramStartUrl, notifyRegistration } from '../../lib/telegram.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
@@ -198,6 +199,7 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
 
   const now = new Date();
   const access = buildAccessPayload(registration, now);
+  const liveState = getWebinarLiveState(now, registration.webinarSession, { testMode: access.testMode });
   const requestToken = clean(token) ?? clean(req.cookies?.aspb_room_token);
   const explicitToken = clean(token);
   const tokenForLinks = explicitToken ?? (env.NODE_ENV === 'production' ? null : requestToken);
@@ -214,12 +216,17 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
   }
 
   if (view === 'room') {
-    if (access.canEnterRoom) {
+    if (access.canViewRoom) {
       await prisma.registration.update({
         where: { id: registration.id },
         data: { roomEnteredAt: registration.roomEnteredAt ?? now },
       });
-      await saveEvent({ eventName: 'webinar_room_open', req, token, page: '/crisis_premium/webinar.html' });
+      await saveEvent({
+        eventName: access.canEnterRoom ? 'webinar_room_open' : 'webinar_room_waiting',
+        req,
+        token,
+        page: '/crisis_premium/webinar.html',
+      });
     } else if (access.accessStatus === 'waiting' || access.accessStatus === 'pre_live') {
       await saveEvent({ eventName: 'webinar_room_waiting', req, token, page: '/crisis_premium/webinar.html' });
     }
@@ -234,6 +241,17 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
     replayExpiresAt: access.replayExpiresAt.toISOString(),
     roomOpensAt: access.roomOpensAt.toISOString(),
     canEnterRoom: access.canEnterRoom,
+    canViewRoom: access.canViewRoom,
+    liveState: {
+      scheduledAt: liveState.scheduledAt.toISOString(),
+      durationSeconds: liveState.durationSeconds,
+      liveOffsetSeconds: liveState.liveOffsetSeconds,
+      elapsedSeconds: liveState.elapsedSeconds,
+      isStarted: liveState.isStarted,
+      isEnded: liveState.isEnded,
+      status: liveState.status,
+      chatStatus: liveState.chatStatus,
+    },
     telegramUrl: env.TELEGRAM_GROUP_URL,
     telegramBotUrl: buildTelegramStartUrl(tokenForLinks || undefined),
     webinarUrl: tokenForLinks
@@ -263,7 +281,7 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
       replayAvailableHours: registration.webinarSession.replayAvailableHours,
       replayEnabled: registration.webinarSession.replayEnabled,
       testMode: access.testMode,
-      status: access.webinarStatus,
+      status: liveState.status,
       countdown: access.countdown,
     },
   });

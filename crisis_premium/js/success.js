@@ -63,6 +63,16 @@ export async function hydrateSuccessPage() {
     }
     const roomLink = document.getElementById('successRoomLink') || document.querySelector('a[href*="webinar.html"]');
     if (roomLink) roomLink.setAttribute('href', roomHref);
+    if (data.testMode || data.webinar?.testMode) {
+      const intro = document.getElementById('successIntroText');
+      if (intro) {
+        intro.textContent = 'Демо-доступ включен: вебинарная комната уже открыта. Можно сразу зайти, проверить видео, чат, таймлайн и финальную заявку так, как это увидит участник после регистрации.';
+      }
+      if (roomLink) {
+        roomLink.className = 'flex items-center justify-center gap-2 bg-primary text-on-primary hover:bg-primary/95 py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95 shadow-md';
+        roomLink.innerHTML = '<span class="material-symbols-outlined text-xl">play_circle</span>Открыть вебинар сейчас';
+      }
+    }
     bindSuccessCalendar(data);
     const dateNode = document.getElementById('successWebinarDate');
     if (dateNode) {

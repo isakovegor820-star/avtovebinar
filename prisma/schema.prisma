@@ -99,6 +99,7 @@ model WebinarSession {
   events                Event[]
   partnerApplications   PartnerApplication[]
   timelineEvents        WebinarTimelineEvent[]
+  chatMessages          WebinarChatMessage[]
 
   @@unique([scheduledAt])
   @@index([status])
@@ -139,6 +140,7 @@ model Registration {
   events                    Event[]
   partnerApplications       PartnerApplication[]
   tokens                    RegistrationToken[]
+  chatMessages              WebinarChatMessage[]
 
   @@index([leadId])
   @@index([webinarSessionId])
@@ -178,10 +180,34 @@ model Question {
   lead             Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
   registration     Registration   @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  chatMessage      WebinarChatMessage?
 
   @@index([createdAt])
   @@index([isAnswered])
   @@map("questions")
+}
+
+model WebinarChatMessage {
+  id               String         @id @default(cuid())
+  webinarSessionId String         @map("webinar_session_id")
+  registrationId   String?        @map("registration_id")
+  questionId       String?        @unique @map("question_id")
+  kind             String
+  authorName       String         @map("author_name")
+  authorRole       String?        @map("author_role")
+  message          String
+  isSynthetic      Boolean        @default(false) @map("is_synthetic")
+  visibleAt        DateTime       @default(now()) @map("visible_at")
+  metadataJson     Json?          @map("metadata_json")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  registration     Registration?  @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  question         Question?      @relation(fields: [questionId], references: [id], onDelete: SetNull)
+
+  @@index([webinarSessionId, visibleAt])
+  @@index([registrationId])
+  @@index([kind])
+  @@map("webinar_chat_messages")
 }
 
 model Event {

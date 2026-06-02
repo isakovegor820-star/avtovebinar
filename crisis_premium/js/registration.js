@@ -21,6 +21,13 @@ export function timelinePath() {
   return '/webinar/timeline/session/current';
 }
 
+export function chatPath() {
+  if (token) {
+    return `/webinar/chat/${encodeURIComponent(token)}`;
+  }
+  return '/webinar/chat/session/current';
+}
+
 export function getRegistrationState(view) {
   return getJson(registrationStatePath(view));
 }

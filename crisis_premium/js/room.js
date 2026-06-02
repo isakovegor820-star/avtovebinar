@@ -174,7 +174,7 @@ export function updateRoomStatus(webinar) {
   const countdownContainer = document.getElementById('countdownContainer');
   if (!node || !webinar) return;
   if (webinar.testMode) {
-    node.textContent = 'Тестовый режим: трансляция доступна всегда и после обновления начинается с начала.';
+    node.textContent = 'Эфир идет. Включайте трансляцию и задавайте вопросы в чате.';
     if (countdownContainer) countdownContainer.classList.add('hidden');
   } else if (webinar.accessStatus === 'live' || webinar.status === 'live') {
     node.textContent = 'Эфир идет. Включайте запись и следите за подсказками АСПБ.';
@@ -210,8 +210,8 @@ export async function hydrateWebinarRoom(onSuccess) {
     try {
       const data = await getRegistrationState('room');
 
-      if (!data.ok || !data.canEnterRoom) {
-        if (data.accessStatus === 'waiting' || data.accessStatus === 'pre_live' || data.accessStatus === 'closed') {
+      if (!data.ok || !(data.canViewRoom || data.canEnterRoom)) {
+        if (data.accessStatus === 'waiting' || data.accessStatus === 'closed') {
           state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
           renderWaitingRoom(data);
           return;
@@ -226,8 +226,11 @@ export async function hydrateWebinarRoom(onSuccess) {
 
       state.webinarConfig = {
         scheduledAt: new Date(data.webinar.scheduledAt).getTime(),
-        status: data.testMode ? 'test' : data.accessStatus === 'replay' ? 'replay' : data.webinar.status,
-        durationMinutes: data.webinar.durationMinutes
+        status: data.testMode ? 'test' : data.liveState?.status || data.webinar.status,
+        accessStatus: data.accessStatus,
+        durationMinutes: data.webinar.durationMinutes,
+        videoDurationSeconds: data.webinar.videoDurationSeconds,
+        liveState: data.liveState
       };
 
       updateTelegramLinks(data.telegramUrl);

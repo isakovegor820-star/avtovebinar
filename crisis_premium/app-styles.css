@@ -119,6 +119,44 @@
             background: #041627;
             color: #ffffff;
         }
+        .debt-alert-card {
+            position: relative;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            box-shadow: 0 0 28px rgba(255, 255, 255, 0.08), inset 0 0 22px rgba(255, 255, 255, 0.05);
+        }
+        .debt-alert-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            background: linear-gradient(120deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02) 44%, rgba(210, 228, 251, 0.12));
+        }
+        .debt-alert-text {
+            position: relative;
+            color: #ffffff;
+            font-size: clamp(16px, 1.35vw, 19px);
+            line-height: 1.55;
+            font-weight: 700;
+            text-shadow: 0 0 14px rgba(255, 255, 255, 0.42), 0 0 32px rgba(210, 228, 251, 0.3);
+        }
+        .debt-alert-text strong {
+            color: #ffffff;
+            font-weight: 800;
+            text-shadow: 0 0 16px rgba(255, 255, 255, 0.58), 0 0 36px rgba(254, 212, 136, 0.28);
+        }
+        .debt-alert-source {
+            position: relative;
+            margin-top: 12px;
+            color: rgba(255, 255, 255, 0.78);
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            text-shadow: 0 0 12px rgba(255, 255, 255, 0.35);
+        }
         .audience-section {
             background:
                 radial-gradient(circle at 14% 18%, rgba(210, 228, 251, 0.42), transparent 32%),
@@ -540,18 +578,18 @@
             min-height: 32px;
         }
         .team-card .team-card-desc {
-            min-height: 56px;
+            min-height: 44px;
         }
         .team-card:hover {
-            transform: translateY(-6px);
+            transform: translateY(-4px);
             box-shadow: 0 20px 48px rgba(4, 22, 39, 0.12);
         }
         .team-card-tooltip {
             position: absolute;
-            bottom: 16px;
-            left: 16px;
-            right: 16px;
-            padding: 12px 14px;
+            bottom: 12px;
+            left: 12px;
+            right: 12px;
+            padding: 10px 12px;
             border-radius: 12px;
             background: rgba(4, 22, 39, 0.88);
             backdrop-filter: blur(8px);
@@ -574,14 +612,67 @@
         }
         .team-stat {
             display: inline-flex;
-            padding: 5px 12px;
+            padding: 4px 10px;
             border-radius: 999px;
             background: #eef4fb;
             border: none;
-            font-size: 12px;
+            font-size: 11.5px;
             font-weight: 600;
             color: #041627;
             box-shadow: none;
+        }
+        .team-founder-card {
+            overflow: hidden;
+            border-radius: 28px;
+            background: #ffffff;
+            border: 1px solid rgba(196, 198, 205, 0.58) !important;
+            box-shadow: 0 18px 42px rgba(4, 22, 39, 0.08) !important;
+        }
+        .team-founder-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 24px 56px rgba(4, 22, 39, 0.13) !important;
+        }
+        .team-founder-card h4,
+        .team-founder-card .team-card-desc {
+            min-height: auto;
+        }
+        .team-founder-card .team-card-stats {
+            gap: 8px;
+        }
+        .team-founder-card .team-stat {
+            background: #041627;
+            color: #ffffff;
+        }
+        .team-founder-card .team-stat:first-child {
+            background: #fed488;
+            color: #261900;
+        }
+        .team-founder-quote {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            padding: 13px 15px;
+            border-left: 3px solid #e9c176;
+            border-radius: 16px;
+            background: #f8f9fa;
+            color: #041627;
+            font-size: 15px;
+            line-height: 1.48;
+            font-weight: 600;
+        }
+        .team-founder-quote .material-symbols-outlined {
+            flex: 0 0 auto;
+            margin-top: 2px;
+            color: #775a19;
+        }
+        @media (max-width: 640px) {
+            .team-founder-card {
+                border-radius: 22px;
+            }
+            .team-founder-quote {
+                padding: 14px 15px;
+                font-size: 14px;
+            }
         }
 
         /* CTA Register button — large animated */

@@ -96,6 +96,7 @@ app.use('/api/telegram-click', eventLimiter);
 app.use('/api/registration', tokenReadLimiter);
 app.use('/api/webinar/current', tokenReadLimiter);
 app.use('/api/webinar/timeline', tokenReadLimiter);
+app.use('/api/webinar/chat', tokenReadLimiter);
 app.use('/api/admin/login', adminLoginLimiter);
 app.use('/api/admin/telegram/broadcast', adminBroadcastLimiter);
 

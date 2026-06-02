@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { notifyPartnerApplication, notifyQuestion } from '../../lib/telegram.js';
+import { getWebinarLiveState } from '../../lib/webinarLive.js';
+import { maybeScheduleAiManagerReply } from '../../lib/aiManager.js';
 import {
   buildAccessPayload,
   buildFrontendUrl,
@@ -99,18 +101,41 @@ partnersRouter.post(
     if (!registration) {
       throw new AppError(401, 'Invalid webinar token');
     }
-    const access = buildAccessPayload(registration, new Date());
+    const now = new Date();
+    const access = buildAccessPayload(registration, now);
     if (!access.canEnterRoom) {
       throw roomAccessError(access.accessStatus);
     }
+    const liveState = getWebinarLiveState(now, registration.webinarSession, { testMode: access.testMode });
+    if (!access.testMode && liveState.status !== 'live') {
+      throw new AppError(423, 'Webinar chat is closed');
+    }
 
-    const question = await prisma.question.create({
-      data: {
-        leadId: registration.leadId,
-        registrationId: registration.id,
-        webinarSessionId: registration.webinarSessionId,
-        text: data.text,
-      },
+    const question = await prisma.$transaction(async tx => {
+      const question = await tx.question.create({
+        data: {
+          leadId: registration.leadId,
+          registrationId: registration.id,
+          webinarSessionId: registration.webinarSessionId,
+          text: data.text,
+        },
+      });
+
+      await tx.webinarChatMessage.create({
+        data: {
+          webinarSessionId: registration.webinarSessionId,
+          registrationId: registration.id,
+          questionId: question.id,
+          kind: 'user',
+          authorName: registration.lead.name,
+          authorRole: registration.lead.professionalStatus,
+          message: data.text,
+          isSynthetic: false,
+          visibleAt: now,
+        },
+      });
+
+      return question;
     });
 
     await saveEvent({
@@ -128,6 +153,17 @@ partnersRouter.post(
         email: registration.lead.email,
         text: data.text,
         adminUrl: buildFrontendUrl('/admin'),
+      }),
+    );
+
+    notifySafely(
+      maybeScheduleAiManagerReply({
+        questionId: question.id,
+        webinarSessionId: registration.webinarSessionId,
+        registrationId: registration.id,
+        text: data.text,
+        liveOffsetSeconds: liveState.liveOffsetSeconds,
+        now,
       }),
     );
 

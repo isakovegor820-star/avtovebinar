@@ -21,7 +21,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   // Truncate tables to guarantee absolute test isolation
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
   );
 });
 

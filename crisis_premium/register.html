@@ -5,7 +5,7 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Экономика кризиса | АСПБ</title>
 <link rel="stylesheet" href="css/styles.css"/>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css" rel="stylesheet"/>
@@ -25,7 +25,7 @@
         }
     </style>
 </head>
-<body class="text-on-surface selection:bg-primary-fixed">
+<body class="bg-background text-on-surface selection:bg-primary-fixed">
 <!-- Top Navigation Anchor -->
 <header class="docked full-width top-0 sticky bg-background/90 backdrop-blur-md shadow-sm z-50">
 <nav class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
@@ -41,6 +41,14 @@
 </div>
 <a class="scale-95 active:scale-90 transition-transform bg-primary text-on-primary px-6 py-2.5 rounded-full font-label-md text-label-md shadow-sm" href="register.html">Зарегистрироваться</a>
 </nav>
+<div class="md:hidden px-gutter pb-3">
+<nav class="flex gap-3 overflow-x-auto text-label-sm font-label-sm" aria-label="Мобильная навигация">
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#about">О вебинаре</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#why-now">Почему сейчас</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#team">Команда</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#faq">FAQ</a>
+</nav>
+</div>
 </header>
 <div data-current="register" data-flow-tabs></div>
 <main class="min-h-[calc(100vh-80px)] flex items-center justify-center py-12 px-gutter">
@@ -71,8 +79,8 @@
 </div>
 </div>
 <!-- Right Side: Registration Form Card -->
-<div class="bg-surface-container-lowest p-8 md:p-10 rounded-lg shadow-sm border border-outline-variant/50">
-<form action="/api/register" class="space-y-6" id="registrationForm" method="post" onsubmit="if (window.ASPBRegisterSubmit) { return window.ASPBRegisterSubmit(event, this); } event.preventDefault(); alert('Откройте регистрацию через dev-ссылку: http://127.0.0.1:5174/crisis_premium/register.html'); return false;">
+<div class="bg-surface-container-lowest p-8 md:p-10 rounded-lg shadow-sm border border-outline-variant/50 w-full max-w-[560px] lg:max-w-none lg:ml-auto">
+<form action="/api/register" class="space-y-6" id="registrationForm" method="post" onsubmit="if (window.ASPBRegisterSubmit) { return window.ASPBRegisterSubmit(event, this); } event.preventDefault(); return false;">
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 <div class="space-y-1.5">
 <label class="text-label-md font-label-md text-on-surface-variant">Имя</label>
@@ -88,10 +96,14 @@
 <label class="text-label-md font-label-md text-on-surface-variant">Email</label>
 <input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="email" placeholder="example@mail.com" required="" type="email"/>
 </div>
+<div class="space-y-1.5">
+<label class="text-label-md font-label-md text-on-surface-variant">Город</label>
+<input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="city" placeholder="Москва" type="text"/>
+</div>
 </div>
 <div class="space-y-1.5">
 <label class="text-label-md font-label-md text-on-surface-variant">Статус</label>
-<select class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none appearance-none cursor-pointer" name="professionalStatus">
+<select class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none cursor-pointer" name="professionalStatus">
 <option>Юрист частной практики</option>
 <option>Сотрудник юридической фирмы</option>
 <option>Руководитель юридической практики</option>
@@ -126,7 +138,7 @@
 </span>
 </label>
 <label class="flex items-start gap-3 rounded-lg bg-surface-container-low border border-outline-variant/30 p-4 cursor-pointer">
-<input class="mt-1 w-5 h-5 border-outline-variant text-primary focus:ring-primary" name="marketingConsent" type="checkbox" value="true" checked/>
+<input class="mt-1 w-5 h-5 border-outline-variant text-primary focus:ring-primary" name="marketingConsent" type="checkbox" value="true"/>
 <span class="text-label-sm font-label-sm text-on-surface-variant leading-relaxed">
 Я согласен на получение информационных рассылок, напоминаний об эфире и новостей от АСПБ (по email и в мессенджерах).
 </span>
@@ -156,7 +168,7 @@
 <a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="mailto:partners@aspb.ru">Контакты</a>
 </div>
 <div class="text-label-sm font-label-sm text-on-surface-variant opacity-80">
-                © 2024 АСПБ. Все права защищены. Юридическая информация и оферта.
+                © 2026 АСПБ. Все права защищены. Юридическая информация и оферта.
             </div>
 </div>
 </footer>

@@ -9,6 +9,15 @@ import { getRegistrationState } from './registration.js';
 let countdownInterval = null;
 let countdownRetries = 0;
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 function getNextLocalTarget() {
   const now = new Date();
   const msk = new Intl.DateTimeFormat('en-CA', {
@@ -99,11 +108,12 @@ export async function hydrateCurrentWebinar() {
 }
 
 export function renderLockedRoom(message) {
+  const safeMessage = escapeHtml(message);
   document.body.innerHTML = `
     <main style="min-height:100vh;display:grid;place-items:center;background:#f8f9fa;color:#041627;font-family:Manrope,Arial,sans-serif;padding:24px">
       <section style="max-width:560px;background:#fff;border:1px solid #d2e4fb;border-radius:24px;padding:36px;text-align:center;box-shadow:0 24px 70px rgba(4,22,39,.08)">
         <h1 style="font-size:32px;margin:0 0 12px">Вход в комнату по персональной ссылке</h1>
-        <p style="font-size:18px;color:#44474c;line-height:1.55">${message}</p>
+        <p style="font-size:18px;color:#44474c;line-height:1.55">${safeMessage}</p>
         <a href="register.html" style="display:inline-flex;margin-top:20px;background:#041627;color:#fff;text-decoration:none;padding:16px 24px;border-radius:14px;font-weight:700">Зарегистрироваться</a>
       </section>
     </main>`;
@@ -156,8 +166,8 @@ export function renderWaitingRoom(data) {
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#b7d4f7" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         </div>
         <p style="margin:0 0 8px;color:rgba(210,228,251,0.6);font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:11px">АСПБ автовебинар</p>
-        <h1 style="font-size:32px;font-weight:800;margin:0 0 12px;line-height:1.2">${title}</h1>
-        <p style="font-size:16px;color:rgba(255,255,255,0.6);line-height:1.6;margin:0">${text}</p>
+        <h1 style="font-size:32px;font-weight:800;margin:0 0 12px;line-height:1.2">${escapeHtml(title)}</h1>
+        <p style="font-size:16px;color:rgba(255,255,255,0.6);line-height:1.6;margin:0">${escapeHtml(text)}</p>
         ${countdownHtml}
         ${action}
       </section>
@@ -246,14 +256,9 @@ export async function hydrateWebinarRoom(onSuccess) {
         }
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
       } else {
-        renderLockedRoom(`
-          Не удалось подключиться к комнате после ${MAX_RETRIES} попыток.<br><br>
-          Проверьте интернет-соединение и
-          <a href="" onclick="location.reload()" style="color:#b7c8de;text-decoration:underline">
-            обновите страницу
-          </a>
-          или откройте ссылку из письма заново.
-        `);
+        renderLockedRoom(
+          `Не удалось подключиться к комнате после ${MAX_RETRIES} попыток. Проверьте интернет-соединение, обновите страницу или откройте ссылку из письма заново.`,
+        );
       }
     }
   }

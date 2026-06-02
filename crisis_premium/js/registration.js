@@ -2,7 +2,7 @@
  * registration.js — регистрация, tracking кликов, пути API.
  */
 
-import { token, storage } from './state.js';
+import { clearAccessToken, token, urlToken } from './state.js';
 import { post, getJson, utm } from './utils.js';
 import { track } from './analytics.js';
 
@@ -32,6 +32,18 @@ export function getRegistrationState(view) {
   return getJson(registrationStatePath(view));
 }
 
+export async function exchangeUrlTokenIfPresent() {
+  if (!urlToken) return false;
+
+  await post(`/registration/exchange/${encodeURIComponent(urlToken)}`, {});
+  clearAccessToken();
+
+  const cleanUrl = new URL(window.location.href);
+  cleanUrl.searchParams.delete('token');
+  window.history.replaceState({}, document.title, `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+  return true;
+}
+
 export async function handleRegistrationSubmit(event, formOverride) {
   if (event && event.__aspbHandled) return false;
   if (event) {
@@ -49,8 +61,18 @@ export async function handleRegistrationSubmit(event, formOverride) {
   const consent = form.querySelector('input[name="consent"]');
   const marketingConsent = form.querySelector('input[name="marketingConsent"]');
 
+  function showFormError(message) {
+    form.querySelector('[data-registration-error="true"]')?.remove();
+    const node = document.createElement('p');
+    node.dataset.registrationError = 'true';
+    node.className = 'text-label-sm text-error bg-error-container/40 border border-error/20 rounded-lg px-4 py-3';
+    node.textContent = message;
+    form.appendChild(node);
+    node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
   if (consent && !consent.checked) {
-    alert('Пожалуйста, подтвердите согласие на обработку персональных данных.');
+    showFormError('Подтвердите согласие на обработку персональных данных.');
     return false;
   }
 
@@ -73,13 +95,14 @@ export async function handleRegistrationSubmit(event, formOverride) {
       ...utm()
     });
 
-    storage.set('crisisPremiumRegistered', 'true');
-    if (result.token) {
-      storage.set('crisisPremiumToken', result.token);
+    try {
+      window.localStorage.setItem('crisisPremiumRegistered', 'true');
+    } catch {
+      // Cookie/session access is enough when localStorage is unavailable.
     }
     window.location.href = result.successUrl;
   } catch (error) {
-    alert(error.message || 'Не удалось отправить регистрацию');
+    showFormError(error.message || 'Не удалось отправить регистрацию. Проверьте поля и попробуйте снова.');
     if (button) {
       button.textContent = originalText;
       button.disabled = false;

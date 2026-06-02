@@ -1,7 +1,14 @@
 import { prisma } from './prisma.js';
 import { env } from './env.js';
 import { CRM_STATUS_LABELS } from './crm.js';
-import { hasAdminTelegramBot, isAdminBotPollingEnabled, sendTelegramMessage, telegramApiUrl } from './telegram.js';
+import {
+  getConfiguredAdminChatId,
+  hasAdminTelegramBot,
+  hasConfiguredAdminChatId,
+  isAdminBotPollingEnabled,
+  sendTelegramMessage,
+  telegramApiUrl,
+} from './telegram.js';
 
 type AdminTelegramUpdate = {
   update_id: number;
@@ -39,9 +46,14 @@ async function handleCallback(update: AdminTelegramUpdate) {
   const callback = update.callback_query;
   if (!callback?.id || !callback.data) return;
 
-  const adminChatId = env.TELEGRAM_ADMIN_CHAT_ID ? String(env.TELEGRAM_ADMIN_CHAT_ID) : '';
+  const adminChatId = getConfiguredAdminChatId();
   const callbackChatId = callback.message?.chat?.id ? String(callback.message.chat.id) : '';
-  if (adminChatId && callbackChatId !== adminChatId) {
+  if (!adminChatId) {
+    await answerCallbackQuery(callback.id, 'Админ-чат не настроен');
+    return;
+  }
+
+  if (callbackChatId !== adminChatId) {
     await answerCallbackQuery(callback.id, 'Нет доступа к действию');
     return;
   }
@@ -106,7 +118,7 @@ async function handleCallback(update: AdminTelegramUpdate) {
 }
 
 async function pollOnce() {
-  if (polling || !isAdminBotPollingEnabled() || !hasAdminTelegramBot()) return;
+  if (polling || !isAdminBotPollingEnabled() || !hasAdminTelegramBot() || !hasConfiguredAdminChatId()) return;
   polling = true;
 
   try {
@@ -137,7 +149,7 @@ async function pollOnce() {
 }
 
 export function startAdminTelegramBot() {
-  if (env.NODE_ENV === 'test' || !isAdminBotPollingEnabled() || !hasAdminTelegramBot()) {
+  if (env.NODE_ENV === 'test' || !isAdminBotPollingEnabled() || !hasAdminTelegramBot() || !hasConfiguredAdminChatId()) {
     return null;
   }
 

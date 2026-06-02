@@ -19,6 +19,9 @@ import {
 import { getEffectiveVideoDurationMinutes } from '../../lib/webinarLive.js';
 import { prisma } from '../../lib/prisma.js';
 
+export const ROOM_SESSION_TOKEN_PURPOSE = 'room_session';
+export const ROOM_EXCHANGE_TOKEN_PURPOSE = 'registration';
+
 export function roomAccessError(accessStatus: string) {
   if (accessStatus === 'waiting' || accessStatus === 'pre_live') {
     return new AppError(423, 'Webinar has not started yet');
@@ -102,12 +105,42 @@ export async function findRegistrationByToken(token: string) {
   return tokenRecord.registration;
 }
 
-export async function findRegistrationForRequest(req: Request, token?: string | null) {
-  const requestToken = clean(token) ?? clean(req.cookies?.aspb_room_token);
-  if (!requestToken) {
+export async function findRegistrationBySessionToken(token: string) {
+  const accessTokenHash = hashToken(token);
+  const tokenRecord = await prisma.registrationToken.findUnique({
+    where: { tokenHash: accessTokenHash },
+    include: {
+      registration: {
+        include: {
+          lead: true,
+          webinarSession: true,
+        },
+      },
+    },
+  });
+
+  if (!tokenRecord || tokenRecord.purpose !== ROOM_SESSION_TOKEN_PURPOSE) {
     return null;
   }
-  return findRegistrationByToken(requestToken);
+
+  if (tokenRecord.expiresAt && tokenRecord.expiresAt < new Date()) {
+    return null;
+  }
+
+  return tokenRecord.registration;
+}
+
+export async function findRegistrationForRequest(req: Request, token?: string | null) {
+  const requestToken = clean(token);
+  if (requestToken) {
+    return findRegistrationBySessionToken(requestToken);
+  }
+
+  const cookieToken = clean(req.cookies?.aspb_room_token);
+  if (!cookieToken) {
+    return null;
+  }
+  return findRegistrationBySessionToken(cookieToken);
 }
 
 export function buildAccessPayload(

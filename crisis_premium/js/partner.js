@@ -2,7 +2,6 @@
  * partner.js — форма партнёрской заявки.
  */
 
-import { token } from './state.js';
 import { post } from './utils.js';
 import { track } from './analytics.js';
 
@@ -28,7 +27,6 @@ export function bindPartnerApplicationForm() {
 
     try {
       await post('/partner-application', {
-        token,
         sphere: data.get('sphere'),
         city: data.get('city'),
         clientFlow: data.get('clientFlow'),

@@ -2,7 +2,7 @@
  * success.js — страница успешной регистрации, календарь.
  */
 
-import { token, state } from './state.js';
+import { state } from './state.js';
 import { formatUtcIcsDate } from './utils.js';
 import { getRegistrationState } from './registration.js';
 import { updateTelegramLinks } from './room.js';
@@ -15,7 +15,7 @@ function bindSuccessCalendar(data) {
   button.addEventListener('click', () => {
     const start = new Date(data.webinar.scheduledAt);
     const end = new Date(start.getTime() + Number(data.webinar.durationMinutes || 120) * 60 * 1000);
-    const webinarUrl = data.webinarUrl || (token ? `${window.location.origin}/crisis_premium/webinar.html?token=${encodeURIComponent(token)}` : `${window.location.origin}/crisis_premium/webinar.html`);
+    const webinarUrl = data.webinarUrl || `${window.location.origin}/crisis_premium/webinar.html`;
     const title = 'Вебинар АСПБ: Экономика кризиса';
     const description = [
       'Автовебинар АСПБ для юристов и партнеров.',
@@ -54,7 +54,7 @@ export async function hydrateSuccessPage() {
   try {
     const data = await getRegistrationState('success');
     if (!data.ok) return;
-    const roomHref = data.webinarUrl || (token ? `webinar.html?token=${encodeURIComponent(token)}` : 'webinar.html');
+    const roomHref = data.webinarUrl || 'webinar.html';
     state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
     updateTelegramLinks(data.telegramUrl);
     const telegramLink = document.getElementById('successTelegramLink');

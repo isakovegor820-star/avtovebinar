@@ -5,7 +5,7 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Успешная регистрация | АСПБ</title>
 <link rel="stylesheet" href="css/styles.css"/>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css" rel="stylesheet"/>
@@ -47,6 +47,14 @@
                 Зарегистрироваться
             </a>
 </div>
+<div class="md:hidden px-gutter pb-3">
+<nav class="flex gap-3 overflow-x-auto text-label-sm font-label-sm" aria-label="Мобильная навигация">
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#about">О вебинаре</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#why-now">Почему сейчас</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#team">Команда</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#faq">FAQ</a>
+</nav>
+</div>
 </header>
 <div data-current="success" data-flow-tabs style="margin-top: 72px;"></div>
 <main class="w-full max-w-container-max-width px-gutter flex flex-col items-center justify-center py-24 mt-16">
@@ -54,7 +62,7 @@
 <div class="absolute -top-12 -left-12 w-24 h-24 bg-secondary-container/30 rounded-full blur-2xl"></div>
 <div class="absolute -bottom-8 -right-8 w-32 h-32 bg-primary-fixed/40 rounded-full blur-3xl"></div>
 <section class="glass-card rounded-lg p-8 md:p-16 flex flex-col items-center text-center shadow-lg relative z-10">
-<div class="w-20 h-20 bg-primary text-on-primary rounded-full flex items-center justify-center mb-8 animate-bounce transition-transform duration-1000">
+<div class="w-20 h-20 bg-primary text-on-primary rounded-full flex items-center justify-center mb-8 transition-transform duration-1000">
 <span class="material-symbols-outlined text-4xl" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
 </div>
 <h1 class="font-headline-xl text-headline-xl md:font-headline-xl md:text-headline-xl text-primary mb-6">
@@ -64,7 +72,7 @@
                     Вы сделали первый шаг к тому, чтобы не отпускать проблемных клиентов впустую. Завтра покажем готовую цепочку АСПБ: вы видите проблему и передаете клиента, команда ведет процедуру, вы получаете партнерское вознаграждение. Подключите Telegram-напоминания, чтобы получить ссылку на эфир и новости перед стартом.
                 </p>
 <div class="w-full flex flex-col gap-4 max-w-md">
-<a id="successTelegramLink" data-telegram-bot-link="true" class="flex items-center justify-center gap-3 bg-[#0088cc] hover:bg-[#0077b5] text-white py-5 px-8 rounded-xl font-label-md text-label-md transition-all transform hover:scale-[1.02] active:scale-95 shadow-md group" href="https://t.me/example" target="_blank">
+<a id="successTelegramLink" data-telegram-bot-link="true" class="flex items-center justify-center gap-3 bg-[#0088cc] hover:bg-[#0077b5] text-white py-5 px-8 rounded-xl font-label-md text-label-md transition-all transform hover:scale-[1.02] active:scale-95 shadow-md group" href="https://t.me/jwjefgwreqfe_bot" target="_blank">
 <span class="material-symbols-outlined text-2xl">send</span>
                         Перейти в бот «Уведомления АСПБ»
                     </a>
@@ -129,7 +137,7 @@
 <div class="flex flex-col gap-2">
 <div class="text-headline-sm font-headline-sm font-bold text-primary">АСПБ</div>
 <p class="font-label-sm text-label-sm text-on-surface-variant max-w-xs">Антикризисная служба помощи бизнесу</p>
-<p class="font-label-sm text-label-sm text-on-surface-variant max-w-xs">© 2024 АСПБ. Все права защищены. Юридическая информация и оферта.</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant max-w-xs">© 2026 АСПБ. Все права защищены. Юридическая информация и оферта.</p>
 </div>
 <div class="flex flex-wrap justify-center gap-6">
 <a class="font-label-sm text-label-sm text-on-surface-variant hover:underline transition-all" href="privacy.html">Политика конфиденциальности</a>
@@ -148,16 +156,6 @@
                 card.style.opacity = '1';
                 card.style.transform = 'translateY(0)';
             }, 100);
-
-            const buttons = document.querySelectorAll('button');
-            buttons.forEach(btn => {
-                btn.addEventListener('mouseenter', () => {
-                    const ripple = document.createElement('div');
-                    ripple.className = 'ripple';
-                    btn.appendChild(ripple);
-                    setTimeout(() => ripple.remove(), 1000);
-                });
-            });
         });
     </script>
 <script type="module" src="js/main.js"></script>

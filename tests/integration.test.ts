@@ -9,6 +9,7 @@ import { execSync } from 'node:child_process';
 import { app } from '../src/app.js';
 import { prisma } from '../src/lib/prisma.js';
 import { hashPassword } from '../src/lib/passwords.js';
+import { createAccessToken, hashToken } from '../src/lib/tokens.js';
 
 beforeAll(async () => {
   // Sync prisma schema into 'test' PostgreSQL schema
@@ -27,6 +28,8 @@ beforeEach(async () => {
 
 describe('critical path integration scenarios', () => {
   it('runs the full critical path integration scenario', async () => {
+    const userAgent = request.agent(app);
+
     // 0. Seed a default admin user. Webinar session will be created automatically by /api/register
     // through findOrCreateWebinarSession(getNextWebinarDate(firstSeenAt)).
     // We must NOT pre-create a webinar session here, otherwise /api/register may create a second
@@ -44,7 +47,7 @@ describe('critical path integration scenarios', () => {
     });
 
     // 1. REGISTRATION (POST /api/register)
-    const registerResponse = await request(app).post('/api/register').send({
+    const registerResponse = await userAgent.post('/api/register').send({
       name: 'Алексей Тестовый',
       phone: '+79998887766',
       email: 'alex.test@aspb.ru',
@@ -58,10 +61,12 @@ describe('critical path integration scenarios', () => {
 
     expect(registerResponse.status).toBe(201);
     expect(registerResponse.body.ok).toBe(true);
-    expect(registerResponse.body.token).toBeDefined();
-    expect(registerResponse.body.webinarUrl).toContain(registerResponse.body.token);
-
-    let token = registerResponse.body.token;
+    expect(registerResponse.body.token).toBeUndefined();
+    expect(registerResponse.body.successUrl).not.toContain('token=');
+    expect(registerResponse.body.webinarUrl).not.toContain('token=');
+    expect(registerResponse.headers['set-cookie']).toEqual(
+      expect.arrayContaining([expect.stringContaining('aspb_room_token=')]),
+    );
 
     // Check lead insertion
     const lead = await prisma.lead.findUnique({
@@ -72,7 +77,7 @@ describe('critical path integration scenarios', () => {
     expect(lead?.marketingConsent).toBe(true);
 
     // Re-submitting the same form for the same webinar refreshes access but does not create a duplicate registration.
-    const repeatRegisterResponse = await request(app).post('/api/register').send({
+    const repeatRegisterResponse = await userAgent.post('/api/register').send({
       name: 'Алексей Тестовый',
       phone: '+79998887766',
       email: 'alex.test@aspb.ru',
@@ -97,16 +102,17 @@ describe('critical path integration scenarios', () => {
     const accessTokenCount = await prisma.registrationToken.count({
       where: { registrationId: registrationsAfterRepeat[0].id },
     });
-    expect(accessTokenCount).toBe(1);
+    expect(accessTokenCount).toBe(2);
 
-    const oldTokenResponse = await request(app).get(`/api/registration/${token}?view=success`);
-    expect(oldTokenResponse.status).toBe(404);
-    token = repeatRegisterResponse.body.token;
+    const tokenPurposes = await prisma.registrationToken.findMany({
+      where: { registrationId: registrationsAfterRepeat[0].id },
+      select: { purpose: true },
+      orderBy: { purpose: 'asc' },
+    });
+    expect(tokenPurposes.map(item => item.purpose)).toEqual(['registration', 'room_session']);
 
-    // 2. SUCCESS VIEW (GET /api/registration/:token)
-    const successResponse = await request(app)
-      .get(`/api/registration/${token}?view=success`)
-      .set('Cookie', [`aspb_room_token=${token}`]);
+    // 2. SUCCESS VIEW (GET /api/registration/session/current)
+    const successResponse = await userAgent.get('/api/registration/session/current?view=success');
 
     expect(successResponse.status).toBe(200);
     expect(successResponse.body.ok).toBe(true);
@@ -118,7 +124,7 @@ describe('critical path integration scenarios', () => {
     });
     expect(regInDb?.successViewedAt).toBeDefined();
 
-    // 3. ENTER WEBINAR ROOM (GET /api/webinar/timeline/:token)
+    // 3. ENTER WEBINAR ROOM (GET /api/webinar/timeline/session/current)
     // Move the (unique) webinar session into the past so that the room is "live".
     // We update the single session created by /api/register by id to avoid touching
     // scheduledAt across multiple rows (unique constraint).
@@ -135,18 +141,14 @@ describe('critical path integration scenarios', () => {
       },
     });
 
-    const timelineResponse = await request(app)
-      .get(`/api/webinar/timeline/${token}`)
-      .set('Cookie', [`aspb_room_token=${token}`]);
+    const timelineResponse = await userAgent.get('/api/webinar/timeline/session/current');
 
     expect(timelineResponse.status).toBe(200);
     expect(timelineResponse.body.ok).toBe(true);
     expect(timelineResponse.body.timeline).toBeDefined();
 
     // Simulate page view for room to record entrance timestamp
-    const roomViewResponse = await request(app)
-      .get(`/api/registration/${token}?view=room`)
-      .set('Cookie', [`aspb_room_token=${token}`]);
+    const roomViewResponse = await userAgent.get('/api/registration/session/current?view=room');
 
     expect(roomViewResponse.status).toBe(200);
 
@@ -156,8 +158,7 @@ describe('critical path integration scenarios', () => {
     expect(regInDbAfterRoomView?.roomEnteredAt).toBeDefined();
 
     // 4. ASK A QUESTION (POST /api/questions)
-    const questionResponse = await request(app).post('/api/questions').send({
-      token: token,
+    const questionResponse = await userAgent.post('/api/questions').send({
       text: 'Каковы особенности процедуры банкротства юрлиц?',
     });
 
@@ -171,8 +172,7 @@ describe('critical path integration scenarios', () => {
     expect(questions[0].text).toBe('Каковы особенности процедуры банкротства юрлиц?');
 
     // 5. PARTNER APPLICATION (POST /api/partner-application)
-    const appResponse = await request(app).post('/api/partner-application').send({
-      token: token,
+    const appResponse = await userAgent.post('/api/partner-application').send({
       sphere: 'Финансы',
       city: 'Москва',
       clientFlow: '10-20 человек в месяц',
@@ -194,6 +194,32 @@ describe('critical path integration scenarios', () => {
       where: { leadId: lead?.id },
     });
     expect(regInDbAfterApp?.crmStatus).toBe('contract_pending');
+
+    // 5a. URL token exchange is one-time and moves access into an httpOnly cookie.
+    const exchangeToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registrationsAfterRepeat[0].id,
+        tokenHash: hashToken(exchangeToken),
+        purpose: 'registration',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+    const exchangeAgent = request.agent(app);
+    const exchangeResponse = await exchangeAgent.post(`/api/registration/exchange/${exchangeToken}`).send({});
+    expect(exchangeResponse.status).toBe(200);
+    expect(exchangeResponse.body.token).toBeUndefined();
+    expect(exchangeResponse.body.webinarUrl).not.toContain('token=');
+    expect(exchangeResponse.headers['set-cookie']).toEqual(
+      expect.arrayContaining([expect.stringContaining('aspb_room_token=')]),
+    );
+
+    const repeatExchangeResponse = await request(app).post(`/api/registration/exchange/${exchangeToken}`).send({});
+    expect(repeatExchangeResponse.status).toBe(404);
+
+    const exchangedSessionResponse = await exchangeAgent.get('/api/registration/session/current?view=success');
+    expect(exchangedSessionResponse.status).toBe(200);
+    expect(exchangedSessionResponse.body.lead.email).toBe('alex.test@aspb.ru');
 
     // 6. ADMIN LOGIN (POST /api/admin/login)
     const loginResponse = await request(app).post('/api/admin/login').send({

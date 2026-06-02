@@ -11,6 +11,19 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function toSafeHref(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(String(value), window.location.href);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
 function activateTimelineEvent(seconds, events) {
   if (window.__ASPB_HIDE_TIMELINE_ACTIONS__) {
     const panel = document.getElementById('timelineActive');
@@ -58,10 +71,12 @@ function activateTimelineEvent(seconds, events) {
   contentDiv.append(label, title, text);
   panel.append(contentDiv);
 
-  if (activeEvent.ctaLabel && activeEvent.ctaUrl) {
+  const safeCtaUrl = toSafeHref(activeEvent.ctaUrl);
+  if (activeEvent.ctaLabel && safeCtaUrl) {
     const link = document.createElement('a');
     link.className = 'bg-primary text-on-primary rounded-xl px-6 py-3.5 font-label-md hover:bg-opacity-90 transition-all text-center whitespace-nowrap scale-95 hover:scale-100 duration-300';
-    link.href = activeEvent.ctaUrl;
+    link.href = safeCtaUrl;
+    link.rel = 'noopener noreferrer';
     link.textContent = activeEvent.ctaLabel;
     panel.appendChild(link);
   }
@@ -120,7 +135,10 @@ export async function hydrateTimeline() {
     if (data.video.poster) video.setAttribute('poster', data.video.poster);
     video.load();
     video.addEventListener('error', () => {
-      if (fallback) fallback.classList.remove('hidden');
+      if (fallback) {
+        fallback.classList.remove('hidden');
+        fallback.classList.add('flex');
+      }
     });
     video.addEventListener('contextmenu', e => e.preventDefault());
   }

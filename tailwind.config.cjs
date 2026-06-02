@@ -58,8 +58,8 @@ module.exports = {
       },
       borderRadius: {
         DEFAULT: '0.25rem',
-        lg: '22px',
-        xl: '28px',
+        lg: '8px',
+        xl: '12px',
         full: '9999px',
       },
       spacing: {
@@ -74,6 +74,7 @@ module.exports = {
         'body-lg': ['Manrope'],
         'headline-xl': ['Manrope'],
         'headline-lg': ['Manrope'],
+        'headline-sm': ['Manrope'],
         'headline-md': ['Manrope'],
         'label-sm': ['Manrope'],
         'label-md': ['Manrope'],
@@ -85,6 +86,7 @@ module.exports = {
         'headline-xl': ['40px', { lineHeight: '48px', letterSpacing: '-0.02em', fontWeight: '700' }],
         'headline-lg': ['32px', { lineHeight: '40px', letterSpacing: '-0.01em', fontWeight: '600' }],
         'headline-md': ['24px', { lineHeight: '32px', fontWeight: '600' }],
+        'headline-sm': ['20px', { lineHeight: '28px', fontWeight: '600' }],
         'label-sm': ['12px', { lineHeight: '16px', letterSpacing: '0.02em', fontWeight: '500' }],
         'label-md': ['14px', { lineHeight: '20px', letterSpacing: '0.01em', fontWeight: '600' }],
         'body-md': ['16px', { lineHeight: '24px', fontWeight: '400' }],

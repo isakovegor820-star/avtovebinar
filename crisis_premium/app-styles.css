@@ -244,7 +244,7 @@
             border: 1.5px solid rgba(4, 22, 39, 0.28);
             background: rgba(210, 228, 251, 0.36);
             pointer-events: none;
-            z-index: 9999;
+            z-index: 20;
             transform: translate(-50%, -50%) scale(0.4);
             animation: site-click-ripple 520ms ease-out forwards;
         }
@@ -390,7 +390,6 @@
         }
         .loss-meter-fill {
             transition: width 560ms cubic-bezier(0.16, 1, 0.3, 1);
-            animation: loss-glow 2.4s ease-in-out infinite;
         }
         .income-detail-pop {
             animation: emotion-panel-pop 420ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -642,6 +641,9 @@
         .team-founder-card .team-stat {
             background: #041627;
             color: #ffffff;
+            padding: 7px 14px;
+            font-size: 13px;
+            font-weight: 700;
         }
         .team-founder-card .team-stat:first-child {
             background: #fed488;
@@ -649,16 +651,16 @@
         }
         .team-founder-quote {
             display: flex;
-            gap: 12px;
+            gap: 14px;
             align-items: flex-start;
-            padding: 13px 15px;
-            border-left: 3px solid #e9c176;
+            padding: 18px 20px;
+            border-left: 4px solid #e9c176;
             border-radius: 16px;
             background: #f8f9fa;
             color: #041627;
-            font-size: 15px;
-            line-height: 1.48;
-            font-weight: 600;
+            font-size: 18px;
+            line-height: 1.5;
+            font-weight: 700;
         }
         .team-founder-quote .material-symbols-outlined {
             flex: 0 0 auto;

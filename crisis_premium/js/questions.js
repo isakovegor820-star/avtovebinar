@@ -2,7 +2,6 @@
  * questions.js — форма вопроса, рендер инсайтов.
  */
 
-import { token } from './state.js';
 import { post, formatTimelineTime } from './utils.js';
 import { track, WEBINAR_INSIGHTS } from './analytics.js';
 
@@ -101,7 +100,7 @@ export function bindQuestionForm() {
     track('question_submit_attempt', { textLength: text.length });
 
     try {
-      await post('/questions', { token, text });
+      await post('/questions', { text });
 
       // FIX 6a: трекаем успешную отправку
       track('question_submitted');

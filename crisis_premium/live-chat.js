@@ -4,18 +4,6 @@
  */
 (function() {
   var API = window.location.protocol === 'file:' ? 'http://127.0.0.1:5174/api' : '/api';
-  var allowLocalTokenStorage = window.location.protocol === 'file:' ||
-    ['localhost', '127.0.0.1', ''].indexOf(window.location.hostname) !== -1;
-  var urlToken = new URLSearchParams(window.location.search).get('token') || '';
-  var storedToken = '';
-
-  try {
-    storedToken = allowLocalTokenStorage ? window.localStorage.getItem('crisisPremiumToken') || '' : '';
-  } catch {
-    storedToken = '';
-  }
-
-  var token = urlToken || storedToken;
   var chatContainer = document.getElementById('liveChatMessages');
   var chatPanel = document.getElementById('webinarChatPanel');
   var input = document.getElementById('questionInput');
@@ -29,9 +17,7 @@
   var COLORS = ['#1e40af', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#4338ca'];
 
   function chatUrl() {
-    return token
-      ? API + '/webinar/chat/' + encodeURIComponent(token)
-      : API + '/webinar/chat/session/current';
+    return API + '/webinar/chat/session/current';
   }
 
   function setActivity(text) {

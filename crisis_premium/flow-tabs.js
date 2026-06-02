@@ -3,44 +3,19 @@
   if (!mount) return;
 
   const current = mount.dataset.current || "landing";
-  const params = new URLSearchParams(window.location.search);
-  const urlToken = params.get("token") || "";
-  const allowLocalTokenStorage =
-    window.location.protocol === "file:" ||
-    ["localhost", "127.0.0.1", ""].includes(window.location.hostname);
 
   const storage = {
     get(key) {
       try {
-        if (key === "crisisPremiumToken" && !allowLocalTokenStorage) return "";
         return window.localStorage.getItem(key) || "";
       } catch {
         return "";
       }
     },
-    set(key, value) {
-      try {
-        if (key === "crisisPremiumToken" && !allowLocalTokenStorage) return;
-        window.localStorage.setItem(key, value);
-      } catch {
-        // Storage can be blocked in file previews; cookie/session access still works.
-      }
-    }
   };
 
-  const storedToken = storage.get("crisisPremiumToken");
-  const accessToken = urlToken || storedToken;
-
-  if (urlToken) {
-    storage.set("crisisPremiumToken", urlToken);
-  }
-
-  if ((current === "success" || current === "webinar") && accessToken) {
-    storage.set("crisisPremiumRegistered", "true");
-  }
-
-  function webinarHref(token) {
-    return token ? `webinar.html?token=${encodeURIComponent(token)}` : "webinar.html";
+  function webinarHref() {
+    return "webinar.html";
   }
 
   function el(tag, options = {}, children = []) {
@@ -53,11 +28,11 @@
     return node;
   }
 
-  function render(token, hintText, isLive = false, scheduledAt = null, serverTime = null) {
+  function render(hintText, isLive = false, scheduledAt = null, serverTime = null) {
     const activeTab = current === "webinar" ? "webinar" : current === "landing" ? "landing" : "";
     const stages = [
       { id: "landing", label: "Главная", href: "index.html", meta: "Сайт" },
-      { id: "webinar", label: "Вебинар", href: webinarHref(token), meta: isLive ? "Идет эфир" : "Доступ открыт" }
+      { id: "webinar", label: "Вебинар", href: webinarHref(), meta: isLive ? "Идет эфир" : "Доступ открыт" }
     ];
 
     mount.className = "flow-tabs";
@@ -134,14 +109,14 @@
 
   const isRegistered = storage.get("crisisPremiumRegistered") === "true";
   const api = window.location.protocol === "file:" ? "http://127.0.0.1:5174/api" : "/api";
-  const fetchUrl = accessToken ? `${api}/registration/${accessToken}` : `${api}/registration/session/current`;
+  const fetchUrl = `${api}/registration/session/current`;
 
   fetch(fetchUrl, { credentials: "include" })
     .then((response) => (response.ok ? response.json() : null))
     .then((data) => {
       if (!data?.ok) {
-        if (accessToken || isRegistered) {
-          render(accessToken, current === "success" ? "Регистрация принята" : "Вебинар доступен", false, null);
+        if (isRegistered) {
+          render(current === "success" ? "Регистрация принята" : "Вебинар доступен", false, null);
         } else {
           mount.remove();
         }
@@ -159,11 +134,11 @@
         hintText = "Эфир идет";
       }
 
-      render(accessToken || data.token || "", hintText, isLive, scheduledAt, serverTime);
+      render(hintText, isLive, scheduledAt, serverTime);
     })
     .catch(() => {
-      if (accessToken || isRegistered) {
-        render(accessToken, current === "success" ? "Регистрация принята" : "Вебинар доступен", false, null);
+      if (isRegistered) {
+        render(current === "success" ? "Регистрация принята" : "Вебинар доступен", false, null);
       } else {
         mount.remove();
       }

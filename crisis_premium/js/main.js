@@ -5,12 +5,13 @@
 import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js';
 import { hydrateTimeline } from './video.js';
 import { hydrateSuccessPage } from './success.js';
-import { bindRegistrationForm, bindRegistrationClicks, bindTelegramTracking } from './registration.js';
+import { bindRegistrationForm, bindRegistrationClicks, bindTelegramTracking, exchangeUrlTokenIfPresent } from './registration.js';
 import { bindQuestionForm } from './questions.js';
 import { bindPartnerApplicationForm } from './partner.js';
 import { track } from './analytics.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await exchangeUrlTokenIfPresent().catch(() => {});
   hydrateCurrentWebinar();
   hydrateSuccessPage();
   hydrateWebinarRoom(() => hydrateTimeline());

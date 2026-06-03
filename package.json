@@ -7,7 +7,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "bash scripts/check-video.sh && npm run css:build && tsx watch src/server.ts",
+    "dev": "node scripts/dev.mjs",
     "start": "node dist/server.js",
     "build": "tsc",
     "css:build": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --minify",

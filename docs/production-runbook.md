@@ -144,6 +144,8 @@ CI уже добавлен в `.github/workflows/ci.yml`.
 - `npx prisma generate`
 - `npm run build`
 - `npm test`
+- `npx playwright install --with-deps chromium`
+- `npm run e2e`
 - `npm audit --omit=dev`
 - `docker build`
 
@@ -157,10 +159,11 @@ npm run lint
 npm run build
 npm test
 npm audit --omit=dev
+npm run e2e:install
 npm run e2e
 ```
 
-`npm run e2e` поднимает Playwright browser checks для регистрации, success page, cookie/session входа в комнату, очистки token из URL, live/DVR поведения, чата, вопроса и partner application.
+`npm run e2e:install` ставит Playwright Chromium. В CI используется эквивалентная команда `npx playwright install --with-deps chromium`. `npm run e2e` поднимает Playwright browser checks для регистрации, success page, cookie/session входа в комнату, очистки token из URL, live/DVR поведения, чата, вопроса и partner application.
 
 ## Ручная product QA
 
@@ -189,8 +192,9 @@ npm run e2e
 - [ ] `npm run lint` проходит.
 - [ ] `npm run build` проходит.
 - [ ] `npm test` проходит.
-- [ ] `npm run e2e` проходит.
 - [ ] `npm audit --omit=dev` проходит.
+- [ ] `npm run e2e:install` выполнен.
+- [ ] `npm run e2e` проходит.
 - [ ] GitHub Actions CI проходит.
 - [ ] Docker image собирается.
 - [ ] `docker compose --env-file .env.production -f docker-compose.production.yml up -d --build` запускается.

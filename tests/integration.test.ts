@@ -119,6 +119,16 @@ describe('critical path integration scenarios', () => {
     });
     expect(tokenPurposes.map(item => item.purpose)).toEqual(['registration', 'room_session']);
 
+    const activeConfirmationJobsAfterRepeat = await prisma.emailOutboxJob.findMany({
+      where: {
+        registrationId: registrationsAfterRepeat[0].id,
+        type: 'registration_confirmation',
+        status: { in: ['pending', 'failed'] },
+      },
+    });
+    expect(activeConfirmationJobsAfterRepeat.length).toBe(1);
+    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).not.toBe(initialEmailJobs[0].webinarUrl);
+
     const registrationBeforeEmailJob = await prisma.registration.findUnique({
       where: { id: registrationsAfterRepeat[0].id },
     });
@@ -369,5 +379,85 @@ describe('critical path integration scenarios', () => {
     expect(retriedJob.status).toBe('sent');
     expect(retriedJob.attempts).toBe(2);
     expect(retriedJob.sentAt).toBeDefined();
+  });
+
+  it('replaces stale pending and failed registration confirmation jobs on repeat registration', async () => {
+    const userAgent = request.agent(app);
+    const email = 'repeat-outbox@aspb.ru';
+
+    const firstResponse = await userAgent.post('/api/register').send({
+      name: 'Повторная Регистрация',
+      phone: '+79990003344',
+      email,
+      city: 'Москва',
+      professionalStatus: 'Юрист',
+      consent: true,
+      marketingConsent: true,
+    });
+    expect(firstResponse.status).toBe(201);
+
+    const registration = await prisma.registration.findFirstOrThrow({
+      where: { lead: { email } },
+    });
+    const firstJob = await prisma.emailOutboxJob.findFirstOrThrow({
+      where: {
+        registrationId: registration.id,
+        type: 'registration_confirmation',
+        status: 'pending',
+      },
+    });
+
+    await prisma.emailOutboxJob.update({
+      where: { id: firstJob.id },
+      data: {
+        status: 'failed',
+        webinarUrl: 'http://127.0.0.1:5174/crisis_premium/webinar.html?token=obsolete',
+        lastError: 'old SMTP error',
+        attempts: 1,
+        nextAttemptAt: new Date(),
+      },
+    });
+    await prisma.emailOutboxJob.create({
+      data: {
+        type: 'registration_confirmation',
+        status: 'sent',
+        registrationId: registration.id,
+        webinarSessionId: registration.webinarSessionId,
+        toEmail: email,
+        toName: 'Повторная Регистрация',
+        scheduledAt: new Date('2026-05-22T08:00:00.000Z'),
+        webinarUrl: 'http://127.0.0.1:5174/crisis_premium/webinar.html?token=already-sent',
+        sentAt: new Date(),
+        attempts: 1,
+      },
+    });
+
+    const repeatResponse = await userAgent.post('/api/register').send({
+      name: 'Повторная Регистрация',
+      phone: '+79990003344',
+      email,
+      city: 'Москва',
+      professionalStatus: 'Юрист',
+      consent: true,
+      marketingConsent: true,
+    });
+    expect(repeatResponse.status).toBe(201);
+
+    const jobs = await prisma.emailOutboxJob.findMany({
+      where: {
+        registrationId: registration.id,
+        type: 'registration_confirmation',
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const activeJobs = jobs.filter(job => ['pending', 'failed'].includes(job.status));
+    const sentJobs = jobs.filter(job => job.status === 'sent');
+
+    expect(activeJobs.length).toBe(1);
+    expect(activeJobs[0].status).toBe('pending');
+    expect(activeJobs[0].webinarUrl).toContain('/crisis_premium/webinar.html?token=');
+    expect(activeJobs[0].webinarUrl).not.toContain('obsolete');
+    expect(sentJobs.length).toBe(1);
+    expect(sentJobs[0].webinarUrl).toContain('already-sent');
   });
 });

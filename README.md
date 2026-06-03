@@ -37,11 +37,18 @@ Dev-логин по умолчанию берется из `.env`: `admin / admi
 npm run css:build      # Tailwind CSS
 npm run build          # TypeScript build
 npm test               # Vitest unit/integration
+npm run e2e:install    # install Playwright Chromium locally/CI
 npm run e2e            # Playwright browser tests
 npm audit --omit=dev   # Production dependency audit
 npm run check          # build + tests + audit
 npm run prisma:deploy  # production migrations
 npm run seed           # seed webinar/timeline/admin data
+```
+
+На чистой машине перед первым `npm run e2e` выполните:
+
+```bash
+npm run e2e:install
 ```
 
 ## Email outbox
@@ -155,4 +162,5 @@ Helmet включает CSP, frame/object restrictions, cookie hardening и rate
 - После завершения чат остается видимым и показывает “Эфир завершен”.
 - Partner application отправляется после доступного состояния и попадает в CRM.
 - Admin CRM работает: список регистраций, карточка, статусы, заметки.
-- `npm run css:build`, `npm run lint`, `npm run build`, `npm test`, `npm run e2e`, `npm audit --omit=dev` проходят.
+- `npm run css:build`, `npm run lint`, `npm run build`, `npm test`, `npm audit --omit=dev` проходят.
+- `npm run e2e:install` выполнен хотя бы один раз, затем `npm run e2e` проходит.

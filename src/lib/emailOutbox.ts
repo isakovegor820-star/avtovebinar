@@ -37,6 +37,14 @@ function nextRetryAt(now: Date, attempts: number) {
 }
 
 export async function enqueueRegistrationEmail(tx: EmailOutboxTx, input: EnqueueBase) {
+  await tx.emailOutboxJob.deleteMany({
+    where: {
+      registrationId: input.registrationId,
+      type: EMAIL_JOB_REGISTRATION,
+      status: { in: ['pending', 'failed'] },
+    },
+  });
+
   return tx.emailOutboxJob.create({
     data: {
       type: EMAIL_JOB_REGISTRATION,

@@ -13,6 +13,7 @@
     "css:build": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --minify",
     "css:watch": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --watch",
     "test": "DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log NODE_ENV=test vitest run",
+    "e2e:install": "npx playwright install --with-deps chromium",
     "e2e": "DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} NODE_ENV=test EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log WEBINAR_TEST_ROOM_MODE=off npx prisma db push --skip-generate --accept-data-loss && DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log WEBINAR_TEST_ROOM_MODE=off playwright test",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "check": "npm run build && npm test && npm audit --omit=dev",

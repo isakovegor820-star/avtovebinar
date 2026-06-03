@@ -4,6 +4,7 @@ coverage/
 backups/
 test-results/
 playwright-report/
+blob-report/
 
 # Tailwind build output
 crisis_premium/css/styles.css

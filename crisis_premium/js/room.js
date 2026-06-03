@@ -25,9 +25,9 @@ function getNextLocalTarget() {
   }).formatToParts(now);
   const m = {};
   msk.forEach(function(p) { if (p.type !== 'literal') m[p.type] = Number(p.value); });
-  const todayTarget = Date.UTC(m.year, m.month - 1, m.day, 8, 0, 0);
+  const todayTarget = Date.UTC(m.year, m.month - 1, m.day, 16, 0, 0);
   if (todayTarget > Date.now()) return todayTarget;
-  return Date.UTC(m.year, m.month - 1, m.day + 1, 8, 0, 0);
+  return Date.UTC(m.year, m.month - 1, m.day + 1, 16, 0, 0);
 }
 
 export function startCountdown(scheduledAt) {
@@ -191,7 +191,7 @@ export function updateRoomStatus(webinar) {
     if (countdownContainer) countdownContainer.classList.add('hidden');
   } else if (webinar.accessStatus === 'replay' || webinar.status === 'finished') {
     const expires = webinar.replayExpiresAt ? ` Доступ к записи открыт до ${formatMoscowDateTime(webinar.replayExpiresAt)} МСК.` : '';
-    node.textContent = `Эфир завершен, но запись доступна по вашей персональной ссылке.${expires} Посмотрите ключевые блоки и оставьте заявку, если узнали своих клиентов.`;
+    node.textContent = `Вебинар окончен, но запись доступна по вашей персональной ссылке.${expires} Чат остается открытым для вопросов, а заявку можно оставить ниже.`;
     if (countdownContainer) countdownContainer.classList.add('hidden');
   } else {
     const date = new Intl.DateTimeFormat('ru-RU', {

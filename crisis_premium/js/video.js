@@ -209,8 +209,8 @@ export async function hydrateTimeline() {
         <div class="w-20 h-20 bg-green-600/90 rounded-full flex items-center justify-center mb-4 border border-white/20">
           <span class="material-symbols-outlined text-white text-4xl">check_circle</span>
         </div>
-        <p class="text-headline-md text-white font-bold tracking-wide uppercase">Эфир завершен</p>
-        <p class="text-body-lg text-white/80 mt-1 max-w-md">Чат закрыт. Вы можете оставить заявку на партнерский договор ниже.</p>
+        <p class="text-headline-md text-white font-bold tracking-wide uppercase">Вебинар окончен</p>
+        <p class="text-body-lg text-white/80 mt-1 max-w-md">Чат остается открытым. Задайте вопрос или оставьте заявку ниже.</p>
       `;
     }
   } else if (isTestMode) {
@@ -232,6 +232,8 @@ export async function hydrateTimeline() {
     if (liveEdgeMarker) liveEdgeMarker.classList.remove('hidden');
     if (seekThumb) seekThumb.classList.remove('hidden');
     if (seekContainer) {
+      seekContainer.setAttribute('aria-label', 'Live DVR: можно отмотать назад в уже прошедший эфир');
+      seekContainer.dataset.liveMode = isLive ? 'dvr' : 'test';
       seekContainer.style.background = 'rgba(239, 68, 68, 0.32)';
       seekContainer.style.boxShadow = 'inset 0 0 0 1px rgba(255,255,255,0.16), 0 0 22px rgba(239,68,68,0.24)';
     }
@@ -269,6 +271,11 @@ export async function hydrateTimeline() {
     if (seekAvailable) seekAvailable.classList.add('hidden');
     if (liveEdgeMarker) liveEdgeMarker.classList.add('hidden');
     if (seekContainer) {
+      seekContainer.removeAttribute('aria-label');
+      delete seekContainer.dataset.liveMode;
+      delete seekContainer.dataset.livePosition;
+      delete seekContainer.dataset.viewerPosition;
+      delete seekContainer.dataset.behindLive;
       seekContainer.style.background = '';
       seekContainer.style.boxShadow = '';
     }
@@ -293,8 +300,8 @@ export async function hydrateTimeline() {
         <div class="w-20 h-20 bg-green-600/90 rounded-full flex items-center justify-center mb-4 border border-white/20">
           <span class="material-symbols-outlined text-white text-4xl">check_circle</span>
         </div>
-        <p class="text-headline-md text-white font-bold tracking-wide uppercase">Эфир завершен</p>
-        <p class="text-body-lg text-white/80 mt-1">Чат завершен. История сообщений остается доступной, а заявку можно оставить ниже.</p>
+        <p class="text-headline-md text-white font-bold tracking-wide uppercase">Вебинар окончен</p>
+        <p class="text-body-lg text-white/80 mt-1">Чат остается открытым. Задайте вопрос или оставьте заявку ниже.</p>
       `;
     }
     const input = document.getElementById('questionInput');
@@ -302,15 +309,15 @@ export async function hydrateTimeline() {
     const activity = document.getElementById('chatActivity');
     const onlineLabel = document.getElementById('chatOnlineLabel');
     if (input) {
-      input.disabled = true;
-      input.placeholder = 'Эфир завершен';
+      input.disabled = false;
+      input.placeholder = 'Задайте вопрос после эфира...';
     }
     if (submit) {
-      submit.disabled = true;
-      submit.classList.add('opacity-40', 'pointer-events-none');
+      submit.disabled = false;
+      submit.classList.remove('opacity-40', 'pointer-events-none');
     }
-    if (activity) activity.textContent = 'Эфир завершен';
-    if (onlineLabel) onlineLabel.textContent = 'завершен';
+    if (activity) activity.textContent = 'Вебинар окончен, чат открыт';
+    if (onlineLabel) onlineLabel.textContent = 'чат открыт';
   }
 
   function isNearLive() {
@@ -346,6 +353,11 @@ export async function hydrateTimeline() {
     const behindLive = livePosition - video.currentTime > liveToleranceSeconds;
     if (!behindLive) {
       manualBehindLive = false;
+    }
+    if (seekContainer) {
+      seekContainer.dataset.livePosition = livePosition.toFixed(2);
+      seekContainer.dataset.viewerPosition = video.currentTime.toFixed(2);
+      seekContainer.dataset.behindLive = behindLive ? 'true' : 'false';
     }
 
     if (returnToLiveBtn) {
@@ -601,7 +613,7 @@ export async function hydrateTimeline() {
     seekContainer.addEventListener('click', (e) => {
       if (isTestMode) return;
       const rect = seekContainer.getBoundingClientRect();
-      const pos = (e.clientX - rect.left) / rect.width;
+      const pos = clamp((e.clientX - rect.left) / rect.width, 0, 1);
       if (videoDuration) {
         const livePosition = getLivePosition();
         const requestedTime = isLive ? pos * Math.max(1, livePosition) : pos * videoDuration;

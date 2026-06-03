@@ -116,9 +116,9 @@
     if (!demoLive && (chatStatus === 'ended' || data.accessStatus === 'replay')) {
       if (chatPanel) chatPanel.classList.remove('hidden');
       isHiddenAfterEnd = false;
-      setInputState(true, 'Эфир завершен');
-      setActivity('Эфир завершен');
-      setOnlineLabel('завершен');
+      setInputState(false, 'Задайте вопрос после эфира...');
+      setActivity('Вебинар окончен, чат открыт');
+      setOnlineLabel('чат открыт');
       return;
     }
 

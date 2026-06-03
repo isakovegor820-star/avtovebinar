@@ -35,6 +35,7 @@ import {
   getSessionStatus,
   getWebinarAccess,
   WEBINAR_REPLAY_HOURS,
+  WEBINAR_START_HOUR_MSK,
 } from '../src/lib/time.js';
 import { CRM_STATUSES, isCrmStatus } from '../src/lib/crm.js';
 import { getDueReminderKind, getDueTelegramReminderKind, getPostWebinarFollowupDueAt } from '../src/lib/reminders.js';
@@ -45,15 +46,22 @@ import { hashPassword, verifyPassword } from '../src/lib/passwords.js';
 import { eventSchema } from '../src/routes/public/events.js';
 
 describe('webinar time logic', () => {
-  it('schedules webinar at 11:00 Moscow on the next Moscow day', () => {
+  it('schedules webinar at 19:00 Moscow on the same Moscow day when the slot has not started', () => {
     const firstSeen = new Date('2026-05-21T09:15:00.000Z');
     const scheduledAt = getNextWebinarDate(firstSeen);
-    expect(scheduledAt.toISOString()).toBe('2026-05-22T08:00:00.000Z');
+    expect(WEBINAR_START_HOUR_MSK).toBe(19);
+    expect(scheduledAt.toISOString()).toBe('2026-05-21T16:00:00.000Z');
+  });
+
+  it('schedules the next daily 19:00 Moscow slot after today slot has started', () => {
+    const firstSeen = new Date('2026-05-21T16:15:00.000Z');
+    const scheduledAt = getNextWebinarDate(firstSeen);
+    expect(scheduledAt.toISOString()).toBe('2026-05-22T16:00:00.000Z');
   });
 
   it('schedules across the end of a month', () => {
-    const scheduledAt = getNextWebinarDate(new Date('2026-05-31T09:15:00.000Z'));
-    expect(scheduledAt.toISOString()).toBe('2026-06-01T08:00:00.000Z');
+    const scheduledAt = getNextWebinarDate(new Date('2026-05-31T16:15:00.000Z'));
+    expect(scheduledAt.toISOString()).toBe('2026-06-01T16:00:00.000Z');
   });
 
   it('returns scheduled, live and finished statuses', () => {
@@ -86,12 +94,12 @@ describe('webinar time logic', () => {
 
   it('keeps firstSeen while the assigned webinar replay is still open', () => {
     const firstSeen = '2026-05-21T09:15:00.000Z';
-    const resolved = resolveFirstSeenAt(firstSeen, new Date('2026-05-29T09:59:00.000Z'));
+    const resolved = resolveFirstSeenAt(firstSeen, new Date('2026-05-28T17:59:00.000Z'));
     expect(resolved.toISOString()).toBe(firstSeen);
   });
 
   it('resets firstSeen after the assigned webinar replay expires', () => {
-    const now = new Date('2026-05-30T08:00:00.000Z');
+    const now = new Date('2026-05-29T08:00:00.000Z');
     const resolved = resolveFirstSeenAt('2026-05-21T09:15:00.000Z', now);
     expect(resolved).toBe(now);
   });

@@ -104,7 +104,7 @@ partnersRouter.post(
       throw roomAccessError(access.accessStatus);
     }
     const liveState = getWebinarLiveState(now, registration.webinarSession, { testMode: access.testMode });
-    if (!access.testMode && liveState.status !== 'live') {
+    if (!access.testMode && liveState.status !== 'live' && liveState.status !== 'finished') {
       throw new AppError(423, 'Webinar chat is closed');
     }
 

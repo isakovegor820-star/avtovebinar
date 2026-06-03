@@ -130,12 +130,7 @@ export async function findRegistrationBySessionToken(token: string) {
   return tokenRecord.registration;
 }
 
-export async function findRegistrationForRequest(req: Request, token?: string | null) {
-  const requestToken = clean(token);
-  if (requestToken) {
-    return findRegistrationBySessionToken(requestToken);
-  }
-
+export async function findRegistrationForRequest(req: Request) {
   const cookieToken = clean(req.cookies?.aspb_room_token);
   if (!cookieToken) {
     return null;
@@ -198,7 +193,12 @@ export function notifySafely(task: Promise<unknown>) {
 export async function saveEvent(input: {
   eventName: string;
   req: any;
-  token?: string | null;
+  registration?: {
+    id: string;
+    leadId: string;
+    webinarSessionId: string;
+    telegramClickedAt?: Date | null;
+  } | null;
   page?: string;
   metadata?: Record<string, unknown>;
   source?: string | null;
@@ -206,7 +206,8 @@ export async function saveEvent(input: {
   utmMedium?: string | null;
   utmCampaign?: string | null;
 }) {
-  const registration = await findRegistrationForRequest(input.req, input.token);
+  const registration =
+    input.registration === undefined ? await findRegistrationForRequest(input.req) : input.registration;
 
   await prisma.event.create({
     data: {

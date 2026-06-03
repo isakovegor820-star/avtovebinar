@@ -2,6 +2,8 @@ node_modules/
 dist/
 coverage/
 backups/
+test-results/
+playwright-report/
 
 # Tailwind build output
 crisis_premium/css/styles.css

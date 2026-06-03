@@ -18,12 +18,10 @@ import {
 export const partnersRouter = Router();
 
 const questionSchema = z.object({
-  token: z.string().trim().min(20).optional().or(z.literal('')),
   text: z.string().trim().min(3).max(2000),
 });
 
 const partnerApplicationSchema = z.object({
-  token: z.string().trim().min(20).optional().or(z.literal('')),
   sphere: z.string().trim().max(160).optional().or(z.literal('')),
   city: z.string().trim().max(120).optional().or(z.literal('')),
   clientFlow: z.string().trim().max(160).optional().or(z.literal('')),
@@ -36,7 +34,7 @@ partnersRouter.post(
   '/partner-application',
   asyncHandler(async (req, res) => {
     const data = partnerApplicationSchema.parse(req.body);
-    const registration = await findRegistrationForRequest(req, data.token);
+    const registration = await findRegistrationForRequest(req);
 
     if (!registration) {
       throw new AppError(401, 'Invalid webinar token');
@@ -69,7 +67,6 @@ partnersRouter.post(
     await saveEvent({
       eventName: 'partner_application_submit',
       req,
-      token: data.token,
       page: '/crisis_premium/webinar.html',
       metadata: { partnerApplicationId: application.id },
     });
@@ -96,7 +93,7 @@ partnersRouter.post(
   '/questions',
   asyncHandler(async (req, res) => {
     const data = questionSchema.parse(req.body);
-    const registration = await findRegistrationForRequest(req, data.token);
+    const registration = await findRegistrationForRequest(req);
 
     if (!registration) {
       throw new AppError(401, 'Invalid webinar token');
@@ -141,7 +138,6 @@ partnersRouter.post(
     await saveEvent({
       eventName: 'question_submit',
       req,
-      token: data.token,
       page: '/crisis_premium/webinar.html',
       metadata: { questionId: question.id },
     });

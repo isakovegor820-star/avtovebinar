@@ -6,7 +6,7 @@ import { env } from '../../lib/env.js';
 import { createAccessToken, hashToken } from '../../lib/tokens.js';
 import { getNextWebinarDate } from '../../lib/time.js';
 import { getWebinarLiveState } from '../../lib/webinarLive.js';
-import { sendRegistrationEmail } from '../../lib/email.js';
+import { enqueueRegistrationEmail } from '../../lib/emailOutbox.js';
 import { buildTelegramStartUrl, notifyRegistration } from '../../lib/telegram.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import {
@@ -63,6 +63,8 @@ registrationRouter.post(
     const exchangeTokenHash = hashToken(exchangeToken);
     const sessionTokenHash = hashToken(sessionToken);
     const tokenExpiresAt = getRoomTokenExpiresAt(session);
+    const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html', exchangeToken);
+    const successUrl = buildFrontendUrl('/crisis_premium/success.html');
 
     const { lead, registration } = await prisma.$transaction(async tx => {
       const lead = await tx.lead.upsert({
@@ -143,29 +145,25 @@ registrationRouter.post(
         },
       });
 
+      await enqueueRegistrationEmail(tx, {
+        registrationId: registration.id,
+        webinarSessionId: session.id,
+        toEmail: lead.email,
+        toName: lead.name,
+        scheduledAt: session.scheduledAt,
+        webinarUrl,
+        partnerUrl: `${webinarUrl}#partnerApplication`,
+      });
+
       return { lead, registration };
     });
 
-    const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html', exchangeToken);
-    const successUrl = buildFrontendUrl('/crisis_premium/success.html');
     setRoomTokenCookie(res, sessionToken, tokenExpiresAt);
-    await sendRegistrationEmail({
-      to: lead.email,
-      name: lead.name,
-      scheduledAt: session.scheduledAt,
-      webinarUrl,
-      partnerUrl: `${webinarUrl}#partnerApplication`,
-    });
-
-    await prisma.registration.update({
-      where: { id: registration.id },
-      data: { emailSentAt: new Date(), confirmationSentAt: new Date() },
-    });
 
     await saveEvent({
       eventName: 'registration_submit',
       req,
-      token: sessionToken,
+      registration,
       page: '/crisis_premium/register.html',
       metadata: { clientsProblem: clean(data.clientsProblem) },
       source: clean(data.source),
@@ -262,9 +260,9 @@ registrationRouter.post(
   }),
 );
 
-async function sendRegistrationState(req: Request, res: Response, token?: string | null) {
+async function sendRegistrationState(req: Request, res: Response) {
   const view = z.enum(['success', 'room']).optional().parse(req.query.view);
-  const registration = await findRegistrationForRequest(req, token);
+  const registration = await findRegistrationForRequest(req);
 
   if (!registration) {
     throw new AppError(404, 'Registration not found');
@@ -283,7 +281,7 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
       where: { id: registration.id },
       data: { successViewedAt: now },
     });
-    await saveEvent({ eventName: 'registration_success', req, token, page: '/crisis_premium/success.html' });
+    await saveEvent({ eventName: 'registration_success', req, page: '/crisis_premium/success.html' });
   }
 
   if (view === 'room') {
@@ -295,11 +293,10 @@ async function sendRegistrationState(req: Request, res: Response, token?: string
       await saveEvent({
         eventName: access.canEnterRoom ? 'webinar_room_open' : 'webinar_room_waiting',
         req,
-        token,
         page: '/crisis_premium/webinar.html',
       });
     } else if (access.accessStatus === 'waiting' || access.accessStatus === 'pre_live') {
-      await saveEvent({ eventName: 'webinar_room_waiting', req, token, page: '/crisis_premium/webinar.html' });
+      await saveEvent({ eventName: 'webinar_room_waiting', req, page: '/crisis_premium/webinar.html' });
     }
   }
 
@@ -360,13 +357,5 @@ registrationRouter.get(
   '/registration/session/current',
   asyncHandler(async (req, res) => {
     await sendRegistrationState(req, res);
-  }),
-);
-
-registrationRouter.get(
-  '/registration/:token',
-  asyncHandler(async (req, res) => {
-    const token = z.string().min(20).parse(req.params.token);
-    await sendRegistrationState(req, res, token);
   }),
 );

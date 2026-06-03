@@ -2,13 +2,11 @@
  * analytics.js — трекинг событий и данные для инсайтов.
  */
 
-import { token } from './state.js';
 import { post, utm } from './utils.js';
 
 export function track(eventName, metadata) {
   post('/events', {
     eventName,
-    token,
     page: window.location.pathname,
     metadata,
     ...utm()

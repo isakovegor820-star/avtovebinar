@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { env } from './env.js';
-import { sendReminderEmail, type ReminderKind } from './email.js';
+import type { ReminderKind } from './email.js';
+import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
 import { createAccessToken, hashToken } from './tokens.js';
 import { sendTelegramMessageToChat, formatMoscowDate } from './telegram.js';
 import { getReplayExpiresAt, WEBINAR_REPLAY_HOURS } from './time.js';
@@ -40,14 +41,6 @@ export function getDueReminderKind(registration: ReminderCandidate, now = new Da
   }
 
   return null;
-}
-
-function reminderField(kind: ReminderKind) {
-  return {
-    '24h': 'reminder24hSentAt',
-    '3h': 'reminder3hSentAt',
-    '30m': 'reminder30mSentAt',
-  }[kind] as 'reminder24hSentAt' | 'reminder3hSentAt' | 'reminder30mSentAt';
 }
 
 function telegramReminderField(kind: ReminderKind) {
@@ -153,32 +146,39 @@ export async function runReminderJobOnce(now = new Date()) {
         continue;
       }
 
-      const accessToken = createAccessToken();
-      await prisma.registrationToken.create({
-        data: {
+      const existingEmailJob = await prisma.emailOutboxJob.count({
+        where: {
           registrationId: registration.id,
-          tokenHash: hashToken(accessToken),
-          purpose: `reminder_${kind}`,
-          expiresAt: getRoomTokenExpiresAt(registration),
+          type: EMAIL_JOB_REMINDER,
+          reminderKind: kind,
         },
       });
+      if (existingEmailJob > 0) {
+        continue;
+      }
 
-      await sendReminderEmail({
-        kind,
-        to: registration.lead.email,
-        name: registration.lead.name,
-        scheduledAt: registration.webinarSession.scheduledAt,
-        webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html', accessToken),
-        partnerUrl: `${buildFrontendUrl('/crisis_premium/webinar.html', accessToken)}#partnerApplication`,
-      });
+      const accessToken = createAccessToken();
+      const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html', accessToken);
+      await prisma.$transaction(async tx => {
+        await tx.registrationToken.create({
+          data: {
+            registrationId: registration.id,
+            tokenHash: hashToken(accessToken),
+            purpose: `reminder_${kind}`,
+            expiresAt: getRoomTokenExpiresAt(registration),
+          },
+        });
 
-      const field = reminderField(kind);
-      await prisma.registration.update({
-        where: { id: registration.id },
-        data: {
-          [field]: now,
-          reminderSentAt: now,
-        },
+        await enqueueReminderEmail(tx, {
+          kind,
+          registrationId: registration.id,
+          webinarSessionId: registration.webinarSessionId,
+          toEmail: registration.lead.email,
+          toName: registration.lead.name,
+          scheduledAt: registration.webinarSession.scheduledAt,
+          webinarUrl,
+          partnerUrl: `${webinarUrl}#partnerApplication`,
+        });
       });
       sent += 1;
     }
@@ -406,6 +406,7 @@ async function runReminderCycle() {
 
   try {
     await runReminderJobOnce().catch(error => console.error('[ASPБ reminders]', error));
+    await runEmailOutboxJobOnce().catch(error => console.error('[ASPБ email outbox]', error));
     await runTelegramReminderJobOnce().catch(error => console.error('[ASPБ telegram reminders]', error));
     await runTelegramFollowupJobOnce().catch(error => console.error('[ASPБ telegram followup]', error));
     await cleanupExpiredRegistrationTokens().catch(error => console.error('[ASPБ token cleanup]', error));

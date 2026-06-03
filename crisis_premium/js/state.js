@@ -7,11 +7,8 @@ export const API = window.location.protocol === 'file:'
   ? 'http://127.0.0.1:5174/api' : '/api';
 
 export const urlToken = new URLSearchParams(window.location.search).get('token') || '';
-export const storedToken = '';
-export let token = urlToken;
 
 export function clearAccessToken() {
-  token = '';
   try {
     window.localStorage.removeItem('crisisPremiumToken');
   } catch {

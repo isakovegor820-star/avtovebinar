@@ -9,6 +9,9 @@
 - GitHub Actions CI: install, Prisma generate, build, tests, audit, Docker build.
 - Strict production env guard в backend.
 - Healthcheck `/api/health`.
+- Cookie-only доступ в вебинарную комнату через `HttpOnly` cookie `aspb_room_token`.
+- Одноразовый exchange-token в письмах/Telegram-ссылках; URL очищается после exchange.
+- Email outbox: регистрация не падает из-за временной SMTP-ошибки.
 - PostgreSQL backup/restore scripts.
 - Production checklist для ручного запуска.
 
@@ -50,6 +53,22 @@ cp .env.production.example .env.production
 - `WEBINAR_TEST_ROOM_MODE=off`
 - `PUBLIC_SITE_URL` начинается с `https://`
 - `.env.production` не добавлен в Git
+
+## Миграции и seed
+
+Для production deploy используются миграции:
+
+```bash
+npm run prisma:deploy
+```
+
+Seed нужен только при первичной подготовке demo/default данных:
+
+```bash
+npm run seed
+```
+
+Не запускайте `prisma migrate dev` на production.
 
 ## Локальная проверка production image
 
@@ -130,6 +149,32 @@ CI уже добавлен в `.github/workflows/ci.yml`.
 
 Для автоматического deploy нужен следующий отдельный шаг: добавить GitHub Actions job, который по push в `main` подключается к серверу по SSH и выполняет `docker compose pull/up` или rebuild.
 
+## Проверки перед deploy
+
+```bash
+npm run css:build
+npm run lint
+npm run build
+npm test
+npm audit --omit=dev
+npm run e2e
+```
+
+`npm run e2e` поднимает Playwright browser checks для регистрации, success page, cookie/session входа в комнату, очистки token из URL, live/DVR поведения, чата, вопроса и partner application.
+
+## Ручная product QA
+
+1. Открыть landing/register page.
+2. Зарегистрировать нового пользователя.
+3. Проверить success page и отсутствие `token` в URL.
+4. Перейти в webinar room.
+5. Проверить, что room/timeline/chat работают через cookie/session.
+6. В live-состоянии проверить видео, live-полоску и паузу/возврат к live.
+7. Отправить вопрос и увидеть его в чате/CRM.
+8. Дождаться/смоделировать завершение эфира и проверить “Эфир завершен” в чате.
+9. Отправить partner application и увидеть заявку в CRM.
+10. Проверить admin CRM: карточка регистрации, статусы, заметки, заявки, вопросы.
+
 ## Минимальный production checklist
 
 - [ ] Домен подключен.
@@ -140,14 +185,21 @@ CI уже добавлен в `.github/workflows/ci.yml`.
 - [ ] Telegram participant bot протестирован.
 - [ ] Telegram admin bot протестирован.
 - [ ] `WEBINAR_TEST_ROOM_MODE=off`.
-- [ ] `npm run check` проходит локально.
+- [ ] `npm run css:build` проходит.
+- [ ] `npm run lint` проходит.
+- [ ] `npm run build` проходит.
+- [ ] `npm test` проходит.
+- [ ] `npm run e2e` проходит.
+- [ ] `npm audit --omit=dev` проходит.
 - [ ] GitHub Actions CI проходит.
 - [ ] Docker image собирается.
 - [ ] `docker compose --env-file .env.production -f docker-compose.production.yml up -d --build` запускается.
 - [ ] `/api/health` отвечает.
 - [ ] Регистрация создает lead/registration.
+- [ ] Регистрация создает `email_outbox_jobs` запись.
+- [ ] Временная SMTP-ошибка не ломает регистрацию, failed job остается в outbox.
 - [ ] Success page открывается.
-- [ ] Webinar room открывается по персональной ссылке.
+- [ ] Webinar room открывается по персональной exchange-ссылке, после exchange URL без token.
 - [ ] Вопрос попадает в CRM.
 - [ ] Заявка на партнерский договор попадает в CRM.
 - [ ] Backup создан.
@@ -169,6 +221,7 @@ CI уже добавлен в `.github/workflows/ci.yml`.
 После первого запуска можно делать:
 
 - frontend build pipeline вместо CDN/inline;
+- полный отказ от `unsafe-inline` после выноса оставшихся inline script/style blocks;
 - Sentry;
 - uptime monitoring;
 - Prometheus/Grafana или простой лог-агрегатор;

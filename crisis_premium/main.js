@@ -82,6 +82,12 @@
   document.querySelectorAll('[data-countup]').forEach(function(el) {
     countupObserver.observe(el);
   });
+
+  document.querySelectorAll('.flip-card').forEach(function(card) {
+    card.addEventListener('click', function() {
+      card.classList.toggle('is-flipped');
+    });
+  });
 })();
 
 

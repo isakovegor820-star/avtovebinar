@@ -1,97 +1,88 @@
 # АСПБ Автовебинар
 
-Рабочий проект для платформы автовебинара АСПБ — “Антикризисная служба помощи бизнесу”.
+Платформа автовебинара АСПБ: статический frontend в `crisis_premium`, Node.js/TypeScript backend, PostgreSQL/Prisma, CRM-админка, серверный live-тайминг, чат, вопросы, партнерские заявки, email outbox и Telegram-уведомления.
 
-Внутри:
-- frontend из 4 страниц в `crisis_premium`;
-- Node.js + TypeScript backend;
-- PostgreSQL + Prisma;
-- регистрация с персональным токеном;
-- SMTP/email-log и цепочка напоминаний 24 часа / 3 часа / 30 минут;
-- вебинарная комната по ссылке `webinar.html?token=...` с MP4-плеером и таймлайном;
-- вопросы к эксперту;
-- CRM admin-панель с партнерской воронкой, заметками и заявками на договор;
-- события аналитики.
+## Архитектура доступа
+
+Доступ в вебинарную комнату cookie-only:
+
+- письмо или Telegram могут содержать одноразовый `exchange-token` в `webinar.html?token=...`;
+- frontend сразу вызывает `POST /api/registration/exchange/:token`;
+- backend удаляет exchange-token, выпускает session-token и ставит `HttpOnly` cookie `aspb_room_token`;
+- URL очищается от `token`;
+- дальнейшие запросы комнаты используют только cookie и endpoints `session/current`.
+
+Постоянные endpoints с token в path отключены. Frontend не хранит room token в `localStorage` и не отправляет token в analytics, questions или partner application.
 
 ## Быстрый запуск
 
-1. Установить зависимости:
-
 ```bash
 npm install
-```
-
-2. Запустить PostgreSQL:
-
-```bash
 docker compose up -d
-```
-
-3. Применить миграции и сгенерировать Prisma Client:
-
-```bash
 npx prisma migrate dev
 npx prisma generate
-```
-
-4. Запустить проект:
-
-```bash
+npm run seed
 npm run dev
 ```
 
-Сайт:
+Сайт: `http://127.0.0.1:5174/crisis_premium/index.html`
 
-```text
-http://127.0.0.1:5174/crisis_premium/index.html
-```
+Админка: `http://127.0.0.1:5174/admin`
 
-Админка:
+Dev-логин по умолчанию берется из `.env`: `admin / admin123`.
 
-```text
-http://127.0.0.1:5174/admin
-```
-
-Логин по умолчанию из `.env`:
-
-```text
-admin / admin123
-```
-
-## Production-минимум
-
-Для production добавлены:
-
-- `Dockerfile` для приложения;
-- `docker-compose.production.yml` для app + PostgreSQL;
-- `.env.production.example`;
-- GitHub Actions CI;
-- backup/restore scripts;
-- runbook: `docs/production-runbook.md`.
-
-Быстрая проверка всего проекта:
+## Скрипты
 
 ```bash
-npm run check
+npm run css:build      # Tailwind CSS
+npm run build          # TypeScript build
+npm test               # Vitest unit/integration
+npm run e2e            # Playwright browser tests
+npm audit --omit=dev   # Production dependency audit
+npm run check          # build + tests + audit
+npm run prisma:deploy  # production migrations
+npm run seed           # seed webinar/timeline/admin data
 ```
 
-Production compose:
+## Email outbox
 
-```bash
-cp .env.production.example .env.production
-docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+Регистрация не зависит от успешной SMTP-отправки. После сохранения lead/registration backend создает запись в `email_outbox_jobs` и сразу возвращает успех пользователю.
+
+Outbox job хранит:
+
+- `type`, `status`;
+- `attempts`, `lastError`, `nextAttemptAt`, `sentAt`;
+- registration/session references;
+- адресата, дату эфира и персональную exchange-ссылку.
+
+Scheduler раз в минуту отправляет `pending/failed` письма. При ошибке SMTP задача остается в БД со статусом `failed` и будет повторена позже. В `EMAIL_MODE=log` письмо считается обработанным, но персональные ссылки маскируются в логе.
+
+Production требует `EMAIL_MODE=send` и валидный SMTP.
+
+## Вебинарная комната
+
+Видео ожидается здесь:
+
+```text
+crisis_premium/assets/webinar.mp4
 ```
 
-Перед реальным запуском обязательно заполните `.env.production`, подключите домен/SSL, SMTP и Telegram-ботов. `.env.production` нельзя коммитить.
+Live-состояние считается на сервере по `webinar_sessions.scheduled_at`, длительности видео и replay window. Пауза в браузере не останавливает live-тайминг: при продолжении пользователь возвращается к актуальному live edge. После завершения эфир переходит в replay, чат остается видимым и показывает состояние “Эфир завершен”.
+
+Чат server-backed: сообщения и вопросы хранятся в БД, scripted chat синхронизируется с серверным live offset.
 
 ## Основные API
+
+Public:
 
 ```text
 GET  /api/health
 GET  /api/webinar/current
-GET  /api/webinar/timeline/:token
+GET  /api/webinar/timeline/session/current
+GET  /api/webinar/chat/session/current
 POST /api/register
-GET  /api/registration/:token
+POST /api/registration/exchange/:token
+GET  /api/registration/session/current
 POST /api/events
 POST /api/questions
 POST /api/telegram-click
@@ -107,6 +98,7 @@ GET   /api/admin/registrations
 GET   /api/admin/registrations/:id
 PATCH /api/admin/registrations/:id/status
 PATCH /api/admin/registrations/:id/note
+PATCH /api/admin/registrations/:id/manager
 GET   /api/admin/questions
 PATCH /api/admin/questions/:id
 GET   /api/admin/partner-applications
@@ -114,153 +106,53 @@ POST  /api/admin/telegram/broadcast
 GET   /api/admin/analytics/summary
 ```
 
-## Email
+## Production env
 
-По умолчанию включен режим:
-
-```text
-EMAIL_MODE=log
-```
-
-В этом режиме письмо не отправляется, а ссылка на вебинарную комнату печатается в консоль backend.
-
-Для реальной отправки нужно указать SMTP-параметры и поставить:
+Минимально заполнить:
 
 ```text
+NODE_ENV=production
+PUBLIC_SITE_URL=https://ваш-домен
+CORS_ORIGIN=https://ваш-домен
+DATABASE_URL=postgresql://...
+ADMIN_LOGIN=...
+ADMIN_PASSWORD=...
+ADMIN_COOKIE_SECRET=...
+IP_HASH_SECRET=...
 EMAIL_MODE=send
+SMTP_HOST=...
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASS=...
+EMAIL_FROM=...
+WEBINAR_TEST_ROOM_MODE=off
 ```
 
-В `NODE_ENV=production` режим `EMAIL_MODE=log` запрещен: сервер не стартует без реального SMTP, чтобы пользователи не остались без писем, а персональные ссылки не попадали в логи.
+Production guard запрещает дефолтные admin-секреты, `EMAIL_MODE=log`, HTTP `PUBLIC_SITE_URL`, wildcard CORS и test-room mode.
 
-После регистрации отправляется подтверждение. Scheduler внутри backend раз в минуту проверяет ближайшие эфиры и отправляет напоминания за 24 часа, 3 часа и 30 минут. Для каждого reminder создается новый персональный token, который тоже ведет в комнату.
-
-## Автовебинар
-
-Комната ожидает файл:
-
-```text
-crisis_premium/assets/webinar.mp4
-```
-
-Если файла пока нет, страница покажет аккуратную заглушку, но token-доступ, таймлайн, вопросы и заявка на договор уже работают.
-
-Таймлайн хранится в `webinar_timeline_events` и засевается из `prisma/seed.ts`. Основные этапы: старт, рынок, проблемные клиенты, АСПБ, модель партнерства, договор, финальный CTA.
-
-Доступ к комнате строгий:
-
-```text
-waiting → live → replay → expired
-```
-
-До старта участник видит экран ожидания. Во время эфира видео синхронизируется с серверным временем. После завершения запись доступна 7 дней, затем backend закрывает видео и таймлайн даже при наличии старой ссылки.
-
-В dev-режиме token дополнительно хранится в `localStorage` для удобного тестирования. В production после проверки ссылки backend ставит `HttpOnly` cookie `aspb_room_token`, чтобы frontend не держал боевой token в открытом хранилище.
-
-Для локального тестирования включен режим:
-
-```text
-WEBINAR_TEST_ROOM_MODE=on
-```
-
-Он открывает комнату сразу и запускает запись с начала после обновления страницы. Для строгой проверки реального доступа поставьте `WEBINAR_TEST_ROOM_MODE=off`.
-
-## CRM
-
-Админка доступна по адресу:
-
-```text
-http://127.0.0.1:5174/admin
-```
-
-CRM-статусы:
-
-```text
-new
-contacted
-consultation
-transferred_to_aspb
-contract_pending
-contract_signed
-payout_due
-paid
-lost
-```
-
-В карточке лида видны контакты, источник и UTM, дата регистрации, дата эфира, вход в комнату, Telegram click, вопросы, заявки на партнерский договор, заметки менеджера и история событий.
-
-## Юридические страницы
-
-Добавлены базовые страницы:
-
-```text
-privacy.html
-terms.html
-consent.html
-```
-
-Форма регистрации требует явного чекбокса согласия. Тексты являются базовой MVP-редакцией и могут быть заменены финальной юридической версией перед публичным запуском.
-
-## Telegram
-
-Telegram разведен на два бота:
-
-- админский бот для менеджера: новые регистрации, вопросы и заявки;
-- участнический бот: `/start` по персональной ссылке, новости и напоминания.
-
-Публичная ссылка на группу/канал остается отдельной переменной:
-
-```text
-TELEGRAM_GROUP_URL=https://t.me/example
-```
-
-Для уведомлений менеджеру:
-
-```text
-TELEGRAM_ADMIN_BOT_TOKEN=
-TELEGRAM_ADMIN_CHAT_ID=
-TELEGRAM_NOTIFY_MODE=log
-```
-
-`TELEGRAM_NOTIFY_MODE=send` включает реальные отправки. Если `TELEGRAM_ADMIN_CHAT_ID` пустой, backend пытается сам найти chat_id через `getUpdates`. Для этого нужно один раз написать любое сообщение боту, затем создать новую регистрацию/вопрос/заявку.
-
-Для участников:
-
-```text
-TELEGRAM_PARTICIPANT_BOT_TOKEN=
-TELEGRAM_PARTICIPANT_BOT_USERNAME=
-TELEGRAM_PARTICIPANT_BOT_POLLING=off
-```
-
-`TELEGRAM_PARTICIPANT_BOT_POLLING=on` включает участнического бота через long polling. После регистрации success-страница дает ссылку вида:
-
-```text
-https://t.me/<bot_username>?start=<registration_token>
-```
-
-После `/start` бот привязывает Telegram chat_id к регистрации и умеет отправлять личные напоминания за 24 часа, 3 часа и 30 минут до эфира. Команды участника:
-
-```text
-/status
-/room
-/help
-```
-
-Уведомления отправляются на события:
-
-- новая регистрация;
-- новый вопрос в вебинарной комнате;
-- новая заявка на партнерский договор.
-
-В admin-панели есть блок “Telegram-новости участникам”: он отправляет ручную новость всем привязанным Telegram-подписчикам.
-
-Legacy-переменные `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_BOT_POLLING` оставлены только для совместимости. Для чистого запуска лучше использовать отдельные `TELEGRAM_ADMIN_*` и `TELEGRAM_PARTICIPANT_*`.
-
-## Проверки
+Docker production:
 
 ```bash
-npm run build
-npm test
-npm audit --omit=dev
+cp .env.production.example .env.production
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
 ```
 
-В production сервер не стартует с дефолтными `admin/admin123` и dev-secret значениями. Перед запуском нужно задать сильные `ADMIN_PASSWORD`, `ADMIN_COOKIE_SECRET`, `IP_HASH_SECRET` и корректный `CORS_ORIGIN`.
+## Security/CSP
+
+Helmet включает CSP, frame/object restrictions, cookie hardening и rate limits. Inline event handlers убраны; `script-src-attr 'none'`. Inline script/style blocks еще есть в статических страницах, поэтому `unsafe-inline` для script/style elements пока остается как зафиксированный долг до frontend build pipeline.
+
+## QA checklist
+
+- Регистрация создает lead/registration и outbox email job.
+- API регистрации успешен при временно недоступном SMTP.
+- Success page открывается без token в URL.
+- Вход в `webinar.html?token=...` выполняет exchange и очищает URL.
+- Повторный exchange того же token возвращает отказ.
+- Room state, timeline и chat работают через cookie/session.
+- Live-полоска выглядит как live/DVR без серого хвоста до конца видео.
+- Пауза не останавливает серверный live-тайминг; после продолжения видео возвращается к live.
+- Вопрос отправляется во время live и появляется в CRM/chat.
+- После завершения чат остается видимым и показывает “Эфир завершен”.
+- Partner application отправляется после доступного состояния и попадает в CRM.
+- Admin CRM работает: список регистраций, карточка, статусы, заметки.
+- `npm run css:build`, `npm run lint`, `npm run build`, `npm test`, `npm run e2e`, `npm audit --omit=dev` проходят.

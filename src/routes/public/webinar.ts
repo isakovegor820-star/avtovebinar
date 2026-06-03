@@ -1,5 +1,4 @@
 import { Router, type Request, type Response } from 'express';
-import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
@@ -42,8 +41,8 @@ webinarRouter.get(
   }),
 );
 
-async function sendTimeline(req: Request, res: Response, token?: string | null) {
-  const registration = await findRegistrationForRequest(req, token);
+async function sendTimeline(req: Request, res: Response) {
+  const registration = await findRegistrationForRequest(req);
 
   if (!registration) {
     throw new AppError(401, 'Invalid webinar token');
@@ -113,8 +112,8 @@ webinarRouter.get(
   }),
 );
 
-async function sendChat(req: Request, res: Response, token?: string | null) {
-  const registration = await findRegistrationForRequest(req, token);
+async function sendChat(req: Request, res: Response) {
+  const registration = await findRegistrationForRequest(req);
 
   if (!registration) {
     throw new AppError(401, 'Invalid webinar token');
@@ -201,21 +200,5 @@ webinarRouter.get(
   '/webinar/chat/session/current',
   asyncHandler(async (req, res) => {
     await sendChat(req, res);
-  }),
-);
-
-webinarRouter.get(
-  '/webinar/chat/:token',
-  asyncHandler(async (req, res) => {
-    const token = z.string().min(20).parse(req.params.token);
-    await sendChat(req, res, token);
-  }),
-);
-
-webinarRouter.get(
-  '/webinar/timeline/:token',
-  asyncHandler(async (req, res) => {
-    const token = z.string().min(20).parse(req.params.token);
-    await sendTimeline(req, res, token);
   }),
 );

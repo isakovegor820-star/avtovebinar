@@ -10,6 +10,7 @@ import { app } from '../src/app.js';
 import { prisma } from '../src/lib/prisma.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import { createAccessToken, hashToken } from '../src/lib/tokens.js';
+import { runEmailOutboxJobOnce } from '../src/lib/emailOutbox.js';
 
 beforeAll(async () => {
   // Sync prisma schema into 'test' PostgreSQL schema
@@ -22,7 +23,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   // Truncate tables to guarantee absolute test isolation
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
   );
 });
 
@@ -68,6 +69,13 @@ describe('critical path integration scenarios', () => {
       expect.arrayContaining([expect.stringContaining('aspb_room_token=')]),
     );
 
+    const initialEmailJobs = await prisma.emailOutboxJob.findMany({
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(initialEmailJobs.length).toBe(1);
+    expect(initialEmailJobs[0].type).toBe('registration_confirmation');
+    expect(initialEmailJobs[0].status).toBe('pending');
+
     // Check lead insertion
     const lead = await prisma.lead.findUnique({
       where: { email: 'alex.test@aspb.ru' },
@@ -110,6 +118,25 @@ describe('critical path integration scenarios', () => {
       orderBy: { purpose: 'asc' },
     });
     expect(tokenPurposes.map(item => item.purpose)).toEqual(['registration', 'room_session']);
+
+    const registrationBeforeEmailJob = await prisma.registration.findUnique({
+      where: { id: registrationsAfterRepeat[0].id },
+    });
+    expect(registrationBeforeEmailJob?.emailSentAt).toBeNull();
+
+    const emailJobResult = await runEmailOutboxJobOnce(new Date());
+    expect(emailJobResult.sent).toBeGreaterThanOrEqual(1);
+
+    const sentEmailJob = await prisma.emailOutboxJob.findFirst({
+      where: { registrationId: registrationsAfterRepeat[0].id, status: 'sent' },
+    });
+    expect(sentEmailJob?.sentAt).toBeDefined();
+
+    const registrationAfterEmailJob = await prisma.registration.findUnique({
+      where: { id: registrationsAfterRepeat[0].id },
+    });
+    expect(registrationAfterEmailJob?.emailSentAt).toBeDefined();
+    expect(registrationAfterEmailJob?.confirmationSentAt).toBeDefined();
 
     // 2. SUCCESS VIEW (GET /api/registration/session/current)
     const successResponse = await userAgent.get('/api/registration/session/current?view=success');
@@ -221,6 +248,10 @@ describe('critical path integration scenarios', () => {
     expect(exchangedSessionResponse.status).toBe(200);
     expect(exchangedSessionResponse.body.lead.email).toBe('alex.test@aspb.ru');
 
+    await expect(request(app).get(`/api/registration/${exchangeToken}`)).resolves.toMatchObject({ status: 404 });
+    await expect(request(app).get(`/api/webinar/timeline/${exchangeToken}`)).resolves.toMatchObject({ status: 404 });
+    await expect(request(app).get(`/api/webinar/chat/${exchangeToken}`)).resolves.toMatchObject({ status: 404 });
+
     // 6. ADMIN LOGIN (POST /api/admin/login)
     const loginResponse = await request(app).post('/api/admin/login').send({
       login: 'testadmin',
@@ -273,5 +304,70 @@ describe('critical path integration scenarios', () => {
     expect(auditLogs.length).toBe(1);
     expect(auditLogs[0].action).toBe('registration.crm_status.update');
     expect(auditLogs[0].adminUserId).toBe(admin.id);
+  });
+
+  it('keeps failed email jobs in the outbox and retries them later', async () => {
+    const scheduledAt = new Date('2026-05-22T08:00:00.000Z');
+    const session = await prisma.webinarSession.create({
+      data: {
+        title: 'Test webinar',
+        scheduledAt,
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Мария Outbox',
+        email: 'outbox@aspb.ru',
+        phone: '+79990001122',
+        consent: true,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        accessTokenHash: hashToken(createAccessToken()),
+      },
+    });
+    await prisma.emailOutboxJob.create({
+      data: {
+        type: 'registration_confirmation',
+        status: 'pending',
+        registrationId: registration.id,
+        webinarSessionId: session.id,
+        toEmail: lead.email,
+        toName: lead.name,
+        scheduledAt,
+        webinarUrl: 'http://127.0.0.1:5174/crisis_premium/webinar.html?token=exchange',
+        nextAttemptAt: new Date('2026-05-21T09:00:00.000Z'),
+      },
+    });
+
+    const failingRun = await runEmailOutboxJobOnce(new Date('2026-05-21T09:00:00.000Z'), {
+      sendRegistrationEmail: async () => {
+        throw new Error('SMTP temporarily unavailable');
+      },
+    });
+    expect(failingRun.failed).toBe(1);
+
+    const failedJob = await prisma.emailOutboxJob.findFirstOrThrow({
+      where: { registrationId: registration.id },
+    });
+    expect(failedJob.status).toBe('failed');
+    expect(failedJob.attempts).toBe(1);
+    expect(failedJob.lastError).toContain('SMTP temporarily unavailable');
+    expect(failedJob.sentAt).toBeNull();
+
+    const retryRun = await runEmailOutboxJobOnce(new Date('2026-05-21T09:03:00.000Z'), {
+      sendRegistrationEmail: async () => ({ sent: true, mode: 'send' as const }),
+    });
+    expect(retryRun.sent).toBe(1);
+
+    const retriedJob = await prisma.emailOutboxJob.findFirstOrThrow({
+      where: { registrationId: registration.id },
+    });
+    expect(retriedJob.status).toBe('sent');
+    expect(retriedJob.attempts).toBe(2);
+    expect(retriedJob.sentAt).toBeDefined();
   });
 });

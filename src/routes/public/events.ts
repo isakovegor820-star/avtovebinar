@@ -60,7 +60,6 @@ const metadataSchema = z.record(z.string(), z.unknown()).superRefine((metadata, 
 
 export const eventSchema = z.object({
   eventName: z.enum(PUBLIC_ANALYTICS_EVENTS),
-  token: z.string().trim().optional(),
   page: z.string().trim().max(160).optional(),
   metadata: metadataSchema.optional(),
   ...utmSchema,
@@ -73,7 +72,6 @@ eventsRouter.post(
     await saveEvent({
       eventName: data.eventName,
       req,
-      token: data.token,
       page: data.page,
       metadata: data.metadata,
       source: clean(data.source),
@@ -88,11 +86,10 @@ eventsRouter.post(
 eventsRouter.post(
   '/telegram-click',
   asyncHandler(async (req, res) => {
-    const data = z.object({ token: z.string().optional(), page: z.string().optional() }).parse(req.body);
+    const data = z.object({ page: z.string().optional() }).parse(req.body);
     const registration = await saveEvent({
       eventName: 'telegram_click',
       req,
-      token: data.token,
       page: data.page,
     });
 
@@ -106,7 +103,7 @@ eventsRouter.post(
     res.json({
       ok: true,
       telegramUrl: env.TELEGRAM_GROUP_URL,
-      telegramBotUrl: data.token ? buildTelegramStartUrl(data.token) : buildTelegramStartUrl(),
+      telegramBotUrl: buildTelegramStartUrl(),
     });
   }),
 );

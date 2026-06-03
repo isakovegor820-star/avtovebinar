@@ -2,29 +2,20 @@
  * registration.js — регистрация, tracking кликов, пути API.
  */
 
-import { clearAccessToken, token, urlToken } from './state.js';
+import { clearAccessToken, urlToken } from './state.js';
 import { post, getJson, utm } from './utils.js';
 import { track } from './analytics.js';
 
 export function registrationStatePath(view) {
   const query = view ? `?view=${encodeURIComponent(view)}` : '';
-  if (token) {
-    return `/registration/${encodeURIComponent(token)}${query}`;
-  }
   return `/registration/session/current${query}`;
 }
 
 export function timelinePath() {
-  if (token) {
-    return `/webinar/timeline/${encodeURIComponent(token)}`;
-  }
   return '/webinar/timeline/session/current';
 }
 
 export function chatPath() {
-  if (token) {
-    return `/webinar/chat/${encodeURIComponent(token)}`;
-  }
   return '/webinar/chat/session/current';
 }
 
@@ -127,7 +118,7 @@ export function bindRegistrationForm() {
 export function bindTelegramTracking() {
   document.querySelectorAll('a[href*="t.me"]').forEach(link => {
     link.addEventListener('click', () => {
-      post('/telegram-click', { token, page: window.location.pathname }).catch(() => {});
+      post('/telegram-click', { page: window.location.pathname }).catch(() => {});
     });
   });
 }

@@ -7,6 +7,7 @@ import { API } from './state.js';
 export async function post(path, body) {
   const response = await fetch(`${API}${path}`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
@@ -20,7 +21,7 @@ export async function post(path, body) {
 }
 
 export async function getJson(path) {
-  const response = await fetch(`${API}${path}`);
+  const response = await fetch(`${API}${path}`, { credentials: 'include' });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload.error || 'Ошибка запроса');

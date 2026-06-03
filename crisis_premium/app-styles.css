@@ -579,9 +579,39 @@
         .team-card .team-card-desc {
             min-height: 44px;
         }
+        .team-photo-frame {
+            background: #eef2f6;
+            isolation: isolate;
+            transform: translateZ(0);
+        }
+        .team-photo-frame::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            background: linear-gradient(180deg, rgba(4, 22, 39, 0) 48%, rgba(4, 22, 39, 0.24) 100%);
+            opacity: 0;
+            transition: opacity 0.45s ease;
+            pointer-events: none;
+        }
+        .team-photo {
+            display: block;
+            transform: scale(1.01);
+            transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), filter 0.55s ease;
+            will-change: transform;
+        }
         .team-card:hover {
             transform: translateY(-4px);
             box-shadow: 0 20px 48px rgba(4, 22, 39, 0.12);
+        }
+        .team-card:hover .team-photo,
+        .team-card:focus .team-photo {
+            transform: scale(1.075);
+            filter: saturate(1.06) contrast(1.04);
+        }
+        .team-card:hover .team-photo-frame::after,
+        .team-card:focus .team-photo-frame::after {
+            opacity: 1;
         }
         .team-card-tooltip {
             position: absolute;
@@ -598,6 +628,7 @@
             transform: translateY(10px);
             transition: opacity 0.35s ease, transform 0.35s ease;
             pointer-events: none;
+            z-index: 2;
         }
         .team-card:hover .team-card-tooltip,
         .team-card:focus .team-card-tooltip {

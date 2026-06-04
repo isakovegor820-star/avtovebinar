@@ -675,6 +675,7 @@
           broadcastStatus.textContent = 'Получателей для рассылки нет.';
         }
         broadcastText.value = '';
+        await loadBroadcastStatus();
         await loadSummary();
       } catch (error) {
         broadcastStatus.textContent = error.message || 'Не удалось отправить.';
@@ -683,9 +684,24 @@
       }
     }
 
+    async function loadBroadcastStatus() {
+      try {
+        const data = await api('/api/admin/telegram/broadcast/current');
+        if (!data.job) return;
+        const job = data.job;
+        if (job.status === 'pending' || job.status === 'sending' || job.status === 'failed') {
+          broadcastStatus.textContent = 'Последняя рассылка: ' + job.status + ', отправлено ' + job.sent + ' из ' + job.total + '.';
+        } else if (job.status === 'completed') {
+          broadcastStatus.textContent = 'Последняя рассылка завершена: ' + job.sent + ' из ' + job.total + '.';
+        }
+      } catch (error) {
+        console.warn('Не удалось загрузить статус Telegram-рассылки', error);
+      }
+    }
+
     async function loadAll() {
       await loadManagers();
-      await Promise.all([loadSummary(), loadFunnel(), loadHotLeads(), loadRegistrations(), loadApplications(), loadQuestions(), loadUsers()]);
+      await Promise.all([loadSummary(), loadFunnel(), loadHotLeads(), loadRegistrations(), loadApplications(), loadQuestions(), loadUsers(), loadBroadcastStatus()]);
     }
 
     loginBtn.addEventListener('click', async () => {

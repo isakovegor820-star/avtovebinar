@@ -23,7 +23,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   // Truncate tables to guarantee absolute test isolation
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, telegram_broadcast_jobs, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
   );
 });
 
@@ -463,5 +463,50 @@ describe('critical path integration scenarios', () => {
     expect(activeJobs[0].webinarUrl).not.toContain('token=');
     expect(sentJobs.length).toBe(1);
     expect(sentJobs[0].webinarUrl).toContain('already-sent');
+  });
+
+  it('persists Telegram broadcast jobs outside process memory', async () => {
+    const adminPasswordHash = await hashPassword('BroadcastAdminPassword123');
+    await prisma.adminUser.create({
+      data: {
+        name: 'broadcast-admin',
+        email: 'broadcast-admin@aspb.ru',
+        passwordHash: adminPasswordHash,
+        role: 'admin',
+        isActive: true,
+      },
+    });
+    await prisma.lead.create({
+      data: {
+        name: 'Telegram Lead',
+        email: 'telegram-lead@aspb.ru',
+        phone: '+79990005566',
+        consent: true,
+        telegramChatId: '123456',
+      },
+    });
+
+    const adminAgent = request.agent(app);
+    const loginResponse = await adminAgent.post('/api/admin/login').send({
+      login: 'broadcast-admin@aspb.ru',
+      password: 'BroadcastAdminPassword123',
+    });
+    expect(loginResponse.status).toBe(200);
+
+    const response = await adminAgent.post('/api/admin/telegram/broadcast').send({
+      text: 'Новость для участников вебинара',
+    });
+    expect(response.status).toBe(202);
+    expect(response.body.jobId).toBeDefined();
+
+    const persistedJob = await prisma.telegramBroadcastJob.findUniqueOrThrow({
+      where: { id: response.body.jobId },
+    });
+    expect(persistedJob.total).toBe(1);
+    expect(persistedJob.status).toMatch(/pending|sending|completed/);
+
+    const statusResponse = await adminAgent.get('/api/admin/telegram/broadcast/current');
+    expect(statusResponse.status).toBe(200);
+    expect(statusResponse.body.job.id).toBe(response.body.jobId);
   });
 });

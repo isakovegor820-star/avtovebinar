@@ -197,6 +197,28 @@ model EmailOutboxJob {
   @@map("email_outbox_jobs")
 }
 
+model TelegramBroadcastJob {
+  id            String    @id @default(cuid())
+  status        String    @default("pending")
+  text          String
+  chatIds       Json      @map("chat_ids")
+  total         Int
+  sent          Int       @default(0)
+  failed        Int       @default(0)
+  attempts      Int       @default(0)
+  nextIndex     Int       @default(0) @map("next_index")
+  lastError     String?   @map("last_error")
+  nextAttemptAt DateTime? @map("next_attempt_at")
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([createdAt])
+  @@map("telegram_broadcast_jobs")
+}
+
 model Question {
   id               String         @id @default(cuid())
   leadId           String         @map("lead_id")

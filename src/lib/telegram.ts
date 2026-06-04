@@ -5,6 +5,14 @@ type TelegramMessageInput = {
   replyMarkup?: Record<string, unknown>;
 };
 
+type TelegramApiPayload = {
+  ok: boolean;
+  description?: string;
+  parameters?: {
+    retry_after?: number;
+  };
+};
+
 type NotifyRegistrationInput = {
   name: string;
   phone: string;
@@ -164,9 +172,11 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
     }),
   });
 
-  const payload = (await response.json()) as { ok: boolean; description?: string };
+  const payload = (await response.json()) as TelegramApiPayload;
   if (!payload.ok) {
-    throw new Error(payload.description || 'Telegram sendMessage failed');
+    throw Object.assign(new Error(payload.description || 'Telegram sendMessage failed'), {
+      retryAfterSeconds: payload.parameters?.retry_after,
+    });
   }
 
   return { sent: true, mode: 'send' as const };
@@ -190,9 +200,11 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
     }),
   });
 
-  const payload = (await response.json()) as { ok: boolean; description?: string };
+  const payload = (await response.json()) as TelegramApiPayload;
   if (!payload.ok) {
-    throw new Error(payload.description || 'Telegram sendMessage failed');
+    throw Object.assign(new Error(payload.description || 'Telegram sendMessage failed'), {
+      retryAfterSeconds: payload.parameters?.retry_after,
+    });
   }
 
   return { sent: true, mode: 'send' as const };

@@ -4,12 +4,11 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { asyncHandler, AppError, getClientIp } from '../lib/http.js';
-import { createAccessToken, createAdminSession, hashIp, hashToken, parseAdminSession } from '../lib/tokens.js';
+import { createAdminSession, hashIp, parseAdminSession } from '../lib/tokens.js';
 import { env } from '../lib/env.js';
 import { isCrmStatus } from '../lib/crm.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
 import { formatMoscowDate, sendTelegramMessageToChat } from '../lib/telegram.js';
-import { getReplayExpiresAt } from '../lib/time.js';
 import { getAdminHtml } from '../responses/adminPage.js';
 
 export const adminRouter = Router();
@@ -740,22 +739,7 @@ adminRouter.post(
       throw new AppError(400, 'У участника не подключен Telegram');
     }
 
-    const accessToken = createAccessToken();
-    await prisma.registrationToken.create({
-      data: {
-        registrationId: registration.id,
-        tokenHash: hashToken(accessToken),
-        purpose: 'admin_manual_telegram_reminder',
-        expiresAt: getReplayExpiresAt(
-          registration.webinarSession.scheduledAt,
-          registration.webinarSession.durationMinutes,
-          registration.webinarSession.replayAvailableHours,
-        ),
-      },
-    });
-
     const roomUrl = new URL('/crisis_premium/webinar.html', env.PUBLIC_SITE_URL);
-    roomUrl.searchParams.set('token', accessToken);
     const defaultText = [
       `${registration.lead.name}, напоминаем про вебинар АСПБ.`,
       '',

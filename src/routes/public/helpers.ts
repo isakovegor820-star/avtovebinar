@@ -176,11 +176,8 @@ export function buildAccessPayload(
   };
 }
 
-export function buildFrontendUrl(pathname: string, token?: string) {
+export function buildFrontendUrl(pathname: string) {
   const url = new URL(pathname, env.PUBLIC_SITE_URL);
-  if (token) {
-    url.searchParams.set('token', token);
-  }
   return url.toString();
 }
 

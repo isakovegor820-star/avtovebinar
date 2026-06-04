@@ -127,7 +127,8 @@ describe('critical path integration scenarios', () => {
       },
     });
     expect(activeConfirmationJobsAfterRepeat.length).toBe(1);
-    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).not.toBe(initialEmailJobs[0].webinarUrl);
+    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).toBe('http://127.0.0.1:5174/crisis_premium/webinar.html');
+    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).not.toContain('token=');
 
     const registrationBeforeEmailJob = await prisma.registration.findUnique({
       where: { id: registrationsAfterRepeat[0].id },
@@ -261,6 +262,9 @@ describe('critical path integration scenarios', () => {
     await expect(request(app).get(`/api/registration/${exchangeToken}`)).resolves.toMatchObject({ status: 404 });
     await expect(request(app).get(`/api/webinar/timeline/${exchangeToken}`)).resolves.toMatchObject({ status: 404 });
     await expect(request(app).get(`/api/webinar/chat/${exchangeToken}`)).resolves.toMatchObject({ status: 404 });
+    await expect(
+      request(app).get(`/api/webinar/timeline/session/current?token=${exchangeToken}`),
+    ).resolves.toMatchObject({ status: 401 });
 
     // 6. ADMIN LOGIN (POST /api/admin/login)
     const loginResponse = await request(app).post('/api/admin/login').send({
@@ -348,7 +352,7 @@ describe('critical path integration scenarios', () => {
         toEmail: lead.email,
         toName: lead.name,
         scheduledAt,
-        webinarUrl: 'http://127.0.0.1:5174/crisis_premium/webinar.html?token=exchange',
+        webinarUrl: 'http://127.0.0.1:5174/crisis_premium/webinar.html',
         nextAttemptAt: new Date('2026-05-21T09:00:00.000Z'),
       },
     });
@@ -411,7 +415,7 @@ describe('critical path integration scenarios', () => {
       where: { id: firstJob.id },
       data: {
         status: 'failed',
-        webinarUrl: 'http://127.0.0.1:5174/crisis_premium/webinar.html?token=obsolete',
+        webinarUrl: 'http://127.0.0.1:5174/crisis_premium/webinar.html?legacy=obsolete',
         lastError: 'old SMTP error',
         attempts: 1,
         nextAttemptAt: new Date(),
@@ -426,7 +430,7 @@ describe('critical path integration scenarios', () => {
         toEmail: email,
         toName: 'Повторная Регистрация',
         scheduledAt: new Date('2026-05-22T08:00:00.000Z'),
-        webinarUrl: 'http://127.0.0.1:5174/crisis_premium/webinar.html?token=already-sent',
+        webinarUrl: 'http://127.0.0.1:5174/crisis_premium/webinar.html?legacy=already-sent',
         sentAt: new Date(),
         attempts: 1,
       },
@@ -455,8 +459,8 @@ describe('critical path integration scenarios', () => {
 
     expect(activeJobs.length).toBe(1);
     expect(activeJobs[0].status).toBe('pending');
-    expect(activeJobs[0].webinarUrl).toContain('/crisis_premium/webinar.html?token=');
-    expect(activeJobs[0].webinarUrl).not.toContain('obsolete');
+    expect(activeJobs[0].webinarUrl).toBe('http://127.0.0.1:5174/crisis_premium/webinar.html');
+    expect(activeJobs[0].webinarUrl).not.toContain('token=');
     expect(sentJobs.length).toBe(1);
     expect(sentJobs[0].webinarUrl).toContain('already-sent');
   });

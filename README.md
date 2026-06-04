@@ -6,8 +6,8 @@
 
 Доступ в вебинарную комнату cookie-only:
 
-- письмо или Telegram могут содержать одноразовый `exchange-token` в `webinar.html?token=...`;
-- frontend сразу вызывает `POST /api/registration/exchange/:token`;
+- одноразовый `exchange-token` поддерживается только для первичного обмена через `POST /api/registration/exchange/:token`;
+- новые письма, reminder и Telegram-ссылки не генерируют `webinar.html?token=...`;
 - backend удаляет exchange-token, выпускает session-token и ставит `HttpOnly` cookie `aspb_room_token`;
 - URL очищается от `token`;
 - дальнейшие запросы комнаты используют только cookie и endpoints `session/current`.
@@ -155,7 +155,7 @@ Helmet включает CSP, frame/object restrictions, cookie hardening и rate
 - Регистрация создает lead/registration и outbox email job.
 - API регистрации успешен при временно недоступном SMTP.
 - Success page открывается без token в URL.
-- Вход в `webinar.html?token=...` выполняет exchange и очищает URL.
+- Legacy-вход с одноразовым `webinar.html?token=...` выполняет exchange и очищает URL.
 - Повторный exchange того же token возвращает отказ.
 - Room state, timeline и chat работают через cookie/session.
 - Live-полоска выглядит как live/DVR без серого хвоста до конца видео.

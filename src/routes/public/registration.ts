@@ -63,7 +63,7 @@ registrationRouter.post(
     const exchangeTokenHash = hashToken(exchangeToken);
     const sessionTokenHash = hashToken(sessionToken);
     const tokenExpiresAt = getRoomTokenExpiresAt(session);
-    const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html', exchangeToken);
+    const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html');
     const successUrl = buildFrontendUrl('/crisis_premium/success.html');
 
     const { lead, registration } = await prisma.$transaction(async tx => {

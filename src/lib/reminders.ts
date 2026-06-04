@@ -2,9 +2,7 @@ import { prisma } from './prisma.js';
 import { env } from './env.js';
 import type { ReminderKind } from './email.js';
 import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
-import { createAccessToken, hashToken } from './tokens.js';
 import { sendTelegramMessageToChat, formatMoscowDate } from './telegram.js';
-import { getReplayExpiresAt, WEBINAR_REPLAY_HOURS } from './time.js';
 
 type ReminderCandidate = {
   id: string;
@@ -71,20 +69,9 @@ export function getPostWebinarFollowupDueAt(scheduledAt: Date, durationMinutes =
   return new Date(scheduledAt.getTime() + durationMinutes * 60 * 1000 + 10 * 60 * 1000);
 }
 
-function buildFrontendUrl(pathname: string, token?: string) {
+function buildFrontendUrl(pathname: string) {
   const url = new URL(pathname, env.PUBLIC_SITE_URL);
-  if (token) {
-    url.searchParams.set('token', token);
-  }
   return url.toString();
-}
-
-function getRoomTokenExpiresAt(registration: ReminderCandidate) {
-  return getReplayExpiresAt(
-    registration.webinarSession.scheduledAt,
-    registration.webinarSession.durationMinutes ?? 120,
-    registration.webinarSession.replayAvailableHours ?? WEBINAR_REPLAY_HOURS,
-  );
 }
 
 function buildSegmentTip(status?: string | null) {
@@ -157,18 +144,8 @@ export async function runReminderJobOnce(now = new Date()) {
         continue;
       }
 
-      const accessToken = createAccessToken();
-      const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html', accessToken);
+      const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html');
       await prisma.$transaction(async tx => {
-        await tx.registrationToken.create({
-          data: {
-            registrationId: registration.id,
-            tokenHash: hashToken(accessToken),
-            purpose: `reminder_${kind}`,
-            expiresAt: getRoomTokenExpiresAt(registration),
-          },
-        });
-
         await enqueueReminderEmail(tx, {
           kind,
           registrationId: registration.id,
@@ -232,22 +209,12 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
         continue;
       }
 
-      const accessToken = createAccessToken();
-      await prisma.registrationToken.create({
-        data: {
-          registrationId: registration.id,
-          tokenHash: hashToken(accessToken),
-          purpose: `telegram_reminder_${kind}`,
-          expiresAt: getRoomTokenExpiresAt(registration),
-        },
-      });
-
       const label = {
         '24h': 'завтра',
         '3h': 'через несколько часов',
         '30m': 'через 30 минут',
       }[kind];
-      const roomUrl = buildFrontendUrl('/crisis_premium/webinar.html', accessToken);
+      const roomUrl = buildFrontendUrl('/crisis_premium/webinar.html');
 
       await sendTelegramMessageToChat(
         registration.lead.telegramChatId,
@@ -318,17 +285,7 @@ export async function runTelegramFollowupJobOnce(now = new Date()) {
       continue;
     }
 
-    const accessToken = createAccessToken();
-    await prisma.registrationToken.create({
-      data: {
-        registrationId: registration.id,
-        tokenHash: hashToken(accessToken),
-        purpose: 'telegram_post_webinar_partner',
-        expiresAt: getRoomTokenExpiresAt(registration),
-      },
-    });
-
-    const partnerUrl = `${buildFrontendUrl('/crisis_premium/webinar.html', accessToken)}#partnerApplication`;
+    const partnerUrl = `${buildFrontendUrl('/crisis_premium/webinar.html')}#partnerApplication`;
     await sendTelegramMessageToChat(
       registration.lead.telegramChatId,
       [

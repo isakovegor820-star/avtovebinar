@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { env } from './env.js';
 import { prisma } from './prisma.js';
-import { createAccessToken, hashToken } from './tokens.js';
+import { hashToken } from './tokens.js';
 import {
   buildTelegramStartUrl,
   formatMoscowDate,
@@ -12,7 +12,6 @@ import {
   participantTelegramApiUrl,
   sendTelegramMessageToChat,
 } from './telegram.js';
-import { getReplayExpiresAt } from './time.js';
 
 type TelegramUpdate = {
   update_id: number;
@@ -28,11 +27,8 @@ let nextOffset = 0;
 let polling = false;
 let interval: NodeJS.Timeout | null = null;
 
-function buildFrontendUrl(pathname: string, token?: string) {
+function buildFrontendUrl(pathname: string) {
   const url = new URL(pathname, env.PUBLIC_SITE_URL);
-  if (token) {
-    url.searchParams.set('token', token);
-  }
   return url.toString();
 }
 
@@ -59,41 +55,15 @@ async function findRegistrationByToken(token: string) {
 }
 
 async function createRoomUrl(registrationId: string, purpose = 'telegram_room') {
-  const token = createAccessToken();
   const registration = await prisma.registration.findUnique({
     where: { id: registrationId },
-    include: { webinarSession: true },
   });
 
   if (!registration) {
-    throw new Error('Registration not found for Telegram room token');
+    throw new Error(`Registration not found for Telegram room link purpose ${purpose}`);
   }
 
-  const expiresAt = getReplayExpiresAt(
-    registration.webinarSession.scheduledAt,
-    registration.webinarSession.durationMinutes,
-    registration.webinarSession.replayAvailableHours,
-  );
-
-  await prisma.$transaction(async tx => {
-    await tx.registrationToken.deleteMany({
-      where: {
-        registrationId,
-        purpose,
-      },
-    });
-
-    await tx.registrationToken.create({
-      data: {
-        registrationId,
-        tokenHash: hashToken(token),
-        purpose,
-        expiresAt,
-      },
-    });
-  });
-
-  return buildFrontendUrl('/crisis_premium/webinar.html', token);
+  return buildFrontendUrl('/crisis_premium/webinar.html');
 }
 
 async function findLatestRegistrationByChat(chatId: string) {

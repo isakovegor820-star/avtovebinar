@@ -15,8 +15,6 @@ import { getAdminHtml } from '../responses/adminPage.js';
 export const adminRouter = Router();
 
 const ADMIN_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
-const DUMMY_ADMIN_PASSWORD_HASH =
-  'scrypt:admin-login-dummy-salt:CerOz3aHxt6NzbG-pJctVCcjy_tDNReAF7E8wOBQOSL5JVx-inJsk-aH3oePIjb67IePc8YqQsujVx7eLuE9MQ';
 const TELEGRAM_BROADCAST_DELAY_MS = 40;
 type AdminRole = (typeof ADMIN_ROLES)[number];
 
@@ -214,25 +212,17 @@ adminRouter.post(
       },
     });
 
-    const isLegacyLogin =
-      env.NODE_ENV !== 'production' && data.login === env.ADMIN_LOGIN && data.password === env.ADMIN_PASSWORD;
-    const passwordMatches = await verifyPassword(data.password, adminUser?.passwordHash ?? DUMMY_ADMIN_PASSWORD_HASH);
-    const isDbLogin = Boolean(adminUser && passwordMatches);
-
-    if (!isDbLogin && !isLegacyLogin) {
+    const passwordMatches = adminUser ? await verifyPassword(data.password, adminUser.passwordHash) : false;
+    if (!adminUser || !passwordMatches) {
       throw new AppError(401, 'Неверный логин или пароль');
     }
 
-    const sessionAdmin = adminUser
-      ? { id: adminUser.id, email: adminUser.email, role: adminUser.role }
-      : { id: undefined, email: env.ADMIN_LOGIN, role: 'owner' };
+    const sessionAdmin = { id: adminUser.id, email: adminUser.email, role: adminUser.role };
 
-    if (adminUser) {
-      await prisma.adminUser.update({
-        where: { id: adminUser.id },
-        data: { lastLoginAt: new Date() },
-      });
-    }
+    await prisma.adminUser.update({
+      where: { id: adminUser.id },
+      data: { lastLoginAt: new Date() },
+    });
 
     res.cookie('aspb_admin_session', createAdminSession(sessionAdmin), {
       httpOnly: true,

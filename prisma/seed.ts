@@ -57,8 +57,11 @@ async function main() {
     });
   }
 
-  const adminLogin = process.env.ADMIN_LOGIN || 'admin';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+  const adminLogin = process.env.ADMIN_LOGIN;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminLogin || !adminPassword) {
+    throw new Error('ADMIN_LOGIN and ADMIN_PASSWORD are required for seeding the owner admin user');
+  }
   const adminEmail = adminLogin.includes('@') ? adminLogin.toLowerCase() : `${adminLogin}@local.admin`;
 
   await prisma.adminUser.upsert({

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import { z } from 'zod';
 
 const envSchema = z.object({
@@ -7,9 +8,9 @@ const envSchema = z.object({
   PUBLIC_SITE_URL: z.string().url().default('http://127.0.0.1:5174'),
   DATABASE_URL: z.string().min(1),
   ADMIN_LOGIN: z.string().min(1).default('admin'),
-  ADMIN_PASSWORD: z.string().min(6).default('admin123'),
-  ADMIN_COOKIE_SECRET: z.string().min(16).default('dev-admin-cookie-secret-change-me'),
-  IP_HASH_SECRET: z.string().min(16).default('dev-ip-hash-secret-change-me'),
+  ADMIN_PASSWORD: z.string().min(12),
+  ADMIN_COOKIE_SECRET: z.string().min(32),
+  IP_HASH_SECRET: z.string().min(32),
   EMAIL_MODE: z.enum(['send', 'log']).default('log'),
   SMTP_HOST: z.string().optional().default(''),
   SMTP_PORT: z.coerce.number().default(587),
@@ -31,16 +32,14 @@ const envSchema = z.object({
   TELEGRAM_NEWS_TIMES: z.string().default('09:00,11:30,14:00,16:30,19:00'),
   TELEGRAM_NEWS_RSS_URLS: z
     .string()
-    .default('https://www.consultant.ru/rss/hotdocs.xml,https://www.consultant.ru/rss/nw.xml,https://www.consultant.ru/rss/db.xml'),
+    .default(
+      'https://www.consultant.ru/rss/hotdocs.xml,https://www.consultant.ru/rss/nw.xml,https://www.consultant.ru/rss/db.xml',
+    ),
   WEBINAR_TEST_ROOM_MODE: z.enum(['on', 'off']).default('on'),
-  CORS_ORIGIN: z.string().optional().default('http://127.0.0.1:5174')
+  CORS_ORIGIN: z.string().optional().default('http://127.0.0.1:5174'),
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
-
-const DEV_ADMIN_PASSWORD = 'admin123';
-const DEV_ADMIN_COOKIE_SECRET = 'dev-admin-cookie-secret-change-me';
-const DEV_IP_HASH_SECRET = 'dev-ip-hash-secret-change-me';
 
 function isStrongPassword(value: string) {
   return value.length >= 12 && /[a-zа-я]/i.test(value) && /\d/.test(value);
@@ -62,13 +61,15 @@ export function validateProductionSecurity(config: EnvConfig) {
   if (config.ADMIN_LOGIN === 'admin') {
     errors.push('ADMIN_LOGIN must not use the default "admin" in production');
   }
-  if (config.ADMIN_PASSWORD === DEV_ADMIN_PASSWORD || !isStrongPassword(config.ADMIN_PASSWORD)) {
-    errors.push('ADMIN_PASSWORD must be changed and contain at least 12 characters with letters and numbers in production');
+  if (!isStrongPassword(config.ADMIN_PASSWORD)) {
+    errors.push(
+      'ADMIN_PASSWORD must be changed and contain at least 12 characters with letters and numbers in production',
+    );
   }
-  if (config.ADMIN_COOKIE_SECRET === DEV_ADMIN_COOKIE_SECRET || config.ADMIN_COOKIE_SECRET.length < 32) {
+  if (config.ADMIN_COOKIE_SECRET.length < 32) {
     errors.push('ADMIN_COOKIE_SECRET must be unique and at least 32 characters in production');
   }
-  if (config.IP_HASH_SECRET === DEV_IP_HASH_SECRET || config.IP_HASH_SECRET.length < 32) {
+  if (config.IP_HASH_SECRET.length < 32) {
     errors.push('IP_HASH_SECRET must be unique and at least 32 characters in production');
   }
   const corsOrigins = parseOrigins(config.CORS_ORIGIN);
@@ -98,4 +99,17 @@ export function validateProductionSecurity(config: EnvConfig) {
   return config;
 }
 
-export const env = validateProductionSecurity(envSchema.parse(process.env));
+function runtimeEnv() {
+  if (process.env.NODE_ENV !== 'test') {
+    return process.env;
+  }
+
+  return {
+    ...process.env,
+    ADMIN_PASSWORD: `TestPassword${crypto.randomInt(100000, 999999)}`,
+    ADMIN_COOKIE_SECRET: crypto.randomBytes(32).toString('hex'),
+    IP_HASH_SECRET: crypto.randomBytes(32).toString('hex'),
+  };
+}
+
+export const env = validateProductionSecurity(envSchema.parse(runtimeEnv()));

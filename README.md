@@ -31,7 +31,7 @@ npm run dev
 
 Админка: `http://127.0.0.1:5174/admin`
 
-Dev-логин по умолчанию берется из `.env`: `admin / admin123`.
+Dev-логин берется из `ADMIN_LOGIN` и `ADMIN_PASSWORD` в `.env`; пароль должен быть задан явно.
 
 ## Скрипты
 

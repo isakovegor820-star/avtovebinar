@@ -4,11 +4,25 @@
 
 import { API } from './state.js';
 
+function readCookie(name) {
+  const prefix = `${name}=`;
+  const item = document.cookie
+    .split(';')
+    .map(value => value.trim())
+    .find(value => value.startsWith(prefix));
+  return item ? decodeURIComponent(item.slice(prefix.length)) : '';
+}
+
+export function csrfHeaders() {
+  const token = readCookie('aspb_csrf_token');
+  return token ? { 'x-csrf-token': token } : {};
+}
+
 export async function post(path, body) {
   const response = await fetch(`${API}${path}`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(body)
   });
 

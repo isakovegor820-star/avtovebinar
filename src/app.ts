@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -9,6 +10,8 @@ import { env } from './lib/env.js';
 import { publicRouter } from './routes/public.js';
 import { adminRouter } from './routes/admin.js';
 import { errorMiddleware } from './lib/http.js';
+import { csrfProtection, ensureCsrfToken } from './lib/csrf.js';
+import { cspStyleAttributeHashes, cspStyleElementHashes } from './lib/cspInlineHashes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,19 +21,31 @@ const frontendDir = path.join(rootDir, 'crisis_premium');
 export const app = express();
 
 app.set('trust proxy', 1);
+app.use((_req, res, next) => {
+  res.locals.nonce = crypto.randomUUID();
+  next();
+});
 app.use(
   helmet({
+    crossOriginEmbedderPolicy: true,
+    crossOriginResourcePolicy: { policy: 'same-origin' },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
         scriptSrcAttr: ["'none'"],
-        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        styleSrcElem: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        styleSrcAttr: ["'unsafe-inline'"],
+        styleSrc: [
+          "'self'",
+          "'unsafe-hashes'",
+          ...cspStyleElementHashes,
+          ...cspStyleAttributeHashes,
+          'https://fonts.googleapis.com',
+        ],
+        styleSrcElem: ["'self'", ...cspStyleElementHashes, 'https://fonts.googleapis.com'],
+        styleSrcAttr: ["'unsafe-hashes'", ...cspStyleAttributeHashes],
         fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
         mediaSrc: ["'self'", 'blob:', 'data:'],
@@ -52,6 +67,8 @@ app.use(
 app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(ensureCsrfToken);
+app.use(csrfProtection);
 
 const formLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -105,6 +122,9 @@ app.use('/api/admin/telegram/broadcast', adminBroadcastLimiter);
 app.use('/api', publicRouter);
 app.use(adminRouter);
 
+app.get('/.well-known/security.txt', (_req, res) => {
+  res.type('text/plain').sendFile(path.join(frontendDir, '.well-known', 'security.txt'), { dotfiles: 'allow' });
+});
 app.use('/crisis_premium', express.static(frontendDir));
 app.use(express.static(frontendDir));
 

@@ -12,6 +12,15 @@ import { hashPassword } from '../src/lib/passwords.js';
 import { createAccessToken, hashToken } from '../src/lib/tokens.js';
 import { runEmailOutboxJobOnce } from '../src/lib/emailOutbox.js';
 
+type TestAgent = ReturnType<typeof request.agent>;
+
+async function getCsrfToken(agent: TestAgent) {
+  const response = await agent.get('/api/csrf');
+  expect(response.status).toBe(200);
+  expect(response.body.csrfToken).toEqual(expect.any(String));
+  return response.body.csrfToken as string;
+}
+
 beforeAll(async () => {
   // Sync prisma schema into 'test' PostgreSQL schema
   execSync('npx prisma db push --skip-generate --accept-data-loss', {
@@ -196,7 +205,8 @@ describe('critical path integration scenarios', () => {
     expect(regInDbAfterRoomView?.roomEnteredAt).toBeDefined();
 
     // 4. ASK A QUESTION (POST /api/questions)
-    const questionResponse = await userAgent.post('/api/questions').send({
+    const userCsrfToken = await getCsrfToken(userAgent);
+    const questionResponse = await userAgent.post('/api/questions').set('x-csrf-token', userCsrfToken).send({
       text: 'Каковы особенности процедуры банкротства юрлиц?',
     });
 
@@ -210,7 +220,7 @@ describe('critical path integration scenarios', () => {
     expect(questions[0].text).toBe('Каковы особенности процедуры банкротства юрлиц?');
 
     // 5. PARTNER APPLICATION (POST /api/partner-application)
-    const appResponse = await userAgent.post('/api/partner-application').send({
+    const appResponse = await userAgent.post('/api/partner-application').set('x-csrf-token', userCsrfToken).send({
       sphere: 'Финансы',
       city: 'Москва',
       clientFlow: '10-20 человек в месяц',
@@ -244,7 +254,11 @@ describe('critical path integration scenarios', () => {
       },
     });
     const exchangeAgent = request.agent(app);
-    const exchangeResponse = await exchangeAgent.post(`/api/registration/exchange/${exchangeToken}`).send({});
+    const exchangeCsrfToken = await getCsrfToken(exchangeAgent);
+    const exchangeResponse = await exchangeAgent
+      .post(`/api/registration/exchange/${exchangeToken}`)
+      .set('x-csrf-token', exchangeCsrfToken)
+      .send({});
     expect(exchangeResponse.status).toBe(200);
     expect(exchangeResponse.body.token).toBeUndefined();
     expect(exchangeResponse.body.webinarUrl).not.toContain('token=');
@@ -252,7 +266,12 @@ describe('critical path integration scenarios', () => {
       expect.arrayContaining([expect.stringContaining('aspb_room_token=')]),
     );
 
-    const repeatExchangeResponse = await request(app).post(`/api/registration/exchange/${exchangeToken}`).send({});
+    const repeatExchangeAgent = request.agent(app);
+    const repeatExchangeCsrfToken = await getCsrfToken(repeatExchangeAgent);
+    const repeatExchangeResponse = await repeatExchangeAgent
+      .post(`/api/registration/exchange/${exchangeToken}`)
+      .set('x-csrf-token', repeatExchangeCsrfToken)
+      .send({});
     expect(repeatExchangeResponse.status).toBe(404);
 
     const exchangedSessionResponse = await exchangeAgent.get('/api/registration/session/current?view=success');
@@ -267,7 +286,9 @@ describe('critical path integration scenarios', () => {
     ).resolves.toMatchObject({ status: 401 });
 
     // 6. ADMIN LOGIN (POST /api/admin/login)
-    const loginResponse = await request(app).post('/api/admin/login').send({
+    const adminAgent = request.agent(app);
+    const adminCsrfToken = await getCsrfToken(adminAgent);
+    const loginResponse = await adminAgent.post('/api/admin/login').set('x-csrf-token', adminCsrfToken).send({
       login: 'testadmin',
       password: 'TestAdminPassword123',
     });
@@ -284,7 +305,11 @@ describe('critical path integration scenarios', () => {
     expect(adminCookie).toBeDefined();
 
     // 7. ADMIN VIEW REGISTRATIONS (GET /api/admin/registrations)
-    const adminRegsResponse = await request(app).get('/api/admin/registrations').set('Cookie', [adminCookie!]);
+    const crmStatusesResponse = await adminAgent.get('/api/admin/crm-statuses');
+    expect(crmStatusesResponse.status).toBe(200);
+    expect(crmStatusesResponse.body.statuses.length).toBeGreaterThan(0);
+
+    const adminRegsResponse = await adminAgent.get('/api/admin/registrations');
 
     expect(adminRegsResponse.status).toBe(200);
     expect(adminRegsResponse.body.ok).toBe(true);
@@ -297,9 +322,9 @@ describe('critical path integration scenarios', () => {
     expect(foundReg.partnerApplicationCount).toBe(1);
 
     // 8. ADMIN CHANGE STATUS (PATCH /api/admin/registrations/:id/status)
-    const statusChangeResponse = await request(app)
+    const statusChangeResponse = await adminAgent
       .patch(`/api/admin/registrations/${foundReg.id}/status`)
-      .set('Cookie', [adminCookie!])
+      .set('x-csrf-token', adminCsrfToken)
       .send({
         crmStatus: 'contract_signed',
       });
@@ -487,13 +512,14 @@ describe('critical path integration scenarios', () => {
     });
 
     const adminAgent = request.agent(app);
-    const loginResponse = await adminAgent.post('/api/admin/login').send({
+    const csrfToken = await getCsrfToken(adminAgent);
+    const loginResponse = await adminAgent.post('/api/admin/login').set('x-csrf-token', csrfToken).send({
       login: 'broadcast-admin@aspb.ru',
       password: 'BroadcastAdminPassword123',
     });
     expect(loginResponse.status).toBe(200);
 
-    const response = await adminAgent.post('/api/admin/telegram/broadcast').send({
+    const response = await adminAgent.post('/api/admin/telegram/broadcast').set('x-csrf-token', csrfToken).send({
       text: 'Новость для участников вебинара',
     });
     expect(response.status).toBe(202);

@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma.js';
 import { asyncHandler, AppError, getClientIp } from '../lib/http.js';
 import { createAdminSession, hashIp, parseAdminSession } from '../lib/tokens.js';
 import { env } from '../lib/env.js';
-import { isCrmStatus } from '../lib/crm.js';
+import { CRM_STATUS_LABELS, CRM_STATUSES, isCrmStatus } from '../lib/crm.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
 import { formatMoscowDate, sendTelegramMessageToChat } from '../lib/telegram.js';
 import { getAdminHtml } from '../responses/adminPage.js';
@@ -350,6 +350,7 @@ adminRouter.post(
       httpOnly: true,
       sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
       secure: env.NODE_ENV === 'production',
+      partitioned: env.NODE_ENV === 'production' ? true : undefined,
       maxAge: 24 * 60 * 60 * 1000,
     });
     res.json({ ok: true });
@@ -382,6 +383,13 @@ adminRouter.get(
     res.json({ ok: true, managers });
   }),
 );
+
+adminRouter.get('/api/admin/crm-statuses', requireAdmin, (_req, res) => {
+  res.json({
+    ok: true,
+    statuses: CRM_STATUSES.map(status => ({ value: status, label: CRM_STATUS_LABELS[status] })),
+  });
+});
 
 adminRouter.get(
   '/api/admin/users',

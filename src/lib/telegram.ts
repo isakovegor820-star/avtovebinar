@@ -211,7 +211,7 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
 }
 
 export function buildTelegramStartUrl(token?: string) {
-  const username = (env.TELEGRAM_PARTICIPANT_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME).trim();
+  const username = (env.TELEGRAM_PARTICIPANT_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME || '').trim();
   if (!username) {
     return env.TELEGRAM_GROUP_URL;
   }

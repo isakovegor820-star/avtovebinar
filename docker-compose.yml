@@ -5,8 +5,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: aspb
-      POSTGRES_PASSWORD: aspb
       POSTGRES_DB: aspb_autowebinar
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5432:5432"
     volumes:

@@ -15,8 +15,8 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: aspb
-          POSTGRES_PASSWORD: aspb
           POSTGRES_DB: aspb_autowebinar
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -29,7 +29,7 @@ jobs:
       NODE_ENV: test
       PORT: 5174
       PUBLIC_SITE_URL: http://127.0.0.1:5174
-      DATABASE_URL: postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=public
+      DATABASE_URL: postgresql://aspb@localhost:5432/aspb_autowebinar?schema=public
       ADMIN_LOGIN: admin@example.com
       ADMIN_PASSWORD: StrongAdmin123
       ADMIN_COOKIE_SECRET: ci-admin-cookie-secret-32-plus-chars

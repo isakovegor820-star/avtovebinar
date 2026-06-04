@@ -57,7 +57,7 @@ Email-доставка переведена на outbox:
 
 ### P1. CSP все еще частично зависит от `unsafe-inline`
 
-Inline event handlers убраны, `script-src-attr 'none'` включен. Но статические HTML-страницы все еще содержат inline script/style blocks, поэтому `script-src`/`style-src` пока сохраняют `unsafe-inline`.
+Inline event handlers убраны, `script-src-attr 'none'` включен. Небольшие inline scripts на success/register/webinar вынесены в отдельные JS-файлы. Но landing/admin все еще содержат крупные inline script/style blocks, поэтому `script-src`/`style-src` пока сохраняют `unsafe-inline`.
 
 Следующий шаг: вынести оставшиеся inline blocks в отдельные JS/CSS файлы или внедрить nonce/hash pipeline.
 

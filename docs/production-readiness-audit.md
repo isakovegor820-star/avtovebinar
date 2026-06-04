@@ -34,12 +34,12 @@ Email-доставка переведена на outbox:
 
 | Направление | Оценка | Комментарий |
 | --- | ---: | --- |
-| Frontend | 8/10 | Основной user flow работает, но остаются inline script/style blocks. |
+| Frontend | 8.3/10 | Основной user flow работает; крупные inline scripts вынесены, оставшиеся static styles закрыты CSP hashes. |
 | Backend API | 8.5/10 | Cookie-only room access и outbox закрывают главные P0/P1 риски. |
 | Admin/CRM | 7/10 | CRM рабочая, но action-flow и UX можно усилить. |
 | Email | 8/10 | Outbox/retry есть; нужны HTML-шаблоны и мониторинг failed jobs. |
 | Автовебинар | 8.5/10 | Server-backed live/chat flow покрыт e2e. |
-| Безопасность | 7.5/10 | Legacy token routes убраны, CSP сужен; полный отказ от `unsafe-inline` еще впереди. |
+| Безопасность | 8.2/10 | Legacy token routes убраны, CSP без `unsafe-inline`; добавлены CSRF, COEP/CORP и hardened admin cookie. |
 | Тесты | 8/10 | Есть unit/integration/browser coverage критического пути. |
 | Production readiness | 7.5/10 | Docker/runbook/CI есть; нужны monitoring/alerting и финальный CSP hardening. |
 
@@ -55,11 +55,11 @@ Email-доставка переведена на outbox:
 
 ## Оставшиеся риски
 
-### P1. CSP все еще частично зависит от `unsafe-inline`
+### P1. CSP hash list требует регенерации при изменении inline styles
 
-Inline event handlers убраны, `script-src-attr 'none'` включен. Небольшие inline scripts на success/register/webinar вынесены в отдельные JS-файлы. Но landing/admin все еще содержат крупные inline script/style blocks, поэтому `script-src`/`style-src` пока сохраняют `unsafe-inline`.
+Inline scripts вынесены в отдельные JS-файлы, `script-src-attr 'none'` включен, CSP больше не содержит `unsafe-inline`. Статические inline style blocks/attributes разрешены sha256 hashes в `src/lib/cspInlineHashes.ts`.
 
-Следующий шаг: вынести оставшиеся inline blocks в отдельные JS/CSS файлы или внедрить nonce/hash pipeline.
+Следующий шаг: при изменении HTML/JS с inline styles регенерировать hashes или постепенно вынести эти стили в CSS-файлы.
 
 ### P1. Мониторинг email outbox
 

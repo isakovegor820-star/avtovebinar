@@ -148,7 +148,9 @@ docker compose --env-file .env.production -f docker-compose.production.yml up -d
 
 ## Security/CSP
 
-Helmet включает CSP, frame/object restrictions, cookie hardening и rate limits. Inline event handlers убраны; `script-src-attr 'none'`. Inline script/style blocks еще есть в статических страницах, поэтому `unsafe-inline` для script/style elements пока остается как зафиксированный долг до frontend build pipeline.
+Helmet включает CSP, frame/object restrictions, COEP/CORP, cookie hardening и rate limits. `script-src` разрешает только self-hosted JS, inline scripts вынесены в отдельные файлы, `script-src-attr 'none'`. Оставшиеся статические inline style blocks/attributes разрешены точечными CSP sha256 hashes без `unsafe-inline`. Cookie-based mutation endpoints защищены double-submit CSRF cookie `aspb_csrf_token` и header `x-csrf-token`. В production admin cookie выставляется как `HttpOnly`, `Secure`, `SameSite=Strict`, `Partitioned`.
+
+Публичные файлы `/.well-known/security.txt` и `/robots.txt` отдаются из static frontend root.
 
 ## QA checklist
 
@@ -165,5 +167,6 @@ Helmet включает CSP, frame/object restrictions, cookie hardening и rate
 - После завершения видео показывает “Вебинар окончен”, а чат остается видимым и принимает вопросы.
 - Partner application отправляется после доступного состояния и попадает в CRM.
 - Admin CRM работает: список регистраций, карточка, статусы, заметки.
+- Mutation endpoints с cookie-сессиями без `x-csrf-token` возвращают 403.
 - `npm run css:build`, `npm run lint`, `npm run build`, `npm test`, `npm audit --omit=dev` проходят.
 - `npm run e2e:install` выполнен хотя бы один раз, затем `npm run e2e` проходит.

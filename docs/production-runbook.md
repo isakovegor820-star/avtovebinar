@@ -224,8 +224,8 @@ npm run e2e
 
 После первого запуска можно делать:
 
-- frontend build pipeline вместо CDN/inline;
-- полный отказ от `unsafe-inline` после выноса оставшихся inline script/style blocks;
+- frontend build pipeline вместо CDN/остаточных inline style attributes;
+- автоматическая регенерация CSP style hashes в CI;
 - Sentry;
 - uptime monitoring;
 - Prometheus/Grafana или простой лог-агрегатор;

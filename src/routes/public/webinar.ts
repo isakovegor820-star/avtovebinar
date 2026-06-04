@@ -9,6 +9,7 @@ import { getScriptedChatMessagesUntil } from '../../lib/scriptedChat.js';
 import { buildTelegramStartUrl } from '../../lib/telegram.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import { buildAccessPayload, findRegistrationForRequest, getFirstSeen, roomAccessError } from './helpers.js';
+import { getCache, setCache } from '../../lib/responseCache.js';
 
 export const webinarRouter = Router();
 
@@ -17,10 +18,18 @@ webinarRouter.get(
   asyncHandler(async (req, res) => {
     const firstSeenAt = getFirstSeen(req, res);
     const scheduledAt = getNextWebinarDate(firstSeenAt);
+    const cacheKey = `webinar-current:${firstSeenAt.toISOString()}:${scheduledAt.toISOString()}`;
+    const cached = getCache<Record<string, unknown>>(cacheKey);
+    if (cached) {
+      res.setHeader('Cache-Control', 'private, max-age=30');
+      res.json(cached);
+      return;
+    }
+
     const session = await findOrCreateWebinarSession(scheduledAt);
     const serverTime = new Date();
 
-    res.json({
+    const payload = {
       ok: true,
       serverTime: serverTime.toISOString(),
       firstSeenAt: firstSeenAt.toISOString(),
@@ -37,9 +46,30 @@ webinarRouter.get(
       },
       telegramUrl: env.TELEGRAM_GROUP_URL,
       telegramBotUrl: buildTelegramStartUrl(),
-    });
+    };
+
+    setCache(cacheKey, payload, 30_000);
+    res.setHeader('Cache-Control', 'private, max-age=30');
+    res.json(payload);
   }),
 );
+
+async function getTimelineEvents(webinarSessionId: string, videoDurationSeconds: number) {
+  const cacheKey = `webinar-timeline-events:${webinarSessionId}:${videoDurationSeconds}`;
+  const cached = getCache<Awaited<ReturnType<typeof prisma.webinarTimelineEvent.findMany>>>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const events = await prisma.webinarTimelineEvent.findMany({
+    where: {
+      OR: [{ webinarSessionId: null }, { webinarSessionId }],
+    },
+    orderBy: { offsetSeconds: 'asc' },
+  });
+  setCache(cacheKey, events, 60_000);
+  return events;
+}
 
 async function sendTimeline(req: Request, res: Response) {
   const registration = await findRegistrationForRequest(req);
@@ -55,12 +85,10 @@ async function sendTimeline(req: Request, res: Response) {
   }
   const liveState = getWebinarLiveState(now, registration.webinarSession, { testMode: access.testMode });
 
-  const dbEvents = await prisma.webinarTimelineEvent.findMany({
-    where: {
-      OR: [{ webinarSessionId: null }, { webinarSessionId: registration.webinarSessionId }],
-    },
-    orderBy: { offsetSeconds: 'asc' },
-  });
+  const dbEvents = await getTimelineEvents(
+    registration.webinarSessionId,
+    registration.webinarSession.videoDurationSeconds,
+  );
 
   const hasFreshTimeline =
     dbEvents.length > 0 &&
@@ -77,6 +105,7 @@ async function sendTimeline(req: Request, res: Response) {
       }))
     : DEFAULT_TIMELINE_EVENTS;
 
+  res.setHeader('Cache-Control', 'private, max-age=30');
   res.json({
     ok: true,
     serverTime: now.toISOString(),

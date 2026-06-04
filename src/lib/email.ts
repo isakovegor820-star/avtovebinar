@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { env } from './env.js';
+import { withCircuitBreaker, withRetries } from './resilience.js';
 
 type BaseEmailInput = {
   to: string;
@@ -22,11 +23,11 @@ function getTransporter() {
 
   cachedTransporter = nodemailer.createTransport({
     host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
+    port: env.SMTP_PORT ?? 587,
     // 465 = implicit TLS; остальные порты (587 и пр.) используют STARTTLS,
     // requireTLS гарантирует, что соединение не останется незашифрованным.
-    secure: env.SMTP_PORT === 465,
-    requireTLS: env.SMTP_PORT !== 465,
+    secure: (env.SMTP_PORT ?? 587) === 465,
+    requireTLS: (env.SMTP_PORT ?? 587) !== 465,
     pool: true,
     maxConnections: 5,
     maxMessages: 100,
@@ -92,14 +93,33 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
 
   const transporter = getTransporter();
 
-  await transporter.sendMail({
-    from: env.EMAIL_FROM,
-    to: input.to,
-    subject: input.subject,
-    text: input.text,
-  });
+  await withCircuitBreaker(
+    'smtp',
+    () =>
+      withRetries(
+        'smtp.sendMail',
+        () =>
+          transporter.sendMail({
+            from: env.EMAIL_FROM,
+            to: input.to,
+            subject: input.subject,
+            text: input.text,
+          }),
+        { attempts: 3, baseMs: 1000, maxMs: 10_000 },
+      ),
+    { failureThreshold: 3, cooldownMs: 60_000 },
+  );
 
   return { sent: true, mode: 'send' as const };
+}
+
+export async function verifyEmailConnectivity() {
+  if (shouldLogEmail()) {
+    return { ok: true, mode: 'log' as const };
+  }
+
+  await withCircuitBreaker('smtp', () => getTransporter().verify(), { failureThreshold: 3, cooldownMs: 60_000 });
+  return { ok: true, mode: 'send' as const };
 }
 
 export async function sendRegistrationEmail(input: BaseEmailInput) {

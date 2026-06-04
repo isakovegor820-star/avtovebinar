@@ -1,4 +1,5 @@
 import { env } from './env.js';
+import { withCircuitBreaker, withRetries } from './resilience.js';
 
 type TelegramMessageInput = {
   text: string;
@@ -161,16 +162,26 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
     return { sent: false, mode: 'send' as const, reason: 'missing_chat_id' as const };
   }
 
-  const response = await fetch(telegramApiUrl('sendMessage'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      reply_markup: input.replyMarkup,
-      disable_web_page_preview: true,
-    }),
-  });
+  const response = await withCircuitBreaker(
+    'telegram.admin',
+    () =>
+      withRetries(
+        'telegram.admin.sendMessage',
+        () =>
+          fetch(telegramApiUrl('sendMessage'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text,
+              reply_markup: input.replyMarkup,
+              disable_web_page_preview: true,
+            }),
+          }),
+        { attempts: 3, baseMs: 1000, maxMs: 15_000, retryAfterMs: getTelegramRetryAfterMs },
+      ),
+    { failureThreshold: 3, cooldownMs: 60_000 },
+  );
 
   const payload = (await response.json()) as TelegramApiPayload;
   if (!payload.ok) {
@@ -190,15 +201,25 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
     return { sent: false, mode: 'log' as const };
   }
 
-  const response = await fetch(participantTelegramApiUrl('sendMessage'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: message,
-      disable_web_page_preview: true,
-    }),
-  });
+  const response = await withCircuitBreaker(
+    'telegram.participant',
+    () =>
+      withRetries(
+        'telegram.participant.sendMessage',
+        () =>
+          fetch(participantTelegramApiUrl('sendMessage'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: message,
+              disable_web_page_preview: true,
+            }),
+          }),
+        { attempts: 3, baseMs: 1000, maxMs: 15_000, retryAfterMs: getTelegramRetryAfterMs },
+      ),
+    { failureThreshold: 3, cooldownMs: 60_000 },
+  );
 
   const payload = (await response.json()) as TelegramApiPayload;
   if (!payload.ok) {
@@ -377,4 +398,37 @@ export async function getTelegramBotInfo() {
 
   const response = await fetch(telegramApiUrl('getMe'));
   return response.json();
+}
+
+function getTelegramRetryAfterMs(error: unknown) {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const retryAfter = (error as Error & { retryAfterSeconds?: number }).retryAfterSeconds;
+  return retryAfter && retryAfter > 0 ? retryAfter * 1000 : null;
+}
+
+export async function checkTelegramConnectivity() {
+  if (env.TELEGRAM_NOTIFY_MODE === 'log') {
+    return { ok: true, mode: 'log' as const };
+  }
+
+  const checks: Array<Promise<unknown>> = [];
+  if (hasAdminTelegramBot()) {
+    checks.push(withCircuitBreaker('telegram.admin', () => fetch(telegramApiUrl('getMe'))));
+  }
+  if (hasParticipantTelegramBot()) {
+    checks.push(withCircuitBreaker('telegram.participant', () => fetch(participantTelegramApiUrl('getMe'))));
+  }
+
+  const responses = await Promise.all(checks);
+  for (const response of responses) {
+    const payload = (await (response as Response).json()) as TelegramApiPayload;
+    if (!payload.ok) {
+      throw new Error(payload.description || 'Telegram getMe failed');
+    }
+  }
+
+  return { ok: true, mode: 'send' as const };
 }

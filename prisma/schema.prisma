@@ -219,6 +219,17 @@ model TelegramBroadcastJob {
   @@map("telegram_broadcast_jobs")
 }
 
+model TelegramBroadcastDeadLetter {
+  id          String   @id @default(cuid())
+  jobId       String   @unique @map("job_id")
+  reason      String
+  payloadJson Json?    @map("payload_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("telegram_broadcast_dead_letters")
+}
+
 model Question {
   id               String         @id @default(cuid())
   leadId           String         @map("lead_id")

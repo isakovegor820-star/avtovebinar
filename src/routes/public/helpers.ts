@@ -18,6 +18,7 @@ import {
 } from '../../lib/time.js';
 import { getEffectiveVideoDurationMinutes } from '../../lib/webinarLive.js';
 import { prisma } from '../../lib/prisma.js';
+import { setContextIdentity } from '../../lib/requestContext.js';
 
 export const ROOM_SESSION_TOKEN_PURPOSE = 'room_session';
 export const ROOM_EXCHANGE_TOKEN_PURPOSE = 'registration';
@@ -135,7 +136,11 @@ export async function findRegistrationForRequest(req: Request) {
   if (!cookieToken) {
     return null;
   }
-  return findRegistrationBySessionToken(cookieToken);
+  const registration = await findRegistrationBySessionToken(cookieToken);
+  if (registration) {
+    setContextIdentity({ userId: registration.leadId });
+  }
+  return registration;
 }
 
 export function buildAccessPayload(

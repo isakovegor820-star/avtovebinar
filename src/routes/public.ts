@@ -4,15 +4,28 @@ import { webinarRouter } from './public/webinar.js';
 import { eventsRouter } from './public/events.js';
 import { partnersRouter } from './public/partners.js';
 import { sendCsrfToken } from '../lib/csrf.js';
+import { getReadiness } from '../lib/health.js';
 
 export const publicRouter = Router();
 
 // Re-export registerSchema for tests
 export { registerSchema } from './public/registration.js';
 
-// Health check
 publicRouter.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'aspb-autowebinar' });
+});
+
+publicRouter.get('/health/live', (_req, res) => {
+  res.json({ ok: true, service: 'aspb-autowebinar' });
+});
+
+publicRouter.get('/health/ready', async (_req, res, next) => {
+  try {
+    const readiness = await getReadiness();
+    res.status(readiness.ok ? 200 : 503).json({ service: 'aspb-autowebinar', ...readiness });
+  } catch (error) {
+    next(error);
+  }
 });
 
 publicRouter.get('/csrf', sendCsrfToken);

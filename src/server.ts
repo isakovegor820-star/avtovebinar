@@ -1,13 +1,22 @@
 import { app } from './app.js';
 import { env } from './lib/env.js';
 import { logger } from './lib/logger.js';
-import { startReminderScheduler } from './lib/reminders.js';
-import { startParticipantTelegramBot } from './lib/telegramParticipantBot.js';
-import { startAdminTelegramBot } from './lib/telegramAdminBot.js';
-import { startTelegramNewsScheduler } from './lib/telegramNews.js';
+import { startReminderScheduler, stopReminderScheduler } from './lib/reminders.js';
+import { startParticipantTelegramBot, stopParticipantTelegramBot } from './lib/telegramParticipantBot.js';
+import { startAdminTelegramBot, stopAdminTelegramBot } from './lib/telegramAdminBot.js';
+import { startTelegramNewsScheduler, stopTelegramNewsScheduler } from './lib/telegramNews.js';
+import { prisma } from './lib/prisma.js';
+import { startTelegramBroadcastWorker, stopTelegramBroadcastWorker } from './lib/telegramBroadcastWorker.js';
 
-const backgroundHandles: NodeJS.Timeout[] = [];
+type RuntimeHandle = {
+  name: string;
+  stop: () => void | Promise<void>;
+};
+
+const backgroundHandles: RuntimeHandle[] = [];
 let shuttingDown = false;
+let server: ReturnType<typeof app.listen> | null = null;
+const workerRole = env.WORKER_ROLE ?? 'all';
 
 function reportProcessError(error: unknown) {
   if (error instanceof Error) {
@@ -17,35 +26,48 @@ function reportProcessError(error: unknown) {
   return { message: String(error) };
 }
 
-function startBackgroundTask(name: string, start: () => NodeJS.Timeout | null) {
+function startBackgroundTask(name: string, start: () => NodeJS.Timeout | null, stop: () => void | Promise<void>) {
   try {
     const handle = start();
     if (handle) {
-      backgroundHandles.push(handle);
+      backgroundHandles.push({ name, stop });
     }
   } catch (error) {
     logger.error({ err: reportProcessError(error), task: name }, 'Background task failed to start');
   }
 }
 
-const server = app.listen(env.PORT, () => {
-  logger.info({ url: env.PUBLIC_SITE_URL, port: env.PORT }, 'АСПБ autowebinar backend started');
-});
+function startApiWorker() {
+  server = app.listen(env.PORT, () => {
+    logger.info({ url: env.PUBLIC_SITE_URL, port: env.PORT, workerRole }, 'АСПБ autowebinar API started');
+  });
 
-server.on('error', error => {
-  const nodeError = error as NodeJS.ErrnoException;
-  if (nodeError.code === 'EADDRINUSE') {
-    logger.fatal({ port: env.PORT }, 'Backend port is already in use');
-  } else {
-    logger.fatal({ err: reportProcessError(error) }, 'Backend listen failed');
-  }
-  process.exit(1);
-});
+  server.on('error', error => {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === 'EADDRINUSE') {
+      logger.fatal({ port: env.PORT }, 'Backend port is already in use');
+    } else {
+      logger.fatal({ err: reportProcessError(error) }, 'Backend listen failed');
+    }
+    process.exit(1);
+  });
+}
 
-startBackgroundTask('reminder scheduler', startReminderScheduler);
-startBackgroundTask('admin telegram bot', startAdminTelegramBot);
-startBackgroundTask('participant telegram bot', startParticipantTelegramBot);
-startBackgroundTask('telegram news scheduler', startTelegramNewsScheduler);
+function startWebinarWorker() {
+  startBackgroundTask('reminder scheduler', startReminderScheduler, stopReminderScheduler);
+  startBackgroundTask('admin telegram bot', startAdminTelegramBot, stopAdminTelegramBot);
+  startBackgroundTask('participant telegram bot', startParticipantTelegramBot, stopParticipantTelegramBot);
+  startBackgroundTask('telegram news scheduler', startTelegramNewsScheduler, stopTelegramNewsScheduler);
+  startBackgroundTask('telegram broadcast worker', startTelegramBroadcastWorker, stopTelegramBroadcastWorker);
+  logger.info({ workerRole }, 'АСПБ autowebinar webinar worker started');
+}
+
+if (workerRole === 'api' || workerRole === 'all') {
+  startApiWorker();
+}
+if (workerRole === 'webinar' || workerRole === 'all') {
+  startWebinarWorker();
+}
 
 process.on('unhandledRejection', reason => {
   logger.error({ err: reportProcessError(reason) }, 'Unhandled promise rejection');
@@ -61,20 +83,48 @@ process.on('uncaughtException', error => {
   }
 });
 
-function shutdown(signal: NodeJS.Signals) {
+async function closeServer() {
+  if (!server) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const forceTimer = setTimeout(() => {
+      logger.warn('Force closing HTTP connections after graceful timeout');
+      server?.closeAllConnections?.();
+    }, 10_000);
+
+    server?.close(error => {
+      clearTimeout(forceTimer);
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+    server?.closeIdleConnections?.();
+  });
+}
+
+async function shutdown(signal: NodeJS.Signals) {
   if (shuttingDown) {
     return;
   }
   shuttingDown = true;
-  logger.info({ signal }, 'Stopping АСПБ autowebinar backend');
-  backgroundHandles.forEach(handle => clearInterval(handle));
-  server.close(error => {
-    if (error) {
-      logger.error({ err: reportProcessError(error) }, 'Backend shutdown failed');
-      process.exit(1);
+  logger.info({ signal, workerRole }, 'Stopping АСПБ autowebinar runtime');
+
+  try {
+    for (const handle of backgroundHandles) {
+      logger.debug({ task: handle.name }, 'Stopping background task');
+      await handle.stop();
     }
+    await closeServer();
+    await prisma.$disconnect();
     process.exit(0);
-  });
+  } catch (error) {
+    logger.error({ err: reportProcessError(error) }, 'Runtime shutdown failed');
+    process.exit(1);
+  }
 }
 
 process.on('SIGINT', shutdown);

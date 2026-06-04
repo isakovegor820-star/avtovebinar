@@ -322,6 +322,9 @@ export async function cleanupExpiredRegistrationTokens(now = new Date()) {
 // Guard-флаг: не запускаем новый прогон джоб, пока предыдущий не завершился.
 // Защищает от дублей напоминаний, если джобы не успели за интервал тика.
 let reminderCycleRunning = false;
+let reminderCyclePromise: Promise<void> | null = null;
+let reminderInterval: NodeJS.Timeout | null = null;
+let reminderStartupTimer: NodeJS.Timeout | null = null;
 
 // Уникальный ключ для Postgres advisory lock (защита от дублей при multi-instance).
 const REMINDER_ADVISORY_LOCK_KEY = 4815162342;
@@ -378,13 +381,33 @@ export function startReminderScheduler() {
     return null;
   }
 
-  const interval = setInterval(() => {
-    runReminderCycle().catch(error => console.error('[ASPБ reminder cycle]', error));
+  const run = () => {
+    reminderCyclePromise = runReminderCycle()
+      .catch(error => console.error('[ASPБ reminder cycle]', error))
+      .finally(() => {
+        reminderCyclePromise = null;
+      });
+  };
+
+  reminderInterval = setInterval(() => {
+    run();
   }, 60 * 1000);
 
-  setTimeout(() => {
-    runReminderCycle().catch(error => console.error('[ASPБ reminder cycle]', error));
-  }, 5000);
+  reminderStartupTimer = setTimeout(run, 5000);
 
-  return interval;
+  return reminderInterval;
+}
+
+export async function stopReminderScheduler() {
+  if (reminderInterval) {
+    clearInterval(reminderInterval);
+    reminderInterval = null;
+  }
+  if (reminderStartupTimer) {
+    clearTimeout(reminderStartupTimer);
+    reminderStartupTimer = null;
+  }
+  if (reminderCyclePromise) {
+    await reminderCyclePromise;
+  }
 }

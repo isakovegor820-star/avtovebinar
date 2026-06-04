@@ -8,6 +8,7 @@ export class AppError extends Error {
     public statusCode: number,
     message: string,
     public details?: unknown,
+    public code?: string,
   ) {
     super(message);
   }
@@ -35,6 +36,7 @@ export function errorMiddleware(error: unknown, _req: Request, res: Response, _n
     return res.status(error.statusCode).json({
       ok: false,
       error: error.message,
+      code: error.code ?? (isErrorDetails(error.details) ? error.details.code : undefined),
       details: error.details,
     });
   }
@@ -57,5 +59,12 @@ export function errorMiddleware(error: unknown, _req: Request, res: Response, _n
   return res.status(500).json({
     ok: false,
     error: 'Internal server error',
+    code: 'internal_error',
   });
+}
+
+function isErrorDetails(value: unknown): value is { code: string } {
+  return Boolean(
+    value && typeof value === 'object' && 'code' in value && typeof (value as { code?: unknown }).code === 'string',
+  );
 }

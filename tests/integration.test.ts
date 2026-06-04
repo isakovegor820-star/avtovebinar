@@ -32,7 +32,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   // Truncate tables to guarantee absolute test isolation
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, telegram_broadcast_jobs, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, telegram_broadcast_jobs, telegram_broadcast_dead_letters, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
   );
 });
 
@@ -534,5 +534,27 @@ describe('critical path integration scenarios', () => {
     const statusResponse = await adminAgent.get('/api/admin/telegram/broadcast/current');
     expect(statusResponse.status).toBe(200);
     expect(statusResponse.body.job.id).toBe(response.body.jobId);
+  });
+
+  it('exposes operations health, metrics and csrf error codes', async () => {
+    const liveResponse = await request(app).get('/health/live');
+    expect(liveResponse.status).toBe(200);
+    expect(liveResponse.body.ok).toBe(true);
+
+    const readyResponse = await request(app).get('/health/ready');
+    expect(readyResponse.status).toBe(200);
+    expect(readyResponse.body.ok).toBe(true);
+    expect(readyResponse.body.checks.database.ok).toBe(true);
+
+    const csrfResponse = await request(app)
+      .post('/api/registration/exchange/not-a-real-token-12345678901234567890')
+      .send({});
+    expect(csrfResponse.status).toBe(403);
+    expect(csrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+
+    const metricsResponse = await request(app).get('/metrics');
+    expect(metricsResponse.status).toBe(200);
+    expect(metricsResponse.text).toContain('aspb_http_requests_total');
+    expect(metricsResponse.text).toContain('aspb_queue_depth');
   });
 });

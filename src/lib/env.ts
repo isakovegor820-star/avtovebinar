@@ -3,40 +3,37 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 
 const envSchema = z.object({
-  NODE_ENV: z.string().default('development'),
-  PORT: z.coerce.number().default(5174),
-  PUBLIC_SITE_URL: z.string().url().default('http://127.0.0.1:5174'),
+  NODE_ENV: z.enum(['development', 'test', 'production']),
+  PORT: z.coerce.number().int().positive(),
+  PUBLIC_SITE_URL: z.string().url(),
   DATABASE_URL: z.string().min(1),
-  ADMIN_LOGIN: z.string().min(1).default('admin'),
+  ADMIN_LOGIN: z.string().min(1),
   ADMIN_PASSWORD: z.string().min(12),
   ADMIN_COOKIE_SECRET: z.string().min(32),
   IP_HASH_SECRET: z.string().min(32),
-  EMAIL_MODE: z.enum(['send', 'log']).default('log'),
+  EMAIL_MODE: z.enum(['send', 'log']),
   SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  EMAIL_FROM: z.string().default('АСПБ <no-reply@aspb.local>'),
-  TELEGRAM_GROUP_URL: z.string().url().default('https://t.me/example'),
+  EMAIL_FROM: z.string().min(3),
+  TELEGRAM_GROUP_URL: z.string().url(),
   TELEGRAM_ADMIN_BOT_TOKEN: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_BOT_USERNAME: z.string().optional(),
   TELEGRAM_ADMIN_CHAT_ID: z.string().optional(),
-  TELEGRAM_ADMIN_BOT_POLLING: z.enum(['on', 'off']).default('off'),
-  TELEGRAM_NOTIFY_MODE: z.enum(['send', 'log']).default('log'),
-  TELEGRAM_BOT_POLLING: z.enum(['on', 'off']).default('off'),
+  TELEGRAM_ADMIN_BOT_POLLING: z.enum(['on', 'off']),
+  TELEGRAM_NOTIFY_MODE: z.enum(['send', 'log']),
+  TELEGRAM_BOT_POLLING: z.enum(['on', 'off']),
   TELEGRAM_PARTICIPANT_BOT_TOKEN: z.string().optional(),
   TELEGRAM_PARTICIPANT_BOT_USERNAME: z.string().optional(),
-  TELEGRAM_PARTICIPANT_BOT_POLLING: z.enum(['on', 'off']).default('off'),
-  TELEGRAM_NEWS_BROADCAST: z.enum(['on', 'off']).default('off'),
-  TELEGRAM_NEWS_TIMES: z.string().default('09:00,11:30,14:00,16:30,19:00'),
-  TELEGRAM_NEWS_RSS_URLS: z
-    .string()
-    .default(
-      'https://www.consultant.ru/rss/hotdocs.xml,https://www.consultant.ru/rss/nw.xml,https://www.consultant.ru/rss/db.xml',
-    ),
-  WEBINAR_TEST_ROOM_MODE: z.enum(['on', 'off']).default('on'),
-  CORS_ORIGIN: z.string().optional().default('http://127.0.0.1:5174'),
+  TELEGRAM_PARTICIPANT_BOT_POLLING: z.enum(['on', 'off']),
+  TELEGRAM_NEWS_BROADCAST: z.enum(['on', 'off']),
+  TELEGRAM_NEWS_TIMES: z.string().min(1),
+  TELEGRAM_NEWS_RSS_URLS: z.string().min(1),
+  WEBINAR_TEST_ROOM_MODE: z.enum(['on', 'off']),
+  CORS_ORIGIN: z.string().min(1),
+  WORKER_ROLE: z.enum(['api', 'webinar', 'all']).optional(),
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
@@ -106,9 +103,29 @@ function runtimeEnv() {
 
   return {
     ...process.env,
+    NODE_ENV: 'test',
+    PORT: process.env.PORT ?? '5174',
+    PUBLIC_SITE_URL: process.env.PUBLIC_SITE_URL ?? 'http://127.0.0.1:5174',
+    DATABASE_URL: process.env.DATABASE_URL ?? 'postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test',
+    ADMIN_LOGIN: process.env.ADMIN_LOGIN ?? 'testadmin@example.com',
     ADMIN_PASSWORD: `TestPassword${crypto.randomInt(100000, 999999)}`,
     ADMIN_COOKIE_SECRET: crypto.randomBytes(32).toString('hex'),
     IP_HASH_SECRET: crypto.randomBytes(32).toString('hex'),
+    EMAIL_MODE: process.env.EMAIL_MODE ?? 'log',
+    SMTP_PORT: process.env.SMTP_PORT ?? '587',
+    EMAIL_FROM: process.env.EMAIL_FROM ?? 'АСПБ <no-reply@test.local>',
+    TELEGRAM_GROUP_URL: process.env.TELEGRAM_GROUP_URL ?? 'https://t.me/example',
+    TELEGRAM_ADMIN_BOT_POLLING: process.env.TELEGRAM_ADMIN_BOT_POLLING ?? 'off',
+    TELEGRAM_NOTIFY_MODE: process.env.TELEGRAM_NOTIFY_MODE ?? 'log',
+    TELEGRAM_BOT_POLLING: process.env.TELEGRAM_BOT_POLLING ?? 'off',
+    TELEGRAM_PARTICIPANT_BOT_POLLING: process.env.TELEGRAM_PARTICIPANT_BOT_POLLING ?? 'off',
+    TELEGRAM_NEWS_BROADCAST: process.env.TELEGRAM_NEWS_BROADCAST ?? 'off',
+    TELEGRAM_NEWS_TIMES: process.env.TELEGRAM_NEWS_TIMES ?? '09:00,11:30,14:00,16:30,19:00',
+    TELEGRAM_NEWS_RSS_URLS:
+      process.env.TELEGRAM_NEWS_RSS_URLS ??
+      'https://www.consultant.ru/rss/hotdocs.xml,https://www.consultant.ru/rss/nw.xml,https://www.consultant.ru/rss/db.xml',
+    WEBINAR_TEST_ROOM_MODE: process.env.WEBINAR_TEST_ROOM_MODE ?? 'off',
+    CORS_ORIGIN: process.env.CORS_ORIGIN ?? 'http://127.0.0.1:5174',
   };
 }
 

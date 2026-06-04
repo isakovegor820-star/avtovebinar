@@ -5,13 +5,14 @@
 ## Что входит в lean-production
 
 - Dockerfile для приложения.
-- `docker-compose.production.yml` для app + PostgreSQL.
-- GitHub Actions CI: install, Prisma generate, build, tests, audit, Docker build.
+- `docker-compose.production.yml` для `api`, `webinar-worker` и PostgreSQL.
+- GitHub Actions CI: install, Prisma generate, migrate deploy, seed, build, tests, audit, Docker build, dependency-review, Semgrep, secretlint, dotenv-linter и staging deploy.
 - Strict production env guard в backend.
-- Healthcheck `/api/health`.
+- Healthchecks `/health/live`, `/health/ready`; Prometheus metrics `/metrics`.
 - Cookie-only доступ в вебинарную комнату через `HttpOnly` cookie `aspb_room_token`.
 - Одноразовый exchange-token в письмах/Telegram-ссылках; URL очищается после exchange.
 - Email outbox: регистрация не падает из-за временной SMTP-ошибки.
+- Durable Telegram broadcast worker с retry/backoff и dead-letter queue.
 - PostgreSQL backup/restore scripts.
 - Production checklist для ручного запуска.
 
@@ -45,6 +46,7 @@ cp .env.production.example .env.production
 - `IP_HASH_SECRET`
 - SMTP-поля
 - Telegram bot tokens и usernames
+- `WORKER_ROLE=api` для API container, `WORKER_ROLE=webinar` для worker container
 
 3. Проверить, что:
 
@@ -53,6 +55,7 @@ cp .env.production.example .env.production
 - `WEBINAR_TEST_ROOM_MODE=off`
 - `PUBLIC_SITE_URL` начинается с `https://`
 - `.env.production` не добавлен в Git
+- `DATABASE_URL` содержит pooling параметры `connection_limit` и `pool_timeout`
 
 ## Миграции и seed
 
@@ -82,23 +85,26 @@ docker build -t aspb-autowebinar:local .
 docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
 ```
 
-Приложение само выполнит:
+API container сам выполнит:
 
 ```bash
 npx prisma migrate deploy
-node dist/server.js
+WORKER_ROLE=api node dist/server.js
 ```
+
+Worker container запускает `WORKER_ROLE=webinar node dist/server.js` и не открывает HTTP-порт.
 
 Проверка:
 
 ```bash
-curl https://ваш-домен/api/health
+curl https://ваш-домен/health/ready
+curl https://ваш-домен/metrics
 ```
 
 Ожидаемый ответ:
 
 ```json
-{"ok":true,"service":"aspb-autowebinar"}
+{"service":"aspb-autowebinar","ok":true,"checks":{"database":{"ok":true},"smtp":{"ok":true},"telegram":{"ok":true}}}
 ```
 
 ## SSL
@@ -142,14 +148,18 @@ CI уже добавлен в `.github/workflows/ci.yml`.
 
 - `npm ci`
 - `npx prisma generate`
+- `npx prisma migrate deploy`
+- `npm run seed`
 - `npm run build`
 - `npm test`
 - `npx playwright install --with-deps chromium`
 - `npm run e2e`
 - `npm audit --omit=dev`
 - `docker build`
-
-Для автоматического deploy нужен следующий отдельный шаг: добавить GitHub Actions job, который по push в `main` подключается к серверу по SSH и выполняет `docker compose pull/up` или rebuild.
+- dependency review для PR
+- Semgrep SAST
+- secretlint и dotenv-linter
+- staging deploy по push в `main` через SSH secrets
 
 ## Проверки перед deploy
 

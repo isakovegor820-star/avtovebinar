@@ -86,6 +86,11 @@ Public:
 
 ```text
 GET  /api/health
+GET  /health/live
+GET  /health/ready
+GET  /metrics
+GET  /docs
+GET  /openapi.yml
 GET  /api/webinar/current
 GET  /api/webinar/timeline/session/current
 GET  /api/webinar/chat/session/current
@@ -124,6 +129,7 @@ NODE_ENV=production
 PUBLIC_SITE_URL=https://ваш-домен
 CORS_ORIGIN=https://ваш-домен
 DATABASE_URL=postgresql://...
+WORKER_ROLE=api|webinar|all
 ADMIN_LOGIN=...
 ADMIN_PASSWORD=...
 ADMIN_COOKIE_SECRET=...
@@ -137,7 +143,7 @@ EMAIL_FROM=...
 WEBINAR_TEST_ROOM_MODE=off
 ```
 
-Production guard запрещает дефолтные admin-секреты, `EMAIL_MODE=log`, HTTP `PUBLIC_SITE_URL`, wildcard CORS и test-room mode.
+Production guard запрещает дефолтные admin-секреты, `EMAIL_MODE=log`, HTTP `PUBLIC_SITE_URL`, wildcard CORS и test-room mode. `DATABASE_URL` должен включать pooling параметры, например `connection_limit=10&pool_timeout=20`.
 
 Docker production:
 
@@ -146,11 +152,20 @@ cp .env.production.example .env.production
 docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
 ```
 
+Production compose запускает два deployment units из одного image:
+
+- `api` с `WORKER_ROLE=api`: Express, public/admin API, static frontend, `/health/*`, `/metrics`.
+- `webinar-worker` с `WORKER_ROLE=webinar`: reminders, email outbox consumer, Telegram polling/news/broadcast worker.
+
+Без `WORKER_ROLE` старый запуск остается совместимым и стартует роль `all`.
+
 ## Security/CSP
 
 Helmet включает CSP, frame/object restrictions, COEP/CORP, cookie hardening и rate limits. `script-src` разрешает только self-hosted JS, inline scripts вынесены в отдельные файлы, `script-src-attr 'none'`. Оставшиеся статические inline style blocks/attributes разрешены точечными CSP sha256 hashes без `unsafe-inline`. Cookie-based mutation endpoints защищены double-submit CSRF cookie `aspb_csrf_token` и header `x-csrf-token`. В production admin cookie выставляется как `HttpOnly`, `Secure`, `SameSite=Strict`, `Partitioned`.
 
 Публичные файлы `/.well-known/security.txt` и `/robots.txt` отдаются из static frontend root.
+
+Observability: каждый request получает `x-correlation-id`, pino logs включают `correlation_id`, `userId`/`adminId` где доступны. `/metrics` отдает Prometheus text format: request counters/duration, 5xx rate alert state, email outbox depth, Telegram broadcast queue/dead-letter depth.
 
 ## QA checklist
 

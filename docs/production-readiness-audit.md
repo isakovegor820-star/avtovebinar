@@ -35,13 +35,13 @@ Email-доставка переведена на outbox:
 | Направление | Оценка | Комментарий |
 | --- | ---: | --- |
 | Frontend | 8.3/10 | Основной user flow работает; крупные inline scripts вынесены, оставшиеся static styles закрыты CSP hashes. |
-| Backend API | 8.5/10 | Cookie-only room access и outbox закрывают главные P0/P1 риски. |
+| Backend API | 9/10 | Cookie-only room access, strict env, health/readiness, metrics и worker split закрывают главные production риски. |
 | Admin/CRM | 7/10 | CRM рабочая, но action-flow и UX можно усилить. |
-| Email | 8/10 | Outbox/retry есть; нужны HTML-шаблоны и мониторинг failed jobs. |
+| Email | 8.5/10 | Outbox/retry есть; `/metrics` показывает queue depth и failed jobs. |
 | Автовебинар | 8.5/10 | Server-backed live/chat flow покрыт e2e. |
 | Безопасность | 8.2/10 | Legacy token routes убраны, CSP без `unsafe-inline`; добавлены CSRF, COEP/CORP и hardened admin cookie. |
 | Тесты | 8/10 | Есть unit/integration/browser coverage критического пути. |
-| Production readiness | 7.5/10 | Docker/runbook/CI есть; нужны monitoring/alerting и финальный CSP hardening. |
+| Production readiness | 8.8/10 | Docker API/worker split, readiness, metrics, CI security scans и staging deploy добавлены. |
 
 ## Закрытые прежние риски
 
@@ -52,6 +52,9 @@ Email-доставка переведена на outbox:
 - Email log маскирует персональные ссылки.
 - Критический путь покрыт integration и browser e2e.
 - README и runbook описывают текущую cookie-only архитектуру.
+- `/health/ready` проверяет БД, SMTP и Telegram; `/metrics` отдает Prometheus format.
+- Telegram broadcast вынесен в durable worker с dead-letter queue.
+- CI включает dependency-review, Semgrep, secretlint, dotenv-linter и staging deploy через secrets.
 
 ## Оставшиеся риски
 
@@ -61,17 +64,11 @@ Inline scripts вынесены в отдельные JS-файлы, `script-src
 
 Следующий шаг: при изменении HTML/JS с inline styles регенерировать hashes или постепенно вынести эти стили в CSS-файлы.
 
-### P1. Мониторинг email outbox
+### P1. Автоматическая доставка алертов
 
-Outbox durable, но production должен видеть зависшие/исчерпавшие retries jobs.
+Alert states есть в `/metrics`, но отправка в PagerDuty/Telegram/Sentry пока должна быть настроена внешним мониторингом.
 
-Следующий шаг: добавить admin/ops view или alert по `email_outbox_jobs.status='failed'`, `attempts`, `nextAttemptAt`.
-
-### P1. Jobs работают внутри backend process
-
-Scheduler запускается внутри backend. Для одного инстанса это нормально, advisory lock снижает риск дублей, но для зрелого production лучше выделить worker/process.
-
-Следующий шаг: отдельный worker service в compose или managed queue.
+Следующий шаг: подключить Prometheus/Grafana Alertmanager или managed uptime/metrics provider.
 
 ### P2. Frontend без сборки
 

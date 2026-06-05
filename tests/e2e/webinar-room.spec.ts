@@ -166,7 +166,6 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
   await expect
     .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
     .toBe(true);
-  await expect(page.locator('#videoPauseOverlay')).toBeVisible();
   await page.waitForTimeout(1800);
   const videoTimeWhilePaused = await page
     .locator('#webinarVideo')

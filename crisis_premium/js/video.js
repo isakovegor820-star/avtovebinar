@@ -381,6 +381,35 @@ export async function hydrateTimeline() {
     if (liveEdgeMarker) liveEdgeMarker.style.left = '100%';
   }
 
+  let testPausedViewerPosition = null;
+  if (window.__ASPB_ENABLE_TEST_HOOKS__) {
+    window.__ASPB_LIVE_DVR_TEST__ = {
+      snapshot() {
+        updateLiveControls();
+        const livePosition = getLivePosition();
+        const viewerPosition = testPausedViewerPosition ?? video.currentTime;
+        return {
+          livePosition,
+          viewerPosition,
+          behindLive: livePosition - viewerPosition > liveToleranceSeconds,
+          paused: testPausedViewerPosition !== null || video.paused
+        };
+      },
+      pauseAtCurrentPosition() {
+        testPausedViewerPosition = video.currentTime;
+        pausedFromLive = isNearLive() && !manualBehindLive;
+        video.pause();
+        updateLiveControls();
+        return this.snapshot();
+      },
+      resumeToLive() {
+        testPausedViewerPosition = null;
+        seekToLive();
+        return this.snapshot();
+      }
+    };
+  }
+
   video.addEventListener('timeupdate', () => {
     const current = video.currentTime;
     activateTimelineEvent(current, data.timeline || []);

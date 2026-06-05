@@ -52,7 +52,7 @@ app.use(
         styleSrcElem: ["'self'", ...cspStyleElementHashes, 'https://fonts.googleapis.com'],
         styleSrcAttr: ["'unsafe-hashes'", ...cspStyleAttributeHashes],
         fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
-        imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+        imgSrc: ["'self'", 'data:', 'blob:'],
         mediaSrc: ["'self'", 'blob:', 'data:'],
         connectSrc: ["'self'"],
         frameSrc: ["'none'"],

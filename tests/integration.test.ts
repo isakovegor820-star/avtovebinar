@@ -285,6 +285,42 @@ describe('critical path integration scenarios', () => {
       request(app).get(`/api/webinar/timeline/session/current?token=${exchangeToken}`),
     ).resolves.toMatchObject({ status: 401 });
 
+    const concurrentExchangeToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registrationsAfterRepeat[0].id,
+        tokenHash: hashToken(concurrentExchangeToken),
+        purpose: 'registration',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+    const firstConcurrentAgent = request.agent(app);
+    const secondConcurrentAgent = request.agent(app);
+    const [firstConcurrentCsrfToken, secondConcurrentCsrfToken] = await Promise.all([
+      getCsrfToken(firstConcurrentAgent),
+      getCsrfToken(secondConcurrentAgent),
+    ]);
+    const concurrentResponses = await Promise.all([
+      firstConcurrentAgent
+        .post(`/api/registration/exchange/${concurrentExchangeToken}`)
+        .set('x-csrf-token', firstConcurrentCsrfToken)
+        .send({}),
+      secondConcurrentAgent
+        .post(`/api/registration/exchange/${concurrentExchangeToken}`)
+        .set('x-csrf-token', secondConcurrentCsrfToken)
+        .send({}),
+    ]);
+    expect(concurrentResponses.filter(response => response.status === 200)).toHaveLength(1);
+    expect(concurrentResponses.filter(response => [404, 409].includes(response.status))).toHaveLength(1);
+    expect(
+      await prisma.registrationToken.count({
+        where: {
+          registrationId: registrationsAfterRepeat[0].id,
+          purpose: 'room_session',
+        },
+      }),
+    ).toBe(1);
+
     // 6. ADMIN LOGIN (POST /api/admin/login)
     const adminAgent = request.agent(app);
     const adminCsrfToken = await getCsrfToken(adminAgent);
@@ -540,6 +576,8 @@ describe('critical path integration scenarios', () => {
     const liveResponse = await request(app).get('/health/live');
     expect(liveResponse.status).toBe(200);
     expect(liveResponse.body.ok).toBe(true);
+    expect(liveResponse.headers['content-security-policy']).toContain("img-src 'self' data: blob:");
+    expect(liveResponse.headers['content-security-policy']).not.toContain('img-src https:');
 
     const readyResponse = await request(app).get('/health/ready');
     expect(readyResponse.status).toBe(200);
@@ -551,6 +589,30 @@ describe('critical path integration scenarios', () => {
       .send({});
     expect(csrfResponse.status).toBe(403);
     expect(csrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+
+    const analyticsCsrfResponse = await request(app).post('/api/events').send({ eventName: 'page_view' });
+    expect(analyticsCsrfResponse.status).toBe(403);
+    expect(analyticsCsrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+
+    const telegramClickCsrfResponse = await request(app).post('/api/telegram-click').send({ page: '/test' });
+    expect(telegramClickCsrfResponse.status).toBe(403);
+    expect(telegramClickCsrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+
+    const publicAgent = request.agent(app);
+    const publicCsrfToken = await getCsrfToken(publicAgent);
+    const analyticsResponse = await publicAgent.post('/api/events').set('x-csrf-token', publicCsrfToken).send({
+      eventName: 'page_view',
+      page: '/test',
+    });
+    expect(analyticsResponse.status).toBe(201);
+    expect(analyticsResponse.body.ok).toBe(true);
+
+    const telegramClickResponse = await publicAgent
+      .post('/api/telegram-click')
+      .set('x-csrf-token', publicCsrfToken)
+      .send({ page: '/test' });
+    expect(telegramClickResponse.status).toBe(200);
+    expect(telegramClickResponse.body.ok).toBe(true);
 
     const metricsResponse = await request(app).get('/metrics');
     expect(metricsResponse.status).toBe(200);

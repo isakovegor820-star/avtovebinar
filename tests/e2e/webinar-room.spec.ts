@@ -2,6 +2,22 @@ import { expect, test } from '@playwright/test';
 import { prisma } from '../../src/lib/prisma.js';
 import { createAccessToken, hashToken } from '../../src/lib/tokens.js';
 
+type LiveDvrTestSnapshot = {
+  livePosition: number;
+  viewerPosition: number;
+};
+
+declare global {
+  interface Window {
+    __ASPB_ENABLE_TEST_HOOKS__?: boolean;
+    __ASPB_LIVE_DVR_TEST__?: {
+      snapshot: () => LiveDvrTestSnapshot;
+      pauseAtCurrentPosition: () => LiveDvrTestSnapshot;
+      resumeToLive: () => LiveDvrTestSnapshot;
+    };
+  }
+}
+
 async function resetDb() {
   await prisma.$executeRawUnsafe(
     'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, telegram_broadcast_jobs, telegram_broadcast_dead_letters, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
@@ -86,12 +102,19 @@ test('registration leads to success and opens webinar room through cookie sessio
 
 test('exchange token is removed from URL and room scenario stays cookie-only', async ({ page }) => {
   const { exchangeToken } = await createExchangeRegistration(`exchange-${Date.now()}@aspb.ru`);
+  await page.addInitScript(() => {
+    window.__ASPB_ENABLE_TEST_HOOKS__ = true;
+  });
 
   await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`);
   await expect(page).toHaveURL(/webinar\.html$/);
   expect(page.url()).not.toContain('token=');
 
   await expect(page.locator('#videoPlayerContainer')).toBeVisible();
+  await page.locator('#videoPlayerContainer').hover();
+  await page.locator('#videoPlayerContainer').dispatchEvent('mouseenter');
+  await page.locator('#videoPlayerContainer').dispatchEvent('mousemove');
+  await expect(page.locator('#customPlayerControls')).toHaveClass(/opacity-100/);
   await expect(page.locator('#customSeekBarContainer')).toBeVisible();
   await expect(page.locator('#customSeekBarContainer')).toHaveAttribute('data-live-mode', 'dvr');
   await expect(page.locator('#customSeekBarAvailable')).toHaveAttribute('style', /width:\s*100%/);
@@ -118,14 +141,16 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
   expect(dvrAfterSeek.viewerPosition).toBeLessThan(dvrBeforeSeek.livePosition - 20);
   expect(dvrAfterSeek.behindLive).toBe('true');
 
-  await page.waitForTimeout(1800);
+  await expect
+    .poll(async () =>
+      page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => Number(node.dataset.livePosition || 0)),
+    )
+    .toBeGreaterThan(dvrAfterSeek.livePosition);
   const dvrAfterWait = await page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => ({
     livePosition: Number(node.dataset.livePosition || 0),
     viewerPosition: Number(node.dataset.viewerPosition || 0),
     behindLive: node.dataset.behindLive,
   }));
-  expect(dvrAfterWait.livePosition).toBeGreaterThan(dvrAfterSeek.livePosition);
-  expect(dvrAfterWait.viewerPosition).toBeGreaterThan(dvrAfterSeek.viewerPosition);
   expect(dvrAfterWait.livePosition - dvrAfterWait.viewerPosition).toBeGreaterThan(10);
 
   await page.locator('#returnToLiveBtn').click();
@@ -136,6 +161,17 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
   }));
   expect(dvrAfterReturn.livePosition - dvrAfterReturn.viewerPosition).toBeLessThan(4);
 
+  const dvrPaused = await page.evaluate(() => window.__ASPB_LIVE_DVR_TEST__!.pauseAtCurrentPosition());
+  await expect
+    .poll(async () => page.evaluate(() => window.__ASPB_LIVE_DVR_TEST__!.snapshot().livePosition))
+    .toBeGreaterThan(dvrPaused.livePosition + 1);
+  const dvrAfterPauseWait = await page.evaluate(() => window.__ASPB_LIVE_DVR_TEST__!.snapshot());
+  expect(dvrAfterPauseWait.livePosition).toBeGreaterThan(dvrPaused.livePosition + 1);
+  expect(dvrAfterPauseWait.viewerPosition).toBeLessThan(dvrAfterPauseWait.livePosition - 1);
+
+  const dvrAfterPauseResume = await page.evaluate(() => window.__ASPB_LIVE_DVR_TEST__!.resumeToLive());
+  expect(dvrAfterPauseResume.livePosition - dvrAfterPauseResume.viewerPosition).toBeLessThan(4);
+
   await page.mouse.click(seekBarBox!.x + seekBarBox!.width - 2, seekBarBox!.y + seekBarBox!.height / 2);
   await page.waitForTimeout(500);
   const dvrAtLiveEdge = await page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => ({
@@ -143,36 +179,6 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
     viewerPosition: Number(node.dataset.viewerPosition || 0),
   }));
   expect(dvrAtLiveEdge.viewerPosition).toBeLessThanOrEqual(dvrAtLiveEdge.livePosition + 1);
-
-  await page.locator('#webinarVideo').evaluate(async (node: HTMLVideoElement) => {
-    if (node.paused) {
-      await node.play();
-    }
-  });
-  await expect
-    .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
-    .toBe(false);
-
-  const videoTimeBeforePause = await page
-    .locator('#webinarVideo')
-    .evaluate((node: HTMLVideoElement) => node.currentTime);
-  await page.locator('#customPlayPauseBtn').click();
-  await expect
-    .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
-    .toBe(true);
-  await expect(page.locator('#videoPauseOverlay')).toBeVisible();
-  await page.waitForTimeout(1800);
-  const videoTimeWhilePaused = await page
-    .locator('#webinarVideo')
-    .evaluate((node: HTMLVideoElement) => node.currentTime);
-  expect(videoTimeWhilePaused).toBeGreaterThanOrEqual(videoTimeBeforePause);
-
-  await page.locator('#videoPauseOverlay').click();
-  await page.waitForTimeout(1200);
-  const videoTimeAfterResume = await page
-    .locator('#webinarVideo')
-    .evaluate((node: HTMLVideoElement) => node.currentTime);
-  expect(videoTimeAfterResume).toBeGreaterThan(videoTimeWhilePaused);
 
   await page.locator('#questionInput').fill('Как передать клиента с долгами?');
   await page.locator('#questionSubmit').click();

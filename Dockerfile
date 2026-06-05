@@ -25,12 +25,12 @@ ENV NODE_ENV=production
 
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --omit=dev \
-  && npx prisma generate \
+RUN npm ci --omit=dev --ignore-scripts \
   && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/crisis_premium ./crisis_premium
+COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 
 EXPOSE 5174
 

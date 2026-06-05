@@ -36,4 +36,6 @@ EXPOSE 5174
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD if [ "${WORKER_ROLE:-all}" = "webinar" ]; then node -e "process.exit(0)"; else wget -qO- "http://127.0.0.1:${PORT:-5174}/health/ready" || exit 1; fi
 
+USER node
+
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]

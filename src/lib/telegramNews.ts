@@ -65,6 +65,16 @@ const FALLBACK_NEWS = [
   },
 ];
 
+const XML_VALUE_PATTERNS = {
+  title: /<title[^>]*>([\s\S]*?)<\/title>/i,
+  link: /<link[^>]*>([\s\S]*?)<\/link>/i,
+  guid: /<guid[^>]*>([\s\S]*?)<\/guid>/i,
+  description: /<description[^>]*>([\s\S]*?)<\/description>/i,
+  pubDate: /<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i,
+} as const;
+
+type XmlValueTag = keyof typeof XML_VALUE_PATTERNS;
+
 function decodeXml(value: string) {
   return value
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -82,8 +92,8 @@ function stripHtml(value: string) {
     .trim();
 }
 
-function xmlValue(source: string, tag: string) {
-  const match = source.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+function xmlValue(source: string, tag: XmlValueTag) {
+  const match = source.match(XML_VALUE_PATTERNS[tag]);
   return match ? stripHtml(match[1]) : '';
 }
 

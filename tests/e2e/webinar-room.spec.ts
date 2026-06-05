@@ -142,6 +142,34 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
   }));
   expect(dvrAfterReturn.livePosition - dvrAfterReturn.viewerPosition).toBeLessThan(4);
 
+  await page.locator('#videoPlayerContainer').hover();
+  await expect(page.locator('#customPlayerControls')).toHaveClass(/opacity-100/);
+  await page.locator('#customPlayPauseBtn').click();
+  await expect.poll(() => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused)).toBe(true);
+  const dvrPaused = await page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => ({
+    livePosition: Number(node.dataset.livePosition || 0),
+    viewerPosition: Number(node.dataset.viewerPosition || 0),
+  }));
+  await expect
+    .poll(async () =>
+      page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => Number(node.dataset.livePosition || 0)),
+    )
+    .toBeGreaterThan(dvrPaused.livePosition + 1);
+  const dvrAfterPauseWait = await page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => ({
+    livePosition: Number(node.dataset.livePosition || 0),
+    viewerPosition: Number(node.dataset.viewerPosition || 0),
+  }));
+  expect(dvrAfterPauseWait.livePosition).toBeGreaterThan(dvrPaused.livePosition + 1);
+  expect(dvrAfterPauseWait.viewerPosition).toBeLessThan(dvrAfterPauseWait.livePosition - 1);
+
+  await page.locator('#customPlayPauseBtn').dispatchEvent('click');
+  await page.waitForTimeout(800);
+  const dvrAfterPauseResume = await page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => ({
+    livePosition: Number(node.dataset.livePosition || 0),
+    viewerPosition: Number(node.dataset.viewerPosition || 0),
+  }));
+  expect(dvrAfterPauseResume.livePosition - dvrAfterPauseResume.viewerPosition).toBeLessThan(4);
+
   await page.mouse.click(seekBarBox!.x + seekBarBox!.width - 2, seekBarBox!.y + seekBarBox!.height / 2);
   await page.waitForTimeout(500);
   const dvrAtLiveEdge = await page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => ({

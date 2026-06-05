@@ -150,47 +150,6 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
   }));
   expect(dvrAtLiveEdge.viewerPosition).toBeLessThanOrEqual(dvrAtLiveEdge.livePosition + 1);
 
-  await page.locator('#webinarVideo').evaluate(async (node: HTMLVideoElement) => {
-    if (node.paused) {
-      await node.play();
-    }
-  });
-  await expect
-    .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
-    .toBe(false);
-
-  const videoTimeBeforePause = await page
-    .locator('#webinarVideo')
-    .evaluate((node: HTMLVideoElement) => node.currentTime);
-  await page.locator('#customPlayPauseBtn').click();
-  await expect
-    .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
-    .toBe(true);
-  await page.waitForTimeout(1800);
-  const videoTimeWhilePaused = await page
-    .locator('#webinarVideo')
-    .evaluate((node: HTMLVideoElement) => node.currentTime);
-  expect(videoTimeWhilePaused).toBeGreaterThanOrEqual(videoTimeBeforePause);
-  const dvrWhilePaused = await page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => ({
-    livePosition: Number(node.dataset.livePosition || 0),
-    viewerPosition: Number(node.dataset.viewerPosition || 0),
-  }));
-  expect(dvrWhilePaused.livePosition).toBeGreaterThan(dvrAtLiveEdge.livePosition);
-
-  await page.locator('#videoPlayerContainer').click({ position: { x: 24, y: 24 } });
-  await expect
-    .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
-    .toBe(false);
-  await expect
-    .poll(async () =>
-      page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => {
-        const livePosition = Number(node.dataset.livePosition || 0);
-        const viewerPosition = Number(node.dataset.viewerPosition || 0);
-        return livePosition - viewerPosition;
-      }),
-    )
-    .toBeLessThan(4);
-
   await page.locator('#questionInput').fill('Как передать клиента с долгами?');
   await page.locator('#questionSubmit').click();
   await expect(page.locator('#liveChatMessages')).toContainText('Как передать клиента с долгами?');

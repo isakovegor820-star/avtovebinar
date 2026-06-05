@@ -189,7 +189,8 @@ export async function hydrateTimeline() {
     video.pause();
     if (customControls) customControls.classList.add('hidden');
     if (playOverlay) {
-      playOverlay.classList.remove('hidden', 'opacity-0');
+      playOverlay.classList.remove('hidden', 'opacity-0', 'bg-black/70', 'hover:bg-black/60');
+      playOverlay.classList.add('bg-black', 'hover:bg-black');
 
       const countdownHours = document.getElementById('countdownHours');
       const countdownMinutes = document.getElementById('countdownMinutes');

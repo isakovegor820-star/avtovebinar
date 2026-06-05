@@ -1,0 +1,103 @@
+openapi: 3.0.3
+info:
+  title: ASPB Autowebinar API
+  version: 1.0.0
+servers:
+  - url: /
+paths:
+  /health/live:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Runtime is alive
+  /health/ready:
+    get:
+      summary: Readiness probe
+      responses:
+        "200":
+          description: External dependencies are ready
+        "503":
+          description: One or more dependencies are unavailable
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      responses:
+        "200":
+          description: Prometheus text exposition
+  /api/register:
+    post:
+      summary: Register a webinar participant
+      responses:
+        "201":
+          description: Registration saved and email outbox job created
+  /api/registration/exchange/{token}:
+    post:
+      summary: Exchange one-time room token for HttpOnly session cookie
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session cookie issued
+        "403":
+          description: CSRF token is missing or invalid
+        "404":
+          description: Token is expired or already used
+  /api/registration/session/current:
+    get:
+      summary: Current registration/session state from cookie
+      responses:
+        "200":
+          description: Current cookie-backed room state
+  /api/webinar/current:
+    get:
+      summary: Public webinar schedule state
+      responses:
+        "200":
+          description: Webinar schedule and countdown
+  /api/webinar/timeline/session/current:
+    get:
+      summary: Cookie-backed webinar timeline
+      responses:
+        "200":
+          description: Timeline and live state
+        "401":
+          description: Missing room cookie
+  /api/webinar/chat/session/current:
+    get:
+      summary: Cookie-backed webinar chat
+      responses:
+        "200":
+          description: Chat messages and live state
+  /api/questions:
+    post:
+      summary: Submit webinar question
+      responses:
+        "201":
+          description: Question accepted
+        "403":
+          description: CSRF token is missing or invalid
+  /api/partner-application:
+    post:
+      summary: Submit partner application
+      responses:
+        "201":
+          description: Application accepted
+        "403":
+          description: CSRF token is missing or invalid
+  /api/admin/login:
+    post:
+      summary: Admin login
+      responses:
+        "200":
+          description: Admin session cookie issued
+  /api/admin/telegram/broadcast:
+    post:
+      summary: Queue durable Telegram broadcast
+      responses:
+        "202":
+          description: Broadcast job queued

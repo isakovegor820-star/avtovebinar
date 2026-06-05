@@ -4,102 +4,11 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Успешная регистрация | АСПБ</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="css/styles.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css" rel="stylesheet"/>
-<script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "tertiary-fixed-dim": "#bcc7dd",
-                        "on-tertiary-fixed-variant": "#3c475a",
-                        "background": "#f8f9fa",
-                        "on-error": "#ffffff",
-                        "inverse-on-surface": "#f0f1f2",
-                        "secondary-fixed": "#ffdea5",
-                        "on-secondary-fixed": "#261900",
-                        "primary-fixed": "#d2e4fb",
-                        "on-secondary-fixed-variant": "#5d4201",
-                        "surface-container": "#edeeef",
-                        "on-tertiary-fixed": "#111c2c",
-                        "on-surface": "#191c1d",
-                        "on-secondary": "#ffffff",
-                        "surface": "#f8f9fa",
-                        "on-error-container": "#93000a",
-                        "inverse-primary": "#b7c8de",
-                        "secondary-fixed-dim": "#e9c176",
-                        "outline": "#74777d",
-                        "surface-tint": "#4f6073",
-                        "primary": "#041627",
-                        "on-primary-container": "#8192a7",
-                        "surface-dim": "#d9dadb",
-                        "surface-container-high": "#e7e8e9",
-                        "on-primary-fixed-variant": "#38485a",
-                        "on-background": "#191c1d",
-                        "tertiary-fixed": "#d8e3fa",
-                        "on-primary-fixed": "#0b1d2d",
-                        "outline-variant": "#c4c6cd",
-                        "surface-variant": "#e1e3e4",
-                        "on-tertiary": "#ffffff",
-                        "tertiary-container": "#1f2a3b",
-                        "surface-bright": "#f8f9fa",
-                        "secondary": "#775a19",
-                        "inverse-surface": "#2e3132",
-                        "surface-container-low": "#f3f4f5",
-                        "surface-container-highest": "#e1e3e4",
-                        "primary-fixed-dim": "#b7c8de",
-                        "on-secondary-container": "#785a1a",
-                        "secondary-container": "#fed488",
-                        "error": "#ba1a1a",
-                        "tertiary": "#0a1526",
-                        "on-surface-variant": "#44474c",
-                        "primary-container": "#1a2b3c",
-                        "surface-container-lowest": "#ffffff",
-                        "on-tertiary-container": "#8691a6",
-                        "on-primary": "#ffffff",
-                        "error-container": "#ffdad6"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "0.25rem",
-                        "lg": "22px",
-                        "xl": "28px",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "gutter": "24px",
-                        "container-max-width": "1280px",
-                        "margin-desktop": "48px",
-                        "unit": "4px",
-                        "margin-mobile": "16px"
-                    },
-                    "fontFamily": {
-                        "headline-lg-mobile": ["Manrope"],
-                        "body-lg": ["Manrope"],
-                        "headline-xl": ["Manrope"],
-                        "headline-lg": ["Manrope"],
-                        "headline-md": ["Manrope"],
-                        "label-sm": ["Manrope"],
-                        "label-md": ["Manrope"],
-                        "body-md": ["Manrope"]
-                    },
-                    "fontSize": {
-                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
-                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                        "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
-                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
-                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
-                    }
-                }
-            }
-        }
-    </script>
 <style>
         body {
             background-color: #f8f9fa;
@@ -138,6 +47,14 @@
                 Зарегистрироваться
             </a>
 </div>
+<div class="md:hidden px-gutter pb-3">
+<nav class="flex gap-3 overflow-x-auto text-label-sm font-label-sm" aria-label="Мобильная навигация">
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#about">О вебинаре</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#why-now">Почему сейчас</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#team">Команда</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#faq">FAQ</a>
+</nav>
+</div>
 </header>
 <div data-current="success" data-flow-tabs style="margin-top: 72px;"></div>
 <main class="w-full max-w-container-max-width px-gutter flex flex-col items-center justify-center py-24 mt-16">
@@ -145,17 +62,17 @@
 <div class="absolute -top-12 -left-12 w-24 h-24 bg-secondary-container/30 rounded-full blur-2xl"></div>
 <div class="absolute -bottom-8 -right-8 w-32 h-32 bg-primary-fixed/40 rounded-full blur-3xl"></div>
 <section class="glass-card rounded-lg p-8 md:p-16 flex flex-col items-center text-center shadow-lg relative z-10">
-<div class="w-20 h-20 bg-primary text-on-primary rounded-full flex items-center justify-center mb-8 animate-bounce transition-transform duration-1000">
+<div class="w-20 h-20 bg-primary text-on-primary rounded-full flex items-center justify-center mb-8 transition-transform duration-1000">
 <span class="material-symbols-outlined text-4xl" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
 </div>
 <h1 class="font-headline-xl text-headline-xl md:font-headline-xl md:text-headline-xl text-primary mb-6">
                     Вы зарегистрированы
                 </h1>
-<p class="font-body-lg text-body-lg text-on-surface-variant max-w-xl mb-12">
+<p id="successIntroText" class="font-body-lg text-body-lg text-on-surface-variant max-w-xl mb-12">
                     Вы сделали первый шаг к тому, чтобы не отпускать проблемных клиентов впустую. Завтра покажем готовую цепочку АСПБ: вы видите проблему и передаете клиента, команда ведет процедуру, вы получаете партнерское вознаграждение. Подключите Telegram-напоминания, чтобы получить ссылку на эфир и новости перед стартом.
                 </p>
 <div class="w-full flex flex-col gap-4 max-w-md">
-<a id="successTelegramLink" data-telegram-bot-link="true" class="flex items-center justify-center gap-3 bg-[#0088cc] hover:bg-[#0077b5] text-white py-5 px-8 rounded-xl font-label-md text-label-md transition-all transform hover:scale-[1.02] active:scale-95 shadow-md group" href="https://t.me/example" target="_blank">
+<a id="successTelegramLink" data-telegram-bot-link="true" class="flex items-center justify-center gap-3 bg-[#0088cc] hover:bg-[#0077b5] text-white py-5 px-8 rounded-xl font-label-md text-label-md transition-all transform hover:scale-[1.02] active:scale-95 shadow-md group" href="https://t.me/jwjefgwreqfe_bot" target="_blank">
 <span class="material-symbols-outlined text-2xl">send</span>
                         Перейти в бот «Уведомления АСПБ»
                     </a>
@@ -175,7 +92,7 @@
 </div>
 <div class="mt-16 pt-8 border-t border-outline-variant/30 w-full grid grid-cols-1 md:grid-cols-3 gap-8">
 <div class="flex flex-col items-center">
-<span id="successWebinarDate" class="text-primary font-headline-md text-headline-md mb-1">11:00 МСК</span>
+<span id="successWebinarDate" class="text-primary font-headline-md text-headline-md mb-1">19:00 МСК</span>
 <span class="text-on-surface-variant font-label-sm text-label-sm">Начало эфира</span>
 </div>
 <div class="flex flex-col items-center">
@@ -220,7 +137,7 @@
 <div class="flex flex-col gap-2">
 <div class="text-headline-sm font-headline-sm font-bold text-primary">АСПБ</div>
 <p class="font-label-sm text-label-sm text-on-surface-variant max-w-xs">Антикризисная служба помощи бизнесу</p>
-<p class="font-label-sm text-label-sm text-on-surface-variant max-w-xs">© 2024 АСПБ. Все права защищены. Юридическая информация и оферта.</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant max-w-xs">© 2026 АСПБ. Все права защищены. Юридическая информация и оферта.</p>
 </div>
 <div class="flex flex-wrap justify-center gap-6">
 <a class="font-label-sm text-label-sm text-on-surface-variant hover:underline transition-all" href="privacy.html">Политика конфиденциальности</a>
@@ -228,29 +145,7 @@
 <a class="font-label-sm text-label-sm text-on-surface-variant hover:underline transition-all" href="mailto:partners@aspb.ru">Контакты</a>
 </div>
 </footer>
-<script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const card = document.querySelector('.glass-card');
-            card.style.opacity = '0';
-            card.style.transform = 'translateY(20px)';
-            
-            setTimeout(() => {
-                card.style.transition = 'all 0.8s cubic-bezier(0.16, 1, 0.3, 1)';
-                card.style.opacity = '1';
-                card.style.transform = 'translateY(0)';
-            }, 100);
-
-            const buttons = document.querySelectorAll('button');
-            buttons.forEach(btn => {
-                btn.addEventListener('mouseenter', () => {
-                    const ripple = document.createElement('div');
-                    ripple.className = 'ripple';
-                    btn.appendChild(ripple);
-                    setTimeout(() => ripple.remove(), 1000);
-                });
-            });
-        });
-    </script>
-<script src="aspb-api.js"></script>
+<script src="success-animation.js"></script>
+<script type="module" src="js/main.js"></script>
 <script src="flow-tabs.js"></script>
 </body></html>

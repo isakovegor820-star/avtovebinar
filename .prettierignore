@@ -1,0 +1,29 @@
+# Зависимости и сборка
+node_modules/
+dist/
+coverage/
+
+# Фронтенд (форматируется вручную)
+crisis_premium/
+
+# Автосгенерированные миграции Prisma
+prisma/migrations/
+
+# Тяжёлые ассеты
+crisis_premium/assets/webinar.mp4
+
+# Устаревшая документация
+docs/
+
+# Резервные копии
+backups/
+
+# Служебные директории
+.omx/
+scratch/
+stitch_/
+stitch_6/
+autowebinar-production/
+
+# Lock-файл
+package-lock.json

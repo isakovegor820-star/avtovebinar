@@ -1,7 +1,11 @@
 import { PrismaClient } from '@prisma/client';
-import { getNextWebinarDate, WEBINAR_REPLAY_HOURS } from '../src/lib/time.js';
+import { getNextWebinarDate, WEBINAR_DURATION_MINUTES, WEBINAR_REPLAY_HOURS, WEBINAR_TITLE } from '../src/lib/time.js';
 import { hashPassword } from '../src/lib/passwords.js';
-import { DEFAULT_TIMELINE_EVENTS } from '../src/lib/webinarTimeline.js';
+import {
+  DEFAULT_TIMELINE_EVENTS,
+  WEBINAR_VIDEO_DURATION_SECONDS,
+  WEBINAR_VIDEO_PATH,
+} from '../src/lib/webinarTimeline.js';
 
 const prisma = new PrismaClient();
 
@@ -11,32 +15,32 @@ async function main() {
   const session = await prisma.webinarSession.upsert({
     where: { scheduledAt },
     update: {
-      title: 'Экономика кризиса: как юристу зарабатывать на защите финансовых прав бизнеса',
-      durationMinutes: 120,
-      videoUrl: '/crisis_premium/assets/webinar.mp4',
-      videoDurationSeconds: 568,
+      title: WEBINAR_TITLE,
+      durationMinutes: WEBINAR_DURATION_MINUTES,
+      videoUrl: WEBINAR_VIDEO_PATH,
+      videoDurationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
       roomOpenBeforeMinutes: 15,
       replayAvailableHours: WEBINAR_REPLAY_HOURS,
       replayEnabled: true,
       liveMode: 'simulated',
-      status: 'scheduled'
+      status: 'scheduled',
     },
     create: {
-      title: 'Экономика кризиса: как юристу зарабатывать на защите финансовых прав бизнеса',
+      title: WEBINAR_TITLE,
       scheduledAt,
-      durationMinutes: 120,
-      videoUrl: '/crisis_premium/assets/webinar.mp4',
-      videoDurationSeconds: 568,
+      durationMinutes: WEBINAR_DURATION_MINUTES,
+      videoUrl: WEBINAR_VIDEO_PATH,
+      videoDurationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
       roomOpenBeforeMinutes: 15,
       replayAvailableHours: WEBINAR_REPLAY_HOURS,
       replayEnabled: true,
       liveMode: 'simulated',
-      status: 'scheduled'
-    }
+      status: 'scheduled',
+    },
   });
 
   const existingTimeline = await prisma.webinarTimelineEvent.count({
-    where: { webinarSessionId: session.id }
+    where: { webinarSessionId: session.id },
   });
 
   if (existingTimeline === 0) {
@@ -48,13 +52,16 @@ async function main() {
         text: event.text,
         type: event.type,
         ctaLabel: event.ctaLabel,
-        ctaUrl: event.ctaUrl
-      }))
+        ctaUrl: event.ctaUrl,
+      })),
     });
   }
 
-  const adminLogin = process.env.ADMIN_LOGIN || 'admin';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+  const adminLogin = process.env.ADMIN_LOGIN;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminLogin || !adminPassword) {
+    throw new Error('ADMIN_LOGIN and ADMIN_PASSWORD are required for seeding the owner admin user');
+  }
   const adminEmail = adminLogin.includes('@') ? adminLogin.toLowerCase() : `${adminLogin}@local.admin`;
 
   await prisma.adminUser.upsert({
@@ -62,18 +69,17 @@ async function main() {
     update: {
       name: adminLogin,
       role: 'owner',
-      isActive: true
+      isActive: true,
     },
     create: {
       name: adminLogin,
       email: adminEmail,
       passwordHash: await hashPassword(adminPassword),
-      role: 'owner'
-    }
+      role: 'owner',
+    },
   });
 }
 
-main()
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main().finally(async () => {
+  await prisma.$disconnect();
+});

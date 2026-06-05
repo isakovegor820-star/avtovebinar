@@ -4,102 +4,11 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Вебинарная комната | АСПБ</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="css/styles.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css" rel="stylesheet"/>
-<script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "tertiary-fixed-dim": "#bcc7dd",
-                        "on-tertiary-fixed-variant": "#3c475a",
-                        "background": "#f8f9fa",
-                        "on-error": "#ffffff",
-                        "inverse-on-surface": "#f0f1f2",
-                        "secondary-fixed": "#ffdea5",
-                        "on-secondary-fixed": "#261900",
-                        "primary-fixed": "#d2e4fb",
-                        "on-secondary-fixed-variant": "#5d4201",
-                        "surface-container": "#edeeef",
-                        "on-tertiary-fixed": "#111c2c",
-                        "on-surface": "#191c1d",
-                        "on-secondary": "#ffffff",
-                        "surface": "#f8f9fa",
-                        "on-error-container": "#93000a",
-                        "inverse-primary": "#b7c8de",
-                        "secondary-fixed-dim": "#e9c176",
-                        "outline": "#74777d",
-                        "surface-tint": "#4f6073",
-                        "primary": "#041627",
-                        "on-primary-container": "#8192a7",
-                        "surface-dim": "#d9dadb",
-                        "surface-container-high": "#e7e8e9",
-                        "on-primary-fixed-variant": "#38485a",
-                        "on-background": "#191c1d",
-                        "tertiary-fixed": "#d8e3fa",
-                        "on-primary-fixed": "#0b1d2d",
-                        "outline-variant": "#c4c6cd",
-                        "surface-variant": "#e1e3e4",
-                        "on-tertiary": "#ffffff",
-                        "tertiary-container": "#1f2a3b",
-                        "surface-bright": "#f8f9fa",
-                        "secondary": "#775a19",
-                        "inverse-surface": "#2e3132",
-                        "surface-container-low": "#f3f4f5",
-                        "surface-container-highest": "#e1e3e4",
-                        "primary-fixed-dim": "#b7c8de",
-                        "on-secondary-container": "#785a1a",
-                        "secondary-container": "#fed488",
-                        "error": "#ba1a1a",
-                        "tertiary": "#0a1526",
-                        "on-surface-variant": "#44474c",
-                        "primary-container": "#1a2b3c",
-                        "surface-container-lowest": "#ffffff",
-                        "on-tertiary-container": "#8691a6",
-                        "on-primary": "#ffffff",
-                        "error-container": "#ffdad6"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "0.25rem",
-                        "lg": "22px",
-                        "xl": "28px",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "gutter": "24px",
-                        "container-max-width": "1280px",
-                        "margin-desktop": "48px",
-                        "unit": "4px",
-                        "margin-mobile": "16px"
-                    },
-                    "fontFamily": {
-                        "headline-lg-mobile": ["Manrope"],
-                        "body-lg": ["Manrope"],
-                        "headline-xl": ["Manrope"],
-                        "headline-lg": ["Manrope"],
-                        "headline-md": ["Manrope"],
-                        "label-sm": ["Manrope"],
-                        "label-md": ["Manrope"],
-                        "body-md": ["Manrope"]
-                    },
-                    "fontSize": {
-                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
-                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                        "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
-                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
-                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
-                    }
-                },
-            },
-        }
-    </script>
 <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -108,6 +17,68 @@
             background: rgba(255, 255, 255, 0.7);
             backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        /* Card reveal animation */
+        .card-reveal {
+            opacity: 0;
+            transform: translateY(16px);
+            animation: cardRevealIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            animation-play-state: paused;
+        }
+        .card-reveal.is-visible {
+            animation-play-state: running;
+        }
+        @keyframes cardRevealIn {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Chat message animation */
+        @keyframes chatMsgIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Program item hover — number lights up */
+        .program-item:hover .program-number {
+            opacity: 1 !important;
+            transform: scale(1.2);
+            color: #041627;
+        }
+        .program-number {
+            opacity: 0.3;
+        }
+
+        /* Program icon subtle pulse */
+        .program-icon-pulse {
+            animation: iconSoftPulse 3s ease-in-out infinite;
+        }
+        @keyframes iconSoftPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(4, 22, 39, 0.1); }
+            50% { box-shadow: 0 0 0 8px rgba(4, 22, 39, 0); }
+        }
+
+        /* Notify icon pulse */
+        .notify-icon-pulse {
+            animation: notifyPulse 2.5s ease-in-out infinite;
+        }
+        @keyframes notifyPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 136, 204, 0.2); }
+            50% { box-shadow: 0 0 0 6px rgba(0, 136, 204, 0); }
+        }
+
+        /* Notify button hover glow */
+        .notify-btn:hover {
+            box-shadow: 0 0 20px rgba(4, 22, 39, 0.15);
+        }
+
+        @keyframes liveEdgePulse {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+            50% { transform: translate(-50%, -50%) scale(1.08); box-shadow: 0 0 0 9px rgba(239, 68, 68, 0); }
+        }
+
+        .live-edge-pulse {
+            animation: liveEdgePulse 1.4s ease-in-out infinite;
         }
     </style>
 </head>
@@ -120,15 +91,11 @@
 <span class="hidden sm:block text-[11px] leading-4 font-semibold text-on-surface-variant">Антикризисная служба помощи бизнесу</span>
 </a>
 <nav class="hidden md:flex gap-8">
-<a class="text-label-md font-label-md text-primary border-b-2 border-primary pb-1 transition-colors duration-300" href="index.html#about">О вебинаре</a>
-<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#why-now">Почему сейчас</a>
-<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#team">Команда</a>
-<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#faq">FAQ</a>
+<!-- FIX 1: nav и кнопка регистрации удалены — пользователь уже в комнате -->
 </nav>
-<a class="bg-primary text-on-primary px-6 py-2.5 rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="register.html">Зарегистрироваться</a>
+<a class="bg-primary text-on-primary px-6 py-2.5 rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="#partnerApplication">Оставить заявку</a>
 </div>
 </header>
-<div data-current="webinar" data-flow-tabs></div>
 <main class="flex-grow max-w-container-max-width mx-auto w-full px-gutter py-8 md:py-12">
 <!-- Hero & Player Section -->
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -156,7 +123,7 @@
   </video>
 
   <!-- Fallback Screen when video cannot load -->
-  <div id="videoFallback" class="hidden absolute inset-0 flex flex-col items-center justify-center text-center p-8 bg-primary-container z-10">
+  <div id="videoFallback" class="hidden absolute inset-0 flex-col items-center justify-center text-center p-8 bg-primary-container z-10">
     <div class="w-20 h-20 bg-surface-container-lowest/10 backdrop-blur-md rounded-full flex items-center justify-center mb-6 border border-white/20">
       <span class="material-symbols-outlined text-white text-4xl">movie</span>
     </div>
@@ -166,11 +133,11 @@
 
   <!-- Play/Unmute Overlay for Muted Autoplay Bypass -->
   <div id="videoPlayOverlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 text-center p-6 cursor-pointer hover:bg-black/60 transition-all duration-300">
-    <div class="w-20 h-20 bg-red-600/90 rounded-full flex items-center justify-center mb-4 border border-white/20 animate-pulse hover:scale-110 transition-transform shadow-lg">
-      <span class="material-symbols-outlined text-white text-4xl font-bold">volume_up</span>
+    <div class="w-14 h-14 bg-white/12 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-white/25 hover:scale-105 transition-transform shadow-lg">
+      <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
     </div>
-    <p class="text-headline-md text-white font-bold tracking-wide uppercase">🔴 Трансляция уже идет</p>
-    <p class="text-body-lg text-white/80 mt-1 max-w-md">Нажмите на экран, чтобы включить трансляцию</p>
+    <p class="text-headline-sm text-white font-bold tracking-wide uppercase">Войти в эфир</p>
+    <p class="text-body-md text-white/75 mt-1 max-w-md">Нажмите, чтобы подключиться к трансляции</p>
   </div>
 
   <!-- Pause Overlay (only shown in Live mode when paused) -->
@@ -178,12 +145,34 @@
     <div class="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4 border border-white/10 hover:scale-110 transition-transform">
       <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
     </div>
-    <p class="text-headline-md text-white font-bold tracking-wide uppercase">🔴 Эфир приостановлен</p>
+    <p class="text-headline-sm text-white font-bold tracking-wide uppercase">Просмотр приостановлен</p>
     <p class="text-body-lg text-white/80 mt-1">Нажмите для возврата в прямой эфир</p>
   </div>
 
   <!-- Custom Stream Controls Overlay (hidden by default, shown on hover/activity) -->
   <div id="customPlayerControls" class="absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-4 pt-10 flex flex-col gap-2 transition-all duration-300 opacity-0 pointer-events-none">
+
+    <!-- Live/DVR seekbar: красная часть показывает доступный эфир, точка справа — live-edge -->
+    <div id="customSeekBarContainer"
+         class="w-full h-3 bg-white/20 rounded-full cursor-pointer group/seek relative mb-1 overflow-visible">
+      <div id="customSeekBarAvailable"
+           class="hidden absolute inset-y-0 left-0 bg-red-500/25 rounded-full pointer-events-none"
+           style="width: 0%">
+      </div>
+      <div id="customSeekBarProgress"
+           class="absolute inset-y-0 left-0 bg-gradient-to-r from-red-600 via-red-500 to-red-400 rounded-full pointer-events-none transition-all shadow-[0_0_18px_rgba(239,68,68,0.55)]"
+           style="width: 0%">
+      </div>
+      <div id="customSeekBarThumb"
+           class="absolute top-1/2 w-4 h-4 rounded-full bg-white border-2 border-red-500 shadow-[0_0_14px_rgba(239,68,68,0.65)] pointer-events-none -translate-x-1/2 -translate-y-1/2"
+           style="left: 0%">
+      </div>
+      <div id="customLiveEdgeMarker"
+           class="hidden absolute top-1/2 w-4 h-4 rounded-full bg-red-500 border-2 border-white pointer-events-none live-edge-pulse"
+           style="left: 0%">
+      </div>
+      <div class="absolute inset-y-0 left-0 right-0 rounded-full opacity-0 group-hover/seek:opacity-100 bg-white/10 transition-opacity"></div>
+    </div>
 
     <!-- Control Buttons -->
     <div class="flex items-center justify-between w-full">
@@ -194,7 +183,7 @@
         </button>
 
         <!-- Live Indicator Badge -->
-        <div id="customLiveIndicator" class="flex items-center gap-1.5 text-red-500 font-bold text-xs uppercase tracking-wider bg-red-500/10 px-2.5 py-1 rounded-full border border-red-500/30">
+        <div id="customLiveIndicator" class="hidden items-center gap-1.5 text-red-500 font-bold text-xs uppercase tracking-wider bg-red-500/10 px-2.5 py-1 rounded-full border border-red-500/30">
           <span class="w-1.5 h-1.5 bg-red-600 rounded-full animate-ping"></span>
           <span>В эфире</span>
         </div>
@@ -202,7 +191,8 @@
         <!-- Viewer Count Badge -->
         <div id="customViewerCount" class="flex items-center gap-1.5 text-white/80 text-xs bg-white/10 px-2.5 py-1 rounded-full">
           <span class="material-symbols-outlined text-[16px] text-white/60">visibility</span>
-          <span id="viewerCountValue" class="font-semibold">--</span>
+          <!-- FIX 2: правдоподобное начальное число, JS обновит его после загрузки -->
+          <span id="viewerCountValue" class="font-semibold">147</span>
         </div>
       </div>
 
@@ -225,7 +215,7 @@
 
   <!-- Small top right badge for live mode if controls are hidden -->
   <div class="absolute top-4 right-4 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md" id="videoLiveBadge">
-    <span class="w-1.5 h-1.5 bg-white rounded-full animate-ping"></span>🔴 ПРЯМОЙ ЭФИР
+    <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>ПРЯМОЙ ЭФИР
   </div>
 </div>
 <div class="bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-5 shadow-sm" id="timelineActive">
@@ -236,46 +226,26 @@
 </div>
 <!-- Questions Panel -->
 <div class="lg:col-span-4">
-<div class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[600px] overflow-hidden">
-<div class="p-5 border-b border-outline-variant/10 flex items-center justify-between gap-4">
+<!-- FIX 3: адаптивная высота — на мобилке 400px, на десктопе 600px -->
+<div id="webinarChatPanel" class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[400px] md:h-[600px] overflow-hidden">
+<div class="p-4 border-b border-outline-variant/10 flex items-center justify-between gap-4">
 <div>
-<h3 class="text-headline-md font-headline-md text-primary">Ключевые моменты</h3>
-<div class="text-label-sm text-on-surface-variant" id="chatActivity">Подсказки будут появляться по ходу эфира</div>
+<h3 class="text-label-md font-bold text-primary">Чат эфира</h3>
+<div class="text-[11px] text-on-surface-variant" id="chatActivity">Сообщения появляются по ходу трансляции</div>
 </div>
-<div class="flex items-center gap-2 text-label-sm text-on-surface-variant">
-<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
-<span id="chatOnlineLabel">синхронно с видео</span>
-</div>
-</div>
-<div class="flex-grow overflow-y-auto p-5 space-y-6" id="questionList">
-<div class="flex gap-3">
-<div class="w-8 h-8 rounded-full bg-primary text-on-primary flex-shrink-0 flex items-center justify-center text-label-sm font-bold">
-<span class="material-symbols-outlined text-[18px]">psychology</span>
-</div>
-<div class="space-y-1">
-<div class="text-label-sm font-bold text-on-surface">Что сейчас важно понять</div>
-<div class="bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant">
-                                    Смотрите эфир через призму своей практики: какие клиенты уже приходят с долгами, блокировками, налогами или взысканиями.
-                                </div>
+<div class="flex items-center gap-2 text-[11px] text-on-surface-variant">
+<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+<span id="chatOnlineLabel">онлайн</span>
 </div>
 </div>
-<div class="flex gap-3">
-<div class="w-8 h-8 rounded-full bg-primary-fixed-dim flex-shrink-0 flex items-center justify-center text-primary text-label-sm font-bold">
-<span class="material-symbols-outlined text-[18px]">edit_note</span>
+<div class="flex-grow overflow-y-auto p-4 space-y-3" id="liveChatMessages">
+<!-- Auto messages will be injected here by JS -->
 </div>
-<div class="space-y-1">
-<div class="text-label-sm font-bold text-on-surface">Задайте вопрос по своему кейсу</div>
-<div class="bg-surface-container p-3 rounded-xl rounded-tl-none text-body-md text-on-surface-variant">
-                                    Если вспомнили конкретного клиента, напишите вопрос ниже. Он сохранится в админке, и менеджер АСПБ увидит, кто его задал.
-                                </div>
-</div>
-</div>
-</div>
-<div class="p-4 bg-surface-container-low">
+<div class="p-3 bg-surface-container-low border-t border-outline-variant/10">
 <div class="relative">
-<input id="questionInput" class="w-full bg-surface-container-lowest border-outline-variant/30 rounded-xl py-3 pl-4 pr-12 focus:ring-primary focus:border-primary text-body-md" placeholder="Задайте свой вопрос..." type="text"/>
+<input id="questionInput" class="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl py-2.5 pl-4 pr-11 focus:ring-primary focus:border-primary text-[14px]" placeholder="Задайте вопрос..." type="text"/>
 <button id="questionSubmit" class="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:scale-110 transition-transform" type="button">
-<span class="material-symbols-outlined">send</span>
+<span class="material-symbols-outlined text-[20px]">send</span>
 </button>
 </div>
 </div>
@@ -294,7 +264,7 @@
   </div>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-4">
-    <div class="space-y-2">
+    <div class="space-y-2 card-reveal">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
         <span class="material-symbols-outlined text-secondary">description</span>
         <span>Официальный договор</span>
@@ -304,7 +274,7 @@
       </p>
     </div>
 
-    <div class="space-y-2">
+    <div class="space-y-2 card-reveal" style="animation-delay:0.1s">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
         <span class="material-symbols-outlined text-secondary">forward_to_inbox</span>
         <span>Простой процесс передачи</span>
@@ -314,7 +284,7 @@
       </p>
     </div>
 
-    <div class="space-y-2">
+    <div class="space-y-2 card-reveal" style="animation-delay:0.2s">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
         <span class="material-symbols-outlined text-secondary">verified_user</span>
         <span>Сохранение лояльности</span>
@@ -324,7 +294,7 @@
       </p>
     </div>
 
-    <div class="space-y-2">
+    <div class="space-y-2 card-reveal" style="animation-delay:0.3s">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
         <span class="material-symbols-outlined text-secondary">travel_explore</span>
         <span>Работа по всей РФ</span>
@@ -334,6 +304,7 @@
       </p>
     </div>
   </div>
+
 </div>
 <div class="lg:col-span-5 bg-primary text-on-primary rounded-lg p-6 md:p-8 shadow-lg" id="partnerApplication">
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-2">после вебинара</p>
@@ -342,7 +313,7 @@
 <form class="space-y-3" id="partnerApplicationForm">
 <input class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="sphere" placeholder="Ваша сфера: юрпрактика, банкротство, налоги, консалтинг"/>
 <input class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="city" placeholder="Город"/>
-<select class="w-full rounded-xl border-white/20 bg-white/10 text-white focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="clientFlow">
+<select class="w-full rounded-xl border-white/20 bg-white/10 text-white focus:border-primary-fixed-dim focus:ring-primary-fixed-dim [&>option]:bg-white [&>option]:text-primary" name="clientFlow">
 <option value="">Поток проблемных клиентов</option>
 <option>1-2 клиента в месяц</option>
 <option>3-5 клиентов в месяц</option>
@@ -350,7 +321,7 @@
 <option>Пока хочу понять модель</option>
 </select>
 <input class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="experience" placeholder="Опыт: юрпрактика, налоги, банкротство, финансы"/>
-<select class="w-full rounded-xl border-white/20 bg-white/10 text-white focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="preferredFormat">
+<select class="w-full rounded-xl border-white/20 bg-white/10 text-white focus:border-primary-fixed-dim focus:ring-primary-fixed-dim [&>option]:bg-white [&>option]:text-primary" name="preferredFormat">
 <option value="">Желаемый формат партнерства</option>
 <option>Передача клиентов в АСПБ</option>
 <option>Партнерство для юридической практики</option>
@@ -358,80 +329,71 @@
 </select>
 <textarea class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="comment" rows="4" placeholder="Комментарий или вопрос по договору"></textarea>
 <button class="w-full bg-primary-fixed text-on-primary-fixed py-4 rounded-xl font-label-md hover:opacity-95 active:scale-[0.99] transition-all" type="submit">Оставить заявку</button>
-<p class="text-label-sm text-primary-fixed-dim" id="partnerApplicationStatus">Условия и вознаграждение фиксируются только в партнерском договоре.</p>
+<!-- FIX 4: объясняем что контакты из регистрации подтянутся автоматически -->
+<p class="text-label-sm text-primary-fixed-dim" id="partnerApplicationStatus">Ваши имя и контакт из регистрации будут добавлены автоматически. Условия и вознаграждение фиксируются в партнёрском договоре.</p>
 </form>
 </div>
 </section>
-<!-- Program & CTA Bento Grid -->
-<section class="mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+<!-- Program & Notifications -->
+<section class="mt-16 space-y-8">
 <!-- Program Block -->
-<div class="lg:col-span-2 bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 shadow-sm">
+<div class="bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 shadow-sm">
 <div class="flex items-center gap-4 mb-8">
-<div class="w-12 h-12 bg-primary rounded-xl flex items-center justify-center">
+<div class="w-12 h-12 bg-primary rounded-xl flex items-center justify-center program-icon-pulse">
 <span class="material-symbols-outlined text-white">format_list_bulleted</span>
 </div>
-<h2 class="text-headline-lg font-headline-lg text-primary">Программа вебинара</h2>
+<!-- FIX 8: переработан из дублирующего таймлайна в навигатор для опоздавших -->
+<div>
+<h2 class="text-headline-lg font-headline-lg text-primary">Что разбираем на эфире</h2>
+<p class="text-body-md text-on-surface-variant mt-1">Подключились позже? Вот ключевые темы — динамические подсказки в панели справа синхронизированы с записью.</p>
+</div>
 </div>
 <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">01</span>
-<p class="text-body-md text-on-surface-variant pt-1">Кризис: потери для одних или поток клиентов для подготовленного специалиста.</p>
+<div class="flex gap-4 group card-reveal program-item">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">01</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Кризис: потери для одних или поток клиентов для подготовленного специалиста.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">02</span>
-<p class="text-body-md text-on-surface-variant pt-1">Почему проблемные клиенты уже приходят к юристам и консультантам.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.08s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">02</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Почему проблемные клиенты уже приходят к юристам и консультантам.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">03</span>
-<p class="text-body-md text-on-surface-variant pt-1">Когда клиенту нужна не отсрочка, а законная финансовая перезагрузка.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.16s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">03</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Когда клиенту нужна не отсрочка, а законная финансовая перезагрузка.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">04</span>
-<p class="text-body-md text-on-surface-variant pt-1">Как АСПБ забирает на себя процедуру: диагностика, документы, суд, кредиторы.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.24s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">04</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Как АСПБ забирает на себя процедуру: диагностика, документы, суд, кредиторы.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">05</span>
-<p class="text-body-md text-on-surface-variant pt-1">Как передать клиента без давления и сохранить доверие к себе.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.32s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">05</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Как передать клиента без давления и сохранить доверие к себе.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">06</span>
-<p class="text-body-md text-on-surface-variant pt-1">Партнерская модель: передали контакт — дальше работает АСПБ.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.4s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">06</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Партнерская модель: передали контакт — дальше работает АСПБ.</p>
 </div>
-<div class="flex gap-4 group">
-<span class="text-primary-container font-bold text-headline-md opacity-30 group-hover:opacity-100 transition-opacity">07</span>
-<p class="text-body-md text-on-surface-variant pt-1">Ответы на вопросы и разбор ситуаций участников.</p>
+<div class="flex gap-4 group card-reveal program-item" style="animation-delay:0.48s">
+<span class="program-number text-primary-container font-bold text-headline-md transition-all duration-300">07</span>
+<p class="text-body-md text-on-surface-variant pt-1 group-hover:text-on-surface transition-colors">Ответы на вопросы и разбор ситуаций участников.</p>
 </div>
 </div>
 </div>
-<!-- CTA Block -->
-<div class="space-y-8">
-<!-- Partner CTA -->
-<div class="bg-primary p-8 rounded-lg text-on-primary flex flex-col justify-between min-h-[280px] shadow-lg relative overflow-hidden group">
-<div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 group-hover:scale-125 transition-transform duration-700"></div>
-<div>
-<h3 class="text-headline-md font-headline-md mb-3">Партнерский договор</h3>
-<p class="text-body-md text-on-primary-container/80 mb-6">После эфира оставьте заявку: условия сотрудничества и вознаграждение фиксируются официально.</p>
-</div>
-<a class="w-full bg-secondary-container text-on-secondary-container py-4 rounded-xl font-label-md hover:bg-secondary-fixed transition-colors flex items-center justify-center gap-2" href="#partnerApplication">
-<span>Оставить заявку на договор</span>
-<span class="material-symbols-outlined text-[20px]">arrow_forward</span>
-</a>
-</div>
-<!-- Social CTA -->
-<div class="bg-surface-container-high p-8 rounded-lg border border-outline-variant/30 flex flex-col justify-between">
-<div>
-<div class="flex items-center gap-3 mb-4">
-<div class="w-10 h-10 bg-[#0088cc] rounded-full flex items-center justify-center text-white">
+<!-- Notifications CTA -->
+<div class="bg-primary rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 card-reveal" style="animation-delay:0.55s">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-white/15 rounded-full flex items-center justify-center text-white shrink-0 notify-icon-pulse">
 <span class="material-symbols-outlined">send</span>
 </div>
-<span class="font-label-md text-on-surface">Уведомления АСПБ</span>
+<div>
+<span class="font-label-md text-white block">Уведомления АСПБ</span>
+<p class="text-body-sm text-white/70">Напоминания об эфире, новости и материалы для партнеров.</p>
 </div>
-<p class="text-body-md text-on-surface-variant">Напоминания об эфире, новости платформы и материалы для партнеров АСПБ.</p>
 </div>
-<a class="mt-6 w-full border-2 border-primary text-primary py-3 rounded-xl font-label-md hover:bg-primary hover:text-white transition-all flex items-center justify-center" href="https://t.me/example" target="_blank" rel="noreferrer">
-                        Подключить уведомления
-                    </a>
-</div>
+<a class="shrink-0 bg-white text-primary py-3 px-6 rounded-xl font-label-md hover:bg-white/90 active:scale-95 transition-all flex items-center justify-center gap-2 notify-btn" href="https://t.me/jwjefgwreqfe_bot" target="_blank" rel="noreferrer">
+<span class="material-symbols-outlined text-[18px]">send</span>
+Подключить
+</a>
 </div>
 </section>
 </main>
@@ -447,10 +409,11 @@
 <a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="terms.html">Пользовательское соглашение</a>
 <a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="mailto:partners@aspb.ru">Контакты</a>
 </div>
-<div class="text-label-sm font-label-sm text-on-surface-variant opacity-80">© 2024 АСПБ. Все права защищены. Юридическая информация и оферта.</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant opacity-80">© 2026 АСПБ. Все права защищены. Юридическая информация и оферта.</div>
 </div>
 </footer>
 
-<script src="aspb-api.js"></script>
-<script src="flow-tabs.js"></script>
+<script type="module" src="js/main.js"></script>
+<script src="live-chat.js"></script>
+<script src="card-reveal.js"></script>
 </body></html>

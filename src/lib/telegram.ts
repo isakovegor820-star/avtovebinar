@@ -1,8 +1,17 @@
 import { env } from './env.js';
+import { withCircuitBreaker, withRetries } from './resilience.js';
 
 type TelegramMessageInput = {
   text: string;
   replyMarkup?: Record<string, unknown>;
+};
+
+type TelegramApiPayload = {
+  ok: boolean;
+  description?: string;
+  parameters?: {
+    retry_after?: number;
+  };
 };
 
 type NotifyRegistrationInput = {
@@ -66,7 +75,6 @@ type NotifyTelegramBotStartInput = {
   registrationUrl: string;
 };
 
-let cachedAdminChatId = env.TELEGRAM_ADMIN_CHAT_ID || '';
 let warnedAboutMissingChat = false;
 
 function adminBotToken() {
@@ -106,44 +114,35 @@ export function hasAdminTelegramBot() {
   return Boolean(adminBotToken());
 }
 
+export function getConfiguredAdminChatId() {
+  return env.TELEGRAM_ADMIN_CHAT_ID ? String(env.TELEGRAM_ADMIN_CHAT_ID).trim() : '';
+}
+
+export function hasConfiguredAdminChatId() {
+  return Boolean(getConfiguredAdminChatId());
+}
+
 export function isAdminBotPollingEnabled() {
   return env.TELEGRAM_ADMIN_BOT_POLLING === 'on';
 }
 
 export function isParticipantBotPollingEnabled() {
-  return env.TELEGRAM_PARTICIPANT_BOT_POLLING === 'on' || (!env.TELEGRAM_PARTICIPANT_BOT_TOKEN && env.TELEGRAM_BOT_POLLING === 'on');
+  return (
+    env.TELEGRAM_PARTICIPANT_BOT_POLLING === 'on' ||
+    (!env.TELEGRAM_PARTICIPANT_BOT_TOKEN && env.TELEGRAM_BOT_POLLING === 'on')
+  );
 }
 
 export function formatMoscowDate(date: Date) {
   return new Intl.DateTimeFormat('ru-RU', {
     timeZone: 'Europe/Moscow',
     dateStyle: 'short',
-    timeStyle: 'short'
+    timeStyle: 'short',
   }).format(date);
 }
 
 export function compact(value: string | null | undefined) {
   return value && value.trim().length > 0 ? value.trim() : '—';
-}
-
-async function discoverAdminChatId() {
-  if (cachedAdminChatId || !adminBotToken()) {
-    return cachedAdminChatId;
-  }
-
-  const response = await fetch(telegramApiUrl('getUpdates?limit=20'));
-  const payload = (await response.json()) as {
-    ok: boolean;
-    result?: Array<{ message?: { chat?: { id?: number | string; type?: string } } }>;
-  };
-
-  if (!payload.ok || !payload.result?.length) {
-    return '';
-  }
-
-  const updateWithChat = [...payload.result].reverse().find(update => update.message?.chat?.id);
-  cachedAdminChatId = updateWithChat?.message?.chat?.id ? String(updateWithChat.message.chat.id) : '';
-  return cachedAdminChatId;
 }
 
 export async function sendTelegramMessage(input: TelegramMessageInput) {
@@ -154,29 +153,41 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
     return { sent: false, mode: 'log' as const };
   }
 
-  const chatId = await discoverAdminChatId();
+  const chatId = getConfiguredAdminChatId();
   if (!chatId) {
     if (!warnedAboutMissingChat) {
-      console.warn('[ASPБ telegram] ADMIN_CHAT_ID is empty. Send any message to the bot, then trigger a new event.');
+      console.warn('[ASPБ telegram] TELEGRAM_ADMIN_CHAT_ID is empty. Admin notifications are disabled.');
       warnedAboutMissingChat = true;
     }
     return { sent: false, mode: 'send' as const, reason: 'missing_chat_id' as const };
   }
 
-  const response = await fetch(telegramApiUrl('sendMessage'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      reply_markup: input.replyMarkup,
-      disable_web_page_preview: true
-    })
-  });
+  const response = await withCircuitBreaker(
+    'telegram.admin',
+    () =>
+      withRetries(
+        'telegram.admin.sendMessage',
+        () =>
+          fetch(telegramApiUrl('sendMessage'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text,
+              reply_markup: input.replyMarkup,
+              disable_web_page_preview: true,
+            }),
+          }),
+        { attempts: 3, baseMs: 1000, maxMs: 15_000, retryAfterMs: getTelegramRetryAfterMs },
+      ),
+    { failureThreshold: 3, cooldownMs: 60_000 },
+  );
 
-  const payload = (await response.json()) as { ok: boolean; description?: string };
+  const payload = (await response.json()) as TelegramApiPayload;
   if (!payload.ok) {
-    throw new Error(payload.description || 'Telegram sendMessage failed');
+    throw Object.assign(new Error(payload.description || 'Telegram sendMessage failed'), {
+      retryAfterSeconds: payload.parameters?.retry_after,
+    });
   }
 
   return { sent: true, mode: 'send' as const };
@@ -190,26 +201,38 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
     return { sent: false, mode: 'log' as const };
   }
 
-  const response = await fetch(participantTelegramApiUrl('sendMessage'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: message,
-      disable_web_page_preview: true
-    })
-  });
+  const response = await withCircuitBreaker(
+    'telegram.participant',
+    () =>
+      withRetries(
+        'telegram.participant.sendMessage',
+        () =>
+          fetch(participantTelegramApiUrl('sendMessage'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: message,
+              disable_web_page_preview: true,
+            }),
+          }),
+        { attempts: 3, baseMs: 1000, maxMs: 15_000, retryAfterMs: getTelegramRetryAfterMs },
+      ),
+    { failureThreshold: 3, cooldownMs: 60_000 },
+  );
 
-  const payload = (await response.json()) as { ok: boolean; description?: string };
+  const payload = (await response.json()) as TelegramApiPayload;
   if (!payload.ok) {
-    throw new Error(payload.description || 'Telegram sendMessage failed');
+    throw Object.assign(new Error(payload.description || 'Telegram sendMessage failed'), {
+      retryAfterSeconds: payload.parameters?.retry_after,
+    });
   }
 
   return { sent: true, mode: 'send' as const };
 }
 
 export function buildTelegramStartUrl(token?: string) {
-  const username = (env.TELEGRAM_PARTICIPANT_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME).trim();
+  const username = (env.TELEGRAM_PARTICIPANT_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME || '').trim();
   if (!username) {
     return env.TELEGRAM_GROUP_URL;
   }
@@ -234,8 +257,8 @@ export function notifyRegistration(input: NotifyRegistrationInput) {
       `Источник: ${compact(input.source)}`,
       `Эфир: ${formatMoscowDate(input.scheduledAt)} МСК`,
       '',
-      `Админка: ${input.adminUrl}`
-    ].join('\n')
+      `Админка: ${input.adminUrl}`,
+    ].join('\n'),
   });
 }
 
@@ -251,8 +274,8 @@ export function notifyQuestion(input: NotifyQuestionInput) {
       '',
       `Вопрос в чате: ${input.text.trim()}`,
       '',
-      `Админка: ${input.adminUrl}`
-    ].join('\n')
+      `Админка: ${input.adminUrl}`,
+    ].join('\n'),
   });
 }
 
@@ -271,8 +294,8 @@ export function notifyPartnerApplication(input: NotifyPartnerApplicationInput) {
       '',
       `Комментарий: ${compact(input.comment)}`,
       '',
-      `Админка: ${input.adminUrl}`
-    ].join('\n')
+      `Админка: ${input.adminUrl}`,
+    ].join('\n'),
   });
 }
 
@@ -288,11 +311,11 @@ export function notifyTelegramSubscription(input: NotifyTelegramSubscriptionInpu
   const firstRow = [{ text: 'Открыть карточку', url: adminCardUrl }];
   const contactRow = [
     telegramUrl ? { text: 'Написать в Telegram', url: telegramUrl } : null,
-    phoneUrl ? { text: 'Позвонить', url: phoneUrl } : null
+    phoneUrl ? { text: 'Позвонить', url: phoneUrl } : null,
   ].filter(Boolean);
   const actionRow = [
     { text: 'Статус: связаться', callback_data: `crm:contacted:${input.registrationId}` },
-    { text: 'Горячий лид', callback_data: `hot:${input.registrationId}` }
+    { text: 'Горячий лид', callback_data: `hot:${input.registrationId}` },
   ];
   const registrationRows = [
     `Имя: ${input.name}`,
@@ -304,22 +327,25 @@ export function notifyTelegramSubscription(input: NotifyTelegramSubscriptionInpu
     input.utmMedium ? `UTM medium: ${input.utmMedium}` : null,
     input.utmCampaign ? `UTM campaign: ${input.utmCampaign}` : null,
     `Регистрация: ${formatMoscowDate(input.registeredAt)} МСК`,
-    `Эфир: ${formatMoscowDate(input.scheduledAt)} МСК`
+    `Эфир: ${formatMoscowDate(input.scheduledAt)} МСК`,
   ].filter(Boolean);
 
   const telegramRows = [
     `Chat ID: ${input.telegramChatId}`,
     input.telegramUserId ? `User ID: ${input.telegramUserId}` : null,
     input.telegramUsername ? `Username: ${username}` : null,
-    input.telegramFirstName ? `Имя в Telegram: ${input.telegramFirstName}` : null
+    input.telegramFirstName ? `Имя в Telegram: ${input.telegramFirstName}` : null,
   ].filter(Boolean);
 
   return sendTelegramMessage({
     replyMarkup: {
-      inline_keyboard: [firstRow, contactRow, actionRow].filter(row => row.length)
+      inline_keyboard: [firstRow, contactRow, actionRow].filter(row => row.length),
     },
     text: [
-      input.title || (input.isRebind ? 'Участник перепривязал Telegram-уведомления АСПБ' : 'Участник подключил Telegram-уведомления АСПБ'),
+      input.title ||
+        (input.isRebind
+          ? 'Участник перепривязал Telegram-уведомления АСПБ'
+          : 'Участник подключил Telegram-уведомления АСПБ'),
       '',
       'Данные регистрации:',
       ...registrationRows,
@@ -327,8 +353,8 @@ export function notifyTelegramSubscription(input: NotifyTelegramSubscriptionInpu
       'Telegram:',
       ...telegramRows,
       '',
-      `Админка: ${input.adminUrl}`
-    ].join('\n')
+      `Админка: ${input.adminUrl}`,
+    ].join('\n'),
   });
 }
 
@@ -343,13 +369,13 @@ export function notifyTelegramBotStart(input: NotifyTelegramBotStartInput) {
     `Chat ID: ${input.telegramChatId}`,
     input.telegramUserId ? `User ID: ${input.telegramUserId}` : null,
     username ? `Username: ${username}` : null,
-    input.telegramFirstName ? `Имя в Telegram: ${input.telegramFirstName}` : null
+    input.telegramFirstName ? `Имя в Telegram: ${input.telegramFirstName}` : null,
   ].filter(Boolean);
   const keyboard = [
     [
       telegramUrl ? { text: 'Написать в Telegram', url: telegramUrl } : null,
-      { text: 'Открыть регистрацию', url: input.registrationUrl }
-    ].filter(Boolean)
+      { text: 'Открыть регистрацию', url: input.registrationUrl },
+    ].filter(Boolean),
   ].filter(row => row.length);
 
   return sendTelegramMessage({
@@ -360,8 +386,8 @@ export function notifyTelegramBotStart(input: NotifyTelegramBotStartInput) {
       'Telegram:',
       ...telegramRows,
       '',
-      'Заявка на сайте пока не найдена. Если это будущий участник, ему отправлена ссылка на регистрацию.'
-    ].join('\n')
+      'Заявка на сайте пока не найдена. Если это будущий участник, ему отправлена ссылка на регистрацию.',
+    ].join('\n'),
   });
 }
 
@@ -372,4 +398,37 @@ export async function getTelegramBotInfo() {
 
   const response = await fetch(telegramApiUrl('getMe'));
   return response.json();
+}
+
+function getTelegramRetryAfterMs(error: unknown) {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const retryAfter = (error as Error & { retryAfterSeconds?: number }).retryAfterSeconds;
+  return retryAfter && retryAfter > 0 ? retryAfter * 1000 : null;
+}
+
+export async function checkTelegramConnectivity() {
+  if (env.TELEGRAM_NOTIFY_MODE === 'log') {
+    return { ok: true, mode: 'log' as const };
+  }
+
+  const checks: Array<Promise<unknown>> = [];
+  if (hasAdminTelegramBot()) {
+    checks.push(withCircuitBreaker('telegram.admin', () => fetch(telegramApiUrl('getMe'))));
+  }
+  if (hasParticipantTelegramBot()) {
+    checks.push(withCircuitBreaker('telegram.participant', () => fetch(participantTelegramApiUrl('getMe'))));
+  }
+
+  const responses = await Promise.all(checks);
+  for (const response of responses) {
+    const payload = (await (response as Response).json()) as TelegramApiPayload;
+    if (!payload.ok) {
+      throw new Error(payload.description || 'Telegram getMe failed');
+    }
+  }
+
+  return { ok: true, mode: 'send' as const };
 }

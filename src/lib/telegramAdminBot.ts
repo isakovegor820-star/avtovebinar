@@ -1,7 +1,14 @@
 import { prisma } from './prisma.js';
 import { env } from './env.js';
 import { CRM_STATUS_LABELS } from './crm.js';
-import { hasAdminTelegramBot, isAdminBotPollingEnabled, sendTelegramMessage, telegramApiUrl } from './telegram.js';
+import {
+  getConfiguredAdminChatId,
+  hasAdminTelegramBot,
+  hasConfiguredAdminChatId,
+  isAdminBotPollingEnabled,
+  sendTelegramMessage,
+  telegramApiUrl,
+} from './telegram.js';
 
 type AdminTelegramUpdate = {
   update_id: number;
@@ -26,8 +33,8 @@ async function answerCallbackQuery(callbackQueryId: string, text: string) {
     body: JSON.stringify({
       callback_query_id: callbackQueryId,
       text,
-      show_alert: false
-    })
+      show_alert: false,
+    }),
   });
   const payload = (await response.json()) as { ok: boolean; description?: string };
   if (!payload.ok) {
@@ -39,9 +46,14 @@ async function handleCallback(update: AdminTelegramUpdate) {
   const callback = update.callback_query;
   if (!callback?.id || !callback.data) return;
 
-  const adminChatId = env.TELEGRAM_ADMIN_CHAT_ID ? String(env.TELEGRAM_ADMIN_CHAT_ID) : '';
+  const adminChatId = getConfiguredAdminChatId();
   const callbackChatId = callback.message?.chat?.id ? String(callback.message.chat.id) : '';
-  if (adminChatId && callbackChatId !== adminChatId) {
+  if (!adminChatId) {
+    await answerCallbackQuery(callback.id, 'Админ-чат не настроен');
+    return;
+  }
+
+  if (callbackChatId !== adminChatId) {
     await answerCallbackQuery(callback.id, 'Нет доступа к действию');
     return;
   }
@@ -54,7 +66,7 @@ async function handleCallback(update: AdminTelegramUpdate) {
 
   const registration = await prisma.registration.findUnique({
     where: { id: registrationId },
-    include: { lead: true }
+    include: { lead: true },
   });
 
   if (!registration) {
@@ -65,17 +77,20 @@ async function handleCallback(update: AdminTelegramUpdate) {
   if (action === 'crm') {
     await prisma.registration.update({
       where: { id: registrationId },
-      data: { crmStatus: value || 'contacted' }
+      data: { crmStatus: value || 'contacted' },
     });
-    await answerCallbackQuery(callback.id, `Статус: ${CRM_STATUS_LABELS[value as keyof typeof CRM_STATUS_LABELS] || value}`);
+    await answerCallbackQuery(
+      callback.id,
+      `Статус: ${CRM_STATUS_LABELS[value as keyof typeof CRM_STATUS_LABELS] || value}`,
+    );
     await sendTelegramMessage({
       text: [
         'CRM-статус обновлен',
         '',
         `Участник: ${registration.lead.name}`,
         `Статус: ${CRM_STATUS_LABELS[value as keyof typeof CRM_STATUS_LABELS] || value}`,
-        `Админка: ${env.PUBLIC_SITE_URL}/admin?registration=${registrationId}`
-      ].join('\n')
+        `Админка: ${env.PUBLIC_SITE_URL}/admin?registration=${registrationId}`,
+      ].join('\n'),
     });
     return;
   }
@@ -83,7 +98,7 @@ async function handleCallback(update: AdminTelegramUpdate) {
   if (action === 'hot') {
     await prisma.registration.update({
       where: { id: registrationId },
-      data: { isHot: true }
+      data: { isHot: true },
     });
     await answerCallbackQuery(callback.id, 'Помечен как горячий лид');
     await sendTelegramMessage({
@@ -93,8 +108,8 @@ async function handleCallback(update: AdminTelegramUpdate) {
         `Участник: ${registration.lead.name}`,
         `Телефон: ${registration.lead.phone}`,
         `Email: ${registration.lead.email}`,
-        `Админка: ${env.PUBLIC_SITE_URL}/admin?registration=${registrationId}`
-      ].join('\n')
+        `Админка: ${env.PUBLIC_SITE_URL}/admin?registration=${registrationId}`,
+      ].join('\n'),
     });
     return;
   }
@@ -103,7 +118,7 @@ async function handleCallback(update: AdminTelegramUpdate) {
 }
 
 async function pollOnce() {
-  if (polling || !isAdminBotPollingEnabled() || !hasAdminTelegramBot()) return;
+  if (polling || !isAdminBotPollingEnabled() || !hasAdminTelegramBot() || !hasConfiguredAdminChatId()) return;
   polling = true;
 
   try {
@@ -120,8 +135,13 @@ async function pollOnce() {
     }
 
     for (const update of payload.result || []) {
-      nextOffset = Math.max(nextOffset, update.update_id + 1);
-      await handleCallback(update);
+      try {
+        await handleCallback(update);
+      } catch (error) {
+        console.error('[ASPБ admin telegram bot update]', { updateId: update.update_id, error });
+      } finally {
+        nextOffset = Math.max(nextOffset, update.update_id + 1);
+      }
     }
   } finally {
     polling = false;
@@ -129,7 +149,7 @@ async function pollOnce() {
 }
 
 export function startAdminTelegramBot() {
-  if (env.NODE_ENV === 'test' || !isAdminBotPollingEnabled() || !hasAdminTelegramBot()) {
+  if (env.NODE_ENV === 'test' || !isAdminBotPollingEnabled() || !hasAdminTelegramBot() || !hasConfiguredAdminChatId()) {
     return null;
   }
 

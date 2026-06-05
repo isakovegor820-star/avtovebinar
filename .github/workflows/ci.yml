@@ -7,13 +7,63 @@ on:
     branches: [main]
 
 jobs:
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@v4
+
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: p/default
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Secretlint
+        run: git ls-files -z | xargs -0 npx --yes -p secretlint -p @secretlint/secretlint-rule-preset-recommend secretlint --secretlintrc .secretlintrc.json
+
+      - name: Dotenv lint
+        run: npx --yes dotenv-linter .env.example .env.production.example
+
   verify:
     runs-on: ubuntu-latest
+    needs: [sast, secret-scan]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aspb
+          POSTGRES_DB: aspb_autowebinar
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aspb -d aspb_autowebinar"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     env:
       NODE_ENV: test
       PORT: 5174
       PUBLIC_SITE_URL: http://127.0.0.1:5174
-      DATABASE_URL: postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=public
+      DATABASE_URL: postgresql://aspb@localhost:5432/aspb_autowebinar?schema=public
       ADMIN_LOGIN: admin@example.com
       ADMIN_PASSWORD: StrongAdmin123
       ADMIN_COOKIE_SECRET: ci-admin-cookie-secret-32-plus-chars
@@ -22,9 +72,88 @@ jobs:
       EMAIL_FROM: "АСПБ <no-reply@example.com>"
       TELEGRAM_GROUP_URL: https://t.me/example
       TELEGRAM_NOTIFY_MODE: log
+      TELEGRAM_ADMIN_BOT_POLLING: off
+      TELEGRAM_BOT_POLLING: off
+      TELEGRAM_PARTICIPANT_BOT_POLLING: off
+      TELEGRAM_NEWS_BROADCAST: off
+      TELEGRAM_NEWS_TIMES: 09:00,11:30,14:00,16:30,19:00
+      TELEGRAM_NEWS_RSS_URLS: https://www.consultant.ru/rss/hotdocs.xml,https://www.consultant.ru/rss/nw.xml,https://www.consultant.ru/rss/db.xml
       WEBINAR_TEST_ROOM_MODE: off
       CORS_ORIGIN: http://127.0.0.1:5174
+      WORKER_ROLE: all
 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CSS
+        run: npm run css:build
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed staging-compatible data
+        run: npm run seed
+
+      - name: Build
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser e2e
+        run: npm run e2e
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
+      - name: Docker build smoke test
+        run: docker build -t aspb-autowebinar:ci .
+
+  deploy-staging:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: verify
+    environment: staging
+    steps:
+      - name: Deploy to staging over SSH
+        env:
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+        run: |
+          test -n "$STAGING_SSH_HOST"
+          test -n "$STAGING_SSH_USER"
+          test -n "$STAGING_SSH_KEY"
+          test -n "$STAGING_DEPLOY_PATH"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+          ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
+            "cd '$STAGING_DEPLOY_PATH' && git pull --ff-only && npx prisma migrate deploy && docker compose --env-file .env.production -f docker-compose.production.yml up -d --build"
+
+  lint-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,14 +170,5 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Build
-        run: npm run build
-
-      - name: Test
-        run: npm test
-
-      - name: Audit production dependencies
-        run: npm audit --omit=dev
-
-      - name: Docker build smoke test
-        run: docker build -t aspb-autowebinar:ci .
+      - name: Lint
+        run: npm run lint

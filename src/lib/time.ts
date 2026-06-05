@@ -2,6 +2,7 @@ export const WEBINAR_TITLE = 'Экономика кризиса: как юрис
 export const WEBINAR_DURATION_MINUTES = 120;
 export const WEBINAR_REPLAY_HOURS = 24 * 7;
 export const WEBINAR_ROOM_OPEN_BEFORE_MINUTES = 15;
+export const WEBINAR_START_HOUR_MSK = 19;
 export type WebinarAccessStatus = 'waiting' | 'pre_live' | 'live' | 'replay' | 'closed';
 
 type MoscowParts = {
@@ -15,7 +16,7 @@ function getMoscowParts(date: Date): MoscowParts {
     timeZone: 'Europe/Moscow',
     year: 'numeric',
     month: '2-digit',
-    day: '2-digit'
+    day: '2-digit',
   });
 
   const parts = formatter.formatToParts(date);
@@ -24,13 +25,18 @@ function getMoscowParts(date: Date): MoscowParts {
   return {
     year: Number(map.year),
     month: Number(map.month),
-    day: Number(map.day)
+    day: Number(map.day),
   };
 }
 
 export function getNextWebinarDate(firstSeenAt: Date): Date {
   const parts = getMoscowParts(firstSeenAt);
-  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1, 8, 0, 0));
+  const todayStart = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, WEBINAR_START_HOUR_MSK - 3, 0, 0));
+  if (firstSeenAt.getTime() <= todayStart.getTime()) {
+    return todayStart;
+  }
+
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1, WEBINAR_START_HOUR_MSK - 3, 0, 0));
 }
 
 export function getSessionStatus(now: Date, scheduledAt: Date, durationMinutes = WEBINAR_DURATION_MINUTES) {
@@ -53,7 +59,11 @@ export function getWebinarEndAt(scheduledAt: Date, durationMinutes = WEBINAR_DUR
   return new Date(scheduledAt.getTime() + durationMinutes * 60 * 1000);
 }
 
-export function getReplayExpiresAt(scheduledAt: Date, durationMinutes = WEBINAR_DURATION_MINUTES, replayAvailableHours = WEBINAR_REPLAY_HOURS) {
+export function getReplayExpiresAt(
+  scheduledAt: Date,
+  durationMinutes = WEBINAR_DURATION_MINUTES,
+  replayAvailableHours = WEBINAR_REPLAY_HOURS,
+) {
   return new Date(getWebinarEndAt(scheduledAt, durationMinutes).getTime() + replayAvailableHours * 60 * 60 * 1000);
 }
 
@@ -63,7 +73,7 @@ export function getWebinarAccess(
   durationMinutes = WEBINAR_DURATION_MINUTES,
   replayAvailableHours = WEBINAR_REPLAY_HOURS,
   roomOpenBeforeMinutes = WEBINAR_ROOM_OPEN_BEFORE_MINUTES,
-  replayEnabled = true
+  replayEnabled = true,
 ) {
   const webinarStatus = getSessionStatus(now, scheduledAt, durationMinutes);
   const replayExpiresAt = getReplayExpiresAt(scheduledAt, durationMinutes, replayAvailableHours);
@@ -87,7 +97,7 @@ export function getWebinarAccess(
     webinarStatus,
     roomOpensAt,
     replayExpiresAt,
-    canEnterRoom: accessStatus === 'live' || accessStatus === 'replay'
+    canEnterRoom: accessStatus === 'live' || accessStatus === 'replay',
   };
 }
 

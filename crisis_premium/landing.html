@@ -4,621 +4,13 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>АСПБ — Экономика кризиса</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="css/styles.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css" rel="stylesheet"/>
-<script id="tailwind-config">
-      tailwind.config = {
-        darkMode: "class",
-        theme: {
-          extend: {
-            "colors": {
-                    "tertiary-fixed-dim": "#bcc7dd",
-                    "on-tertiary-fixed-variant": "#3c475a",
-                    "background": "#f8f9fa",
-                    "on-error": "#ffffff",
-                    "inverse-on-surface": "#f0f1f2",
-                    "secondary-fixed": "#ffdea5",
-                    "on-secondary-fixed": "#261900",
-                    "primary-fixed": "#d2e4fb",
-                    "on-secondary-fixed-variant": "#5d4201",
-                    "surface-container": "#edeeef",
-                    "on-tertiary-fixed": "#111c2c",
-                    "on-surface": "#191c1d",
-                    "on-secondary": "#ffffff",
-                    "surface": "#f8f9fa",
-                    "on-error-container": "#93000a",
-                    "inverse-primary": "#b7c8de",
-                    "secondary-fixed-dim": "#e9c176",
-                    "outline": "#74777d",
-                    "surface-tint": "#4f6073",
-                    "primary": "#041627",
-                    "on-primary-container": "#8192a7",
-                    "surface-dim": "#d9dadb",
-                    "surface-container-high": "#e7e8e9",
-                    "on-primary-fixed-variant": "#38485a",
-                    "on-background": "#191c1d",
-                    "tertiary-fixed": "#d8e3fa",
-                    "on-primary-fixed": "#0b1d2d",
-                    "outline-variant": "#c4c6cd",
-                    "surface-variant": "#e1e3e4",
-                    "on-tertiary": "#ffffff",
-                    "tertiary-container": "#1f2a3b",
-                    "surface-bright": "#f8f9fa",
-                    "secondary": "#775a19",
-                    "inverse-surface": "#2e3132",
-                    "surface-container-low": "#f3f4f5",
-                    "surface-container-highest": "#e1e3e4",
-                    "primary-fixed-dim": "#b7c8de",
-                    "on-secondary-container": "#785a1a",
-                    "secondary-container": "#fed488",
-                    "error": "#ba1a1a",
-                    "tertiary": "#0a1526",
-                    "on-surface-variant": "#44474c",
-                    "primary-container": "#1a2b3c",
-                    "surface-container-lowest": "#ffffff",
-                    "on-tertiary-container": "#8691a6",
-                    "on-primary": "#ffffff",
-                    "error-container": "#ffdad6"
-            },
-            "borderRadius": {
-                    "DEFAULT": "0.25rem",
-                    "lg": "22px",
-                    "xl": "24px",
-                    "full": "9999px"
-            },
-            "spacing": {
-                    "gutter": "24px",
-                    "container-max-width": "1280px",
-                    "margin-desktop": "48px",
-                    "unit": "4px",
-                    "margin-mobile": "16px"
-            },
-            "fontFamily": {
-                    "headline-lg-mobile": ["Manrope"],
-                    "body-lg": ["Manrope"],
-                    "headline-xl": ["Manrope"],
-                    "headline-lg": ["Manrope"],
-                    "headline-md": ["Manrope"],
-                    "label-sm": ["Manrope"],
-                    "label-md": ["Manrope"],
-                    "body-md": ["Manrope"]
-            },
-            "fontSize": {
-                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
-                    "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                    "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
-                    "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
-                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
-            }
-          },
-        },
-      }
-    </script>
-<style>
-        .material-symbols-outlined {
-            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-        }
-        .hero-gradient {
-            background: radial-gradient(circle at 70% 30%, rgba(183, 200, 222, 0.15) 0%, rgba(248, 249, 250, 0) 60%);
-        }
-        .hero-title-accent {
-            display: inline-block;
-            position: relative;
-            margin-top: 0.12em;
-            padding: 0 0.12em 0.03em;
-            color: #041627;
-            font-family: Georgia, "Times New Roman", serif;
-            font-size: 0.92em;
-            font-style: italic;
-            font-weight: 600;
-            line-height: 1.04;
-            isolation: isolate;
-        }
-        .hero-title-accent::before {
-            content: "";
-            position: absolute;
-            left: 0.08em;
-            right: 0.08em;
-            bottom: 0.02em;
-            height: 2px;
-            z-index: -1;
-            border-radius: 999px;
-            background: rgba(4, 22, 39, 0.24);
-        }
-        .hero-title-accent::after {
-            content: none;
-        }
-        .hero-lead {
-            color: #33414f;
-            font-size: 18px;
-            font-weight: 500;
-            line-height: 1.72;
-        }
-        .hero-lead-strong {
-            color: #041627;
-            font-weight: 800;
-        }
-        .hero-lead-em {
-            color: #0f3a5a;
-            font-family: Georgia, "Times New Roman", serif;
-            font-style: italic;
-            font-weight: 700;
-        }
-        .hero-register-btn {
-            min-height: 64px;
-            background: linear-gradient(135deg, #041627 0%, #0f263b 100%);
-            box-shadow: 0 16px 34px rgba(4, 22, 39, 0.18);
-        }
-        .hero-register-btn .hero-register-icon {
-            width: 30px;
-            height: 30px;
-            border-radius: 9999px;
-            background: rgba(255, 255, 255, 0.12);
-            transition: transform 220ms ease, background 220ms ease;
-        }
-        .hero-register-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 20px 42px rgba(4, 22, 39, 0.22);
-        }
-        .hero-register-btn:hover .hero-register-icon {
-            transform: translateX(3px);
-            background: rgba(255, 255, 255, 0.18);
-        }
-        .hero-proof-card {
-            position: relative;
-            min-height: 86px;
-            overflow: hidden;
-            background: rgba(255, 255, 255, 0.66);
-            transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease, background 260ms ease;
-        }
-        .hero-proof-card::before {
-            content: "";
-            position: absolute;
-            inset: 0 auto 0 0;
-            width: 3px;
-            background: #041627;
-            transform: scaleY(0);
-            transform-origin: bottom;
-            transition: transform 260ms ease;
-        }
-        .hero-proof-card::after {
-            content: "";
-            position: absolute;
-            width: 84px;
-            height: 84px;
-            right: -42px;
-            top: -42px;
-            border-radius: 9999px;
-            background: rgba(210, 228, 251, 0.42);
-            transition: transform 320ms ease, opacity 320ms ease;
-            opacity: 0;
-        }
-        .hero-proof-card:hover {
-            transform: translateY(-4px);
-            background: rgba(255, 255, 255, 0.94);
-            border-color: rgba(4, 22, 39, 0.26);
-            box-shadow: 0 16px 32px rgba(4, 22, 39, 0.09);
-        }
-        .hero-proof-card:hover::before {
-            transform: scaleY(1);
-        }
-        .hero-proof-card:hover::after {
-            transform: scale(1.22);
-            opacity: 1;
-        }
-        .hero-proof-icon {
-            background: #d2e4fb;
-            color: #041627;
-            transition: transform 260ms ease, background 260ms ease;
-        }
-        .hero-proof-card:hover .hero-proof-icon {
-            transform: rotate(-5deg) scale(1.08);
-            background: #041627;
-            color: #ffffff;
-        }
-        .audience-section {
-            background:
-                radial-gradient(circle at 14% 18%, rgba(210, 228, 251, 0.42), transparent 32%),
-                linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
-        }
-        .audience-card {
-            position: relative;
-            overflow: hidden;
-            transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease, background 260ms ease;
-        }
-        .audience-card::before {
-            content: "";
-            position: absolute;
-            inset: 0 0 auto 0;
-            height: 4px;
-            background: #041627;
-            transform: scaleX(0.22);
-            transform-origin: left;
-            transition: transform 300ms ease;
-        }
-        .audience-card::after {
-            content: "";
-            position: absolute;
-            right: -48px;
-            top: -48px;
-            width: 132px;
-            height: 132px;
-            border-radius: 9999px;
-            background: rgba(210, 228, 251, 0.34);
-            opacity: 0;
-            transition: opacity 280ms ease, transform 280ms ease;
-        }
-        .audience-card:hover {
-            transform: translateY(-4px);
-            border-color: rgba(4, 22, 39, 0.22);
-            box-shadow: 0 20px 44px rgba(4, 22, 39, 0.08);
-        }
-        .audience-card:hover::before {
-            transform: scaleX(1);
-        }
-        .audience-card:hover::after {
-            opacity: 1;
-            transform: scale(1.12);
-        }
-        .audience-icon {
-            background: #d2e4fb;
-            color: #041627;
-        }
-        .audience-muted {
-            background: rgba(237, 238, 239, 0.62);
-        }
-        .audience-muted::before {
-            background: #bcc7dd;
-        }
-        .audience-muted .audience-icon {
-            background: #e7e8e9;
-            color: #44474c;
-        }
-        .audience-list-icon {
-            width: 24px;
-            height: 24px;
-            border-radius: 9999px;
-            background: #d2e4fb;
-            color: #041627;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            flex: 0 0 auto;
-            margin-top: 1px;
-        }
-        .audience-muted .audience-list-icon {
-            background: #e1e3e4;
-            color: #74777d;
-        }
-        .audience-cta {
-            background: linear-gradient(135deg, #041627 0%, #132c43 100%);
-        }
-        .site-click-ripple {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 12px;
-            height: 12px;
-            border-radius: 9999px;
-            border: 1.5px solid rgba(4, 22, 39, 0.28);
-            background: rgba(210, 228, 251, 0.36);
-            pointer-events: none;
-            z-index: 9999;
-            transform: translate(-50%, -50%) scale(0.4);
-            animation: site-click-ripple 520ms ease-out forwards;
-        }
-        .hero-landing {
-            position: relative;
-            isolation: isolate;
-            min-height: min(820px, calc(100vh - 136px));
-            background: #041627;
-            color: #ffffff;
-        }
-        .hero-landing::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            z-index: -2;
-            background:
-                linear-gradient(90deg, rgba(4, 22, 39, 0.96) 0%, rgba(4, 22, 39, 0.82) 42%, rgba(4, 22, 39, 0.48) 100%),
-                linear-gradient(180deg, rgba(4, 22, 39, 0.34) 0%, rgba(4, 22, 39, 0.88) 100%),
-                url("assets/aspb-hero-consultation.png") center / cover no-repeat;
-        }
-        .hero-landing::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            z-index: -1;
-            background:
-                radial-gradient(circle at 78% 28%, rgba(210, 228, 251, 0.16), transparent 34%),
-                linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
-            background-size: auto, 88px 88px;
-            pointer-events: none;
-        }
-        .hero-accent {
-            color: #d2e4fb;
-            font-family: Georgia, "Times New Roman", serif;
-            font-style: italic;
-            font-weight: 500;
-        }
-        .hero-event-card {
-            background: rgba(255, 255, 255, 0.13);
-            border: 1px solid rgba(210, 228, 251, 0.34);
-            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.24);
-            backdrop-filter: blur(16px);
-        }
-        .hero-countdown-cell {
-            background: rgba(255, 255, 255, 0.12);
-            border: 1px solid rgba(210, 228, 251, 0.18);
-        }
-        .hero-system-card {
-            background: rgba(255, 255, 255, 0.86);
-            border: 1px solid rgba(196, 198, 205, 0.62);
-            box-shadow: 0 22px 54px rgba(4, 22, 39, 0.08);
-        }
-        .hero-route-step {
-            position: relative;
-            transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
-        }
-        .hero-route-step:hover {
-            transform: translateY(-3px);
-            border-color: rgba(4, 22, 39, 0.28);
-            box-shadow: 0 16px 32px rgba(4, 22, 39, 0.08);
-        }
-        .hero-route-number {
-            background: #041627;
-            color: #ffffff;
-            box-shadow: 0 0 0 6px rgba(210, 228, 251, 0.42);
-        }
-        .hero-image-panel {
-            background: rgba(255, 255, 255, 0.92);
-            border: 1px solid rgba(210, 228, 251, 0.86);
-            box-shadow: 0 20px 46px rgba(4, 22, 39, 0.12);
-        }
-        .hero-mini-stat {
-            background: linear-gradient(135deg, #041627 0%, #17324b 100%);
-        }
-        .glass-card {
-            background: rgba(255, 255, 255, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.5);
-        }
-        .emotion-card {
-            transform: translateY(0) scale(1);
-        }
-        .emotion-card.emotion-pop {
-            animation: emotion-pop 520ms cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .emotion-card[aria-pressed="true"] {
-            border-color: rgba(4, 22, 39, 0.24);
-            box-shadow: 0 18px 36px rgba(4, 22, 39, 0.08);
-        }
-        .emotion-panel-pop {
-            animation: emotion-panel-pop 420ms cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .aspb-insight {
-            position: relative;
-            isolation: isolate;
-        }
-        .aspb-insight::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            z-index: -1;
-            background:
-                linear-gradient(135deg, rgba(210, 228, 251, 0.16) 0%, transparent 42%),
-                repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 72px);
-        }
-        .aspb-insight::after {
-            content: "АСПБ";
-            position: absolute;
-            right: 24px;
-            bottom: -22px;
-            color: rgba(255,255,255,0.055);
-            font-size: clamp(56px, 8vw, 116px);
-            line-height: 1;
-            font-weight: 800;
-            z-index: -1;
-        }
-        .income-card[aria-selected="true"] {
-            border-color: rgba(4, 22, 39, 0.22);
-            background: rgba(255, 255, 255, 0.92);
-            box-shadow: 0 18px 38px rgba(4, 22, 39, 0.09);
-        }
-        .income-card.income-pop {
-            animation: emotion-pop 520ms cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .loss-meter {
-            position: relative;
-            overflow: hidden;
-            background:
-                radial-gradient(circle at 12% 20%, rgba(254, 212, 136, 0.32), transparent 34%),
-                linear-gradient(135deg, #041627 0%, #102536 100%);
-            box-shadow: 0 24px 50px rgba(4, 22, 39, 0.14);
-        }
-        .loss-meter::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.13) 42%, transparent 68%);
-            transform: translateX(-100%);
-            animation: loss-sheen 5.6s ease-in-out infinite;
-        }
-        .loss-meter-value {
-            font-variant-numeric: tabular-nums;
-        }
-        .loss-meter-fill {
-            transition: width 560ms cubic-bezier(0.16, 1, 0.3, 1);
-            animation: loss-glow 2.4s ease-in-out infinite;
-        }
-        .income-detail-pop {
-            animation: emotion-panel-pop 420ms cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .chain-panel-pop {
-            animation: chain-panel-soft 260ms ease-out;
-        }
-        .chain-shell {
-            position: relative;
-            isolation: isolate;
-            background: linear-gradient(135deg, #06192a 0%, #163047 100%);
-        }
-        .chain-shell::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            z-index: -1;
-            background:
-                radial-gradient(circle at 18% 14%, rgba(210, 228, 251, 0.16), transparent 34%),
-                linear-gradient(90deg, rgba(255,255,255,0.055) 1px, transparent 1px),
-                linear-gradient(0deg, rgba(255,255,255,0.045) 1px, transparent 1px);
-            background-size: auto, 64px 64px, 64px 64px;
-        }
-        .chain-copy-card {
-            background: rgba(255, 255, 255, 0.94);
-            color: #041627;
-            border: 1px solid rgba(210, 228, 251, 0.9);
-        }
-        .chain-copy-card p {
-            color: #44474c;
-        }
-        .chain-steps {
-            position: relative;
-        }
-        @media (min-width: 1024px) {
-            .chain-steps::before {
-                content: "";
-                position: absolute;
-                left: 28px;
-                top: 30px;
-                bottom: 30px;
-                width: 1px;
-                background: linear-gradient(180deg, rgba(210,228,251,0.72), rgba(210,228,251,0.16));
-            }
-        }
-        .chain-dot {
-            background: #d2e4fb;
-            color: #041627;
-            box-shadow: 0 0 0 6px rgba(210, 228, 251, 0.1);
-        }
-        .chain-choice[aria-pressed="true"] {
-            background: rgba(255, 255, 255, 0.16);
-            border-color: rgba(210, 228, 251, 0.78);
-            box-shadow: 0 10px 22px rgba(4, 22, 39, 0.12);
-            transform: translateY(-1px);
-        }
-        .chain-choice.chain-pop {
-            animation: chain-tap 260ms ease-out;
-        }
-        .program-card[aria-pressed="true"] {
-            background: #041627;
-            border-color: rgba(210, 228, 251, 0.7);
-            color: #ffffff;
-            box-shadow: 0 18px 36px rgba(4, 22, 39, 0.11);
-            transform: translateY(-2px);
-        }
-        .program-card[aria-pressed="true"] .program-number {
-            background: #d2e4fb;
-            color: #041627;
-        }
-        .program-card[aria-pressed="true"] .program-copy,
-        .program-card[aria-pressed="true"] .program-label {
-            color: rgba(255, 255, 255, 0.78);
-        }
-        .program-card.program-pop,
-        .program-panel-pop {
-            animation: emotion-panel-pop 420ms cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .faq-section {
-            background:
-                radial-gradient(circle at 18% 18%, rgba(210, 228, 251, 0.34), transparent 34%),
-                linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
-        }
-        .faq-trust-card {
-            position: relative;
-            isolation: isolate;
-            overflow: hidden;
-            background: linear-gradient(135deg, #041627 0%, #17324b 100%);
-        }
-        .faq-trust-card::after {
-            content: "АСПБ";
-            position: absolute;
-            right: -8px;
-            bottom: -18px;
-            color: rgba(255,255,255,0.06);
-            font-size: 72px;
-            line-height: 1;
-            font-weight: 800;
-            z-index: -1;
-        }
-        .faq-card {
-            transition: border-color 240ms ease, box-shadow 240ms ease, transform 240ms ease, background 240ms ease;
-        }
-        .faq-card summary::-webkit-details-marker {
-            display: none;
-        }
-        .faq-card[open] {
-            border-color: rgba(4, 22, 39, 0.34);
-            box-shadow: 0 18px 42px rgba(4, 22, 39, 0.09);
-            transform: translateY(-2px);
-        }
-        .faq-card[open] .faq-question-icon {
-            background: #041627;
-            color: #ffffff;
-        }
-        .faq-card[open] .faq-chevron {
-            transform: rotate(180deg);
-            background: #d2e4fb;
-            color: #041627;
-        }
-        .faq-answer {
-            animation: faq-answer-in 280ms ease both;
-        }
-        .faq-card.faq-pop {
-            animation: emotion-panel-pop 420ms cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        @keyframes faq-answer-in {
-            from { opacity: 0; transform: translateY(-4px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes loss-sheen {
-            0%, 42% { transform: translateX(-100%); opacity: 0; }
-            52% { opacity: 1; }
-            78%, 100% { transform: translateX(100%); opacity: 0; }
-        }
-        @keyframes loss-glow {
-            0%, 100% { box-shadow: 0 0 0 rgba(254, 212, 136, 0); }
-            50% { box-shadow: 0 0 24px rgba(254, 212, 136, 0.34); }
-        }
-        @keyframes emotion-pop {
-            0% { transform: translateY(0) scale(1); }
-            45% { transform: translateY(-8px) scale(1.015); }
-            100% { transform: translateY(0) scale(1); }
-        }
-        @keyframes chain-tap {
-            0% { transform: translateY(-1px) scale(1); }
-            42% { transform: translateY(-2px) scale(1.004); }
-            100% { transform: translateY(-1px) scale(1); }
-        }
-        @keyframes chain-panel-soft {
-            0% { opacity: 0.92; transform: translateY(2px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes site-click-ripple {
-            0% { opacity: 0.62; transform: translate(-50%, -50%) scale(0.4); }
-            100% { opacity: 0; transform: translate(-50%, -50%) scale(4.8); }
-        }
-        @keyframes emotion-panel-pop {
-            0% { transform: scale(1); }
-            45% { transform: scale(1.012); }
-            100% { transform: scale(1); }
-        }
-    </style>
+<link href="buttons.css" rel="stylesheet"/>
+<link href="app-styles.css" rel="stylesheet"/>
 </head>
 <body class="bg-background text-on-surface font-body-md selection:bg-primary-fixed selection:text-on-primary-fixed">
 <!-- TopNavBar -->
@@ -638,8 +30,16 @@
                 Зарегистрироваться
             </a>
 </nav>
+<div class="md:hidden px-gutter pb-3">
+<nav class="flex gap-3 overflow-x-auto text-label-sm font-label-sm" aria-label="Мобильная навигация">
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="#about">Как работает АСПБ</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="#why-now">Почему сейчас</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="#team">Команда</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="#faq">FAQ</a>
+</nav>
+</div>
 </header>
-<div data-current="landing" data-flow-tabs></div>
+<div data-current="landing" data-flow-tabs style="display:none"></div>
 <main>
 <!-- Hero Section -->
 <section class="relative pt-12 md:pt-24 pb-16 overflow-hidden hero-gradient">
@@ -649,7 +49,7 @@
 <span class="material-symbols-outlined mr-2 text-[18px] text-white/90">verified</span>
                         Безоплатный вебинар АСПБ для юристов и антикризисных специалистов
                     </span>
-<h1 class="text-headline-lg-mobile md:text-headline-xl font-headline-xl leading-tight text-primary">
+<h1 class="text-headline-lg-mobile sm:text-headline-lg md:text-headline-xl font-headline-xl leading-tight text-primary">
 <span class="block">Как юристу зарабатывать на кризисных ситуациях бизнеса</span>
 <span class="hero-title-accent">законно и системно</span>
                     </h1>
@@ -696,7 +96,7 @@
 <span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">event</span>
 <div>
 <p class="text-label-md font-label-md text-primary">Ближайший эфир — завтра</p>
-<p class="text-label-sm font-label-sm text-on-surface-variant" id="webinarTargetLabel">Начало в 11:00 по МСК</p>
+<p class="text-label-sm font-label-sm text-on-surface-variant" id="webinarTargetLabel">Начало в 19:00 по МСК</p>
 </div>
 </div>
 <div class="mt-4 grid grid-cols-4 gap-2" id="heroCountdown" aria-label="Отсчет до эфира" aria-live="polite">
@@ -725,80 +125,148 @@
 <span class="material-symbols-outlined text-[19px]">arrow_forward</span>
 </span>
 </a>
-<a class="flex items-center justify-center gap-2 border border-outline-variant px-8 py-4 rounded-xl font-label-md text-label-md hover:bg-surface-container transition-all" href="https://t.me/example" target="_blank" rel="noreferrer">
+<a class="flex items-center justify-center gap-2 border border-outline-variant px-8 py-4 rounded-xl font-label-md text-label-md hover:bg-surface-container transition-all" href="https://t.me/jwjefgwreqfe_bot" target="_blank" rel="noreferrer">
 <span class="material-symbols-outlined">send</span>
                             Подключить уведомления АСПБ
                         </a>
 </div>
 </div>
-<div class="relative group h-[420px] sm:h-[520px] md:h-[640px] lg:h-[700px]">
+<div class="relative group h-[420px] sm:h-[520px] md:h-[640px] lg:h-[700px] hero-image-hover">
 <div class="absolute -inset-4 bg-primary/5 rounded-3xl blur-2xl group-hover:bg-primary/10 transition-all duration-500"></div>
-<img alt="Юрист и команда АСПБ разбирают долговую ситуацию клиента перед запуском антикризисного маршрута" class="relative rounded-xl shadow-2xl w-full h-full object-cover object-center" src="assets/aspb-hero-consultation.png"/>
+<img alt="Юрист и команда АСПБ разбирают долговую ситуацию клиента перед запуском антикризисного маршрута" class="relative rounded-xl shadow-2xl w-full h-full object-cover object-center transition-all duration-500 group-hover:scale-[1.02]" src="assets/aspb-hero-consultation.png"/>
+<!-- 3 mini-cards fan out on hover -->
+<div class="hero-fan-cards">
+<div class="hero-fan-card hero-fan-card--1">
+<div class="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center mb-2">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+</div>
+<p class="text-[13px] font-bold leading-tight">Диагностика</p>
+<p class="text-[11px] leading-snug opacity-80 mt-1">АСПБ проверяет ситуацию клиента и строит маршрут</p>
+</div>
+<div class="hero-fan-card hero-fan-card--2">
+<div class="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center mb-2">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+</div>
+<p class="text-[13px] font-bold leading-tight">Процедура</p>
+<p class="text-[11px] leading-snug opacity-80 mt-1">Команда ведёт банкротство, суд и кредиторов</p>
+</div>
+<div class="hero-fan-card hero-fan-card--3">
+<div class="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center mb-2">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+</div>
+<p class="text-[13px] font-bold leading-tight">Партнёрство</p>
+<p class="text-[11px] leading-snug opacity-80 mt-1">Юрист получает вознаграждение за каждую передачу</p>
+</div>
+</div>
 </div>
 </div>
 </section>
 <!-- Registration Motivation -->
-<section class="py-16 bg-background border-y border-outline-variant/20">
-<div class="max-w-container-max-width mx-auto px-gutter">
-<div class="grid lg:grid-cols-[0.9fr_1.1fr] gap-8 items-stretch">
-<div class="bg-primary text-white rounded-xl p-8 md:p-10 shadow-xl flex flex-col justify-between overflow-hidden relative">
-<div class="absolute -right-16 -bottom-16 w-48 h-48 rounded-full border border-primary-fixed-dim/15"></div>
-<div class="relative z-10">
-<p class="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-4 py-2 text-label-sm font-label-sm text-primary-fixed-dim mb-6">
-<span class="material-symbols-outlined text-[18px]">bolt</span>
-                            почему стоит записаться
-                        </p>
-<h2 class="text-headline-lg font-headline-lg mb-5">Клиент не должен уходить “куда-то по рекламе”</h2>
-<p class="text-body-lg text-primary-fixed-dim leading-relaxed">
-                            Если доверитель пришел к вам с долгами, кредиторами или риском банкротства, вы уже находитесь в точке решения. На вебинаре покажем, как не отпускать такого клиента, а подключать АСПБ как сильную антикризисную команду.
-                        </p>
-</div>
-<div class="relative z-10 mt-8 rounded-xl bg-white/[0.08] border border-white/10 p-5">
-<p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-2">формула вебинара</p>
-<p class="text-headline-md font-headline-md">Вы видите сигнал → АСПБ ведет сложную часть → клиент получает законный маршрут</p>
-</div>
-</div>
-<div class="grid sm:grid-cols-2 gap-5">
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
-<span class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-5">
-<span class="material-symbols-outlined">route</span>
-</span>
-<h3 class="text-headline-md font-headline-md text-primary mb-3">Не берете процедуру на себя</h3>
-<p class="text-body-md text-on-surface-variant leading-relaxed">Ваша роль — заметить банкротный риск и открыть клиенту маршрут. Диагностику, документы, суд и кредиторов ведет команда АСПБ.</p>
-</div>
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
-<span class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-5">
-<span class="material-symbols-outlined">verified_user</span>
-</span>
-<h3 class="text-headline-md font-headline-md text-primary mb-3">Защищаете репутацию</h3>
-<p class="text-body-md text-on-surface-variant leading-relaxed">АСПБ берет в работу только те ситуации, где есть понятный законный маршрут. Это важно, потому что клиент приходит по вашему доверию.</p>
-</div>
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
-<span class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-5">
-<span class="material-symbols-outlined">psychology</span>
-</span>
-<h3 class="text-headline-md font-headline-md text-primary mb-3">Переупаковываете банкротство</h3>
-<p class="text-body-md text-on-surface-variant leading-relaxed">Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.</p>
-</div>
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
-<span class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-5">
-<span class="material-symbols-outlined">groups</span>
-</span>
-<h3 class="text-headline-md font-headline-md text-primary mb-3">Подключаете масштаб</h3>
-<p class="text-body-md text-on-surface-variant leading-relaxed">За вашей рекомендацией стоит команда АУ и 17 000+ успешных дел. Это сильнее, чем вести сложный кейс в одиночку.</p>
-</div>
-</div>
-</div>
-<div class="mt-8 rounded-xl bg-surface-container-low p-5 md:p-6 border border-outline-variant/30 flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+<section class="py-12 bg-background border-y border-outline-variant/20">
+<div class="max-w-container-max-width mx-auto px-gutter space-y-5">
+
+<!-- Row 1: Dark card full width -->
+<div class="bg-primary text-white rounded-xl p-6 md:p-8 shadow-xl overflow-hidden relative">
+<div class="absolute -right-12 -bottom-12 w-36 h-36 rounded-full border border-primary-fixed-dim/15"></div>
+<div class="relative z-10 grid lg:grid-cols-[1.1fr_0.9fr] gap-6 items-center">
 <div>
-<p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-1">главный крючок вебинара</p>
-<p class="text-headline-md font-headline-md text-primary">Деньги приходят на новую нишу, которую юрист понял раньше остальных.</p>
+<p class="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-3 py-1.5 text-label-sm font-label-sm text-primary-fixed-dim mb-4">
+<span class="material-symbols-outlined text-[16px]">bolt</span>
+почему стоит записаться
+</p>
+<h2 class="text-headline-lg font-headline-lg mb-3">Клиент не должен уходить “куда-то по рекламе”</h2>
+<p class="text-body-md text-primary-fixed-dim leading-relaxed">
+Если доверитель пришел к вам с долгами, кредиторами или риском банкротства, вы уже находитесь в точке решения. На вебинаре покажем, как не отпускать такого клиента, а подключать АСПБ как сильную антикризисную команду.
+</p>
+<div class="debt-alert-card mt-6 rounded-xl px-5 py-5 md:px-6 md:py-5">
+<p class="debt-alert-text">Общий долг россиян по кредитам превысил <strong>37 трлн рублей</strong>. Займы выплачивают <strong>47,6 млн человек</strong>. У половины из них больше половины дохода уходит на погашение долгов, а каждый пятый уже просрочил платежи больше чем на месяц.</p>
+<p class="debt-alert-source">— ФЦБГ</p>
 </div>
-<a class="inline-flex items-center justify-center gap-2 bg-primary text-on-primary px-6 py-4 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0 text-center" href="register.html">
-                        Зарегистрироваться на вебинар
+</div>
+<div class="rounded-xl bg-white/[0.08] border border-white/10 p-5">
+<p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-1.5">формула вебинара</p>
+<p class="text-body-lg font-semibold">Вы видите сигнал → АСПБ ведет сложную часть → клиент получает законный маршрут</p>
+</div>
+</div>
+</div>
+
+<!-- Row 2: Two horizontal benefit cards (flip + progress) -->
+<div class="grid sm:grid-cols-2 gap-5">
+<div class="card-reveal flip-card">
+<div class="flip-card-inner">
+<div class="flip-card-front bento-card-interactive bg-surface-container-lowest rounded-xl border border-outline-variant/10 p-5 flex items-start gap-4">
+<div class="w-10 h-10 rounded-lg bg-primary-fixed text-primary flex items-center justify-center shrink-0">
+  <svg class="bento-icon-svg bento-icon-svg--graph" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="2"></circle>
+    <circle cx="5" cy="18" r="1.5" class="graph-node--left"></circle>
+    <circle cx="19" cy="18" r="1.5" class="graph-node--right"></circle>
+    <circle cx="12" cy="4" r="1.5" class="graph-node--top"></circle>
+    <line x1="12" y1="10" x2="12" y2="5.5"></line>
+    <line x1="10.5" y1="13" x2="6.5" y2="17"></line>
+    <line x1="13.5" y1="13" x2="17.5" y2="17"></line>
+  </svg>
+</div>
+<div>
+<h3 class="text-body-lg font-semibold text-primary mb-1">Не берете процедуру на себя</h3>
+<p class="text-body-sm text-on-surface-variant leading-relaxed">Ваша роль — заметить банкротный риск и открыть клиенту маршрут. Диагностику, документы, суд и кредиторов ведет команда АСПБ.</p>
+</div>
+<div class="flip-progress"></div>
+</div>
+<div class="flip-card-back rounded-xl p-5 flex items-center">
+<div>
+<p class="text-[13px] font-bold text-white mb-2">Пример из практики</p>
+<p class="text-[12px] text-white/80 leading-relaxed">Клиент пришёл с долгом 4.2 млн — юрист передал в АСПБ за 1 день, процедура заняла 8 месяцев без его участия.</p>
+<p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
+</div>
+</div>
+</div>
+</div>
+<div class="card-reveal card-reveal--delay flip-card">
+<div class="flip-card-inner">
+<div class="flip-card-front bento-card-interactive bg-surface-container-lowest rounded-xl border border-outline-variant/10 p-5 flex items-start gap-4">
+<div class="w-10 h-10 rounded-lg bg-primary-fixed text-primary flex items-center justify-center shrink-0">
+  <svg class="bento-icon-svg bento-icon-svg--shield" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+    <polyline points="9 12 11 14 15 10"></polyline>
+  </svg>
+</div>
+<div>
+<h3 class="text-body-lg font-semibold text-primary mb-1">Защищаете репутацию</h3>
+<p class="text-body-sm text-on-surface-variant leading-relaxed">АСПБ берет в работу только те ситуации, где есть понятный законный маршрут. Это важно, потому что клиент приходит по вашему доверию.</p>
+</div>
+<div class="flip-progress"></div>
+</div>
+<div class="flip-card-back rounded-xl p-5 flex items-center">
+<div>
+<p class="text-[13px] font-bold text-white mb-2">Пример из практики</p>
+<p class="text-[12px] text-white/80 leading-relaxed">Партнёр направил 3 клиентов за квартал — все получили законное списание, ни одной жалобы.</p>
+<p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- Row 3: Segmented tabs + CTA -->
+<div class="space-y-4">
+<div>
+<div class="seg-tabs" role="tablist">
+<button class="seg-tab seg-tab--active" role="tab" aria-selected="true" data-tab="1" type="button">Переупаковываете банкротство</button>
+<button class="seg-tab" role="tab" aria-selected="false" data-tab="2" type="button">Подключаете масштаб</button>
+</div>
+<div class="seg-panel" id="regScalePanel">
+<p class="seg-panel-text" data-text-1="Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально." data-text-2="За вашей рекомендацией стоит команда АСПБ и 17 000+ успешных дел. Это сильнее, чем вести сложный кейс в одиночку.">Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.</p>
+</div>
+</div>
+<a class="cta-register-btn" href="register.html">
+<span class="cta-register-text">Зарегистрироваться на вебинар</span>
+<span class="cta-register-icon">
 <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+</span>
+<span class="cta-register-shine"></span>
 </a>
 </div>
+
 </div>
 </section>
 <!-- Problem Cards -->
@@ -806,18 +274,37 @@
 <div class="max-w-container-max-width mx-auto px-gutter">
 <h2 class="text-headline-md md:text-headline-lg font-headline-lg text-primary text-center mb-12">Проблемные клиенты не где-то далеко — они уже рядом</h2>
 <div class="grid md:grid-cols-3 gap-6">
-<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card text-left p-8 bg-surface-container-lowest rounded-xl border border-outline-variant/30 hover:border-primary/20 hover:-translate-y-1 hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Именно здесь клиент обычно уходит молча: бизнес уже не тянет обязательства, но до публичного банкротства дело может не дойти. АСПБ помогает превратить этот ранний сигнал в законный маршрут, где вы остаетесь доверенным советником." data-emotion-title="АСПБ включается там, где бизнес уже молчит." type="button">
-<span class="material-symbols-outlined text-primary mb-4 text-[32px]">account_balance_wallet</span>
+<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card bento-card-interactive text-left p-8 bg-surface-container-lowest rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Именно здесь клиент обычно уходит молча: бизнес уже не тянет обязательства, но до публичного банкротства дело может не дойти. АСПБ помогает превратить этот ранний сигнал в законный маршрут, где вы остаетесь доверенным советником." data-emotion-title="АСПБ включается там, где бизнес уже молчит." type="button">
+<div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-4">
+<svg class="bento-icon-svg emotion-icon-svg--wallet" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"></path>
+  <path d="M3 5v14a2 2 0 0 0 2 2h16v-5"></path>
+  <path d="M18 12a2 2 0 0 0 0 4h4v-4z" class="wallet-flap-group"></path>
+</svg>
+</div>
 <span class="block text-headline-md font-headline-md mb-3">Клиент приходит не только за иском</span>
 <span class="block text-body-md text-on-surface-variant leading-relaxed">«Не тяну долги», «давит банк», «есть риск субсидиарки», «как закрыть бизнес без хаоса». Для юриста это сигнал: клиенту нужна антикризисная диагностика.</span>
 </button>
-<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card text-left p-8 bg-surface-container-lowest rounded-xl border border-outline-variant/30 hover:border-primary/20 hover:-translate-y-1 hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Когда человек сам ищет законный выход из долгов, ему нужен не общий совет, а понятный маршрут. В этот момент рекомендация в АСПБ звучит как помощь, а не продажа." data-emotion-title="АСПБ дает клиенту маршрут, когда самому уже страшно." type="button">
-<span class="material-symbols-outlined text-primary mb-4 text-[32px]">block</span>
+<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card bento-card-interactive text-left p-8 bg-surface-container-lowest rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Когда человек сам ищет законный выход из долгов, ему нужен не общий совет, а понятный маршрут. В этот момент рекомендация в АСПБ звучит как помощь, а не продажа." data-emotion-title="АСПБ дает клиенту маршрут, когда самому уже страшно." type="button">
+<div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-4">
+<svg class="bento-icon-svg emotion-icon-svg--block" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="10"></circle>
+  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+</svg>
+</div>
 <span class="block text-headline-md font-headline-md mb-3">Юридический вопрос уже стал финансовым риском</span>
 <span class="block text-body-md text-on-surface-variant leading-relaxed">Сначала это претензия, спор или консультация. Потом выясняется: долги, кредиторы, ФНС, банкротные риски. В этот момент клиенту нужен маршрут, а не разовый совет.</span>
 </button>
-<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card text-left p-8 bg-surface-container-lowest rounded-xl border border-outline-variant/30 hover:border-primary/20 hover:-translate-y-1 hover:shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Вы видите кассовый разрыв, блокировку счета или налоговый долг раньше всех. Это точка, где можно не разводить руками, а направить клиента в АСПБ и сохранить доверие." data-emotion-title="Ваш ранний сигнал становится входом в АСПБ." type="button">
-<span class="material-symbols-outlined text-primary mb-4 text-[32px]">history_toggle_off</span>
+<button aria-controls="problemEmotionPanel" aria-pressed="false" class="emotion-card bento-card-interactive text-left p-8 bg-surface-container-lowest rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-emotion-text="Вы видите кассовый разрыв, блокировку счета или налоговый долг раньше всех. Это точка, где можно не разводить руками, а направить клиента в АСПБ и сохранить доверие." data-emotion-title="Ваш ранний сигнал становится входом в АСПБ." type="button">
+<div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-4">
+<svg class="bento-icon-svg emotion-icon-svg--timer" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="13" r="8" class="timer-ring" stroke-dasharray="4 2"></circle>
+  <path d="M12 9v4l2 2" class="timer-hand"></path>
+  <path d="M5 3L2 6"></path>
+  <path d="M22 6l-3-3"></path>
+  <line x1="12" y1="1" x2="12" y2="3"></line>
+</svg>
+</div>
 <span class="block text-headline-md font-headline-md mb-3">Передайте сложную часть в АСПБ</span>
 <span class="block text-body-md text-on-surface-variant leading-relaxed">Вам не нужно закрывать всю процедуру внутри своей практики. Вы передаете ситуацию в АСПБ, а команда проверяет долги, риски и законный маршрут.</span>
 </button>
@@ -848,7 +335,7 @@
 </div>
 </div>
 </div>
-<a class="inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-5 py-3 rounded-xl font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0" href="register.html">
+<a class="btn-premium btn-premium--light inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-5 py-3 rounded-xl font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0" href="register.html">
 <span>Показать маршрут АСПБ</span>
 <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
 </a>
@@ -860,11 +347,14 @@
 <section class="py-20 bg-surface border-y border-outline-variant/20" id="why-now">
 <div class="max-w-container-max-width mx-auto px-gutter">
 <div class="grid lg:grid-cols-[0.95fr_1.05fr] gap-8 items-stretch">
-<div class="bg-primary text-on-primary rounded-xl p-8 md:p-10 shadow-xl flex flex-col justify-between overflow-hidden relative">
-<div class="absolute -right-10 -top-10 w-40 h-40 rounded-full border border-primary-fixed-dim/15"></div>
-<div class="relative z-10 space-y-6">
+<div class="bento-card-tilt bento-card-interactive bento-card-interactive--dark text-on-primary rounded-xl p-8 md:p-10 shadow-xl flex flex-col justify-between overflow-hidden relative" style="transform-style:preserve-3d;perspective:800px">
+<div class="gradient-mesh-bg"></div>
+<div class="relative z-10 space-y-6" style="transform:translateZ(20px)">
 <span class="inline-flex w-fit items-center gap-2 rounded-full bg-white/10 border border-white/10 px-4 py-2 text-label-sm font-label-sm text-primary-fixed-dim">
-<span class="material-symbols-outlined text-[18px]">monitoring</span>
+<svg class="bento-icon-svg inline-trend-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
+  <polyline points="16 7 22 7 22 13"></polyline>
+</svg>
                                 сигнал рынка
                             </span>
 <h2 class="text-headline-lg font-headline-lg">Почему эта ниша растет в кризис</h2>
@@ -872,9 +362,13 @@
                             Без паники и без розовых очков: долговая нагрузка растет, а банкротство стало нормальным финансовым инструментом. Для юриста это момент не отпускать клиента после разовой консультации, а дать ему законный антикризисный маршрут вместе с командой АСПБ.
                         </p>
 </div>
-<div class="relative z-10 mt-8 flex gap-4 rounded-xl border border-primary-fixed-dim/20 bg-white/10 p-5">
+<div class="relative z-10 mt-8 flex gap-4 rounded-xl border border-primary-fixed-dim/20 bg-transparent p-5">
 <div class="w-11 h-11 rounded-xl bg-primary-fixed-dim/15 border border-primary-fixed-dim/30 flex items-center justify-center shrink-0">
-<span class="material-symbols-outlined text-primary-fixed-dim text-[24px]">route</span>
+<svg class="bento-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="6" cy="18" r="2" class="route-node-start"></circle>
+  <circle cx="18" cy="6" r="2" class="route-node-end"></circle>
+  <path d="M6 16 C 6 10, 18 14, 18 8" class="route-path"></path>
+</svg>
 </div>
 <div>
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim/80 mb-1">главный вывод</p>
@@ -885,29 +379,44 @@
 </div>
 </div>
 <div class="grid sm:grid-cols-2 gap-5">
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-7 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
+<div class="bento-card-interactive rounded-xl p-7 card-reveal">
 <div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-8">
-<span class="material-symbols-outlined">person_alert</span>
+<span class="material-symbols-outlined text-[28px]">groups</span>
 </div>
-<div class="text-headline-xl font-headline-xl text-primary mb-2">568 000</div>
+<div class="text-headline-xl font-headline-xl text-primary mb-2" data-countup="568000" data-countup-suffix="">568 000</div>
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-4">граждан и ИП в 2025</p>
 <p class="text-body-md text-on-surface-variant leading-relaxed">За цифрой стоят люди и предприниматели, которые уже ищут законный выход из долгов.</p>
 </div>
-<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 p-7 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all">
+<div class="bento-card-interactive rounded-xl p-7 card-reveal card-reveal--delay">
 <div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-8">
-<span class="material-symbols-outlined">stacked_line_chart</span>
+<span class="material-symbols-outlined text-[28px]">trending_up</span>
 </div>
-<div class="text-headline-xl font-headline-xl text-primary mb-2">2.2 млн</div>
+<div class="text-headline-xl font-headline-xl text-primary mb-2" data-countup="2200000" data-countup-suffix=" млн" data-countup-display="2.2">2.2 млн</div>
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-4">прошли процедуру за 10 лет</p>
 <p class="text-body-md text-on-surface-variant leading-relaxed">Банкротство стало массовым финансовым маршрутом, а не редкой крайностью.</p>
 </div>
-<div class="sm:col-span-2 bg-surface-container-low rounded-xl border border-outline-variant/30 p-6 flex flex-col md:flex-row md:items-center gap-5">
+<div class="sm:col-span-2 flip-card card-reveal" style="animation-delay:0.25s">
+<div class="flip-card-inner">
+<div class="flip-card-front bento-card-interactive bg-surface-container-low rounded-xl p-6 flex flex-col md:flex-row md:items-center gap-5">
 <div class="w-12 h-12 rounded-xl bg-primary text-on-primary flex items-center justify-center shrink-0">
-<span class="material-symbols-outlined">task_alt</span>
+<svg class="bento-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="10" class="task-circle"></circle>
+  <polyline points="9 12 11 14 15 10" class="task-check"></polyline>
+</svg>
 </div>
 <div>
 <p class="text-label-md font-label-md text-primary mb-1">Что это значит для юриста</p>
 <p class="text-body-md text-on-surface-variant leading-relaxed">Когда клиент говорит про долги, кредиторов, субсидиарные риски, ФНС или закрытие бизнеса, это повод предложить диагностику в АСПБ, а не ограничиваться разовой консультацией.</p>
+</div>
+<div class="flip-progress"></div>
+</div>
+<div class="flip-card-back rounded-xl p-6 flex items-center">
+<div>
+<p class="text-[14px] font-bold text-white mb-2">Реальный кейс</p>
+<p class="text-[13px] text-white/80 leading-relaxed">Юрист заметил у клиента долг перед ФНС и 3 кредиторов. Передал на диагностику в АСПБ — через 2 недели клиент получил план реструктуризации, юрист получил партнёрское вознаграждение.</p>
+<p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
+</div>
+</div>
 </div>
 </div>
 </div>
@@ -988,22 +497,32 @@
 <span id="incomeDetailEmotion">Два клиента — уже ритм: вы помогаете вовремя и видите понятные деньги.</span>
 </div>
 <p class="text-body-md text-on-surface-variant max-w-2xl" id="incomeDetailText">Два клиента в месяц — это уже регулярный дополнительный поток: ориентир от 60 000 ₽. Вы не ведете суды и процедуру: передаете контакт, а АСПБ делает все остальное.</p>
-<div class="mt-5 grid sm:grid-cols-3 gap-2 max-w-3xl">
-<div class="rounded-lg bg-surface-container-low border border-outline-variant/30 px-4 py-3">
-<span class="block text-label-sm font-label-sm text-primary">01</span>
-<span class="block text-label-sm text-on-surface-variant" id="incomeStepOne">Поймали два запроса</span>
+<div class="mt-6 max-w-3xl income-steps">
+<div class="grid sm:grid-cols-[1fr_auto_1fr_auto_1fr] gap-3 sm:gap-0 items-center">
+<div class="income-step rounded-2xl bg-gradient-to-br from-white to-[#f0f5fa] border border-outline-variant/15 px-5 py-5 text-center shadow-sm">
+<div class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center mx-auto mb-3 text-[14px] font-bold shadow-md">01</div>
+<span class="material-symbols-outlined text-primary text-[24px] block mb-2">search</span>
+<span class="block text-[13px] font-semibold text-primary mb-1">Заметили сигнал</span>
+<span class="block text-[11px] text-on-surface-variant leading-snug" id="incomeStepOne">Поймали два запроса</span>
 </div>
-<div class="rounded-lg bg-surface-container-low border border-outline-variant/30 px-4 py-3">
-<span class="block text-label-sm font-label-sm text-primary">02</span>
-<span class="block text-label-sm text-on-surface-variant" id="incomeStepTwo">АСПБ ведет процедуру</span>
+<svg class="income-step-arrow hidden sm:block mx-1" width="28" height="12" viewBox="0 0 28 12"><path d="M0 6h24m0 0l-3.5-3.5m3.5 3.5l-3.5 3.5" stroke="#4285f4" stroke-width="1.5" fill="none" stroke-linecap="round" class="income-arrow-path"/></svg>
+<div class="income-step rounded-2xl bg-gradient-to-br from-white to-[#f0f5fa] border border-outline-variant/15 px-5 py-5 text-center shadow-sm" style="animation-delay:0.15s">
+<div class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center mx-auto mb-3 text-[14px] font-bold shadow-md">02</div>
+<span class="material-symbols-outlined text-primary text-[24px] block mb-2">handshake</span>
+<span class="block text-[13px] font-semibold text-primary mb-1">Передали в АСПБ</span>
+<span class="block text-[11px] text-on-surface-variant leading-snug" id="incomeStepTwo">АСПБ ведет процедуру</span>
 </div>
-<div class="rounded-lg bg-surface-container-low border border-outline-variant/30 px-4 py-3">
-<span class="block text-label-sm font-label-sm text-primary">03</span>
-<span class="block text-label-sm text-on-surface-variant" id="incomeStepThree">Вознаграждение закреплено договором</span>
+<svg class="income-step-arrow hidden sm:block mx-1" width="28" height="12" viewBox="0 0 28 12"><path d="M0 6h24m0 0l-3.5-3.5m3.5 3.5l-3.5 3.5" stroke="#4285f4" stroke-width="1.5" fill="none" stroke-linecap="round" class="income-arrow-path"/></svg>
+<div class="income-step rounded-2xl bg-gradient-to-br from-white to-[#f0f5fa] border border-outline-variant/15 px-5 py-5 text-center shadow-sm" style="animation-delay:0.3s">
+<div class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center mx-auto mb-3 text-[14px] font-bold shadow-md">03</div>
+<span class="material-symbols-outlined text-primary text-[24px] block mb-2">description</span>
+<span class="block text-[13px] font-semibold text-primary mb-1">Договор</span>
+<span class="block text-[11px] text-on-surface-variant leading-snug" id="incomeStepThree">Вознаграждение закреплено договором</span>
 </div>
 </div>
 </div>
-<a class="inline-flex items-center justify-center gap-2 bg-primary text-on-primary px-6 py-3 rounded-xl font-label-md text-label-md hover:opacity-90 active:scale-95 transition-all shrink-0" href="register.html">
+</div>
+<a class="btn-premium inline-flex items-center justify-center gap-2 bg-primary text-on-primary px-6 py-3 rounded-xl font-label-md text-label-md hover:opacity-90 active:scale-95 transition-all shrink-0" href="register.html">
 <span>Запустить сценарий АСПБ</span>
 <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
 </a>
@@ -1044,7 +563,7 @@
 </div>
 </div>
 </div>
-<div class="chain-steps grid sm:grid-cols-3 lg:grid-cols-1 gap-3 w-full lg:max-w-[440px] lg:mx-auto" role="tablist" aria-label="Роль партнера в цепочке АСПБ">
+<div class="chain-steps grid sm:grid-cols-3 lg:grid-cols-1 gap-3 w-full lg:max-w-[440px] lg:mx-auto" role="group" aria-label="Роль партнера в цепочке АСПБ">
 <button aria-pressed="true" class="chain-choice relative z-10 text-left rounded-lg border border-white/[0.12] bg-white/10 p-4 transition-all hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-fixed-dim" data-chain-icon="shield_person" data-chain-text="Вы видите проблему и направляете клиента к решению. АСПБ берет на себя диагностику, документы, суд, кредиторов и завершение процедуры. Никакого офиса, лицензий и самостоятельных судов." data-chain-title="Вы не теряете клиента — вы становитесь точкой опоры" type="button">
 <span class="flex items-start gap-4">
 <span class="chain-dot flex w-8 h-8 rounded-full items-center justify-center text-label-sm font-label-sm shrink-0">1</span>
@@ -1078,40 +597,107 @@
 </div>
 </section>
 <!-- Team -->
-<section class="pt-12 md:pt-14 pb-20 bg-surface" id="team">
+<section class="pt-10 md:pt-12 pb-14 md:pb-16 bg-surface" id="team">
 <div class="max-w-container-max-width mx-auto px-gutter">
-<div class="flex justify-between items-end mb-12">
-<div>
+
+<!-- Count-up hero stat -->
+<div class="text-center mb-8">
+<div class="text-headline-xl md:text-[56px] font-headline-xl text-primary mb-2" data-countup="17000" data-countup-suffix="+">17 000+</div>
+<p class="text-body-lg text-on-surface-variant">успешных дел по банкротству граждан и бизнеса</p>
+</div>
+
+<div class="text-center mb-8">
 <h2 class="text-headline-lg font-headline-lg text-primary mb-2">Опытные арбитражные управляющие</h2>
-<p class="text-body-md text-on-surface-variant">Команда опытных АУ, которая ведет банкротства граждан и бизнеса под ключ</p>
+<p class="text-body-md text-on-surface-variant">Команда, которая берёт сложную часть на себя — от диагностики до завершения процедуры</p>
 </div>
-<div class="hidden md:block text-right">
-<div class="text-headline-md font-headline-md text-primary">17 000+</div>
-<p class="text-label-sm text-on-surface-variant uppercase tracking-wider">Успешных дел</p>
+
+<div class="grid md:grid-cols-3 gap-6">
+
+<!-- Founder card -->
+<div class="card-reveal team-card team-founder-card group md:col-span-3">
+<div class="grid lg:grid-cols-[0.82fr_1.18fr] lg:min-h-[350px]">
+<div class="team-photo-frame relative overflow-hidden rounded-xl lg:rounded-r-none h-[260px] sm:h-[300px] lg:h-auto">
+<img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/vasiliy-artin.jpg" alt="Василий Артин"/>
+<div class="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-primary text-white px-4 py-2 text-label-sm font-label-sm">
+<span class="material-symbols-outlined text-[18px]">workspace_premium</span>
+                            Основатель АСПБ
+                        </div>
+<div class="team-card-tooltip">
+<p class="text-[12px] text-white/90 leading-relaxed">Основал АСПБ и курирует стратегию сопровождения самых сложных банкротных дел</p>
 </div>
 </div>
-<div class="grid md:grid-cols-3 gap-8">
-<div class="group">
-<div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500" data-alt="Portrait of a senior male bankruptcy lawyer in a tailored navy blue suit, standing in a bright minimalist office with legal books in the background. The lighting is soft and natural, emphasizing a high-trust professional atmosphere. The overall style is clean, modern, and intellectually rigorous." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvZigpiyUH8NgNPOF8ghFZQDYsG8q0Mc6ob31ieCofW-6DXDpJghw3-cCpyckbbA1Rw0V4AjksiVKIIN771osLArQIFXYdKI1KyDyiP9PLTeYW-67RpMP8i8XOIKUxUJ9ZE5cxiTGpCLzui53rhGh_sd9vtPOagMDa6XCMLJvxeJo7aBYUXuAYSIzn8GWebvb2-vW8sbX8lqppeh-wnYT2MhX9GCb46RNx-v3n58WSZUPKmaXF9QL0vZSOWABw4GwpfQvAZ0VG6gk"/>
+<div class="p-5 md:p-6 lg:p-8 flex flex-col justify-center">
+<p class="text-label-md font-label-md uppercase text-secondary mb-2">Лицо команды</p>
+<h4 class="text-[44px] leading-[48px] font-headline-xl text-primary mb-3">Василий Артин</h4>
+<p class="text-body-lg font-semibold text-on-surface-variant mb-4">Основатель АСПБ, арбитражный управляющий</p>
+<p class="text-[19px] leading-8 text-on-surface-variant mb-5 team-card-desc">Создал АСПБ и ведет стратегию сложных дел. Самый большой практический стаж в команде помогает выстраивать для клиентов спокойный, законный и понятный маршрут.</p>
+<div class="team-founder-quote mb-4">
+<span class="material-symbols-outlined text-[22px]">format_quote</span>
+<p>Наша задача — не обещать чудо, а собрать сильную правовую позицию и довести клиента до результата без хаоса.</p>
 </div>
-<h4 class="text-headline-md font-headline-md text-primary">Александр Волков</h4>
-<p class="text-label-md text-on-surface-variant">АУ по процедурам банкротства граждан и бизнеса, отвечает за стратегию защиты клиента.</p>
+<div class="team-card-stats">
+<span class="team-stat">16+ лет практики</span>
+<span class="team-stat">Основатель АСПБ</span>
+<span class="team-stat">Стратегия сложных дел</span>
 </div>
-<div class="group">
-<div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500" data-alt="Portrait of a confident female legal professional in a sharp charcoal blazer, presenting with poise in a modern glass-walled board room. High-key professional lighting with subtle cool tones. The image conveys modern efficiency and legal authority with a sophisticated corporate aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWF81X8fQhlWURFce2-lE52gEjtwF_nbdfXGq16A7Wbh7h1faNYesU_pVE2KBypdPJnS3bzxEIldCSlfyb_DFBVNOQOEL54qs1Odn6upnAXnUkAaVdBP7dJRgVfOkmXKebXXiKozrR-vsXE8J0rX1t0MxmcA7IcjuHEdEvbvF12LnJZkIVc6o1wMrBwfvo2pu7pBHO-5ljjxUiCIxcMqUuE-PocHSNZ4eyM7k4qkty0MzBosOoyVoQaDKS9MHI0hC854_CLDw74js"/>
 </div>
-<h4 class="text-headline-md font-headline-md text-primary">Мария Соколова</h4>
-<p class="text-label-md text-on-surface-variant">Эксперт по диагностике долговой нагрузки и рисков перед запуском процедуры.</p>
 </div>
-<div class="group">
-<div class="relative overflow-hidden rounded-xl mb-4 h-[420px] bg-surface-container">
-<img class="w-full h-full object-cover object-top origin-top group-hover:scale-[1.03] transition-transform duration-500" data-alt="Portrait of a male legal expert with a focused and calm expression, dressed in business casual attire within a high-end contemporary office space. The background features architectural lines and soft bokeh, creating a premium and bespoke feel. Lighting is warm yet precise." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWyByM-iOcxPMO-xmRm5eGU27jTvpPYTrOxnIG7ALs8t1OUakhV8Lz1CUoDHUC5aHMkmJ_eojP98d19ip7oVGw0omOT1YYudaVw3TTdFCSdHwU6zI_nmiZQ0o3DoXz9pzAeAQfr19kk_BZ5LlE390J1YrjVdRhp5ptpKDd1D-pQREO2W-edMjiXtp7Ke-UHBtZoVqzOZ88of-_IpaiEuethayn7ewSjzE66_-4DxakPamBnbIu846BChh4d5TDXyhjrgHuI6MLuHU"/>
 </div>
-<h4 class="text-headline-md font-headline-md text-primary">Дмитрий Романов</h4>
-<p class="text-label-md text-on-surface-variant">Специалист по защите от взыскания, кредиторского давления и субсидиарных рисков.</p>
+
+<!-- Card 2 -->
+<div class="card-reveal card-reveal--delay team-card group">
+<div class="team-photo-frame relative overflow-hidden rounded-xl mb-3 h-[260px] sm:h-[300px]">
+<img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/lyashchenko-elena.jpg" alt="Лященко Елена"/>
+<div class="team-card-tooltip">
+<p class="text-[12px] text-white/90 leading-relaxed">Сопровождает процедуру так, чтобы клиент понимал каждый этап: документы, сроки, суд и коммуникация с кредиторами</p>
 </div>
+</div>
+<h4 class="text-headline-md font-headline-md text-primary">Лященко Елена</h4>
+<p class="text-label-md text-on-surface-variant">Эксперт по сопровождению банкротных процедур</p>
+<p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Помогает клиентам пройти процедуру спокойно: собирает фактуру, держит сроки и снижает стресс на каждом этапе</p>
+<div class="team-card-stats">
+<span class="team-stat">Стаж: 15 лет</span>
+<span class="team-stat">Документы и сроки</span>
+<span class="team-stat">Работа с кредиторами</span>
+</div>
+</div>
+
+<!-- Card 3 -->
+<div class="card-reveal team-card group" style="animation-delay:0.24s">
+<div class="team-photo-frame relative overflow-hidden rounded-xl mb-3 h-[260px] sm:h-[300px]">
+<img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/gerasimov-alexander.jpg" alt="Александр Герасимов"/>
+<div class="team-card-tooltip">
+<p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: списал 12.4 млн долга для ИП за 7 месяцев, сохранив единственное жильё клиента</p>
+</div>
+</div>
+<h4 class="text-headline-md font-headline-md text-primary">Александр Герасимов</h4>
+<p class="text-label-md text-on-surface-variant">Арбитражный управляющий, член СРО</p>
+<p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Банкротство юрлиц, субсидиарная ответственность, защита активов</p>
+<div class="team-card-stats">
+<span class="team-stat">Стаж: 14 лет</span>
+<span class="team-stat">Дел: 580+</span>
+<span class="team-stat">Реестр: № 12847</span>
+</div>
+</div>
+
+<!-- Card 4 -->
+<div class="card-reveal team-card group" style="animation-delay:0.3s">
+<div class="team-photo-frame relative overflow-hidden rounded-xl mb-3 h-[260px] sm:h-[300px]">
+<img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/andrey-abukaev.jpg" alt="Андрей Абукаев"/>
+<div class="team-card-tooltip">
+<p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: снял субсидиарную ответственность 18 млн с директора через оспаривание сделок</p>
+</div>
+</div>
+<h4 class="text-headline-md font-headline-md text-primary">Андрей Абукаев</h4>
+<p class="text-label-md text-on-surface-variant">Арбитражный управляющий, к.ю.н.</p>
+<p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Защита от взыскания, оспаривание сделок, снятие субсидиарки</p>
+<div class="team-card-stats">
+<span class="team-stat">Стаж: 11 лет</span>
+<span class="team-stat">Дел: 410+</span>
+<span class="team-stat">Реестр: № 15293</span>
+</div>
+</div>
+
 </div>
 </div>
 </section>
@@ -1143,7 +729,7 @@
 </div>
 </div>
 </div>
-<div class="grid gap-3" role="tablist" aria-label="Программа вебинара АСПБ">
+<div class="grid gap-3" role="group" aria-label="Программа вебинара АСПБ">
 <button aria-pressed="true" class="program-card text-left rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-5 transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-program-icon="query_stats" data-program-result="Вы увидите, где начинается возможность АСПБ в обычной юридической практике." data-program-text="Поймете, почему закрытие бизнеса и рост долгов создают не только тревогу, но и понятную партнерскую нишу для юристов и антикризисных специалистов." data-program-title="Кризис как юридический поток" type="button">
 <span class="flex gap-4">
 <span class="program-number flex w-11 h-11 rounded-lg bg-surface-container text-primary items-center justify-center font-bold shrink-0">01</span>
@@ -1272,7 +858,7 @@
 <h3 class="text-headline-md font-headline-md mb-1">Узнали себя хотя бы в одном пункте?</h3>
 <p class="text-body-md text-white/78">На вебинаре покажем, как превратить такие обращения в партнерский маршрут АСПБ.</p>
 </div>
-<a class="inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-6 py-4 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0 text-center" href="register.html">
+<a class="btn-premium btn-premium--light inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-6 py-4 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all shrink-0 text-center" href="register.html">
                     Зарегистрироваться на вебинар
 <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
 </a>
@@ -1301,7 +887,7 @@
 <p class="text-body-md text-white/78 mb-6">
                         АСПБ берет диагностику, документы, суд, кредиторов и сопровождение. Ваша роль — вовремя заметить сигнал и передать человека в надежные руки.
                     </p>
-<a class="inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-5 py-3 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all" href="register.html">
+<a class="btn-premium btn-premium--light inline-flex items-center justify-center gap-2 bg-primary-fixed text-on-primary-fixed px-5 py-3 rounded-lg font-label-md text-label-md hover:scale-[1.02] active:scale-95 transition-all" href="register.html">
                         Стать партнером
 <span class="material-symbols-outlined text-[20px]">arrow_forward</span>
 </a>
@@ -1411,10 +997,10 @@
                     Вместо ответа «это не мой профиль» покажите клиенту законный маршрут: передайте ситуацию в АСПБ, сохраните доверие и превратите уже существующий поток обращений в партнерскую линию.
                 </p>
 <div class="flex flex-col sm:flex-row gap-4 justify-center">
-<a class="bg-primary-fixed text-on-primary-fixed px-10 py-5 rounded-xl font-headline-md text-headline-md hover:scale-105 active:scale-95 transition-all" href="register.html">
+<a class="btn-premium btn-premium--light bg-primary-fixed text-on-primary-fixed px-10 py-5 rounded-xl font-headline-md text-headline-md hover:scale-105 active:scale-95 transition-all" href="register.html">
                         Зарегистрироваться на вебинар
                     </a>
-<a class="bg-transparent border border-primary-fixed-dim text-primary-fixed-dim px-10 py-5 rounded-xl font-headline-md text-headline-md hover:bg-white/5 transition-all" href="https://t.me/example" target="_blank" rel="noreferrer">
+<a class="bg-transparent border border-primary-fixed-dim text-primary-fixed-dim px-10 py-5 rounded-xl font-headline-md text-headline-md hover:bg-white/5 transition-all" href="https://t.me/jwjefgwreqfe_bot" target="_blank" rel="noreferrer">
                         Подключить уведомления АСПБ
                     </a>
 </div>
@@ -1428,7 +1014,7 @@
 <div class="text-headline-sm font-headline-sm font-bold text-primary">АСПБ</div>
 <p class="text-label-sm font-label-sm text-on-surface-variant max-w-xs">Антикризисная служба помощи бизнесу</p>
 <p class="text-label-sm font-label-sm text-on-surface-variant max-w-xs">
-                    © 2024 АСПБ. Все права защищены. Юридическая информация и оферта.
+                    © 2026 АСПБ. Все права защищены. Юридическая информация и оферта.
                 </p>
 </div>
 <div class="flex gap-8">
@@ -1437,309 +1023,19 @@
 <a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="mailto:partners@aspb.ru">Контакты</a>
 </div>
 <div class="flex gap-4">
-<button class="p-2 rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant">
+<a class="p-2 rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant" href="mailto:partners@aspb.ru" aria-label="Написать на email АСПБ">
 <span class="material-symbols-outlined">alternate_email</span>
-</button>
-<button class="p-2 rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant">
-<span class="material-symbols-outlined">call</span>
-</button>
+</a>
+<a class="p-2 rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant" href="https://t.me/jwjefgwreqfe_bot" target="_blank" rel="noreferrer" aria-label="Открыть Telegram АСПБ">
+<span class="material-symbols-outlined">send</span>
+</a>
 </div>
 </div>
 </footer>
-<script>
-        // Smooth scroll for anchors
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                if (this.getAttribute('href') === '#') {
-                    return;
-                }
-                e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
-            });
-        });
-
-        function getMoscowDateParts(date = new Date()) {
-            const parts = new Intl.DateTimeFormat('ru-RU', {
-                timeZone: 'Europe/Moscow',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            }).formatToParts(date);
-
-            return Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, Number(part.value)]));
-        }
-
-        function createTomorrowWebinarTarget() {
-            const moscowToday = getMoscowDateParts();
-            return Date.UTC(moscowToday.year, moscowToday.month - 1, moscowToday.day + 1, 8, 0, 0);
-        }
-
-        function getStoredWebinarTarget() {
-            const storageKey = 'aspbWebinarTargetMsk';
-            let savedTarget = NaN;
-            const now = Date.now();
-
-            try {
-                savedTarget = Number(window.localStorage?.getItem(storageKey));
-            } catch (error) {
-                savedTarget = NaN;
-            }
-
-            if (Number.isFinite(savedTarget) && savedTarget > now) {
-                return savedTarget;
-            }
-
-            const target = createTomorrowWebinarTarget();
-
-            try {
-                window.localStorage?.setItem(storageKey, String(target));
-            } catch (error) {
-                // Countdown still works when storage is unavailable.
-            }
-
-            return target;
-        }
-
-        function initHeroCountdown() {
-            const countdown = document.getElementById('heroCountdown');
-            if (!countdown) {
-                return;
-            }
-
-            const target = getStoredWebinarTarget();
-            const label = document.getElementById('webinarTargetLabel');
-            const targetLabel = new Intl.DateTimeFormat('ru-RU', {
-                timeZone: 'Europe/Moscow',
-                day: 'numeric',
-                month: 'long',
-                hour: '2-digit',
-                minute: '2-digit'
-            }).format(new Date(target));
-
-            if (label) {
-                label.textContent = `${targetLabel} МСК`;
-            }
-
-            const units = {
-                days: countdown.querySelector('[data-countdown-days]'),
-                hours: countdown.querySelector('[data-countdown-hours]'),
-                minutes: countdown.querySelector('[data-countdown-minutes]'),
-                seconds: countdown.querySelector('[data-countdown-seconds]')
-            };
-
-            const format = value => String(value).padStart(2, '0');
-
-            function renderCountdown() {
-                const distance = Math.max(0, target - Date.now());
-                const days = Math.floor(distance / 86400000);
-                const hours = Math.floor((distance % 86400000) / 3600000);
-                const minutes = Math.floor((distance % 3600000) / 60000);
-                const seconds = Math.floor((distance % 60000) / 1000);
-
-                units.days.textContent = format(days);
-                units.hours.textContent = format(hours);
-                units.minutes.textContent = format(minutes);
-                units.seconds.textContent = format(seconds);
-            }
-
-            renderCountdown();
-            setInterval(renderCountdown, 1000);
-        }
-
-        initHeroCountdown();
-
-        const emotionCards = document.querySelectorAll('.emotion-card');
-        const problemEmotionPanel = document.getElementById('problemEmotionPanel');
-        const problemEmotionTitle = document.getElementById('problemEmotionTitle');
-        const problemEmotionText = document.getElementById('problemEmotionText');
-
-        emotionCards.forEach(card => {
-            card.addEventListener('click', () => {
-                emotionCards.forEach(item => item.setAttribute('aria-pressed', 'false'));
-
-                card.setAttribute('aria-pressed', 'true');
-                card.classList.remove('emotion-pop');
-                void card.offsetWidth;
-                card.classList.add('emotion-pop');
-
-                problemEmotionTitle.textContent = card.dataset.emotionTitle;
-                problemEmotionText.textContent = card.dataset.emotionText;
-                problemEmotionPanel.classList.remove('emotion-panel-pop');
-                void problemEmotionPanel.offsetWidth;
-                problemEmotionPanel.classList.add('emotion-panel-pop');
-            });
-        });
-
-        const incomeCards = document.querySelectorAll('.income-card');
-        const incomeDetail = document.getElementById('incomeDetail');
-        const incomeDetailTitle = document.getElementById('incomeDetailTitle');
-        const incomeDetailAmount = document.getElementById('incomeDetailAmount');
-        const incomeDetailEmotion = document.getElementById('incomeDetailEmotion');
-        const incomeDetailText = document.getElementById('incomeDetailText');
-        const incomeStepOne = document.getElementById('incomeStepOne');
-        const incomeStepTwo = document.getElementById('incomeStepTwo');
-        const incomeStepThree = document.getElementById('incomeStepThree');
-        const incomeLossMonthly = document.getElementById('incomeLossMonthly');
-        const incomeLossYearly = document.getElementById('incomeLossYearly');
-        const incomeLossPhrase = document.getElementById('incomeLossPhrase');
-        const incomeLossFill = document.getElementById('incomeLossFill');
-        const incomeNumberFormatter = new Intl.NumberFormat('ru-RU');
-        const incomeCounters = new WeakMap();
-        function formatIncome(value) {
-            return `от ${incomeNumberFormatter.format(Math.round(value))} ₽`;
-        }
-        function animateIncomeCounter(node, target) {
-            if (!node) return;
-            const previous = incomeCounters.get(node) || target * 0.72;
-            const startedAt = performance.now();
-            const duration = 620;
-            incomeCounters.set(node, target);
-            function frame(now) {
-                const progress = Math.min(1, (now - startedAt) / duration);
-                const eased = 1 - Math.pow(1 - progress, 3);
-                const current = previous + (target - previous) * eased;
-                node.textContent = formatIncome(current);
-                if (progress < 1) {
-                    requestAnimationFrame(frame);
-                }
-            }
-            requestAnimationFrame(frame);
-        }
-        function updateIncomeLossMeter(card) {
-            const monthlyValue = Number(card.dataset.incomeMonthlyValue || 0);
-            const yearlyValue = Number(card.dataset.incomeYearlyValue || monthlyValue * 12);
-            animateIncomeCounter(incomeLossMonthly, monthlyValue);
-            animateIncomeCounter(incomeLossYearly, yearlyValue);
-            incomeLossPhrase.textContent = card.dataset.incomeEmotion;
-            incomeLossFill.style.width = `${card.dataset.incomeLossWidth || 55}%`;
-        }
-
-        const defaultIncomeCard = document.querySelector('.income-card[aria-selected="true"]');
-        if (defaultIncomeCard) {
-            updateIncomeLossMeter(defaultIncomeCard);
-        }
-
-        incomeCards.forEach(card => {
-            card.addEventListener('click', () => {
-                incomeCards.forEach(item => {
-                    item.setAttribute('aria-selected', 'false');
-                });
-
-                card.setAttribute('aria-selected', 'true');
-
-                incomeDetailTitle.textContent = card.dataset.incomeTitle;
-                incomeDetailAmount.textContent = card.dataset.incomeAmount;
-                incomeDetailEmotion.textContent = card.dataset.incomeEmotion;
-                incomeDetailText.textContent = card.dataset.incomeDetail;
-                incomeStepOne.textContent = card.dataset.incomeStepOne;
-                incomeStepTwo.textContent = card.dataset.incomeStepTwo;
-                incomeStepThree.textContent = card.dataset.incomeStepThree;
-                updateIncomeLossMeter(card);
-
-                card.classList.remove('income-pop');
-                void card.offsetWidth;
-                card.classList.add('income-pop');
-
-                incomeDetail.classList.remove('income-detail-pop');
-                void incomeDetail.offsetWidth;
-                incomeDetail.classList.add('income-detail-pop');
-            });
-        });
-
-        const chainChoices = document.querySelectorAll('.chain-choice');
-        const chainPanel = document.getElementById('chainPanel');
-        const chainIcon = document.getElementById('chainIcon');
-        const chainTitle = document.getElementById('chainTitle');
-        const chainText = document.getElementById('chainText');
-
-        chainChoices.forEach(choice => {
-            choice.addEventListener('click', () => {
-                chainChoices.forEach(item => item.setAttribute('aria-pressed', 'false'));
-
-                choice.setAttribute('aria-pressed', 'true');
-                chainIcon.textContent = choice.dataset.chainIcon;
-                chainTitle.textContent = choice.dataset.chainTitle;
-                chainText.textContent = choice.dataset.chainText;
-
-                choice.classList.remove('chain-pop');
-                void choice.offsetWidth;
-                choice.classList.add('chain-pop');
-
-                chainPanel.classList.remove('chain-panel-pop');
-                void chainPanel.offsetWidth;
-                chainPanel.classList.add('chain-panel-pop');
-            });
-        });
-
-        const programCards = document.querySelectorAll('.program-card');
-        const programOutcome = document.getElementById('programOutcome');
-        const programOutcomeIcon = document.getElementById('programOutcomeIcon');
-        const programOutcomeTitle = document.getElementById('programOutcomeTitle');
-        const programOutcomeText = document.getElementById('programOutcomeText');
-        const programOutcomeResult = document.getElementById('programOutcomeResult');
-
-        programCards.forEach(card => {
-            card.addEventListener('click', () => {
-                programCards.forEach(item => item.setAttribute('aria-pressed', 'false'));
-
-                card.setAttribute('aria-pressed', 'true');
-                programOutcomeIcon.textContent = card.dataset.programIcon;
-                programOutcomeTitle.textContent = card.dataset.programTitle;
-                programOutcomeText.textContent = card.dataset.programText;
-                programOutcomeResult.textContent = card.dataset.programResult;
-
-                card.classList.remove('program-pop');
-                void card.offsetWidth;
-                card.classList.add('program-pop');
-
-                programOutcome.classList.remove('program-panel-pop');
-                void programOutcome.offsetWidth;
-                programOutcome.classList.add('program-panel-pop');
-            });
-        });
-
-        const faqCards = document.querySelectorAll('.faq-card');
-        faqCards.forEach(card => {
-            card.addEventListener('toggle', () => {
-                if (!card.open) {
-                    return;
-                }
-
-                faqCards.forEach(item => {
-                    if (item !== card) {
-                        item.removeAttribute('open');
-                    }
-                });
-
-                card.classList.remove('faq-pop');
-                void card.offsetWidth;
-                card.classList.add('faq-pop');
-            });
-        });
-
-        function initSiteClickRipple() {
-            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-                return;
-            }
-
-            document.addEventListener('pointerdown', event => {
-                if (event.button !== 0 || event.pointerType === 'touch' && event.isPrimary === false) {
-                    return;
-                }
-
-                const ripple = document.createElement('span');
-                ripple.className = 'site-click-ripple';
-                ripple.style.left = `${event.clientX}px`;
-                ripple.style.top = `${event.clientY}px`;
-                document.body.appendChild(ripple);
-                ripple.addEventListener('animationend', () => ripple.remove(), { once: true });
-            });
-        }
-
-        initSiteClickRipple();
-    </script>
-<script src="aspb-api.js"></script>
+<script src="landing-interactions.js"></script>
+<script type="module" src="js/main.js"></script>
 <script src="flow-tabs.js"></script>
+<script src="buttons.js"></script>
+<script src="particles-bg.js"></script>
+<script src="main.js"></script>
 </body></html>

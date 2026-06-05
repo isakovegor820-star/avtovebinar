@@ -34,30 +34,35 @@ const NEWS_KEYWORDS = [
   'арбитраж',
   'блокиров',
   'ликвидац',
-  'реструктур'
+  'реструктур',
 ];
 
 const FALLBACK_NEWS = [
   {
     title: 'Сигнал АСПБ: блокировка счета редко бывает “просто технической проблемой”',
-    summary: 'Если клиент говорит о блокировке, налоговой задолженности или просрочке по кредиту, это повод не отпускать его без маршрута диагностики.'
+    summary:
+      'Если клиент говорит о блокировке, налоговой задолженности или просрочке по кредиту, это повод не отпускать его без маршрута диагностики.',
   },
   {
     title: 'Сигнал АСПБ: банкротный риск виден юристу раньше, чем начинается хаос',
-    summary: 'Долги, требования ФНС, кредиторское давление и субсидиарные риски часто появляются в юридической практике раньше полноценной процедуры.'
+    summary:
+      'Долги, требования ФНС, кредиторское давление и субсидиарные риски часто появляются в юридической практике раньше полноценной процедуры.',
   },
   {
     title: 'Сигнал АСПБ: клиент с долгами ищет не лекцию, а понятный следующий шаг',
-    summary: 'Главная задача партнера — вовремя заметить проблему, объяснить безопасный маршрут и передать ситуацию на диагностику.'
+    summary:
+      'Главная задача партнера — вовремя заметить проблему, объяснить безопасный маршрут и передать ситуацию на диагностику.',
   },
   {
     title: 'Сигнал АСПБ: “закрыться с долгами” — это уже повод для консультации',
-    summary: 'Такие фразы нельзя оставлять без ответа: человеку важно показать законный путь, а не отправлять его искать решение самому.'
+    summary:
+      'Такие фразы нельзя оставлять без ответа: человеку важно показать законный путь, а не отправлять его искать решение самому.',
   },
   {
     title: 'Сигнал АСПБ: партнерство начинается с одного правильно замеченного клиента',
-    summary: 'Не нужно вести процедуру самостоятельно. Ваша роль — увидеть сигнал и передать клиента команде, которая берет сложную часть на себя.'
-  }
+    summary:
+      'Не нужно вести процедуру самостоятельно. Ваша роль — увидеть сигнал и передать клиента команде, которая берет сложную часть на себя.',
+  },
 ];
 
 function decodeXml(value: string) {
@@ -102,7 +107,7 @@ function parseRss(xml: string): FeedItem[] {
         url,
         summary,
         sourceTitle,
-        publishedAt: pubDate ? new Date(pubDate) : undefined
+        publishedAt: pubDate ? new Date(pubDate) : undefined,
       };
     })
     .filter(item => item.title && item.url);
@@ -119,7 +124,10 @@ function parseTimes(value: string) {
       const hour = Number(match[1]);
       const minute = Number(match[2]);
       if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-      return { label: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`, minuteOfDay: hour * 60 + minute };
+      return {
+        label: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+        minuteOfDay: hour * 60 + minute,
+      };
     })
     .filter(Boolean) as Array<{ label: string; minuteOfDay: number }>;
 
@@ -134,12 +142,12 @@ function moscowParts(now: Date) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    hourCycle: 'h23'
+    hourCycle: 'h23',
   });
   const parts = Object.fromEntries(formatter.formatToParts(now).map(part => [part.type, part.value]));
   return {
     dateKey: `${parts.year}-${parts.month}-${parts.day}`,
-    minuteOfDay: Number(parts.hour) * 60 + Number(parts.minute)
+    minuteOfDay: Number(parts.hour) * 60 + Number(parts.minute),
   };
 }
 
@@ -153,7 +161,7 @@ export function getDueNewsSlot(now = new Date(), timesValue = env.TELEGRAM_NEWS_
   return {
     dateKey,
     timeLabel: latest.label,
-    slotKey: `${dateKey}:${latest.label}`
+    slotKey: `${dateKey}:${latest.label}`,
   };
 }
 
@@ -169,8 +177,8 @@ function makePostKey(item: FeedItem) {
 async function fetchFeed(url: string) {
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'ASPB-Autowebinar/1.0 (+local)'
-    }
+      'User-Agent': 'ASPB-Autowebinar/1.0 (+local)',
+    },
   });
 
   if (!response.ok) {
@@ -194,8 +202,11 @@ async function fetchNewsCandidates(): Promise<NewsCandidate[]> {
     postKey: makePostKey(item),
     title: normalizeText(item.title, 180),
     url: item.url,
-    summary: normalizeText(item.summary || 'Короткий инфоповод для партнеров АСПБ: проверьте, нет ли похожих сигналов у ваших клиентов.', 360),
-    sourceTitle: item.sourceTitle
+    summary: normalizeText(
+      item.summary || 'Короткий инфоповод для партнеров АСПБ: проверьте, нет ли похожих сигналов у ваших клиентов.',
+      360,
+    ),
+    sourceTitle: item.sourceTitle,
   }));
 }
 
@@ -203,20 +214,21 @@ async function pickNewsCandidate(slotKey: string): Promise<NewsCandidate> {
   const alreadySent = await prisma.telegramNewsPost.findMany({
     select: { postKey: true },
     take: 500,
-    orderBy: { sentAt: 'desc' }
+    orderBy: { sentAt: 'desc' },
   });
   const sentKeys = new Set(alreadySent.map(item => item.postKey));
   const rssCandidate = (await fetchNewsCandidates()).find(item => !sentKeys.has(item.postKey));
 
   if (rssCandidate) return rssCandidate;
 
-  const fallbackIndex = Math.abs(slotKey.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % FALLBACK_NEWS.length;
+  const fallbackIndex =
+    Math.abs(slotKey.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % FALLBACK_NEWS.length;
   const fallback = FALLBACK_NEWS[fallbackIndex];
   return {
     postKey: `fallback:${slotKey}`,
     title: fallback.title,
     summary: fallback.summary,
-    sourceTitle: 'АСПБ'
+    sourceTitle: 'АСПБ',
   };
 }
 
@@ -231,7 +243,7 @@ function buildNewsMessage(candidate: NewsCandidate, slotLabel: string) {
     '',
     'Почему это важно: такие инфоповоды помогают быстрее замечать клиентов с долгами, блокировками, налоговой нагрузкой и риском банкротства.',
     sourceLine,
-    candidate.url ? `Подробнее: ${candidate.url}` : null
+    candidate.url ? `Подробнее: ${candidate.url}` : null,
   ]
     .filter(Boolean)
     .join('\n');
@@ -255,7 +267,7 @@ export async function runTelegramNewsJobOnce(now = new Date()) {
   const leads = await prisma.lead.findMany({
     where: { telegramChatId: { not: null } },
     select: { telegramChatId: true },
-    take: 5000
+    take: 5000,
   });
   const chatIds = Array.from(new Set(leads.map(lead => lead.telegramChatId).filter(Boolean))) as string[];
 
@@ -286,8 +298,8 @@ export async function runTelegramNewsJobOnce(now = new Date()) {
       summary: candidate.summary,
       url: candidate.url,
       sourceTitle: candidate.sourceTitle,
-      recipientCount: sent
-    }
+      recipientCount: sent,
+    },
   });
 
   await prisma.event.create({
@@ -299,9 +311,9 @@ export async function runTelegramNewsJobOnce(now = new Date()) {
         slotKey: slot.slotKey,
         postKey: candidate.postKey,
         sent,
-        failed
-      } as Prisma.InputJsonValue
-    }
+        failed,
+      } as Prisma.InputJsonValue,
+    },
   });
 
   return { skipped: false, slotKey: slot.slotKey, sent, failed };
@@ -312,18 +324,32 @@ export function startTelegramNewsScheduler() {
     return null;
   }
 
-  const interval = setInterval(() => {
+  telegramNewsInterval = setInterval(() => {
     runTelegramNewsJobOnce().catch(error => {
       console.error('[ASPБ telegram news]', error);
     });
   }, 60 * 1000);
 
-  setTimeout(() => {
+  telegramNewsStartupTimer = setTimeout(() => {
     runTelegramNewsJobOnce().catch(error => {
       console.error('[ASPБ telegram news]', error);
     });
   }, 8000);
 
   console.log('[ASPБ telegram news] broadcast scheduler enabled');
-  return interval;
+  return telegramNewsInterval;
+}
+
+let telegramNewsInterval: NodeJS.Timeout | null = null;
+let telegramNewsStartupTimer: NodeJS.Timeout | null = null;
+
+export function stopTelegramNewsScheduler() {
+  if (telegramNewsInterval) {
+    clearInterval(telegramNewsInterval);
+    telegramNewsInterval = null;
+  }
+  if (telegramNewsStartupTimer) {
+    clearTimeout(telegramNewsStartupTimer);
+    telegramNewsStartupTimer = null;
+  }
 }

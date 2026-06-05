@@ -1,0 +1,579 @@
+/* Premium Button Styles & Animations */
+
+.btn-premium {
+  --spotlight-color: rgba(255, 255, 255, 0.16);
+  --shimmer-color: rgba(255, 255, 255, 0.25);
+  --glow-color: rgba(4, 22, 39, 0.15);
+  
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  
+  /* Bouncy spring hover curve */
+  transition: 
+    transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), 
+    box-shadow 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), 
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    opacity 0.3s ease;
+}
+
+/* Light button overrides */
+.btn-premium--light {
+  --spotlight-color: rgba(4, 22, 39, 0.08);
+  --shimmer-color: rgba(255, 255, 255, 0.4);
+  --glow-color: rgba(4, 22, 39, 0.05);
+}
+
+/* Telegram color button overrides */
+.btn-premium--telegram {
+  --spotlight-color: rgba(255, 255, 255, 0.2);
+  --shimmer-color: rgba(255, 255, 255, 0.3);
+  --glow-color: rgba(0, 136, 204, 0.3);
+}
+
+/* Hover scales up and adds soft shadow glow */
+.btn-premium:hover {
+  box-shadow: 0 12px 28px var(--glow-color);
+}
+
+/* Pressed click squish response */
+.btn-premium:active {
+  box-shadow: 0 4px 10px var(--glow-color) !important;
+}
+
+/* Spotlight Reflection Layer */
+.btn-premium::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(
+    circle 80px at var(--mouse-x, -999px) var(--mouse-y, -999px),
+    var(--spotlight-color),
+    transparent
+  );
+  pointer-events: none;
+  opacity: 0;
+  z-index: 1;
+  transition: opacity 0.3s ease;
+}
+
+.btn-premium:hover::before {
+  opacity: 1;
+}
+
+/* Infinite attention-drawing shimmer line */
+.btn-premium::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -150%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--shimmer-color),
+    transparent
+  );
+  transform: skewX(-25deg);
+  pointer-events: none;
+  animation: btn-shimmer 6s infinite ease-in-out;
+  z-index: 2;
+}
+
+@keyframes btn-shimmer {
+  0% { left: -150%; }
+  15% { left: 150%; }
+  100% { left: 150%; }
+}
+
+/* Content Container for Parallax Inner shift */
+.btn-premium__content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: inherit;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  will-change: transform;
+  transition: transform 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+  z-index: 3;
+}
+
+/* Micro-motions for nested icons */
+.btn-premium__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+  will-change: transform;
+}
+
+/* Push arrow right */
+.btn-premium:hover .btn-premium__icon--arrow {
+  transform: translateX(4px);
+}
+
+/* Telegram airplane launch */
+.btn-premium:hover .btn-premium__icon--telegram {
+  transform: translate(2px, -2px) rotate(-8deg);
+  animation: telegram-wiggle 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes telegram-wiggle {
+  0% { transform: translate(2px, -2px) rotate(-8deg); }
+  100% { transform: translate(4px, -4px) rotate(-4deg); }
+}
+
+/* Copy pop & tilt */
+.btn-premium:hover .btn-premium__icon--copy {
+  transform: scale(1.15) rotate(8deg);
+}
+
+/* Sync with dark mode / tailwind transitions */
+.btn-premium--disabled,
+.btn-premium[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Bento Card Interactive Styles */
+.bento-card-interactive {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background-color: #ffffff;
+  border: 1px solid rgba(4, 22, 39, 0.08);
+  transition: 
+    transform 0.22s cubic-bezier(0.25, 1, 0.5, 1), 
+    box-shadow 0.3s ease, 
+    border-color 0.3s ease;
+}
+
+/* Inner soft spotlight reflection background */
+.bento-card-interactive::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle 240px at var(--mouse-x, -999px) var(--mouse-y, -999px),
+    rgba(210, 228, 251, 0.20),
+    transparent 80%
+  );
+  pointer-events: none;
+  opacity: 0;
+  z-index: 1;
+  transition: opacity 0.4s ease;
+}
+
+.bento-card-interactive:hover::before {
+  opacity: 1;
+}
+
+/* Spotlight radial border (very soft gold-blue gradient) */
+.bento-card-interactive::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: radial-gradient(
+    circle 150px at var(--mouse-x, -999px) var(--mouse-y, -999px),
+    rgba(233, 193, 118, 0.7) 0%,   /* Premium Gold */
+    rgba(37, 99, 235, 0.5) 45%,     /* Vibrant Blue */
+    transparent 90%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 3;
+  transition: opacity 0.4s ease;
+}
+
+.bento-card-interactive:hover::after {
+  opacity: 1;
+}
+
+.bento-card-interactive:hover {
+  border-color: transparent;
+  box-shadow: 0 14px 30px rgba(4, 22, 39, 0.08);
+}
+
+/* Icon container background transition */
+.bento-card-interactive .rounded-xl {
+  transition: background-color 0.35s cubic-bezier(0.25, 1, 0.5, 1), color 0.35s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+  position: relative;
+  z-index: 4;
+}
+
+.bento-card-interactive:hover .rounded-xl {
+  background-color: #041627;
+  color: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(4, 22, 39, 0.14), 0 0 12px rgba(233, 193, 118, 0.4); /* beautiful gold glow around the circle */
+}
+
+/* Custom SVG Icon styles & animations */
+.bento-icon-svg {
+  width: 24px;
+  height: 24px;
+  transition: color 0.3s ease;
+  will-change: transform;
+  display: block;
+}
+
+.bento-card-interactive:hover .bento-icon-svg {
+  color: #ffffff !important;
+}
+
+/* A. Graph/Connection Node pulse and blue activation */
+.graph-line {
+  transition: stroke 0.3s ease, stroke-width 0.3s ease;
+}
+.graph-node {
+  transition: fill 0.3s ease, stroke 0.3s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.bento-card-interactive:hover .graph-node {
+  stroke: #3b82f6; /* Vibrant Blue stroke */
+  fill: #2563eb;   /* Deep Blue fill */
+}
+
+.bento-card-interactive:hover .graph-node--center {
+  animation: graph-node-pulse-center 1.4s ease-in-out infinite;
+}
+.bento-card-interactive:hover .graph-node--left {
+  animation: graph-node-pulse-node 1.4s ease-in-out infinite 0.2s;
+}
+.bento-card-interactive:hover .graph-node--right {
+  animation: graph-node-pulse-node 1.4s ease-in-out infinite 0.4s;
+}
+.bento-card-interactive:hover .graph-node--top {
+  animation: graph-node-pulse-node 1.4s ease-in-out infinite 0.6s;
+}
+
+@keyframes graph-node-pulse-center {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0));
+  }
+  50% {
+    transform: scale(1.3);
+    filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.85));
+  }
+}
+
+@keyframes graph-node-pulse-node {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.35); }
+}
+
+/* B. Shield nod */
+.bento-icon-svg--shield {
+  transform-origin: center;
+}
+
+.bento-card-interactive:hover .bento-icon-svg--shield {
+  animation: shield-nod 1.4s cubic-bezier(0.25, 0.8, 0.25, 1) infinite;
+  color: #e9c176 !important; /* golden brand color */
+}
+
+@keyframes shield-nod {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(1.5px) rotate(-6deg); }
+  65% { transform: translateY(-1.5px) rotate(6deg); }
+}
+
+/* C. Gear smooth rotation */
+.bento-icon-svg--gear {
+  transform-origin: center;
+  transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1), color 0.3s ease;
+}
+
+.bento-card-interactive:hover .bento-icon-svg--gear {
+  transform: rotate(90deg);
+  color: #e9c176 !important; /* Gold highlights */
+}
+
+/* D. People group cohesion */
+.person-part {
+  transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+  transform-box: fill-box;
+}
+
+.person-left {
+  transform-origin: bottom left;
+}
+.person-right {
+  transform-origin: bottom right;
+}
+.person-center {
+  transform-origin: bottom center;
+}
+
+.bento-card-interactive:hover .person-left {
+  transform: translate(2.5px, -1.2px);
+}
+
+.bento-card-interactive:hover .person-right {
+  transform: translate(-2.5px, -1.2px);
+}
+
+.bento-card-interactive:hover .person-center {
+  transform: translateY(-1.5px);
+}
+
+/* Emotion Cards Custom SVG animations */
+
+/* 1. Wallet flap tilt and snap pulse */
+.wallet-flap-group {
+  transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+  transform-origin: 16px 13px;
+}
+.emotion-card:hover .wallet-flap-group {
+  transform: rotate(-10deg);
+}
+.wallet-snap {
+  transition: fill 0.3s ease, stroke 0.3s ease;
+}
+.emotion-card:hover .wallet-snap {
+  fill: #e9c176;
+  stroke: #e9c176;
+}
+
+/* 2. Warning block sign wobble and red glow */
+.emotion-icon-svg--block {
+  transform-origin: center;
+}
+.emotion-card:hover .emotion-icon-svg--block {
+  animation: block-warning-shake 0.6s ease-in-out infinite alternate;
+  color: #ef4444 !important; /* soft alert red */
+}
+/* Red warning container glow on hover */
+.emotion-card:hover:nth-child(2) .rounded-xl {
+  box-shadow: 0 6px 16px rgba(4, 22, 39, 0.14), 0 0 12px rgba(239, 68, 68, 0.5) !important;
+}
+
+@keyframes block-warning-shake {
+  0% { transform: rotate(-8deg) scale(1); }
+  100% { transform: rotate(8deg) scale(1.05); }
+}
+
+/* 3. Timer hands rotation and dotted ring pulse */
+.timer-hand {
+  transform-origin: 12px 12px;
+}
+.emotion-card:hover .timer-hand {
+  animation: timer-hands-spin 2s linear infinite;
+}
+.timer-ring {
+  transition: stroke 0.3s ease;
+}
+.emotion-card:hover .timer-ring {
+  stroke: #e9c176 !important;
+}
+@keyframes timer-hands-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Bento Card Dark Variant for stats card */
+.bento-card-interactive--dark {
+  background-color: #041627 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+.bento-card-interactive--dark::before {
+  background: radial-gradient(
+    circle 240px at var(--mouse-x, -999px) var(--mouse-y, -999px),
+    rgba(233, 193, 118, 0.12),
+    transparent 80%
+  ) !important;
+}
+.bento-card-interactive--dark::after {
+  background: radial-gradient(
+    circle 150px at var(--mouse-x, -999px) var(--mouse-y, -999px),
+    rgba(233, 193, 118, 0.8) 0%,
+    rgba(59, 130, 246, 0.5) 50%,
+    transparent 90%
+  ) !important;
+}
+.bento-card-interactive--dark:hover {
+  box-shadow: 0 14px 30px rgba(4, 22, 39, 0.4) !important;
+}
+.bento-card-interactive--dark:hover .rounded-xl {
+  background-color: rgba(233, 193, 118, 0.15) !important;
+  border-color: rgba(233, 193, 118, 0.4) !important;
+  color: #e9c176 !important;
+  box-shadow: 0 0 12px rgba(233, 193, 118, 0.3) !important;
+}
+
+/* Animations for stats bento card icons */
+
+/* Left main card trend icon hover */
+.inline-trend-icon {
+  transition: transform 0.3s ease, color 0.3s ease;
+}
+.bento-card-interactive--dark:hover .inline-trend-icon {
+  transform: translate(1px, -1px);
+  color: #e9c176 !important;
+}
+
+/* Left main card connection path */
+.route-path {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bento-card-interactive--dark:hover .route-path {
+  animation: route-draw 1.2s ease-in-out infinite;
+}
+@keyframes route-draw {
+  0% { stroke-dashoffset: 20; }
+  50% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -20; }
+}
+.route-node-start, .route-node-end {
+  transition: transform 0.4s ease, fill 0.3s ease;
+  transform-origin: center;
+}
+.bento-card-interactive--dark:hover .route-node-start {
+  animation: node-pulse-1 1.2s ease-in-out infinite;
+}
+.bento-card-interactive--dark:hover .route-node-end {
+  animation: node-pulse-2 1.2s ease-in-out infinite;
+}
+@keyframes node-pulse-1 {
+  0%, 100% { transform: scale(1); fill: none; }
+  30% { transform: scale(1.3); fill: #e9c176; }
+}
+@keyframes node-pulse-2 {
+  0%, 100% { transform: scale(1); fill: none; }
+  70% { transform: scale(1.3); fill: #e9c176; }
+}
+
+/* Right card 1: Person Alert */
+.alert-mark, .alert-dot {
+  transition: stroke 0.3s ease, transform 0.3s ease;
+}
+.bento-card-interactive:hover .alert-mark {
+  animation: alert-bounce 1s ease-in-out infinite;
+  stroke: #ef4444 !important;
+}
+.bento-card-interactive:hover .alert-dot {
+  animation: alert-bounce 1s ease-in-out infinite 0.15s;
+  stroke: #ef4444 !important;
+}
+@keyframes alert-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+/* Right card 2: Chart Line */
+.chart-line-1, .chart-line-2 {
+  stroke-dasharray: 25;
+  stroke-dashoffset: 0;
+  transition: stroke 0.3s ease;
+}
+.bento-card-interactive:hover .chart-line-1 {
+  animation: chart-draw-1 1.5s ease-in-out infinite;
+  stroke: #e9c176 !important;
+}
+.bento-card-interactive:hover .chart-line-2 {
+  animation: chart-draw-2 1.5s ease-in-out infinite 0.25s;
+  stroke: #3b82f6 !important;
+}
+@keyframes chart-draw-1 {
+  0% { stroke-dashoffset: 25; }
+  50% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -25; }
+}
+@keyframes chart-draw-2 {
+  0% { stroke-dashoffset: 25; }
+  50% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -25; }
+}
+
+/* Right card 3: Task check */
+.task-check {
+  stroke-dasharray: 12;
+  stroke-dashoffset: 0;
+  transition: stroke 0.3s ease;
+}
+.bento-card-interactive:hover .task-check {
+  animation: task-check-draw 1s ease-in-out infinite;
+  stroke: #e9c176 !important;
+}
+.task-circle {
+  transition: stroke 0.3s ease;
+}
+.bento-card-interactive:hover .task-circle {
+  stroke: #3b82f6 !important;
+  animation: task-circle-rotate 2s linear infinite;
+}
+@keyframes task-check-draw {
+  0% { stroke-dashoffset: 12; }
+  40% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 0; }
+}
+@keyframes task-circle-rotate {
+  0% { stroke-dasharray: 62 0; }
+  50% { stroke-dasharray: 31 31; }
+  100% { stroke-dasharray: 62 0; }
+}
+
+/* Background radar and wave animations for dark stats card */
+.radar-circle-1, .radar-circle-2, .radar-circle-3, .radar-circle-4 {
+  transform-origin: 260px 80px;
+}
+.bento-card-interactive--dark:hover .radar-circle-1 {
+  animation: radar-spin-cw 40s linear infinite;
+}
+.bento-card-interactive--dark:hover .radar-circle-2 {
+  animation: radar-spin-ccw 30s linear infinite;
+}
+.bento-card-interactive--dark:hover .radar-circle-4 {
+  animation: radar-spin-cw 20s linear infinite;
+}
+@keyframes radar-spin-cw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes radar-spin-ccw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+.node-glow-ring {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: node-ring-pulse 2s cubic-bezier(0.215, 0.610, 0.355, 1) infinite;
+}
+@keyframes node-ring-pulse {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Responsive 3D background image mask to completely fade all image borders */
+.card-image-3d {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, black 10%, transparent 48%);
+  mask-image: radial-gradient(ellipse at 50% 50%, black 10%, transparent 48%);
+}

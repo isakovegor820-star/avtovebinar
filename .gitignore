@@ -2,6 +2,12 @@ node_modules/
 dist/
 coverage/
 backups/
+test-results/
+playwright-report/
+blob-report/
+
+# Tailwind build output
+crisis_premium/css/styles.css
 
 .env
 .env.*
@@ -10,9 +16,22 @@ backups/
 
 .DS_Store
 *.log
+*.docx
 
 .omx/
 scratch/
 stitch_/
 stitch_6/
 /index.html
+
+# Служебные diff-снапшоты — не должны попадать в публичную static-директорию
+crisis_premium/_diffs_*
+crisis_premium/_full_diffs*
+
+# Большие медиа-файлы (видео хранится локально, не в git)
+crisis_premium/assets/*.mp4
+crisis_premium/assets/*.webm
+crisis_premium/assets/*.mov
+
+# Editor
+.vscode/

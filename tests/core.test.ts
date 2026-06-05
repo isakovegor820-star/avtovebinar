@@ -8,12 +8,12 @@ vi.mock('../src/lib/prisma.js', () => {
         findFirst: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
-        count: vi.fn().mockResolvedValue(1)
+        count: vi.fn().mockResolvedValue(1),
       },
       auditLog: {
-        create: vi.fn()
-      }
-    }
+        create: vi.fn(),
+      },
+    },
   };
 });
 
@@ -27,13 +27,15 @@ function getRouteHandler(router: any, path: string, method: string) {
   return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 import { registerSchema } from '../src/routes/public.js';
+import { resolveFirstSeenAt } from '../src/routes/public/helpers.js';
 import {
   getCountdown,
   getNextWebinarDate,
   getReplayExpiresAt,
   getSessionStatus,
   getWebinarAccess,
-  WEBINAR_REPLAY_HOURS
+  WEBINAR_REPLAY_HOURS,
+  WEBINAR_START_HOUR_MSK,
 } from '../src/lib/time.js';
 import { CRM_STATUSES, isCrmStatus } from '../src/lib/crm.js';
 import { getDueReminderKind, getDueTelegramReminderKind, getPostWebinarFollowupDueAt } from '../src/lib/reminders.js';
@@ -41,12 +43,25 @@ import { getDueNewsSlot } from '../src/lib/telegramNews.js';
 import { validateProductionSecurity } from '../src/lib/env.js';
 import { PUBLIC_ANALYTICS_EVENTS } from '../src/lib/events.js';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.js';
+import { eventSchema } from '../src/routes/public/events.js';
 
 describe('webinar time logic', () => {
-  it('schedules webinar at 11:00 Moscow on the next Moscow day', () => {
+  it('schedules webinar at 19:00 Moscow on the same Moscow day when the slot has not started', () => {
     const firstSeen = new Date('2026-05-21T09:15:00.000Z');
     const scheduledAt = getNextWebinarDate(firstSeen);
-    expect(scheduledAt.toISOString()).toBe('2026-05-22T08:00:00.000Z');
+    expect(WEBINAR_START_HOUR_MSK).toBe(19);
+    expect(scheduledAt.toISOString()).toBe('2026-05-21T16:00:00.000Z');
+  });
+
+  it('schedules the next daily 19:00 Moscow slot after today slot has started', () => {
+    const firstSeen = new Date('2026-05-21T16:15:00.000Z');
+    const scheduledAt = getNextWebinarDate(firstSeen);
+    expect(scheduledAt.toISOString()).toBe('2026-05-22T16:00:00.000Z');
+  });
+
+  it('schedules across the end of a month', () => {
+    const scheduledAt = getNextWebinarDate(new Date('2026-05-31T16:15:00.000Z'));
+    expect(scheduledAt.toISOString()).toBe('2026-06-01T16:00:00.000Z');
   });
 
   it('returns scheduled, live and finished statuses', () => {
@@ -75,6 +90,18 @@ describe('webinar time logic', () => {
     const scheduledAt = new Date('2026-05-22T08:00:00.000Z');
     expect(WEBINAR_REPLAY_HOURS).toBe(168);
     expect(getReplayExpiresAt(scheduledAt, 120).toISOString()).toBe('2026-05-29T10:00:00.000Z');
+  });
+
+  it('keeps firstSeen while the assigned webinar replay is still open', () => {
+    const firstSeen = '2026-05-21T09:15:00.000Z';
+    const resolved = resolveFirstSeenAt(firstSeen, new Date('2026-05-28T17:59:00.000Z'));
+    expect(resolved.toISOString()).toBe(firstSeen);
+  });
+
+  it('resets firstSeen after the assigned webinar replay expires', () => {
+    const now = new Date('2026-05-29T08:00:00.000Z');
+    const resolved = resolveFirstSeenAt('2026-05-21T09:15:00.000Z', now);
+    expect(resolved).toBe(now);
   });
 });
 
@@ -112,7 +139,7 @@ describe('email reminder logic', () => {
       reminder3hSentAt: null,
       reminder30mSentAt: null,
       webinarSession: { scheduledAt },
-      ...overrides
+      ...overrides,
     };
   }
 
@@ -126,19 +153,27 @@ describe('email reminder logic', () => {
 
   it('does not send the same reminder twice', () => {
     expect(
-      getDueReminderKind(candidate({ reminder30mSentAt: new Date('2026-05-22T07:31:00.000Z') }), new Date('2026-05-22T07:45:00.000Z'))
+      getDueReminderKind(
+        candidate({ reminder30mSentAt: new Date('2026-05-22T07:31:00.000Z') }),
+        new Date('2026-05-22T07:45:00.000Z'),
+      ),
     ).toBeNull();
   });
 
   it('uses separate fields for Telegram reminders', () => {
     expect(getDueTelegramReminderKind(candidate(), new Date('2026-05-21T09:00:00.000Z'))).toBe('24h');
     expect(
-      getDueTelegramReminderKind(candidate({ telegramReminder24hSentAt: new Date('2026-05-21T09:01:00.000Z') }), new Date('2026-05-21T09:10:00.000Z'))
+      getDueTelegramReminderKind(
+        candidate({ telegramReminder24hSentAt: new Date('2026-05-21T09:01:00.000Z') }),
+        new Date('2026-05-21T09:10:00.000Z'),
+      ),
     ).toBeNull();
   });
 
   it('schedules post-webinar follow-up after the webinar is over', () => {
-    expect(getPostWebinarFollowupDueAt(new Date('2026-05-22T08:00:00.000Z'), 120).toISOString()).toBe('2026-05-22T10:10:00.000Z');
+    expect(getPostWebinarFollowupDueAt(new Date('2026-05-22T08:00:00.000Z'), 120).toISOString()).toBe(
+      '2026-05-22T10:10:00.000Z',
+    );
   });
 });
 
@@ -151,8 +186,8 @@ describe('security configuration', () => {
       DATABASE_URL: 'postgresql://example',
       ADMIN_LOGIN: 'owner@aspb.example.com',
       ADMIN_PASSWORD: 'StrongPassword123',
-      ADMIN_COOKIE_SECRET: 'prod-admin-cookie-secret-32-plus-chars',
-      IP_HASH_SECRET: 'prod-ip-hash-secret-32-plus-chars',
+      ADMIN_COOKIE_SECRET: 'unit-test-admin-cookie-secret-with-32-chars',
+      IP_HASH_SECRET: 'unit-test-ip-hash-secret-with-32-chars',
       EMAIL_MODE: 'send',
       SMTP_HOST: 'smtp.example.com',
       SMTP_PORT: 587,
@@ -175,7 +210,7 @@ describe('security configuration', () => {
       TELEGRAM_NEWS_RSS_URLS: '',
       WEBINAR_TEST_ROOM_MODE: 'off',
       CORS_ORIGIN: 'https://aspb.example.com',
-      ...overrides
+      ...overrides,
     } as const;
   }
 
@@ -187,9 +222,9 @@ describe('security configuration', () => {
         PUBLIC_SITE_URL: 'https://example.com',
         DATABASE_URL: 'postgresql://example',
         ADMIN_LOGIN: 'admin',
-        ADMIN_PASSWORD: 'admin123',
-        ADMIN_COOKIE_SECRET: 'dev-admin-cookie-secret-change-me',
-        IP_HASH_SECRET: 'dev-ip-hash-secret-change-me',
+        ADMIN_PASSWORD: 'weak-pass',
+        ADMIN_COOKIE_SECRET: 'short-admin-cookie-secret',
+        IP_HASH_SECRET: 'short-ip-hash-secret',
         EMAIL_MODE: 'log',
         SMTP_HOST: '',
         SMTP_PORT: 587,
@@ -211,8 +246,8 @@ describe('security configuration', () => {
         TELEGRAM_NEWS_TIMES: '09:00',
         TELEGRAM_NEWS_RSS_URLS: '',
         WEBINAR_TEST_ROOM_MODE: 'off',
-        CORS_ORIGIN: 'https://example.com'
-      })
+        CORS_ORIGIN: 'https://example.com',
+      }),
     ).toThrow(/Production security configuration/);
   });
 
@@ -221,9 +256,9 @@ describe('security configuration', () => {
       validateProductionSecurity(
         secureProductionConfig({
           EMAIL_MODE: 'log',
-          WEBINAR_TEST_ROOM_MODE: 'on'
-        })
-      )
+          WEBINAR_TEST_ROOM_MODE: 'on',
+        }),
+      ),
     ).toThrow(/EMAIL_MODE.*WEBINAR_TEST_ROOM_MODE/s);
   });
 
@@ -235,6 +270,36 @@ describe('security configuration', () => {
     expect(PUBLIC_ANALYTICS_EVENTS).toContain('page_view');
     expect(PUBLIC_ANALYTICS_EVENTS).toContain('video_finish');
     expect(PUBLIC_ANALYTICS_EVENTS).not.toContain('made_up_event');
+  });
+
+  it('keeps historical server-side submit events distinguishable from client form lifecycle events', () => {
+    expect(PUBLIC_ANALYTICS_EVENTS).toContain('question_submit');
+    expect(PUBLIC_ANALYTICS_EVENTS).toContain('question_submitted');
+    expect(PUBLIC_ANALYTICS_EVENTS).toContain('partner_application_submit');
+    expect(PUBLIC_ANALYTICS_EVENTS).toContain('partner_application_submitted');
+  });
+
+  it('limits public event metadata shape and size', () => {
+    expect(() =>
+      eventSchema.parse({
+        eventName: 'question_submit_error',
+        metadata: { error: 'Network error' },
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      eventSchema.parse({
+        eventName: 'question_submit_error',
+        metadata: Object.fromEntries(Array.from({ length: 21 }, (_, index) => [`key_${index}`, index])),
+      }),
+    ).toThrow(/metadata must contain at most/);
+
+    expect(() =>
+      eventSchema.parse({
+        eventName: 'question_submit_error',
+        metadata: { error: 'x'.repeat(4097) },
+      }),
+    ).toThrow(/metadata must be at most/);
   });
 });
 
@@ -262,7 +327,7 @@ describe('registration validation logic', () => {
     name: 'Иван',
     phone: '+79000000000',
     email: 'ivan@example.com',
-    consent: true
+    consent: true,
   };
 
   it('validates correct registration data and sets default marketingConsent to false', () => {
@@ -292,7 +357,7 @@ describe('admin privilege checks', () => {
       name: 'Manager',
       email: 'manager@example.com',
       role: 'manager',
-      isActive: true
+      isActive: true,
     } as any);
 
     vi.mocked(prisma.adminUser.update).mockResolvedValue({
@@ -300,7 +365,7 @@ describe('admin privilege checks', () => {
       name: 'Manager',
       email: 'manager@example.com',
       role: 'owner',
-      isActive: true
+      isActive: true,
     } as any);
 
     const req = {
@@ -308,15 +373,15 @@ describe('admin privilege checks', () => {
       body: { role: 'owner' },
       admin: { id: 'owner_1', role: 'owner', email: 'owner@aspb.ru' },
       headers: {},
-      socket: { remoteAddress: '127.0.0.1' }
+      socket: { remoteAddress: '127.0.0.1' },
     };
     const res = {
       status: vi.fn().mockReturnThis(),
-      json: vi.fn()
+      json: vi.fn(),
     };
     const next = vi.fn();
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       const wrappedNext = (err: any) => {
         next(err);
         resolve();
@@ -337,22 +402,22 @@ describe('admin privilege checks', () => {
       name: 'Real Owner',
       email: 'owner@example.com',
       role: 'owner',
-      isActive: true
+      isActive: true,
     } as any);
 
     const req = {
       params: { id: 'user_owner' },
       body: { isActive: false },
       admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },
-      headers: {}
+      headers: {},
     };
     const res = {
       status: vi.fn().mockReturnThis(),
-      json: vi.fn()
+      json: vi.fn(),
     };
     const next = vi.fn();
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       const wrappedNext = (err: any) => {
         next(err);
         resolve();
@@ -375,22 +440,22 @@ describe('admin privilege checks', () => {
       name: 'Manager',
       email: 'manager@example.com',
       role: 'manager',
-      isActive: true
+      isActive: true,
     } as any);
 
     const req = {
       params: { id: 'user_manager' },
       body: { role: 'owner' },
       admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },
-      headers: {}
+      headers: {},
     };
     const res = {
       status: vi.fn().mockReturnThis(),
-      json: vi.fn()
+      json: vi.fn(),
     };
     const next = vi.fn();
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       const wrappedNext = (err: any) => {
         next(err);
         resolve();
@@ -413,18 +478,18 @@ describe('admin privilege checks', () => {
         name: 'New Owner',
         email: 'newowner@example.com',
         password: 'Password123!',
-        role: 'owner'
+        role: 'owner',
       },
       admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },
-      headers: {}
+      headers: {},
     };
     const res = {
       status: vi.fn().mockReturnThis(),
-      json: vi.fn()
+      json: vi.fn(),
     };
     const next = vi.fn();
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       const wrappedNext = (err: any) => {
         next(err);
         resolve();

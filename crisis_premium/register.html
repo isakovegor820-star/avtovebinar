@@ -4,102 +4,11 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Экономика кризиса | АСПБ</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="css/styles.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css" rel="stylesheet"/>
-<script id="tailwind-config">
-      tailwind.config = {
-        darkMode: "class",
-        theme: {
-          extend: {
-            "colors": {
-                    "tertiary-fixed-dim": "#bcc7dd",
-                    "on-tertiary-fixed-variant": "#3c475a",
-                    "background": "#f8f9fa",
-                    "on-error": "#ffffff",
-                    "inverse-on-surface": "#f0f1f2",
-                    "secondary-fixed": "#ffdea5",
-                    "on-secondary-fixed": "#261900",
-                    "primary-fixed": "#d2e4fb",
-                    "on-secondary-fixed-variant": "#5d4201",
-                    "surface-container": "#edeeef",
-                    "on-tertiary-fixed": "#111c2c",
-                    "on-surface": "#191c1d",
-                    "on-secondary": "#ffffff",
-                    "surface": "#f8f9fa",
-                    "on-error-container": "#93000a",
-                    "inverse-primary": "#b7c8de",
-                    "secondary-fixed-dim": "#e9c176",
-                    "outline": "#74777d",
-                    "surface-tint": "#4f6073",
-                    "primary": "#041627",
-                    "on-primary-container": "#8192a7",
-                    "surface-dim": "#d9dadb",
-                    "surface-container-high": "#e7e8e9",
-                    "on-primary-fixed-variant": "#38485a",
-                    "on-background": "#191c1d",
-                    "tertiary-fixed": "#d8e3fa",
-                    "on-primary-fixed": "#0b1d2d",
-                    "outline-variant": "#c4c6cd",
-                    "surface-variant": "#e1e3e4",
-                    "on-tertiary": "#ffffff",
-                    "tertiary-container": "#1f2a3b",
-                    "surface-bright": "#f8f9fa",
-                    "secondary": "#775a19",
-                    "inverse-surface": "#2e3132",
-                    "surface-container-low": "#f3f4f5",
-                    "surface-container-highest": "#e1e3e4",
-                    "primary-fixed-dim": "#b7c8de",
-                    "on-secondary-container": "#785a1a",
-                    "secondary-container": "#fed488",
-                    "error": "#ba1a1a",
-                    "tertiary": "#0a1526",
-                    "on-surface-variant": "#44474c",
-                    "primary-container": "#1a2b3c",
-                    "surface-container-lowest": "#ffffff",
-                    "on-tertiary-container": "#8691a6",
-                    "on-primary": "#ffffff",
-                    "error-container": "#ffdad6"
-            },
-            "borderRadius": {
-                    "DEFAULT": "0.25rem",
-                    "lg": "22px",
-                    "xl": "0.75rem",
-                    "full": "9999px"
-            },
-            "spacing": {
-                    "gutter": "24px",
-                    "container-max-width": "1280px",
-                    "margin-desktop": "48px",
-                    "unit": "4px",
-                    "margin-mobile": "16px"
-            },
-            "fontFamily": {
-                    "headline-lg-mobile": ["Manrope"],
-                    "body-lg": ["Manrope"],
-                    "headline-xl": ["Manrope"],
-                    "headline-lg": ["Manrope"],
-                    "headline-md": ["Manrope"],
-                    "label-sm": ["Manrope"],
-                    "label-md": ["Manrope"],
-                    "body-md": ["Manrope"]
-            },
-            "fontSize": {
-                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
-                    "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
-                    "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
-                    "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
-                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
-            }
-          },
-        },
-      }
-    </script>
 <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -116,7 +25,7 @@
         }
     </style>
 </head>
-<body class="text-on-surface selection:bg-primary-fixed">
+<body class="bg-background text-on-surface selection:bg-primary-fixed">
 <!-- Top Navigation Anchor -->
 <header class="docked full-width top-0 sticky bg-background/90 backdrop-blur-md shadow-sm z-50">
 <nav class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
@@ -132,6 +41,14 @@
 </div>
 <a class="scale-95 active:scale-90 transition-transform bg-primary text-on-primary px-6 py-2.5 rounded-full font-label-md text-label-md shadow-sm" href="register.html">Зарегистрироваться</a>
 </nav>
+<div class="md:hidden px-gutter pb-3">
+<nav class="flex gap-3 overflow-x-auto text-label-sm font-label-sm" aria-label="Мобильная навигация">
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#about">О вебинаре</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#why-now">Почему сейчас</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#team">Команда</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="index.html#faq">FAQ</a>
+</nav>
+</div>
 </header>
 <div data-current="register" data-flow-tabs></div>
 <main class="min-h-[calc(100vh-80px)] flex items-center justify-center py-12 px-gutter">
@@ -162,8 +79,8 @@
 </div>
 </div>
 <!-- Right Side: Registration Form Card -->
-<div class="bg-surface-container-lowest p-8 md:p-10 rounded-lg shadow-sm border border-outline-variant/50">
-<form action="/api/register" class="space-y-6" id="registrationForm" method="post" onsubmit="if (window.ASPBRegisterSubmit) { return window.ASPBRegisterSubmit(event, this); } event.preventDefault(); alert('Откройте регистрацию через dev-ссылку: http://127.0.0.1:5174/crisis_premium/register.html'); return false;">
+<div class="bg-surface-container-lowest p-8 md:p-10 rounded-lg shadow-sm border border-outline-variant/50 w-full max-w-[560px] lg:max-w-none lg:ml-auto">
+<form action="/api/register" class="space-y-6" id="registrationForm" method="post">
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 <div class="space-y-1.5">
 <label class="text-label-md font-label-md text-on-surface-variant">Имя</label>
@@ -179,10 +96,14 @@
 <label class="text-label-md font-label-md text-on-surface-variant">Email</label>
 <input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="email" placeholder="example@mail.com" required="" type="email"/>
 </div>
+<div class="space-y-1.5">
+<label class="text-label-md font-label-md text-on-surface-variant">Город</label>
+<input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="city" placeholder="Москва" type="text"/>
+</div>
 </div>
 <div class="space-y-1.5">
 <label class="text-label-md font-label-md text-on-surface-variant">Статус</label>
-<select class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none appearance-none cursor-pointer" name="professionalStatus">
+<select class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none cursor-pointer" name="professionalStatus">
 <option>Юрист частной практики</option>
 <option>Сотрудник юридической фирмы</option>
 <option>Руководитель юридической практики</option>
@@ -217,7 +138,7 @@
 </span>
 </label>
 <label class="flex items-start gap-3 rounded-lg bg-surface-container-low border border-outline-variant/30 p-4 cursor-pointer">
-<input class="mt-1 w-5 h-5 border-outline-variant text-primary focus:ring-primary" name="marketingConsent" type="checkbox" value="true" checked/>
+<input class="mt-1 w-5 h-5 border-outline-variant text-primary focus:ring-primary" name="marketingConsent" type="checkbox" value="true"/>
 <span class="text-label-sm font-label-sm text-on-surface-variant leading-relaxed">
 Я согласен на получение информационных рассылок, напоминаний об эфире и новостей от АСПБ (по email и в мессенджерах).
 </span>
@@ -247,22 +168,11 @@
 <a class="text-label-sm font-label-sm text-on-surface-variant hover:underline transition-all" href="mailto:partners@aspb.ru">Контакты</a>
 </div>
 <div class="text-label-sm font-label-sm text-on-surface-variant opacity-80">
-                © 2024 АСПБ. Все права защищены. Юридическая информация и оферта.
+                © 2026 АСПБ. Все права защищены. Юридическая информация и оферта.
             </div>
 </div>
 </footer>
-<script>
-        // Simple parallax effect on scroll for atmospheric feel
-        window.addEventListener('scroll', () => {
-            const scrolled = window.pageYOffset;
-            const logo = document.querySelector('.text-headline-md');
-            if(scrolled > 50) {
-                logo.style.transform = 'scale(0.95)';
-            } else {
-                logo.style.transform = 'scale(1)';
-            }
-        });
-    </script>
-<script src="aspb-api.js"></script>
+<script src="register-parallax.js"></script>
+<script type="module" src="js/main.js"></script>
 <script src="flow-tabs.js"></script>
 </body></html>

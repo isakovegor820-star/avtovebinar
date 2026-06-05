@@ -12,9 +12,17 @@ export const PUBLIC_ANALYTICS_EVENTS = [
   'video_progress_50',
   'video_progress_75',
   'video_finish',
+  // Server emits this after a question is persisted; kept public for historical clients.
   'question_submit',
+  'question_submit_attempt',
+  'question_submitted',
+  'question_submit_error',
+  // Server emits this after a partner application is persisted; kept public for historical clients.
   'partner_application_submit',
-  'partner_request_click'
+  'partner_application_submitted',
+  'partner_application_error',
+  'partner_form_opened',
+  'partner_request_click',
 ] as const;
 
 export type PublicAnalyticsEvent = (typeof PUBLIC_ANALYTICS_EVENTS)[number];

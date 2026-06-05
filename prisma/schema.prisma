@@ -99,6 +99,8 @@ model WebinarSession {
   events                Event[]
   partnerApplications   PartnerApplication[]
   timelineEvents        WebinarTimelineEvent[]
+  chatMessages          WebinarChatMessage[]
+  emailOutboxJobs       EmailOutboxJob[]
 
   @@unique([scheduledAt])
   @@index([status])
@@ -139,6 +141,8 @@ model Registration {
   events                    Event[]
   partnerApplications       PartnerApplication[]
   tokens                    RegistrationToken[]
+  chatMessages              WebinarChatMessage[]
+  emailOutboxJobs           EmailOutboxJob[]
 
   @@index([leadId])
   @@index([webinarSessionId])
@@ -147,6 +151,7 @@ model Registration {
   @@index([isHot])
   @@index([assignedManagerId])
   @@index([nextContactAt])
+  @@unique([leadId, webinarSessionId])
   @@map("registrations")
 }
 
@@ -164,6 +169,67 @@ model RegistrationToken {
   @@map("registration_tokens")
 }
 
+model EmailOutboxJob {
+  id               String          @id @default(cuid())
+  type             String
+  status           String          @default("pending")
+  registrationId   String?         @map("registration_id")
+  webinarSessionId String?         @map("webinar_session_id")
+  toEmail          String          @map("to_email")
+  toName           String          @map("to_name")
+  scheduledAt      DateTime        @map("scheduled_at")
+  webinarUrl       String          @map("webinar_url")
+  partnerUrl       String?         @map("partner_url")
+  reminderKind     String?         @map("reminder_kind")
+  attempts         Int             @default(0)
+  lastError        String?         @map("last_error")
+  nextAttemptAt    DateTime?       @map("next_attempt_at")
+  sentAt           DateTime?       @map("sent_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  registration     Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  webinarSession   WebinarSession? @relation(fields: [webinarSessionId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([registrationId])
+  @@index([webinarSessionId])
+  @@index([type])
+  @@map("email_outbox_jobs")
+}
+
+model TelegramBroadcastJob {
+  id            String    @id @default(cuid())
+  status        String    @default("pending")
+  text          String
+  chatIds       Json      @map("chat_ids")
+  total         Int
+  sent          Int       @default(0)
+  failed        Int       @default(0)
+  attempts      Int       @default(0)
+  nextIndex     Int       @default(0) @map("next_index")
+  lastError     String?   @map("last_error")
+  nextAttemptAt DateTime? @map("next_attempt_at")
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([createdAt])
+  @@map("telegram_broadcast_jobs")
+}
+
+model TelegramBroadcastDeadLetter {
+  id          String   @id @default(cuid())
+  jobId       String   @unique @map("job_id")
+  reason      String
+  payloadJson Json?    @map("payload_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("telegram_broadcast_dead_letters")
+}
+
 model Question {
   id               String         @id @default(cuid())
   leadId           String         @map("lead_id")
@@ -177,10 +243,34 @@ model Question {
   lead             Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
   registration     Registration   @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  chatMessage      WebinarChatMessage?
 
   @@index([createdAt])
   @@index([isAnswered])
   @@map("questions")
+}
+
+model WebinarChatMessage {
+  id               String         @id @default(cuid())
+  webinarSessionId String         @map("webinar_session_id")
+  registrationId   String?        @map("registration_id")
+  questionId       String?        @unique @map("question_id")
+  kind             String
+  authorName       String         @map("author_name")
+  authorRole       String?        @map("author_role")
+  message          String
+  isSynthetic      Boolean        @default(false) @map("is_synthetic")
+  visibleAt        DateTime       @default(now()) @map("visible_at")
+  metadataJson     Json?          @map("metadata_json")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  registration     Registration?  @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  question         Question?      @relation(fields: [questionId], references: [id], onDelete: SetNull)
+
+  @@index([webinarSessionId, visibleAt])
+  @@index([registrationId])
+  @@index([kind])
+  @@map("webinar_chat_messages")
 }
 
 model Event {

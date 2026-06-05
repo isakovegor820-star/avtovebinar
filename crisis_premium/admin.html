@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>АСПБ admin</title>
+  <style>
+    :root { color-scheme: light; --blue:#041627; --muted:#5d6673; --line:#dbe2ea; --bg:#f7f9fb; --soft:#eef4fb; --white:#fff; --accent:#d2e4fb; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Manrope, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--blue); }
+    header { position:sticky; top:0; z-index:5; background:rgba(255,255,255,.92); border-bottom:1px solid var(--line); backdrop-filter: blur(12px); }
+    .wrap { max-width:1280px; margin:0 auto; padding:24px; }
+    .top { display:flex; justify-content:space-between; gap:16px; align-items:center; }
+    h1 { margin:0; font-size:28px; }
+    h2 { margin:0 0 14px; font-size:20px; }
+    h3 { margin:0 0 10px; font-size:16px; }
+    .sub { color:var(--muted); margin-top:4px; font-size:14px; }
+    .grid { display:grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap:14px; margin:24px 0; }
+    .layout { display:grid; grid-template-columns: minmax(0, 1fr) 380px; gap:18px; align-items:start; }
+    .card, .panel { background:white; border:1px solid var(--line); border-radius:18px; box-shadow:0 18px 50px rgba(4,22,39,.06); }
+    .card { padding:18px; }
+    .metric { font-size:30px; font-weight:800; }
+    .label { color:var(--muted); font-size:13px; margin-top:4px; }
+    .panel { padding:20px; margin-bottom:18px; }
+    .side { position:sticky; top:112px; }
+    .filters { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+    input, select, button, textarea { font:inherit; border-radius:12px; border:1px solid var(--line); padding:11px 13px; }
+    textarea { width:100%; min-height:110px; resize:vertical; }
+    button { border:0; background:var(--blue); color:#fff; cursor:pointer; font-weight:700; }
+    button.secondary { background:#d2e4fb; color:var(--blue); }
+    button.ghost { background:#fff; color:var(--blue); border:1px solid var(--line); }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th, td { text-align:left; border-bottom:1px solid var(--line); padding:12px 8px; vertical-align:top; }
+    th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .pill { display:inline-flex; padding:5px 9px; border-radius:999px; background:var(--soft); font-size:12px; font-weight:700; }
+    .pill.dark { background:var(--blue); color:#fff; }
+    .login { max-width:420px; margin:12vh auto; padding:28px; }
+    .login input { width:100%; margin:8px 0; }
+    .hidden { display:none !important; }
+    .stack { display:grid; gap:12px; }
+    .row { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--line); }
+    .muted-box { background:var(--soft); border:1px solid var(--line); border-radius:14px; padding:12px; }
+    .question { display:grid; grid-template-columns:1fr auto; gap:12px; align-items:start; padding:14px 0; border-bottom:1px solid var(--line); }
+    .question p { margin:6px 0 0; color:#28313b; }
+    .broadcast-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px; }
+    .status-line { color:var(--muted); font-size:13px; }
+    .hot-grid { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; }
+    .hot-card { border:1px solid #c9d8e9; border-radius:16px; padding:14px; background:linear-gradient(135deg,#fff,#f3f8ff); display:grid; gap:8px; }
+    .hot-head { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+    .hot-score { display:inline-flex; align-items:center; gap:6px; padding:5px 8px; border-radius:999px; background:var(--blue); color:#fff; font-size:12px; font-weight:800; white-space:nowrap; }
+    .action-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .action-row a, .mini-link { display:inline-flex; align-items:center; justify-content:center; text-decoration:none; border-radius:10px; padding:9px 11px; font-weight:800; font-size:13px; border:1px solid var(--line); color:var(--blue); background:#fff; }
+    .telegram-box { border:1px solid #b9d5f5; background:#f2f8ff; border-radius:16px; padding:14px; display:grid; gap:10px; }
+    .telegram-box.connected { background:linear-gradient(135deg,#eef7ff,#fff); }
+    @media (max-width: 1050px) { .layout { grid-template-columns:1fr; } .side { position:static; } }
+    @media (max-width: 900px) { .grid, .hot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } table { display:block; overflow:auto; } }
+    @media (max-width: 620px) { .hot-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap top">
+      <div>
+        <h1>АСПБ admin</h1>
+        <div class="sub">Регистрации, вопросы и базовая аналитика автовебинара</div>
+      </div>
+      <button id="logoutBtn" class="secondary hidden">Выйти</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="loginPanel" class="panel login">
+      <h2>Вход</h2>
+      <input id="login" placeholder="Логин" autocomplete="username" />
+      <input id="password" placeholder="Пароль" type="password" autocomplete="current-password" />
+      <button id="loginBtn">Войти</button>
+      <p id="loginError" class="sub"></p>
+    </section>
+
+    <section id="appPanel" class="hidden">
+      <div class="grid" id="metrics"></div>
+
+      <section class="panel">
+        <div class="top">
+          <div>
+            <h2>Горячие участники</h2>
+            <div class="sub">Приоритет для менеджера: Telegram, вход в комнату, вопросы, заявки или ручная отметка.</div>
+          </div>
+          <button id="hotRefreshBtn" class="ghost">Обновить</button>
+        </div>
+        <div id="hotLeads" class="hot-grid"></div>
+      </section>
+
+      <section class="panel hidden" id="userAdminSection">
+        <div class="top">
+          <div>
+            <h2>Менеджеры и роли</h2>
+            <div class="sub">Owner/admin управляют доступом. Менеджеры видят всех лидов, действия пишутся в audit log.</div>
+          </div>
+          <button id="usersRefreshBtn" class="ghost">Обновить</button>
+        </div>
+        <div class="filters">
+          <input id="newUserName" placeholder="Имя менеджера" />
+          <input id="newUserEmail" placeholder="Email для входа" />
+          <input id="newUserPassword" type="password" placeholder="Временный пароль" />
+          <select id="newUserRole"></select>
+          <button id="createUserBtn">Добавить</button>
+        </div>
+        <div id="usersList"></div>
+      </section>
+
+      <div class="layout">
+        <div>
+          <section class="panel">
+            <div class="top">
+              <div>
+                <h2>Маркетинговая воронка</h2>
+                <div class="sub">Период, источники, UTM и конверсии до заявки/договора.</div>
+              </div>
+              <button id="funnelRefreshBtn" class="ghost">Обновить</button>
+            </div>
+            <div class="filters">
+              <input id="funnelFrom" type="date" />
+              <input id="funnelTo" type="date" />
+              <select id="funnelGroupBy">
+                <option value="source">source</option>
+                <option value="utmSource">utm_source</option>
+                <option value="utmMedium">utm_medium</option>
+                <option value="utmCampaign">utm_campaign</option>
+              </select>
+            </div>
+            <div class="grid" id="funnelMetrics"></div>
+            <div id="funnelTable"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Регистрации и воронка</h2>
+            <div class="filters" id="queueTabs">
+              <button class="ghost" data-queue="all">Все</button>
+              <button class="ghost" data-queue="new">Новые</button>
+              <button class="ghost" data-queue="today">Сегодня</button>
+              <button class="ghost" data-queue="hot">Горячие</button>
+              <button class="ghost" data-queue="questions">Вопросы</button>
+              <button class="ghost" data-queue="applications">Заявки</button>
+              <button class="ghost" data-queue="contracts">Договоры</button>
+            </div>
+            <div class="filters">
+              <input id="query" placeholder="Имя, email, телефон" />
+              <input id="date" type="date" />
+              <select id="status"></select>
+              <select id="managerFilter"></select>
+              <select id="telegramFilter"><option value="">Telegram: все</option><option value="yes">подключен</option><option value="no">не подключен</option></select>
+              <select id="roomFilter"><option value="">Комната: все</option><option value="yes">заходил</option><option value="no">не заходил</option></select>
+              <select id="questionFilter"><option value="">Вопросы: все</option><option value="yes">есть вопрос</option></select>
+              <select id="applicationFilter"><option value="">Заявки: все</option><option value="yes">есть заявка</option></select>
+              <button id="refreshBtn">Обновить</button>
+            </div>
+            <div id="registrations"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Заявки на партнерский договор</h2>
+            <div id="applications"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Telegram-новости участникам</h2>
+            <div class="sub">Сообщение уйдет только тем, кто нажал Telegram-кнопку после регистрации и привязал бота.</div>
+            <textarea id="broadcastText" placeholder="Например: Завтра в 19:00 МСК разберем, как юристу не терять клиентов с долговыми рисками и передавать их в АСПБ."></textarea>
+            <div class="broadcast-actions">
+              <button id="broadcastBtn">Отправить новость</button>
+              <span id="broadcastStatus" class="status-line"></span>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Вопросы</h2>
+            <div id="questions"></div>
+          </section>
+        </div>
+
+        <aside class="panel side">
+          <h2>Карточка лида</h2>
+          <div id="leadCard" class="sub">Выберите регистрацию, чтобы увидеть контакт, события, вопросы и заметки менеджера.</div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script src="admin.js"></script>
+</body>
+</html>

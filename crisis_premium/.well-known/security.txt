@@ -1,0 +1,4 @@
+Contact: mailto:security@aspb.help
+Preferred-Languages: ru, en
+Policy: https://aspb.help/privacy.html
+Expires: 2027-06-04T00:00:00Z

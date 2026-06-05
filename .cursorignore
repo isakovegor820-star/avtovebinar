@@ -1,0 +1,34 @@
+# Зависимости
+node_modules/
+
+# Сборка
+dist/
+
+# Покрытие тестов
+coverage/
+
+# Тяжёлые медиа-файлы (видео, большие картинки)
+crisis_premium/assets/*.mp4
+crisis_premium/assets/*.webm
+crisis_premium/assets/*.mov
+crisis_premium/assets/*.png
+
+# Устаревшая документация
+docs/
+
+# Резервные копии БД
+backups/
+*.sql.gz
+
+# Lock-файл (огромный, не несёт смысловой нагрузки для ИИ)
+package-lock.json
+
+# Автосгенерированные миграции Prisma
+prisma/migrations/
+
+# Служебные директории
+.omx/
+scratch/
+stitch_/
+stitch_6/
+.git/

@@ -131,13 +131,29 @@
     <p class="text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Добавьте файл <strong>crisis_premium/assets/webinar.mp4</strong>, и эта комната сразу станет полноценным автовебинаром.</p>
   </div>
 
-  <!-- Play/Unmute Overlay for Muted Autoplay Bypass -->
+  <!-- Countdown Overlay — shown before broadcast starts -->
   <div id="videoPlayOverlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 text-center p-6 cursor-pointer hover:bg-black/60 transition-all duration-300">
-    <div class="w-14 h-14 bg-white/12 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-white/25 hover:scale-105 transition-transform shadow-lg">
-      <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
+    <div class="w-16 h-16 bg-primary/90 rounded-full flex items-center justify-center mb-5 border border-white/20 shadow-lg">
+      <span class="material-symbols-outlined text-white text-4xl">schedule</span>
     </div>
-    <p class="text-headline-sm text-white font-bold tracking-wide uppercase">Войти в эфир</p>
-    <p class="text-body-md text-white/75 mt-1 max-w-md">Нажмите, чтобы подключиться к трансляции</p>
+    <p class="text-headline-sm text-white font-bold tracking-wide uppercase mb-3">Трансляция начнётся через</p>
+    <div id="broadcastCountdown" class="flex gap-3 mb-4">
+      <div class="bg-white/10 backdrop-blur-md rounded-xl px-4 py-3 min-w-[72px] border border-white/15">
+        <span id="countdownHours" class="text-3xl font-bold text-white tabular-nums">00</span>
+        <p class="text-[10px] text-white/50 uppercase tracking-wider mt-1">часов</p>
+      </div>
+      <div class="text-3xl font-bold text-white/40 self-start mt-3">:</div>
+      <div class="bg-white/10 backdrop-blur-md rounded-xl px-4 py-3 min-w-[72px] border border-white/15">
+        <span id="countdownMinutes" class="text-3xl font-bold text-white tabular-nums">00</span>
+        <p class="text-[10px] text-white/50 uppercase tracking-wider mt-1">минут</p>
+      </div>
+      <div class="text-3xl font-bold text-white/40 self-start mt-3">:</div>
+      <div class="bg-white/10 backdrop-blur-md rounded-xl px-4 py-3 min-w-[72px] border border-white/15">
+        <span id="countdownSeconds" class="text-3xl font-bold text-white tabular-nums">00</span>
+        <p class="text-[10px] text-white/50 uppercase tracking-wider mt-1">секунд</p>
+      </div>
+    </div>
+    <p class="text-body-md text-white/60 max-w-md">Страница обновится автоматически в момент начала эфира</p>
   </div>
 
   <!-- Pause Overlay (only shown in Live mode when paused) -->

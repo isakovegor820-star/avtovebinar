@@ -190,14 +190,31 @@ export async function hydrateTimeline() {
     if (customControls) customControls.classList.add('hidden');
     if (playOverlay) {
       playOverlay.classList.remove('hidden', 'opacity-0');
-      playOverlay.innerHTML = `
-        <div class="w-20 h-20 bg-primary/90 rounded-full flex items-center justify-center mb-4 border border-white/20">
-          <span class="material-symbols-outlined text-white text-4xl">schedule</span>
-        </div>
-        <p class="text-headline-md text-white font-bold tracking-wide uppercase">Эфир скоро начнется</p>
-        <p class="text-body-lg text-white/80 mt-1 max-w-md">Видео и чат откроются автоматически в момент старта.</p>
-      `;
+
+      const countdownHours = document.getElementById('countdownHours');
+      const countdownMinutes = document.getElementById('countdownMinutes');
+      const countdownSeconds = document.getElementById('countdownSeconds');
+
+      function updateCountdown() {
+        const nowServer = Date.now() + state.serverTimeOffset;
+        const remaining = Math.max(0, webinarConfig.scheduledAt - nowServer);
+        const totalSeconds = Math.floor(remaining / 1000);
+        const h = Math.floor(totalSeconds / 3600);
+        const m = Math.floor((totalSeconds % 3600) / 60);
+        const s = totalSeconds % 60;
+        if (countdownHours) countdownHours.textContent = String(h).padStart(2, '0');
+        if (countdownMinutes) countdownMinutes.textContent = String(m).padStart(2, '0');
+        if (countdownSeconds) countdownSeconds.textContent = String(s).padStart(2, '0');
+        if (remaining <= 0) {
+          clearInterval(countdownInterval);
+          window.location.reload();
+        }
+      }
+
+      updateCountdown();
+      const countdownInterval = window.setInterval(updateCountdown, 1000);
     }
+    // Fallback: force reload if countdown somehow misses the transition
     const reloadDelay = Math.max(1000, Math.min(30000, (webinarConfig.scheduledAt - (Date.now() + state.serverTimeOffset)) + 1000));
     window.setTimeout(() => window.location.reload(), reloadDelay);
   } else if (isEnded) {
@@ -217,8 +234,19 @@ export async function hydrateTimeline() {
     video.pause();
     video.currentTime = 0;
   } else {
+    if (playOverlay) playOverlay.classList.add('hidden');
     video.play().catch(err => {
       console.log('Muted autoplay was prevented by browser, waiting for user click.', err);
+      if (playOverlay) {
+        playOverlay.classList.remove('hidden', 'opacity-0');
+        playOverlay.innerHTML = `
+          <div class="w-14 h-14 bg-white/12 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-white/25 hover:scale-105 transition-transform shadow-lg">
+            <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
+          </div>
+          <p class="text-headline-sm text-white font-bold tracking-wide uppercase">Войти в эфир</p>
+          <p class="text-body-md text-white/75 mt-1 max-w-md">Нажмите, чтобы подключиться к трансляции</p>
+        `;
+      }
     });
   }
 

@@ -588,6 +588,30 @@ describe('critical path integration scenarios', () => {
     expect(csrfResponse.status).toBe(403);
     expect(csrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
 
+    const analyticsCsrfResponse = await request(app).post('/api/events').send({ eventName: 'page_view' });
+    expect(analyticsCsrfResponse.status).toBe(403);
+    expect(analyticsCsrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+
+    const telegramClickCsrfResponse = await request(app).post('/api/telegram-click').send({ page: '/test' });
+    expect(telegramClickCsrfResponse.status).toBe(403);
+    expect(telegramClickCsrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+
+    const publicAgent = request.agent(app);
+    const publicCsrfToken = await getCsrfToken(publicAgent);
+    const analyticsResponse = await publicAgent.post('/api/events').set('x-csrf-token', publicCsrfToken).send({
+      eventName: 'page_view',
+      page: '/test',
+    });
+    expect(analyticsResponse.status).toBe(201);
+    expect(analyticsResponse.body.ok).toBe(true);
+
+    const telegramClickResponse = await publicAgent
+      .post('/api/telegram-click')
+      .set('x-csrf-token', publicCsrfToken)
+      .send({ page: '/test' });
+    expect(telegramClickResponse.status).toBe(200);
+    expect(telegramClickResponse.body.ok).toBe(true);
+
     const metricsResponse = await request(app).get('/metrics');
     expect(metricsResponse.status).toBe(200);
     expect(metricsResponse.text).toContain('aspb_http_requests_total');

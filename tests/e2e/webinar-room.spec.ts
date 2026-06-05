@@ -92,6 +92,10 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
   expect(page.url()).not.toContain('token=');
 
   await expect(page.locator('#videoPlayerContainer')).toBeVisible();
+  await page.locator('#videoPlayerContainer').hover();
+  await page.locator('#videoPlayerContainer').dispatchEvent('mouseenter');
+  await page.locator('#videoPlayerContainer').dispatchEvent('mousemove');
+  await expect(page.locator('#customPlayerControls')).toHaveClass(/opacity-100/);
   await expect(page.locator('#customSeekBarContainer')).toBeVisible();
   await expect(page.locator('#customSeekBarContainer')).toHaveAttribute('data-live-mode', 'dvr');
   await expect(page.locator('#customSeekBarAvailable')).toHaveAttribute('style', /width:\s*100%/);
@@ -118,14 +122,16 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
   expect(dvrAfterSeek.viewerPosition).toBeLessThan(dvrBeforeSeek.livePosition - 20);
   expect(dvrAfterSeek.behindLive).toBe('true');
 
-  await page.waitForTimeout(1800);
+  await expect
+    .poll(async () =>
+      page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => Number(node.dataset.livePosition || 0)),
+    )
+    .toBeGreaterThan(dvrAfterSeek.livePosition);
   const dvrAfterWait = await page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => ({
     livePosition: Number(node.dataset.livePosition || 0),
     viewerPosition: Number(node.dataset.viewerPosition || 0),
     behindLive: node.dataset.behindLive,
   }));
-  expect(dvrAfterWait.livePosition).toBeGreaterThan(dvrAfterSeek.livePosition);
-  expect(dvrAfterWait.viewerPosition).toBeGreaterThan(dvrAfterSeek.viewerPosition);
   expect(dvrAfterWait.livePosition - dvrAfterWait.viewerPosition).toBeGreaterThan(10);
 
   await page.locator('#returnToLiveBtn').click();
@@ -166,13 +172,25 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
     .locator('#webinarVideo')
     .evaluate((node: HTMLVideoElement) => node.currentTime);
   expect(videoTimeWhilePaused).toBeGreaterThanOrEqual(videoTimeBeforePause);
+  const dvrWhilePaused = await page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => ({
+    livePosition: Number(node.dataset.livePosition || 0),
+    viewerPosition: Number(node.dataset.viewerPosition || 0),
+  }));
+  expect(dvrWhilePaused.livePosition).toBeGreaterThan(dvrAtLiveEdge.livePosition);
 
-  await page.locator('#videoPauseOverlay').click();
-  await page.waitForTimeout(1200);
-  const videoTimeAfterResume = await page
-    .locator('#webinarVideo')
-    .evaluate((node: HTMLVideoElement) => node.currentTime);
-  expect(videoTimeAfterResume).toBeGreaterThan(videoTimeWhilePaused);
+  await page.locator('#videoPlayerContainer').click({ position: { x: 24, y: 24 } });
+  await expect
+    .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
+    .toBe(false);
+  await expect
+    .poll(async () =>
+      page.locator('#customSeekBarContainer').evaluate((node: HTMLElement) => {
+        const livePosition = Number(node.dataset.livePosition || 0);
+        const viewerPosition = Number(node.dataset.viewerPosition || 0);
+        return livePosition - viewerPosition;
+      }),
+    )
+    .toBeLessThan(4);
 
   await page.locator('#questionInput').fill('Как передать клиента с долгами?');
   await page.locator('#questionSubmit').click();

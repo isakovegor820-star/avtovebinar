@@ -576,6 +576,8 @@ describe('critical path integration scenarios', () => {
     const liveResponse = await request(app).get('/health/live');
     expect(liveResponse.status).toBe(200);
     expect(liveResponse.body.ok).toBe(true);
+    expect(liveResponse.headers['content-security-policy']).toContain("img-src 'self' data: blob:");
+    expect(liveResponse.headers['content-security-policy']).not.toContain('img-src https:');
 
     const readyResponse = await request(app).get('/health/ready');
     expect(readyResponse.status).toBe(200);

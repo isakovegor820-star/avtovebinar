@@ -13,7 +13,6 @@ import {
   buildAccessPayload,
   buildFrontendUrl,
   clean,
-  findRegistrationByToken,
   findRegistrationForRequest,
   getFirstSeen,
   getRoomTokenExpiresAt,
@@ -204,29 +203,45 @@ registrationRouter.post(
   '/registration/exchange/:token',
   asyncHandler(async (req, res) => {
     const token = z.string().min(20).parse(req.params.token);
-    const registration = await findRegistrationByToken(token);
-
-    if (!registration) {
-      throw new AppError(404, 'Registration not found');
-    }
-
     const exchangeTokenHash = hashToken(token);
-    const tokenRecord = await prisma.registrationToken.findUnique({
-      where: { tokenHash: exchangeTokenHash },
-    });
-
-    if (!tokenRecord || tokenRecord.purpose === ROOM_SESSION_TOKEN_PURPOSE) {
-      throw new AppError(404, 'Registration not found');
-    }
-
     const sessionToken = createAccessToken();
     const sessionTokenHash = hashToken(sessionToken);
-    const tokenExpiresAt = tokenRecord.expiresAt ?? getRoomTokenExpiresAt(registration.webinarSession);
 
-    await prisma.$transaction(async tx => {
-      await tx.registrationToken.deleteMany({
-        where: { id: tokenRecord.id },
+    const result = await prisma.$transaction(async tx => {
+      const tokenRecord = await tx.registrationToken.findUnique({
+        where: { tokenHash: exchangeTokenHash },
+        include: {
+          registration: {
+            include: {
+              lead: true,
+              webinarSession: true,
+            },
+          },
+        },
       });
+
+      if (
+        !tokenRecord ||
+        tokenRecord.purpose !== ROOM_EXCHANGE_TOKEN_PURPOSE ||
+        (tokenRecord.expiresAt && tokenRecord.expiresAt < new Date())
+      ) {
+        throw new AppError(404, 'Registration not found');
+      }
+
+      const deleted = await tx.registrationToken.deleteMany({
+        where: {
+          tokenHash: exchangeTokenHash,
+          purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
+          expiresAt: tokenRecord.expiresAt ? { equals: tokenRecord.expiresAt } : null,
+        },
+      });
+
+      if (deleted.count !== 1) {
+        throw new AppError(409, 'Registration token was already used', { code: 'exchange_token_used' });
+      }
+
+      const registration = tokenRecord.registration;
+      const tokenExpiresAt = tokenRecord.expiresAt ?? getRoomTokenExpiresAt(registration.webinarSession);
 
       await tx.registrationToken.deleteMany({
         where: {
@@ -248,14 +263,16 @@ registrationRouter.post(
         where: { id: registration.id },
         data: { accessTokenHash: sessionTokenHash },
       });
+
+      return { tokenExpiresAt };
     });
 
-    setRoomTokenCookie(res, sessionToken, tokenExpiresAt);
+    setRoomTokenCookie(res, sessionToken, result.tokenExpiresAt);
     res.json({
       ok: true,
       successUrl: buildFrontendUrl('/crisis_premium/success.html'),
       webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
-      expiresAt: tokenExpiresAt.toISOString(),
+      expiresAt: result.tokenExpiresAt.toISOString(),
     });
   }),
 );

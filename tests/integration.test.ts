@@ -285,6 +285,42 @@ describe('critical path integration scenarios', () => {
       request(app).get(`/api/webinar/timeline/session/current?token=${exchangeToken}`),
     ).resolves.toMatchObject({ status: 401 });
 
+    const concurrentExchangeToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registrationsAfterRepeat[0].id,
+        tokenHash: hashToken(concurrentExchangeToken),
+        purpose: 'registration',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+    const firstConcurrentAgent = request.agent(app);
+    const secondConcurrentAgent = request.agent(app);
+    const [firstConcurrentCsrfToken, secondConcurrentCsrfToken] = await Promise.all([
+      getCsrfToken(firstConcurrentAgent),
+      getCsrfToken(secondConcurrentAgent),
+    ]);
+    const concurrentResponses = await Promise.all([
+      firstConcurrentAgent
+        .post(`/api/registration/exchange/${concurrentExchangeToken}`)
+        .set('x-csrf-token', firstConcurrentCsrfToken)
+        .send({}),
+      secondConcurrentAgent
+        .post(`/api/registration/exchange/${concurrentExchangeToken}`)
+        .set('x-csrf-token', secondConcurrentCsrfToken)
+        .send({}),
+    ]);
+    expect(concurrentResponses.filter(response => response.status === 200)).toHaveLength(1);
+    expect(concurrentResponses.filter(response => [404, 409].includes(response.status))).toHaveLength(1);
+    expect(
+      await prisma.registrationToken.count({
+        where: {
+          registrationId: registrationsAfterRepeat[0].id,
+          purpose: 'room_session',
+        },
+      }),
+    ).toBe(1);
+
     // 6. ADMIN LOGIN (POST /api/admin/login)
     const adminAgent = request.agent(app);
     const adminCsrfToken = await getCsrfToken(adminAgent);

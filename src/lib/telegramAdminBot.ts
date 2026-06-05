@@ -9,6 +9,8 @@ import {
   sendTelegramMessage,
   telegramApiUrl,
 } from './telegram.js';
+import { logger } from './logger.js';
+import { createCorrelationId, runWithCorrelation } from './requestContext.js';
 
 type AdminTelegramUpdate = {
   update_id: number;
@@ -138,7 +140,7 @@ async function pollOnce() {
       try {
         await handleCallback(update);
       } catch (error) {
-        console.error('[ASPБ admin telegram bot update]', { updateId: update.update_id, error });
+        logger.error({ err: error, updateId: update.update_id }, 'Admin Telegram bot update failed');
       } finally {
         nextOffset = Math.max(nextOffset, update.update_id + 1);
       }
@@ -148,17 +150,21 @@ async function pollOnce() {
   }
 }
 
+function runPollingCycle() {
+  return runWithCorrelation(createCorrelationId('telegram_admin_bot'), pollOnce);
+}
+
 export function startAdminTelegramBot() {
   if (env.NODE_ENV === 'test' || !isAdminBotPollingEnabled() || !hasAdminTelegramBot() || !hasConfiguredAdminChatId()) {
     return null;
   }
 
-  pollOnce().catch(error => console.error('[ASPБ admin telegram bot]', error));
+  runPollingCycle().catch(error => logger.error({ err: error }, 'Admin Telegram bot polling failed'));
   interval = setInterval(() => {
-    pollOnce().catch(error => console.error('[ASPБ admin telegram bot]', error));
+    runPollingCycle().catch(error => logger.error({ err: error }, 'Admin Telegram bot polling failed'));
   }, 3500);
 
-  console.log('[ASPБ admin telegram bot] callback polling enabled');
+  logger.info('Admin Telegram bot callback polling enabled');
   return interval;
 }
 

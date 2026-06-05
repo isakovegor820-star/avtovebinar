@@ -12,6 +12,8 @@ import {
   participantTelegramApiUrl,
   sendTelegramMessageToChat,
 } from './telegram.js';
+import { logger } from './logger.js';
+import { createCorrelationId, runWithCorrelation } from './requestContext.js';
 
 type TelegramUpdate = {
   update_id: number;
@@ -120,7 +122,7 @@ function buildSegmentTip(status?: string | null) {
 
 function notifyAdminSafely(task: Promise<unknown>) {
   task.catch(error => {
-    console.error('[ASPБ telegram subscription notify]', error);
+    logger.error({ err: error }, 'Telegram subscription admin notification failed');
   });
 }
 
@@ -427,7 +429,7 @@ async function pollOnce() {
       try {
         await handleUpdate(update);
       } catch (error) {
-        console.error('[ASPБ telegram bot update]', { updateId: update.update_id, error });
+        logger.error({ err: error, updateId: update.update_id }, 'Participant Telegram bot update failed');
       } finally {
         nextOffset = Math.max(nextOffset, update.update_id + 1);
       }
@@ -437,17 +439,21 @@ async function pollOnce() {
   }
 }
 
+function runPollingCycle() {
+  return runWithCorrelation(createCorrelationId('telegram_participant_bot'), pollOnce);
+}
+
 export function startParticipantTelegramBot() {
   if (env.NODE_ENV === 'test' || !isParticipantBotPollingEnabled() || !hasParticipantTelegramBot()) {
     return null;
   }
 
-  pollOnce().catch(error => console.error('[ASPБ telegram bot]', error));
+  runPollingCycle().catch(error => logger.error({ err: error }, 'Participant Telegram bot polling failed'));
   interval = setInterval(() => {
-    pollOnce().catch(error => console.error('[ASPБ telegram bot]', error));
+    runPollingCycle().catch(error => logger.error({ err: error }, 'Participant Telegram bot polling failed'));
   }, 3500);
 
-  console.log('[ASPБ telegram bot] participant polling enabled');
+  logger.info('Participant Telegram bot polling enabled');
   return interval;
 }
 

@@ -3,6 +3,8 @@ import { env } from './env.js';
 import type { ReminderKind } from './email.js';
 import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
 import { sendTelegramMessageToChat, formatMoscowDate } from './telegram.js';
+import { logger } from './logger.js';
+import { createCorrelationId, runWithCorrelation } from './requestContext.js';
 
 type ReminderCandidate = {
   id: string;
@@ -336,7 +338,7 @@ async function tryAcquireAdvisoryLock(): Promise<boolean> {
     `;
     return rows[0]?.locked === true;
   } catch (error) {
-    console.error('[ASPБ reminder lock] advisory lock acquire failed', error);
+    logger.warn({ err: error }, 'Reminder advisory lock acquire failed');
     // Если лок недоступен (например, не Postgres) — не блокируем работу одиночного инстанса.
     return true;
   }
@@ -346,34 +348,46 @@ async function releaseAdvisoryLock() {
   try {
     await prisma.$queryRaw`SELECT pg_advisory_unlock(${REMINDER_ADVISORY_LOCK_KEY})`;
   } catch (error) {
-    console.error('[ASPБ reminder lock] advisory unlock failed', error);
+    logger.warn({ err: error }, 'Reminder advisory unlock failed');
   }
 }
 
 async function runReminderCycle() {
-  // Локальный guard — защита от наложения тиков в одном процессе.
-  if (reminderCycleRunning) {
-    return;
-  }
-  reminderCycleRunning = true;
+  return runWithCorrelation(createCorrelationId('reminders'), async () => {
+    // Локальный guard — защита от наложения тиков в одном процессе.
+    if (reminderCycleRunning) {
+      return;
+    }
+    reminderCycleRunning = true;
 
-  // Распределённый lock — защита от дублей при нескольких репликах.
-  const acquired = await tryAcquireAdvisoryLock();
-  if (!acquired) {
-    reminderCycleRunning = false;
-    return;
-  }
+    // Распределённый lock — защита от дублей при нескольких репликах.
+    const acquired = await tryAcquireAdvisoryLock();
+    if (!acquired) {
+      reminderCycleRunning = false;
+      return;
+    }
 
-  try {
-    await runReminderJobOnce().catch(error => console.error('[ASPБ reminders]', error));
-    await runEmailOutboxJobOnce().catch(error => console.error('[ASPБ email outbox]', error));
-    await runTelegramReminderJobOnce().catch(error => console.error('[ASPБ telegram reminders]', error));
-    await runTelegramFollowupJobOnce().catch(error => console.error('[ASPБ telegram followup]', error));
-    await cleanupExpiredRegistrationTokens().catch(error => console.error('[ASPБ token cleanup]', error));
-  } finally {
-    await releaseAdvisoryLock();
-    reminderCycleRunning = false;
-  }
+    try {
+      await runReminderJobOnce().catch(error =>
+        logger.error({ err: error, task: 'reminders' }, 'Reminder task failed'),
+      );
+      await runEmailOutboxJobOnce().catch(error =>
+        logger.error({ err: error, task: 'email_outbox' }, 'Reminder task failed'),
+      );
+      await runTelegramReminderJobOnce().catch(error =>
+        logger.error({ err: error, task: 'telegram_reminders' }, 'Reminder task failed'),
+      );
+      await runTelegramFollowupJobOnce().catch(error =>
+        logger.error({ err: error, task: 'telegram_followup' }, 'Reminder task failed'),
+      );
+      await cleanupExpiredRegistrationTokens().catch(error =>
+        logger.error({ err: error, task: 'token_cleanup' }, 'Reminder task failed'),
+      );
+    } finally {
+      await releaseAdvisoryLock();
+      reminderCycleRunning = false;
+    }
+  });
 }
 
 export function startReminderScheduler() {
@@ -383,7 +397,7 @@ export function startReminderScheduler() {
 
   const run = () => {
     reminderCyclePromise = runReminderCycle()
-      .catch(error => console.error('[ASPБ reminder cycle]', error))
+      .catch(error => logger.error({ err: error }, 'Reminder cycle failed'))
       .finally(() => {
         reminderCyclePromise = null;
       });

@@ -52,7 +52,7 @@ registrationRouter.post(
   asyncHandler(async (req, res) => {
     const data = registerSchema.parse(req.body);
     const firstSeenAt = getFirstSeen(req, res);
-    const scheduledAt = getNextWebinarDate(firstSeenAt);
+    const scheduledAt = getNextWebinarDate(new Date());
     const session = await findOrCreateWebinarSession(scheduledAt);
     const professionalStatus = clean(data.professionalStatus) ?? clean(data.status);
 

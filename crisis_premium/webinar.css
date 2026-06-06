@@ -1,0 +1,66 @@
+.webinar-standby-backdrop {
+  overflow: hidden;
+  z-index: 12;
+  background:
+    linear-gradient(135deg, rgba(210, 228, 251, 0.16) 0 1px, transparent 1px 100%),
+    linear-gradient(45deg, rgba(210, 228, 251, 0.08) 0 1px, transparent 1px 100%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07), transparent 22%, transparent 78%, rgba(255, 255, 255, 0.04)),
+    linear-gradient(180deg, rgba(254, 212, 136, 0.12), transparent 34%, rgba(4, 22, 39, 0.4)),
+    linear-gradient(135deg, #041627 0%, #122a40 54%, #07131f 100%);
+  background-size: 92px 92px, 118px 118px, auto, auto, auto;
+}
+
+.webinar-standby-backdrop::before,
+.webinar-standby-backdrop::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.webinar-standby-backdrop::before {
+  left: 8%;
+  right: 8%;
+  bottom: -16%;
+  height: 58%;
+  border: 1px solid rgba(210, 228, 251, 0.18);
+  border-radius: 22px;
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(210, 228, 251, 0.16) 50%, transparent 100%),
+    repeating-linear-gradient(90deg, rgba(210, 228, 251, 0.16) 0 1px, transparent 1px 42px),
+    repeating-linear-gradient(0deg, rgba(210, 228, 251, 0.12) 0 1px, transparent 1px 34px);
+  box-shadow: 0 0 80px rgba(210, 228, 251, 0.16), inset 0 0 48px rgba(255, 255, 255, 0.06);
+  opacity: 0.72;
+  transform: perspective(900px) rotateX(56deg);
+  transform-origin: center bottom;
+}
+
+.webinar-standby-backdrop::after {
+  left: 16%;
+  right: 16%;
+  top: 18%;
+  height: 42%;
+  border: 1px solid rgba(210, 228, 251, 0.24);
+  border-radius: 18px;
+  background:
+    linear-gradient(120deg, rgba(210, 228, 251, 0.18), transparent 28%),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px 28px),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.22);
+  opacity: 0.88;
+}
+
+.webinar-prelive-overlay {
+  background: rgba(4, 22, 39, 0.32);
+}
+
+.webinar-prelive-overlay:hover {
+  background: rgba(4, 22, 39, 0.38);
+}
+
+.webinar-ended-overlay {
+  background: rgba(4, 22, 39, 0.36);
+}
+
+.webinar-ended-overlay:hover {
+  background: rgba(4, 22, 39, 0.42);
+}

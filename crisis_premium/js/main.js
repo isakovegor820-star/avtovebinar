@@ -3,7 +3,7 @@
  */
 
 import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js';
-import { hydrateTimeline } from './video.js';
+import { hydrateTimeline } from './video.js?v=ended-next-webinar';
 import { hydrateSuccessPage } from './success.js';
 import { bindRegistrationForm, bindRegistrationClicks, bindTelegramTracking, exchangeUrlTokenIfPresent } from './registration.js';
 import { bindQuestionForm } from './questions.js';

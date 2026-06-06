@@ -213,3 +213,25 @@ test('chat remains visible and accepts questions after webinar end', async ({ pa
   await page.locator('#questionSubmit').click();
   await expect(page.locator('#liveChatMessages')).toContainText('Вопрос после завершения вебинара');
 });
+
+test('chat remains active before webinar starts', async ({ page }) => {
+  const { exchangeToken } = await createExchangeRegistration(`waiting-chat-${Date.now()}@aspb.ru`);
+  await prisma.webinarSession.updateMany({
+    data: {
+      scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+      status: 'scheduled',
+    },
+  });
+
+  await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`);
+  await expect(page).toHaveURL(/webinar\.html$/);
+  await expect(page.locator('#webinarChatPanel')).toBeVisible();
+  await expect(page.locator('#chatActivity')).toContainText('Чат открыт');
+  await expect(page.locator('#questionInput')).toHaveAttribute('placeholder', 'Задайте вопрос до начала эфира...');
+  await expect(page.locator('#questionInput')).toBeEnabled();
+  await expect(page.locator('#liveChatMessages')).toContainText('Коллеги, добрый день');
+
+  await page.locator('#questionInput').fill('Вопрос до начала эфира');
+  await page.locator('#questionSubmit').click();
+  await expect(page.locator('#liveChatMessages')).toContainText('Вопрос до начала эфира');
+});

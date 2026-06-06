@@ -4,31 +4,58 @@
  */
 (function() {
   var API = window.location.protocol === 'file:' ? 'http://127.0.0.1:5174/api' : '/api';
-  var chatContainer = document.getElementById('liveChatMessages');
-  var chatPanel = document.getElementById('webinarChatPanel');
-  var input = document.getElementById('questionInput');
-  var submit = document.getElementById('questionSubmit');
-  var activity = document.getElementById('chatActivity');
-  var onlineLabel = document.getElementById('chatOnlineLabel');
-  if (!chatContainer) return;
 
   var renderedMessages = new Set();
-  var isHiddenAfterEnd = false;
+  var activeContainer = null;
   var COLORS = ['#1e40af', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#4338ca'];
+
+  function getElements() {
+    return {
+      chatContainer: document.getElementById('liveChatMessages'),
+      chatPanel: document.getElementById('webinarChatPanel'),
+      input: document.getElementById('questionInput'),
+      submit: document.getElementById('questionSubmit'),
+      activity: document.getElementById('chatActivity'),
+      onlineLabel: document.getElementById('chatOnlineLabel')
+    };
+  }
+
+  function readCookie(name) {
+    var prefix = name + '=';
+    var item = document.cookie
+      .split(';')
+      .map(function(value) { return value.trim(); })
+      .find(function(value) { return value.indexOf(prefix) === 0; });
+    return item ? decodeURIComponent(item.slice(prefix.length)) : '';
+  }
+
+  function csrfHeaders() {
+    var token = readCookie('aspb_csrf_token');
+    return token ? { 'x-csrf-token': token } : {};
+  }
 
   function chatUrl() {
     return API + '/webinar/chat/session/current';
   }
 
+  function questionUrl() {
+    return API + '/questions';
+  }
+
   function setActivity(text) {
+    var activity = getElements().activity;
     if (activity) activity.textContent = text;
   }
 
   function setOnlineLabel(text) {
+    var onlineLabel = getElements().onlineLabel;
     if (onlineLabel) onlineLabel.textContent = text;
   }
 
   function setInputState(disabled, placeholder) {
+    var elements = getElements();
+    var input = elements.input;
+    var submit = elements.submit;
     if (input) {
       input.disabled = disabled;
       input.placeholder = placeholder || 'Задайте вопрос...';
@@ -63,6 +90,12 @@
   }
 
   function addMessage(msg) {
+    var chatContainer = getElements().chatContainer;
+    if (!chatContainer) return;
+    if (activeContainer !== chatContainer) {
+      activeContainer = chatContainer;
+      renderedMessages.clear();
+    }
     if (!msg || renderedMessages.has(msg.id)) return;
     renderedMessages.add(msg.id);
 
@@ -109,28 +142,71 @@
     chatContainer.scrollTop = chatContainer.scrollHeight;
   }
 
+  async function submitQuestion() {
+    var elements = getElements();
+    var input = elements.input;
+    var submit = elements.submit;
+    if (!input || !submit || submit.disabled) return;
+
+    var text = input.value.trim();
+    if (!text) return;
+
+    submit.disabled = true;
+    submit.classList.add('opacity-40');
+    try {
+      var response = await fetch(questionUrl(), {
+        method: 'POST',
+        credentials: 'include',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, csrfHeaders()),
+        body: JSON.stringify({ text: text })
+      });
+      var data = await response.json().catch(function() { return {}; });
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Не удалось отправить вопрос');
+
+      input.value = '';
+      setActivity('Вопрос отправлен, чат открыт');
+      await refreshChat();
+    } catch {
+      setActivity('Не удалось отправить вопрос, попробуйте еще раз');
+    } finally {
+      submit.disabled = false;
+      submit.classList.remove('opacity-40');
+    }
+  }
+
+  function bindQuestionForm() {
+    var elements = getElements();
+    var input = elements.input;
+    var submit = elements.submit;
+    if (!input || !submit || submit.dataset.liveChatBound === 'true') return;
+
+    submit.dataset.liveChatBound = 'true';
+    input.dataset.liveChatBound = 'true';
+    submit.addEventListener('click', submitQuestion);
+    input.addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') submitQuestion();
+    });
+  }
+
   function renderChatState(data) {
     var chatStatus = data.liveState && data.liveState.chatStatus;
     var demoLive = data.testMode === true;
+    var elements = getElements();
+
+    if (elements.chatPanel) elements.chatPanel.classList.remove('hidden');
+    bindQuestionForm();
 
     if (!demoLive && (chatStatus === 'ended' || data.accessStatus === 'replay')) {
-      if (chatPanel) chatPanel.classList.remove('hidden');
-      isHiddenAfterEnd = false;
       setInputState(false, 'Задайте вопрос после эфира...');
       setActivity('Вебинар окончен, чат открыт');
       setOnlineLabel('чат открыт');
       return;
     }
 
-    if (isHiddenAfterEnd && chatPanel) {
-      chatPanel.classList.remove('hidden');
-      isHiddenAfterEnd = false;
-    }
-
     if (!demoLive && chatStatus === 'locked') {
-      setInputState(true, 'Чат откроется в момент старта эфира');
-      setActivity('Чат откроется в момент старта эфира');
-      setOnlineLabel('ожидание');
+      setInputState(false, 'Задайте вопрос до начала эфира...');
+      setActivity('Чат открыт до старта эфира');
+      setOnlineLabel('чат открыт');
       return;
     }
 
@@ -140,6 +216,7 @@
   }
 
   async function refreshChat() {
+    if (!getElements().chatContainer) return;
     try {
       var response = await fetch(chatUrl(), { credentials: 'same-origin' });
       var data = await response.json().catch(function() { return {}; });
@@ -156,7 +233,9 @@
 
   window.__liveChatRefresh = refreshChat;
   window.__liveChatAddMessage = addMessage;
+  window.__liveChatBindQuestionForm = bindQuestionForm;
 
+  bindQuestionForm();
   refreshChat();
   window.setInterval(refreshChat, 2500);
 })();

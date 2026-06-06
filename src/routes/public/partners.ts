@@ -100,13 +100,8 @@ partnersRouter.post(
     }
     const now = new Date();
     const access = buildAccessPayload(registration, now);
-    if (!access.canEnterRoom) {
-      throw roomAccessError(access.accessStatus);
-    }
     const liveState = getWebinarLiveState(now, registration.webinarSession, { testMode: access.testMode });
-    if (!access.testMode && liveState.status !== 'live' && liveState.status !== 'finished') {
-      throw new AppError(423, 'Webinar chat is closed');
-    }
+    const liveOffsetSeconds = Math.max(0, liveState.liveOffsetSeconds);
 
     const question = await prisma.$transaction(async tx => {
       const question = await tx.question.create({
@@ -158,7 +153,7 @@ partnersRouter.post(
         webinarSessionId: registration.webinarSessionId,
         registrationId: registration.id,
         text: data.text,
-        liveOffsetSeconds: liveState.liveOffsetSeconds,
+        liveOffsetSeconds,
         now,
       }),
     );

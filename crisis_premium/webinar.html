@@ -5,6 +5,7 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Вебинарная комната | АСПБ</title>
 <link rel="stylesheet" href="css/styles.css"/>
+<link href="webinar.css" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
@@ -121,6 +122,7 @@
   <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline preload="metadata" poster="assets/webinar-poster.jpg">
     <source src="assets/webinar.mp4" type="video/mp4"/>
   </video>
+  <div id="webinarStandbyBackdrop" class="webinar-standby-backdrop absolute inset-0" aria-hidden="true"></div>
 
   <!-- Fallback Screen when video cannot load -->
   <div id="videoFallback" class="hidden absolute inset-0 flex-col items-center justify-center text-center p-8 bg-primary-container z-10">
@@ -132,7 +134,7 @@
   </div>
 
   <!-- Countdown Overlay — shown before broadcast starts -->
-  <div id="videoPlayOverlay" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 text-center p-6 cursor-pointer hover:bg-black/60 transition-all duration-300">
+  <div id="videoPlayOverlay" class="webinar-prelive-overlay absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-6 cursor-pointer transition-all duration-300">
     <div class="w-16 h-16 bg-primary/90 rounded-full flex items-center justify-center mb-5 border border-white/20 shadow-lg">
       <span class="material-symbols-outlined text-white text-4xl">schedule</span>
     </div>
@@ -429,7 +431,7 @@
 </div>
 </footer>
 
-<script type="module" src="js/main.js"></script>
-<script src="live-chat.js"></script>
+<script type="module" src="js/main.js?v=ended-next-webinar"></script>
+<script src="live-chat.js?v=always-on-chat"></script>
 <script src="card-reveal.js"></script>
 </body></html>

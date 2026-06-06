@@ -82,6 +82,9 @@ export function bindQuestionForm() {
   const input = document.getElementById('questionInput');
   const button = document.getElementById('questionSubmit');
   if (!input || !button) return;
+  if (button.dataset.liveChatBound === 'true') return;
+  button.dataset.liveChatBound = 'true';
+  input.dataset.liveChatBound = 'true';
   const errorParent = input.parentElement;
 
   function clearQuestionError() {

@@ -272,8 +272,8 @@ export async function hydrateTimeline() {
       submit.disabled = false;
       submit.classList.remove('opacity-40', 'pointer-events-none');
     }
-    if (activity) activity.textContent = 'Вебинар окончен, чат открыт';
-    if (onlineLabel) onlineLabel.textContent = 'чат открыт';
+    if (activity) activity.textContent = 'Вебинар окончен, чат открыт и активен';
+    if (onlineLabel) onlineLabel.textContent = 'чат активен';
   }
 
   function getLivePosition() {

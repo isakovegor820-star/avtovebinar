@@ -176,7 +176,14 @@
 
       renderChatState(data);
       if (Array.isArray(data.messages)) {
-        data.messages.forEach(addMessage);
+        var videoPos = window.__aspbVideoPosition || 0;
+        var isTestMode = data.testMode === true;
+        data.messages.forEach(function(msg) {
+          if (isTestMode && typeof msg.offsetSeconds === 'number' && msg.isSynthetic) {
+            if (msg.offsetSeconds > videoPos + 2) return;
+          }
+          addMessage(msg);
+        });
       }
     } catch {
       setActivity('Чат временно недоступен, переподключаемся...');

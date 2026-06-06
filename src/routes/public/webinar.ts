@@ -16,9 +16,8 @@ export const webinarRouter = Router();
 webinarRouter.get(
   '/webinar/current',
   asyncHandler(async (req, res) => {
-    const serverTime = new Date();
     const firstSeenAt = getFirstSeen(req, res);
-    const scheduledAt = getNextWebinarDate(serverTime);
+    const scheduledAt = getNextWebinarDate(firstSeenAt);
     const cacheKey = `webinar-current:${firstSeenAt.toISOString()}:${scheduledAt.toISOString()}`;
     const cached = getCache<Record<string, unknown>>(cacheKey);
     if (cached) {
@@ -28,6 +27,7 @@ webinarRouter.get(
     }
 
     const session = await findOrCreateWebinarSession(scheduledAt);
+    const serverTime = new Date();
 
     const payload = {
       ok: true,
@@ -150,6 +150,9 @@ async function sendChat(req: Request, res: Response) {
 
   const now = new Date();
   const access = buildAccessPayload(registration, now);
+  if (!access.canViewRoom) {
+    throw roomAccessError(access.accessStatus);
+  }
 
   const liveState = getWebinarLiveState(now, registration.webinarSession, { testMode: access.testMode });
   const persistedMessages = await prisma.webinarChatMessage.findMany({
@@ -160,25 +163,22 @@ async function sendChat(req: Request, res: Response) {
     orderBy: [{ visibleAt: 'asc' }, { createdAt: 'asc' }],
   });
 
-  const scriptedOffsetSeconds = access.testMode
-    ? Math.max(420, liveState.liveOffsetSeconds)
-    : liveState.status === 'finished' || access.accessStatus === 'replay' || access.accessStatus === 'closed'
-      ? registration.webinarSession.videoDurationSeconds
-      : liveState.chatStatus === 'locked'
-        ? 90
-        : liveState.liveOffsetSeconds;
-
-  const scriptedMessages = getScriptedChatMessagesUntil(Math.max(0, scriptedOffsetSeconds)).map(message => ({
-    id: message.id,
-    offsetSeconds: message.offsetSeconds,
-    visibleAt: new Date(registration.webinarSession.scheduledAt.getTime() + message.offsetSeconds * 1000),
-    kind: message.kind,
-    authorName: message.authorName,
-    authorRole: message.authorRole,
-    message: message.message,
-    isSynthetic: message.isSynthetic,
-    videoBlock: message.videoBlock,
-  }));
+  const scriptedMessages =
+    liveState.chatStatus === 'live' || access.testMode
+      ? getScriptedChatMessagesUntil(access.testMode ? Number.MAX_SAFE_INTEGER : liveState.liveOffsetSeconds).map(
+          message => ({
+            id: message.id,
+            offsetSeconds: message.offsetSeconds,
+            visibleAt: new Date(registration.webinarSession.scheduledAt.getTime() + message.offsetSeconds * 1000),
+            kind: message.kind,
+            authorName: message.authorName,
+            authorRole: message.authorRole,
+            message: message.message,
+            isSynthetic: message.isSynthetic,
+            videoBlock: message.videoBlock,
+          }),
+        )
+      : [];
 
   const realMessages = persistedMessages.map(message => ({
     id: message.id,

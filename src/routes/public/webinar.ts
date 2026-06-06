@@ -165,19 +165,19 @@ async function sendChat(req: Request, res: Response) {
 
   const scriptedMessages =
     liveState.chatStatus === 'live' || access.testMode
-      ? getScriptedChatMessagesUntil(
-          access.testMode ? Math.max(420, liveState.liveOffsetSeconds) : liveState.liveOffsetSeconds,
-        ).map(message => ({
-          id: message.id,
-          offsetSeconds: message.offsetSeconds,
-          visibleAt: new Date(registration.webinarSession.scheduledAt.getTime() + message.offsetSeconds * 1000),
-          kind: message.kind,
-          authorName: message.authorName,
-          authorRole: message.authorRole,
-          message: message.message,
-          isSynthetic: message.isSynthetic,
-          videoBlock: message.videoBlock,
-        }))
+      ? getScriptedChatMessagesUntil(access.testMode ? Number.MAX_SAFE_INTEGER : liveState.liveOffsetSeconds).map(
+          message => ({
+            id: message.id,
+            offsetSeconds: message.offsetSeconds,
+            visibleAt: new Date(registration.webinarSession.scheduledAt.getTime() + message.offsetSeconds * 1000),
+            kind: message.kind,
+            authorName: message.authorName,
+            authorRole: message.authorRole,
+            message: message.message,
+            isSynthetic: message.isSynthetic,
+            videoBlock: message.videoBlock,
+          }),
+        )
       : [];
 
   const realMessages = persistedMessages.map(message => ({

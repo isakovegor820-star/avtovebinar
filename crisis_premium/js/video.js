@@ -419,6 +419,7 @@ export async function hydrateTimeline() {
 
   video.addEventListener('timeupdate', () => {
     const current = video.currentTime;
+    window.__aspbVideoPosition = current;
     activateTimelineEvent(current, data.timeline || []);
     updateWebinarInsights(current);
 

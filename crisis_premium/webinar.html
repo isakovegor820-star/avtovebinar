@@ -5,7 +5,7 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Вебинарная комната | АСПБ</title>
 <link rel="stylesheet" href="css/styles.css"/>
-<link href="webinar.css" rel="stylesheet"/>
+<link href="webinar.css?v=framed-video-2" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
@@ -97,13 +97,10 @@
 <a class="bg-primary text-on-primary px-6 py-2.5 rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="#partnerApplication">Оставить заявку</a>
 </div>
 </header>
-<main class="flex-grow max-w-container-max-width mx-auto w-full px-gutter py-8 md:py-12">
+<main class="webinar-room-shell flex-grow max-w-container-max-width mx-auto w-full px-gutter py-8 md:py-12">
 <!-- Hero & Player Section -->
-<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
-<!-- Video & Registration Status -->
-<div class="lg:col-span-8 space-y-6">
 <!-- Status Bar -->
-<div class="flex flex-wrap items-center justify-between gap-4 bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
+<div class="mb-6 flex flex-wrap items-center justify-between gap-4 bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
 <div class="flex items-center gap-3">
 <span class="w-3 h-3 bg-secondary rounded-full animate-pulse"></span>
 <span class="font-label-md text-on-surface" id="webinarStatusText">Проверяем доступ к вебинарной комнате...</span>
@@ -115,11 +112,14 @@
 </div>
 </div>
 </div>
+<div class="webinar-room-layout grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Video & Registration Status -->
+<div class="webinar-room-video-column lg:col-span-8 space-y-6">
 <!-- Autowebinar Player -->
 <!-- Autowebinar Player -->
 <div id="videoPlayerContainer" class="relative aspect-video bg-primary-container rounded-lg overflow-hidden shadow-lg group">
   <!-- Remove controls to hide native player UI. Use pointer-events-none to prevent browser native overlays. -->
-  <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline preload="metadata" poster="assets/webinar-poster.jpg">
+  <video id="webinarVideo" class="w-full h-full bg-primary pointer-events-none" playsinline preload="metadata" poster="assets/webinar-poster.jpg">
     <source src="assets/webinar.mp4" type="video/mp4"/>
   </video>
   <div id="webinarStandbyBackdrop" class="webinar-standby-backdrop absolute inset-0" aria-hidden="true"></div>
@@ -243,9 +243,9 @@
 </div>
 </div>
 <!-- Questions Panel -->
-<div class="lg:col-span-4">
+<div class="webinar-room-chat-column lg:col-span-4">
 <!-- FIX 3: адаптивная высота — на мобилке 400px, на десктопе 600px -->
-<div id="webinarChatPanel" class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[400px] md:h-[600px] overflow-hidden">
+<div id="webinarChatPanel" class="webinar-room-chat-panel bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[400px] md:h-[600px] overflow-hidden">
 <div class="p-4 border-b border-outline-variant/10 flex items-center justify-between gap-4">
 <div>
 <h3 class="text-label-md font-bold text-primary">Чат эфира</h3>

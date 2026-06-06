@@ -24,28 +24,6 @@ function toSafeHref(value) {
   }
 }
 
-function getServerNowMs() {
-  return Date.now() + (state.serverTimeOffset || 0);
-}
-
-function getNextMoscowWebinarMs(nowMs = getServerNowMs()) {
-  const now = new Date(nowMs);
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Moscow',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
-  const values = {};
-  parts.forEach(part => {
-    if (part.type !== 'literal') values[part.type] = Number(part.value);
-  });
-
-  const todayTarget = Date.UTC(values.year, values.month - 1, values.day, 16, 0, 0);
-  if (todayTarget > nowMs) return todayTarget;
-  return Date.UTC(values.year, values.month - 1, values.day + 1, 16, 0, 0);
-}
-
 function activateTimelineEvent(seconds, events) {
   if (window.__ASPB_HIDE_TIMELINE_ACTIONS__) {
     const panel = document.getElementById('timelineActive');
@@ -144,7 +122,7 @@ export async function hydrateTimeline() {
   if (!data.ok) return;
 
   const webinarConfig = state.webinarConfig;
-  const videoDuration = data.video && data.video.durationSeconds ? Number(data.video.durationSeconds) : 3300;
+  const videoDuration = data.video && data.video.durationSeconds ? Number(data.video.durationSeconds) : 568;
   const serverLiveState = data.liveState || webinarConfig?.liveState || null;
   if (webinarConfig && serverLiveState) {
     webinarConfig.liveState = serverLiveState;
@@ -191,90 +169,7 @@ export async function hydrateTimeline() {
   let broadcastStarted = false;
   let manualBehindLive = false;
   let pausedFromLive = false;
-  let nextWebinarCountdownInterval = null;
   const liveToleranceSeconds = 2.5;
-
-  function startNextWebinarCountdown() {
-    if (nextWebinarCountdownInterval) {
-      clearInterval(nextWebinarCountdownInterval);
-      nextWebinarCountdownInterval = null;
-    }
-
-    function tick() {
-      const target = getNextMoscowWebinarMs();
-      const remaining = Math.max(0, target - getServerNowMs());
-      const totalSeconds = Math.floor(remaining / 1000);
-      const hours = Math.floor(totalSeconds / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      const seconds = totalSeconds % 60;
-      const hoursNode = document.getElementById('nextWebinarHours');
-      const minutesNode = document.getElementById('nextWebinarMinutes');
-      const secondsNode = document.getElementById('nextWebinarSeconds');
-
-      if (hoursNode) hoursNode.textContent = String(hours).padStart(2, '0');
-      if (minutesNode) minutesNode.textContent = String(minutes).padStart(2, '0');
-      if (secondsNode) secondsNode.textContent = String(seconds).padStart(2, '0');
-
-      if (remaining <= 0) {
-        window.location.reload();
-      }
-    }
-
-    tick();
-    nextWebinarCountdownInterval = window.setInterval(tick, 1000);
-  }
-
-  function renderEndedOverlay() {
-    video.pause();
-    if (standbyBackdrop) standbyBackdrop.classList.remove('hidden');
-    if (customControls) customControls.classList.add('hidden');
-    if (returnToLiveBtn) returnToLiveBtn.classList.add('hidden');
-    if (playOverlay) {
-      playOverlay.classList.remove('hidden', 'opacity-0', 'bg-black/70', 'hover:bg-black/60', 'bg-black', 'hover:bg-black');
-      playOverlay.classList.remove('webinar-prelive-overlay');
-      playOverlay.classList.add('webinar-ended-overlay');
-      playOverlay.innerHTML = `
-        <div class="w-16 h-16 bg-primary/90 rounded-full flex items-center justify-center mb-4 border border-white/20 shadow-lg">
-          <span class="material-symbols-outlined text-white text-4xl">event_available</span>
-        </div>
-        <p class="text-label-sm text-white/60 font-bold tracking-[0.18em] uppercase mb-2">Эфир завершен</p>
-        <p class="text-headline-sm md:text-headline-md text-white font-bold tracking-wide uppercase mb-3">До следующего вебинара</p>
-        <div class="flex gap-3 mb-4">
-          <div class="bg-white/10 backdrop-blur-md rounded-xl px-4 py-3 min-w-[72px] border border-white/15">
-            <span id="nextWebinarHours" class="text-3xl font-bold text-white tabular-nums">00</span>
-            <p class="text-[10px] text-white/50 uppercase tracking-wider mt-1">часов</p>
-          </div>
-          <div class="text-3xl font-bold text-white/40 self-start mt-3">:</div>
-          <div class="bg-white/10 backdrop-blur-md rounded-xl px-4 py-3 min-w-[72px] border border-white/15">
-            <span id="nextWebinarMinutes" class="text-3xl font-bold text-white tabular-nums">00</span>
-            <p class="text-[10px] text-white/50 uppercase tracking-wider mt-1">минут</p>
-          </div>
-          <div class="text-3xl font-bold text-white/40 self-start mt-3">:</div>
-          <div class="bg-white/10 backdrop-blur-md rounded-xl px-4 py-3 min-w-[72px] border border-white/15">
-            <span id="nextWebinarSeconds" class="text-3xl font-bold text-white tabular-nums">00</span>
-            <p class="text-[10px] text-white/50 uppercase tracking-wider mt-1">секунд</p>
-          </div>
-        </div>
-        <p class="text-body-md text-white/70 max-w-lg">Следующий эфир начнется в 19:00 МСК. Чат остается открытым: можно задать вопрос или оставить заявку ниже.</p>
-      `;
-    }
-    startNextWebinarCountdown();
-
-    const input = document.getElementById('questionInput');
-    const submit = document.getElementById('questionSubmit');
-    const activity = document.getElementById('chatActivity');
-    const onlineLabel = document.getElementById('chatOnlineLabel');
-    if (input) {
-      input.disabled = false;
-      input.placeholder = 'Задайте вопрос...';
-    }
-    if (submit) {
-      submit.disabled = false;
-      submit.classList.remove('opacity-40', 'pointer-events-none');
-    }
-    if (activity) activity.textContent = 'Вебинар окончен, чат открыт';
-    if (onlineLabel) onlineLabel.textContent = 'чат открыт';
-  }
 
   function getLivePosition() {
     if (!webinarConfig) return 0;
@@ -325,8 +220,21 @@ export async function hydrateTimeline() {
     // Fallback: force reload if countdown somehow misses the transition
     const reloadDelay = Math.max(1000, Math.min(30000, (webinarConfig.scheduledAt - (Date.now() + state.serverTimeOffset)) + 1000));
     window.setTimeout(() => window.location.reload(), reloadDelay);
-	  } else if (isEnded) {
-	    renderEndedOverlay();
+  } else if (isEnded) {
+    video.pause();
+    if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
+    if (customControls) customControls.classList.add('hidden');
+    if (playOverlay) {
+      playOverlay.classList.remove('hidden', 'opacity-0');
+      playOverlay.classList.remove('webinar-prelive-overlay');
+      playOverlay.innerHTML = `
+        <div class="w-20 h-20 bg-green-600/90 rounded-full flex items-center justify-center mb-4 border border-white/20">
+          <span class="material-symbols-outlined text-white text-4xl">check_circle</span>
+        </div>
+        <p class="text-headline-md text-white font-bold tracking-wide uppercase">Вебинар окончен</p>
+        <p class="text-body-lg text-white/80 mt-1 max-w-md">Чат остается открытым. Задайте вопрос или оставьте заявку ниже.</p>
+      `;
+    }
   } else if (isTestMode) {
     video.pause();
     if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
@@ -419,7 +327,33 @@ export async function hydrateTimeline() {
   }
 
   function showEndedScreen() {
-    renderEndedOverlay();
+    video.pause();
+    if (customControls) customControls.classList.add('hidden');
+    if (returnToLiveBtn) returnToLiveBtn.classList.add('hidden');
+    if (playOverlay) {
+      playOverlay.classList.remove('hidden', 'opacity-0');
+      playOverlay.innerHTML = `
+        <div class="w-20 h-20 bg-green-600/90 rounded-full flex items-center justify-center mb-4 border border-white/20">
+          <span class="material-symbols-outlined text-white text-4xl">check_circle</span>
+        </div>
+        <p class="text-headline-md text-white font-bold tracking-wide uppercase">Вебинар окончен</p>
+        <p class="text-body-lg text-white/80 mt-1">Чат остается открытым. Задайте вопрос или оставьте заявку ниже.</p>
+      `;
+    }
+    const input = document.getElementById('questionInput');
+    const submit = document.getElementById('questionSubmit');
+    const activity = document.getElementById('chatActivity');
+    const onlineLabel = document.getElementById('chatOnlineLabel');
+    if (input) {
+      input.disabled = false;
+      input.placeholder = 'Задайте вопрос после эфира...';
+    }
+    if (submit) {
+      submit.disabled = false;
+      submit.classList.remove('opacity-40', 'pointer-events-none');
+    }
+    if (activity) activity.textContent = 'Вебинар окончен, чат открыт';
+    if (onlineLabel) onlineLabel.textContent = 'чат открыт';
   }
 
   function isNearLive() {
@@ -481,35 +415,6 @@ export async function hydrateTimeline() {
     if (seekProgress) seekProgress.style.width = watchPercent + '%';
     if (seekThumb) seekThumb.style.left = watchPercent + '%';
     if (liveEdgeMarker) liveEdgeMarker.style.left = '100%';
-  }
-
-  let testPausedViewerPosition = null;
-  if (window.__ASPB_ENABLE_TEST_HOOKS__) {
-    window.__ASPB_LIVE_DVR_TEST__ = {
-      snapshot() {
-        updateLiveControls();
-        const livePosition = getLivePosition();
-        const viewerPosition = testPausedViewerPosition ?? video.currentTime;
-        return {
-          livePosition,
-          viewerPosition,
-          behindLive: livePosition - viewerPosition > liveToleranceSeconds,
-          paused: testPausedViewerPosition !== null || video.paused
-        };
-      },
-      pauseAtCurrentPosition() {
-        testPausedViewerPosition = video.currentTime;
-        pausedFromLive = isNearLive() && !manualBehindLive;
-        video.pause();
-        updateLiveControls();
-        return this.snapshot();
-      },
-      resumeToLive() {
-        testPausedViewerPosition = null;
-        seekToLive();
-        return this.snapshot();
-      }
-    };
   }
 
   video.addEventListener('timeupdate', () => {

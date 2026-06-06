@@ -4,58 +4,31 @@
  */
 (function() {
   var API = window.location.protocol === 'file:' ? 'http://127.0.0.1:5174/api' : '/api';
+  var chatContainer = document.getElementById('liveChatMessages');
+  var chatPanel = document.getElementById('webinarChatPanel');
+  var input = document.getElementById('questionInput');
+  var submit = document.getElementById('questionSubmit');
+  var activity = document.getElementById('chatActivity');
+  var onlineLabel = document.getElementById('chatOnlineLabel');
+  if (!chatContainer) return;
 
   var renderedMessages = new Set();
-  var activeContainer = null;
+  var isHiddenAfterEnd = false;
   var COLORS = ['#1e40af', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#4338ca'];
-
-  function getElements() {
-    return {
-      chatContainer: document.getElementById('liveChatMessages'),
-      chatPanel: document.getElementById('webinarChatPanel'),
-      input: document.getElementById('questionInput'),
-      submit: document.getElementById('questionSubmit'),
-      activity: document.getElementById('chatActivity'),
-      onlineLabel: document.getElementById('chatOnlineLabel')
-    };
-  }
-
-  function readCookie(name) {
-    var prefix = name + '=';
-    var item = document.cookie
-      .split(';')
-      .map(function(value) { return value.trim(); })
-      .find(function(value) { return value.indexOf(prefix) === 0; });
-    return item ? decodeURIComponent(item.slice(prefix.length)) : '';
-  }
-
-  function csrfHeaders() {
-    var token = readCookie('aspb_csrf_token');
-    return token ? { 'x-csrf-token': token } : {};
-  }
 
   function chatUrl() {
     return API + '/webinar/chat/session/current';
   }
 
-  function questionUrl() {
-    return API + '/questions';
-  }
-
   function setActivity(text) {
-    var activity = getElements().activity;
     if (activity) activity.textContent = text;
   }
 
   function setOnlineLabel(text) {
-    var onlineLabel = getElements().onlineLabel;
     if (onlineLabel) onlineLabel.textContent = text;
   }
 
   function setInputState(disabled, placeholder) {
-    var elements = getElements();
-    var input = elements.input;
-    var submit = elements.submit;
     if (input) {
       input.disabled = disabled;
       input.placeholder = placeholder || 'Задайте вопрос...';
@@ -86,25 +59,31 @@
 
   function authorLabel(msg) {
     if (msg.kind === 'ai_manager') return msg.authorName;
+    if (msg.kind === 'agent_question') {
+      return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
+    }
     return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
   }
 
   function addMessage(msg) {
-    var chatContainer = getElements().chatContainer;
-    if (!chatContainer) return;
-    if (activeContainer !== chatContainer) {
-      activeContainer = chatContainer;
-      renderedMessages.clear();
-    }
     if (!msg || renderedMessages.has(msg.id)) return;
     renderedMessages.add(msg.id);
+
+    var isAgentQuestion = msg.kind === 'agent_question';
 
     var item = document.createElement('div');
     item.className = 'flex gap-2.5 chat-msg-enter';
     item.style.animation = 'chatMsgIn 0.3s ease forwards';
+    if (isAgentQuestion) {
+      item.style.background = 'rgba(30, 64, 175, 0.04)';
+      item.style.borderLeft = '2px solid rgba(30, 64, 175, 0.25)';
+      item.style.paddingLeft = '8px';
+      item.style.paddingTop = '4px';
+      item.style.paddingBottom = '4px';
+      item.style.borderRadius = '0 6px 6px 0';
+    }
 
     var avatarColor = msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
-    if (msg.kind === 'agent_question') avatarColor = '#7c2d12';
     var avatar = document.createElement('div');
     avatar.style.width = '28px';
     avatar.style.height = '28px';
@@ -131,15 +110,27 @@
 
     var text = document.createElement('p');
     text.style.fontSize = '13px';
-    text.style.color = '#44474c';
+    text.style.color = isAgentQuestion ? '#1e40af' : '#44474c';
     text.style.lineHeight = '1.4';
     text.style.margin = '2px 0 0';
     text.style.wordWrap = 'break-word';
-    if (msg.kind === 'agent_question') {
-      text.style.fontWeight = '500';
-      text.style.color = '#2f343c';
-    }
+    text.style.fontWeight = isAgentQuestion ? '500' : 'normal';
     text.textContent = msg.message;
+
+    if (isAgentQuestion) {
+      var badge = document.createElement('span');
+      badge.style.display = 'inline-block';
+      badge.style.fontSize = '9px';
+      badge.style.fontWeight = '700';
+      badge.style.color = '#1e40af';
+      badge.style.background = 'rgba(30, 64, 175, 0.1)';
+      badge.style.borderRadius = '4px';
+      badge.style.padding = '1px 5px';
+      badge.style.marginLeft = '6px';
+      badge.style.verticalAlign = 'middle';
+      badge.textContent = 'вопрос';
+      text.append(badge);
+    }
 
     body.append(author, text);
     item.append(avatar, body);
@@ -147,82 +138,37 @@
     chatContainer.scrollTop = chatContainer.scrollHeight;
   }
 
-  async function submitQuestion() {
-    var elements = getElements();
-    var input = elements.input;
-    var submit = elements.submit;
-    if (!input || !submit || submit.disabled) return;
-
-    var text = input.value.trim();
-    if (!text) return;
-
-    submit.disabled = true;
-    submit.classList.add('opacity-40');
-    try {
-      var response = await fetch(questionUrl(), {
-        method: 'POST',
-        credentials: 'include',
-        headers: Object.assign({ 'Content-Type': 'application/json' }, csrfHeaders()),
-        body: JSON.stringify({ text: text })
-      });
-      var data = await response.json().catch(function() { return {}; });
-      if (!response.ok || !data.ok) throw new Error(data.error || 'Не удалось отправить вопрос');
-
-      input.value = '';
-      setActivity('Вопрос отправлен');
-      setOnlineLabel('чат открыт');
-      await refreshChat();
-    } catch {
-      setActivity('Не удалось отправить вопрос, попробуйте еще раз');
-    } finally {
-      submit.disabled = false;
-      submit.classList.remove('opacity-40');
-    }
-  }
-
-  function bindQuestionForm() {
-    var elements = getElements();
-    var input = elements.input;
-    var submit = elements.submit;
-    if (!input || !submit || submit.dataset.liveChatBound === 'true') return;
-
-    submit.dataset.liveChatBound = 'true';
-    input.dataset.liveChatBound = 'true';
-    submit.addEventListener('click', submitQuestion);
-    input.addEventListener('keydown', function(event) {
-      if (event.key === 'Enter') submitQuestion();
-    });
-  }
-
   function renderChatState(data) {
     var chatStatus = data.liveState && data.liveState.chatStatus;
     var demoLive = data.testMode === true;
-    var elements = getElements();
-
-    if (elements.chatPanel) elements.chatPanel.classList.remove('hidden');
-    bindQuestionForm();
 
     if (!demoLive && (chatStatus === 'ended' || data.accessStatus === 'replay')) {
-      setInputState(false, 'Задайте вопрос...');
+      if (chatPanel) chatPanel.classList.remove('hidden');
+      isHiddenAfterEnd = false;
+      setInputState(false, 'Задайте вопрос после эфира...');
       setActivity('Вебинар окончен, чат открыт');
       setOnlineLabel('чат открыт');
       return;
     }
 
+    if (isHiddenAfterEnd && chatPanel) {
+      chatPanel.classList.remove('hidden');
+      isHiddenAfterEnd = false;
+    }
+
     if (!demoLive && chatStatus === 'locked') {
-      setInputState(false, 'Задайте вопрос...');
-      setActivity('Чат открыт, можно задать вопрос');
-      setOnlineLabel('чат открыт');
+      setInputState(true, 'Чат откроется в момент старта эфира');
+      setActivity('Чат откроется в момент старта эфира');
+      setOnlineLabel('ожидание');
       return;
     }
 
     setInputState(false, 'Задайте вопрос...');
-    setActivity('Чат открыт, можно задать вопрос');
-    setOnlineLabel('чат открыт');
+    setActivity('Чат идет в live-режиме');
+    setOnlineLabel('онлайн');
   }
 
   async function refreshChat() {
-    if (!getElements().chatContainer) return;
     try {
       var response = await fetch(chatUrl(), { credentials: 'same-origin' });
       var data = await response.json().catch(function() { return {}; });
@@ -234,15 +180,12 @@
       }
     } catch {
       setActivity('Чат временно недоступен, переподключаемся...');
-      setOnlineLabel('переподключение');
     }
   }
 
   window.__liveChatRefresh = refreshChat;
   window.__liveChatAddMessage = addMessage;
-  window.__liveChatBindQuestionForm = bindQuestionForm;
 
-  bindQuestionForm();
   refreshChat();
   window.setInterval(refreshChat, 2500);
 })();

@@ -59,6 +59,9 @@
 
   function authorLabel(msg) {
     if (msg.kind === 'ai_manager') return msg.authorName;
+    if (msg.kind === 'agent_question') {
+      return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
+    }
     return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
   }
 
@@ -66,9 +69,19 @@
     if (!msg || renderedMessages.has(msg.id)) return;
     renderedMessages.add(msg.id);
 
+    var isAgentQuestion = msg.kind === 'agent_question';
+
     var item = document.createElement('div');
     item.className = 'flex gap-2.5 chat-msg-enter';
     item.style.animation = 'chatMsgIn 0.3s ease forwards';
+    if (isAgentQuestion) {
+      item.style.background = 'rgba(30, 64, 175, 0.04)';
+      item.style.borderLeft = '2px solid rgba(30, 64, 175, 0.25)';
+      item.style.paddingLeft = '8px';
+      item.style.paddingTop = '4px';
+      item.style.paddingBottom = '4px';
+      item.style.borderRadius = '0 6px 6px 0';
+    }
 
     var avatarColor = msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
     var avatar = document.createElement('div');
@@ -97,11 +110,27 @@
 
     var text = document.createElement('p');
     text.style.fontSize = '13px';
-    text.style.color = '#44474c';
+    text.style.color = isAgentQuestion ? '#1e40af' : '#44474c';
     text.style.lineHeight = '1.4';
     text.style.margin = '2px 0 0';
     text.style.wordWrap = 'break-word';
+    text.style.fontWeight = isAgentQuestion ? '500' : 'normal';
     text.textContent = msg.message;
+
+    if (isAgentQuestion) {
+      var badge = document.createElement('span');
+      badge.style.display = 'inline-block';
+      badge.style.fontSize = '9px';
+      badge.style.fontWeight = '700';
+      badge.style.color = '#1e40af';
+      badge.style.background = 'rgba(30, 64, 175, 0.1)';
+      badge.style.borderRadius = '4px';
+      badge.style.padding = '1px 5px';
+      badge.style.marginLeft = '6px';
+      badge.style.verticalAlign = 'middle';
+      badge.textContent = 'вопрос';
+      text.append(badge);
+    }
 
     body.append(author, text);
     item.append(avatar, body);

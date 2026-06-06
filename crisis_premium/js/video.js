@@ -88,6 +88,7 @@ export async function hydrateTimeline() {
   const fallback = document.getElementById('videoFallback');
   const active = document.getElementById('timelineActive');
   const playOverlay = document.getElementById('videoPlayOverlay');
+  const standbyBackdrop = document.getElementById('webinarStandbyBackdrop');
   const pauseOverlay = document.getElementById('videoPauseOverlay');
 
   const customControls = document.getElementById('customPlayerControls');
@@ -188,9 +189,10 @@ export async function hydrateTimeline() {
   if (isPreLive) {
     video.pause();
     if (customControls) customControls.classList.add('hidden');
+    if (standbyBackdrop) standbyBackdrop.classList.remove('hidden');
     if (playOverlay) {
-      playOverlay.classList.remove('hidden', 'opacity-0', 'bg-black/70', 'hover:bg-black/60');
-      playOverlay.classList.add('bg-black', 'hover:bg-black');
+      playOverlay.classList.remove('hidden', 'opacity-0', 'bg-black/70', 'hover:bg-black/60', 'bg-black', 'hover:bg-black');
+      playOverlay.classList.add('webinar-prelive-overlay');
 
       const countdownHours = document.getElementById('countdownHours');
       const countdownMinutes = document.getElementById('countdownMinutes');
@@ -220,9 +222,11 @@ export async function hydrateTimeline() {
     window.setTimeout(() => window.location.reload(), reloadDelay);
   } else if (isEnded) {
     video.pause();
+    if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
     if (customControls) customControls.classList.add('hidden');
     if (playOverlay) {
       playOverlay.classList.remove('hidden', 'opacity-0');
+      playOverlay.classList.remove('webinar-prelive-overlay');
       playOverlay.innerHTML = `
         <div class="w-20 h-20 bg-green-600/90 rounded-full flex items-center justify-center mb-4 border border-white/20">
           <span class="material-symbols-outlined text-white text-4xl">check_circle</span>
@@ -233,9 +237,12 @@ export async function hydrateTimeline() {
     }
   } else if (isTestMode) {
     video.pause();
+    if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
     video.currentTime = 0;
   } else {
+    if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
     if (playOverlay) playOverlay.classList.add('hidden');
+    if (playOverlay) playOverlay.classList.remove('webinar-prelive-overlay');
     video.play().catch(err => {
       console.log('Muted autoplay was prevented by browser, waiting for user click.', err);
       if (playOverlay) {

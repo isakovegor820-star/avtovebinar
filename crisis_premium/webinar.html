@@ -5,7 +5,7 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Вебинарная комната | АСПБ</title>
 <link rel="stylesheet" href="css/styles.css"/>
-<link href="webinar.css?v=active-chat-1" rel="stylesheet"/>
+<link href="webinar.css?v=simple-chat-1" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
@@ -252,16 +252,12 @@
 <div class="text-[11px] text-on-surface-variant" id="chatActivity">Сообщения появляются по ходу трансляции</div>
 </div>
 <div class="flex items-center gap-2 text-[11px] text-on-surface-variant">
-<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse chat-presence-dot" id="chatStatusDot"></span>
+<span class="w-2 h-2 rounded-full bg-green-500"></span>
 <span id="chatOnlineLabel">онлайн</span>
 </div>
 </div>
 <div class="flex-grow overflow-y-auto p-4 space-y-3" id="liveChatMessages">
 <!-- Auto messages will be injected here by JS -->
-</div>
-<div class="chat-typing-status px-4 pb-3" id="chatTypingStatus" aria-live="polite">
-  <span class="chat-typing-dot"></span>
-  <span>Чат открыт, вопросы принимаются</span>
 </div>
 <div class="p-3 bg-surface-container-low border-t border-outline-variant/10">
 <div class="relative">
@@ -435,7 +431,7 @@
 </div>
 </footer>
 
-<script type="module" src="js/main.js?v=active-chat-1"></script>
-<script src="live-chat.js?v=active-chat-1"></script>
+<script type="module" src="js/main.js?v=simple-chat-1"></script>
+<script src="live-chat.js?v=simple-chat-1"></script>
 <script src="card-reveal.js"></script>
 </body></html>

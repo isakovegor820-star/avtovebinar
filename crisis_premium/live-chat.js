@@ -7,36 +7,7 @@
 
   var renderedMessages = new Set();
   var activeContainer = null;
-  var presenceMode = '';
-  var presenceTick = 0;
   var COLORS = ['#1e40af', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#4338ca'];
-  var PRESENCE_COPY = {
-    live: {
-      label: 'чат активен',
-      activity: ['Чат идет в live-режиме', 'Вопросы принимаются прямо сейчас', 'Куратор на связи'],
-      typing: ['Участники пишут вопросы', 'АСПБ на связи, можно задать вопрос', 'Чат обновляется автоматически']
-    },
-    waiting: {
-      label: 'чат открыт',
-      activity: ['Чат открыт до старта эфира', 'Можно задать вопрос заранее', 'Куратор видит новые вопросы'],
-      typing: ['Вопросы принимаются до вебинара', 'Чат будет работать и во время эфира', 'Оставьте вопрос, он сохранится']
-    },
-    ended: {
-      label: 'чат активен',
-      activity: ['Вебинар окончен, чат открыт и активен', 'Вопросы принимаются после эфира', 'Куратор на связи после вебинара'],
-      typing: ['Задайте вопрос после эфира', 'Чат остается открытым', 'Вопрос попадет в админку АСПБ']
-    },
-    sent: {
-      label: 'вопрос отправлен',
-      activity: ['Вопрос отправлен, чат открыт'],
-      typing: ['Ваш вопрос сохранен, можно написать еще']
-    },
-    reconnecting: {
-      label: 'переподключение',
-      activity: ['Чат временно недоступен, переподключаемся...'],
-      typing: ['Проверяем соединение с чатом']
-    }
-  };
 
   function getElements() {
     return {
@@ -45,9 +16,7 @@
       input: document.getElementById('questionInput'),
       submit: document.getElementById('questionSubmit'),
       activity: document.getElementById('chatActivity'),
-      onlineLabel: document.getElementById('chatOnlineLabel'),
-      statusDot: document.getElementById('chatStatusDot'),
-      typingStatus: document.getElementById('chatTypingStatus')
+      onlineLabel: document.getElementById('chatOnlineLabel')
     };
   }
 
@@ -81,38 +50,6 @@
   function setOnlineLabel(text) {
     var onlineLabel = getElements().onlineLabel;
     if (onlineLabel) onlineLabel.textContent = text;
-  }
-
-  function setTypingStatus(text) {
-    var typingStatus = getElements().typingStatus;
-    if (!typingStatus) return;
-    var textNode = typingStatus.querySelector('span:last-child');
-    if (textNode) textNode.textContent = text;
-  }
-
-  function setPresenceMode(mode) {
-    var copy = PRESENCE_COPY[mode] || PRESENCE_COPY.live;
-    var elements = getElements();
-
-    if (presenceMode !== mode) {
-      presenceMode = mode;
-      presenceTick = 0;
-      setActivity(copy.activity[0]);
-      setTypingStatus(copy.typing[0]);
-    }
-
-    setOnlineLabel(copy.label);
-    if (elements.statusDot) {
-      elements.statusDot.classList.toggle('is-hot', mode !== 'reconnecting');
-      elements.statusDot.style.backgroundColor = mode === 'reconnecting' ? '#f59e0b' : '#22c55e';
-    }
-  }
-
-  function pulsePresence() {
-    var copy = PRESENCE_COPY[presenceMode] || PRESENCE_COPY.live;
-    presenceTick += 1;
-    setActivity(copy.activity[presenceTick % copy.activity.length]);
-    setTypingStatus(copy.typing[presenceTick % copy.typing.length]);
   }
 
   function setInputState(disabled, placeholder) {
@@ -232,7 +169,8 @@
       if (!response.ok || !data.ok) throw new Error(data.error || 'Не удалось отправить вопрос');
 
       input.value = '';
-      setPresenceMode('sent');
+      setActivity('Вопрос отправлен');
+      setOnlineLabel('чат открыт');
       await refreshChat();
     } catch {
       setActivity('Не удалось отправить вопрос, попробуйте еще раз');
@@ -265,19 +203,22 @@
     bindQuestionForm();
 
     if (!demoLive && (chatStatus === 'ended' || data.accessStatus === 'replay')) {
-      setInputState(false, 'Задайте вопрос после эфира...');
-      setPresenceMode('ended');
+      setInputState(false, 'Задайте вопрос...');
+      setActivity('Вебинар окончен, чат открыт');
+      setOnlineLabel('чат открыт');
       return;
     }
 
     if (!demoLive && chatStatus === 'locked') {
-      setInputState(false, 'Задайте вопрос до начала эфира...');
-      setPresenceMode('waiting');
+      setInputState(false, 'Задайте вопрос...');
+      setActivity('Чат открыт, можно задать вопрос');
+      setOnlineLabel('чат открыт');
       return;
     }
 
     setInputState(false, 'Задайте вопрос...');
-    setPresenceMode('live');
+    setActivity('Чат открыт, можно задать вопрос');
+    setOnlineLabel('чат открыт');
   }
 
   async function refreshChat() {
@@ -292,7 +233,8 @@
         data.messages.forEach(addMessage);
       }
     } catch {
-      setPresenceMode('reconnecting');
+      setActivity('Чат временно недоступен, переподключаемся...');
+      setOnlineLabel('переподключение');
     }
   }
 
@@ -303,5 +245,4 @@
   bindQuestionForm();
   refreshChat();
   window.setInterval(refreshChat, 2500);
-  window.setInterval(pulsePresence, 3600);
 })();

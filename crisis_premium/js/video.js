@@ -266,14 +266,14 @@ export async function hydrateTimeline() {
     const onlineLabel = document.getElementById('chatOnlineLabel');
     if (input) {
       input.disabled = false;
-      input.placeholder = 'Задайте вопрос после эфира...';
+      input.placeholder = 'Задайте вопрос...';
     }
     if (submit) {
       submit.disabled = false;
       submit.classList.remove('opacity-40', 'pointer-events-none');
     }
-    if (activity) activity.textContent = 'Вебинар окончен, чат открыт и активен';
-    if (onlineLabel) onlineLabel.textContent = 'чат активен';
+    if (activity) activity.textContent = 'Вебинар окончен, чат открыт';
+    if (onlineLabel) onlineLabel.textContent = 'чат открыт';
   }
 
   function getLivePosition() {

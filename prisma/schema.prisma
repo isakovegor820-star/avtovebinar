@@ -86,7 +86,7 @@ model WebinarSession {
   durationMinutes       Int                    @default(120) @map("duration_minutes")
   videoUrl              String?                @map("video_url")
   posterUrl             String?                @map("poster_url")
-  videoDurationSeconds  Int                    @default(568) @map("video_duration_seconds")
+  videoDurationSeconds  Int                    @default(3300) @map("video_duration_seconds")
   roomOpenBeforeMinutes Int                    @default(15) @map("room_open_before_minutes")
   replayAvailableHours  Int                    @default(168) @map("replay_available_hours")
   replayEnabled         Boolean                @default(true) @map("replay_enabled")

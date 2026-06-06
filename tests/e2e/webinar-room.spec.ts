@@ -229,7 +229,7 @@ test('chat remains active before webinar starts', async ({ page }) => {
   await expect(page.locator('#chatActivity')).toContainText('Чат открыт');
   await expect(page.locator('#questionInput')).toHaveAttribute('placeholder', 'Задайте вопрос до начала эфира...');
   await expect(page.locator('#questionInput')).toBeEnabled();
-  await expect(page.locator('#liveChatMessages')).toContainText('Коллеги, добрый день');
+  await expect(page.locator('#liveChatMessages')).toContainText('Добрый день всем');
 
   await page.locator('#questionInput').fill('Вопрос до начала эфира');
   await page.locator('#questionSubmit').click();

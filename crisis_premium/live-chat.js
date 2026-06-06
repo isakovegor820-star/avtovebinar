@@ -104,6 +104,7 @@
     item.style.animation = 'chatMsgIn 0.3s ease forwards';
 
     var avatarColor = msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
+    if (msg.kind === 'agent_question') avatarColor = '#7c2d12';
     var avatar = document.createElement('div');
     avatar.style.width = '28px';
     avatar.style.height = '28px';
@@ -134,6 +135,10 @@
     text.style.lineHeight = '1.4';
     text.style.margin = '2px 0 0';
     text.style.wordWrap = 'break-word';
+    if (msg.kind === 'agent_question') {
+      text.style.fontWeight = '500';
+      text.style.color = '#2f343c';
+    }
     text.textContent = msg.message;
 
     body.append(author, text);

@@ -144,7 +144,7 @@ export async function hydrateTimeline() {
   if (!data.ok) return;
 
   const webinarConfig = state.webinarConfig;
-  const videoDuration = data.video && data.video.durationSeconds ? Number(data.video.durationSeconds) : 568;
+  const videoDuration = data.video && data.video.durationSeconds ? Number(data.video.durationSeconds) : 3300;
   const serverLiveState = data.liveState || webinarConfig?.liveState || null;
   if (webinarConfig && serverLiveState) {
     webinarConfig.liveState = serverLiveState;

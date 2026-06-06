@@ -44,6 +44,8 @@ import { validateProductionSecurity } from '../src/lib/env.js';
 import { PUBLIC_ANALYTICS_EVENTS } from '../src/lib/events.js';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.js';
 import { eventSchema } from '../src/routes/public/events.js';
+import { SCRIPTED_CHAT_MESSAGES } from '../src/lib/scriptedChat.js';
+import { DEFAULT_TIMELINE_EVENTS, WEBINAR_VIDEO_DURATION_SECONDS } from '../src/lib/webinarTimeline.js';
 
 describe('webinar time logic', () => {
   it('schedules webinar at 19:00 Moscow on the same Moscow day when the slot has not started', () => {
@@ -102,6 +104,18 @@ describe('webinar time logic', () => {
     const now = new Date('2026-05-29T08:00:00.000Z');
     const resolved = resolveFirstSeenAt('2026-05-21T09:15:00.000Z', now);
     expect(resolved).toBe(now);
+  });
+});
+
+describe('product webinar script', () => {
+  it('uses long-form webinar timing with agent questions', () => {
+    expect(WEBINAR_VIDEO_DURATION_SECONDS).toBe(3300);
+    expect(DEFAULT_TIMELINE_EVENTS.some(event => event.offsetSeconds >= 3000 && event.type === 'final')).toBe(true);
+    expect(SCRIPTED_CHAT_MESSAGES.length).toBeGreaterThanOrEqual(35);
+    expect(SCRIPTED_CHAT_MESSAGES.filter(message => message.kind === 'agent_question').length).toBeGreaterThanOrEqual(
+      10,
+    );
+    expect(SCRIPTED_CHAT_MESSAGES.at(-1)?.offsetSeconds).toBeGreaterThanOrEqual(3240);
   });
 });
 

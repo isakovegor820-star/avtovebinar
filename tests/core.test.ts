@@ -210,6 +210,7 @@ describe('security configuration', () => {
       TELEGRAM_NEWS_RSS_URLS: '',
       WEBINAR_TEST_ROOM_MODE: 'off',
       CORS_ORIGIN: 'https://aspb.example.com',
+      TRUST_PROXY: 'false',
       ...overrides,
     } as const;
   }
@@ -247,6 +248,7 @@ describe('security configuration', () => {
         TELEGRAM_NEWS_RSS_URLS: '',
         WEBINAR_TEST_ROOM_MODE: 'off',
         CORS_ORIGIN: 'https://example.com',
+        TRUST_PROXY: 'false',
       }),
     ).toThrow(/Production security configuration/);
   });
@@ -477,7 +479,7 @@ describe('admin privilege checks', () => {
       body: {
         name: 'New Owner',
         email: 'newowner@example.com',
-        password: 'Password123!',
+        password: 'Password12345!',
         role: 'owner',
       },
       admin: { id: 'admin_1', role: 'admin', email: 'admin@aspb.ru' },

@@ -12,6 +12,7 @@ import {
   participantTelegramApiUrl,
   sendTelegramMessageToChat,
 } from './telegram.js';
+import { buildFrontendUrl, createRoomExchangeUrl, getRoomTokenExpiresAt } from './roomLinks.js';
 
 type TelegramUpdate = {
   update_id: number;
@@ -26,11 +27,6 @@ type TelegramUpdate = {
 let nextOffset = 0;
 let polling = false;
 let interval: NodeJS.Timeout | null = null;
-
-function buildFrontendUrl(pathname: string) {
-  const url = new URL(pathname, env.PUBLIC_SITE_URL);
-  return url.toString();
-}
 
 async function findRegistrationByToken(token: string) {
   const accessTokenHash = hashToken(token);
@@ -57,13 +53,19 @@ async function findRegistrationByToken(token: string) {
 async function createRoomUrl(registrationId: string, purpose = 'telegram_room') {
   const registration = await prisma.registration.findUnique({
     where: { id: registrationId },
+    include: { webinarSession: true },
   });
 
   if (!registration) {
     throw new Error(`Registration not found for Telegram room link purpose ${purpose}`);
   }
 
-  return buildFrontendUrl('/crisis_premium/webinar.html');
+  return prisma.$transaction(tx =>
+    createRoomExchangeUrl(tx, {
+      registrationId,
+      expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+    }),
+  );
 }
 
 async function findLatestRegistrationByChat(chatId: string) {

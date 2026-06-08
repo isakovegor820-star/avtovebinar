@@ -10,7 +10,7 @@ import { env } from './lib/env.js';
 import { publicRouter } from './routes/public.js';
 import { adminRouter } from './routes/admin.js';
 import { errorMiddleware } from './lib/http.js';
-import { getReadiness } from './lib/health.js';
+import { getDependencyStatus, getReadiness } from './lib/health.js';
 import { csrfProtection, ensureCsrfToken } from './lib/csrf.js';
 import { cspStyleAttributeHashes, cspStyleElementHashes } from './lib/cspInlineHashes.js';
 import { requestContextMiddleware } from './lib/requestContext.js';
@@ -23,7 +23,17 @@ const frontendDir = path.join(rootDir, 'crisis_premium');
 
 export const app = express();
 
-app.set('trust proxy', 1);
+function parseTrustProxy(value: typeof env.TRUST_PROXY) {
+  if (value === '1' || value === 'true') {
+    return 1;
+  }
+  if (value === 'loopback') {
+    return 'loopback';
+  }
+  return false;
+}
+
+app.set('trust proxy', parseTrustProxy(env.TRUST_PROXY));
 app.use(requestContextMiddleware);
 app.use(metricsMiddleware);
 app.use((_req, res, next) => {
@@ -145,6 +155,14 @@ app.get('/health/ready', async (_req, res, next) => {
     next(error);
   }
 });
+app.get('/health/dependencies', async (_req, res, next) => {
+  try {
+    const dependencies = await getDependencyStatus();
+    res.status(dependencies.ok ? 200 : 503).json({ service: 'aspb-autowebinar', ...dependencies });
+  } catch (error) {
+    next(error);
+  }
+});
 app.get('/.well-known/security.txt', (_req, res) => {
   res.type('text/plain').sendFile(path.join(frontendDir, '.well-known', 'security.txt'), { dotfiles: 'allow' });
 });
@@ -161,7 +179,7 @@ app.get('/docs', (_req, res) => {
 <ul>
 <li>Room access: one-time exchange-token -> HttpOnly cookie <code>aspb_room_token</code>.</li>
 <li>Mutation endpoints with cookies require <code>x-csrf-token</code>.</li>
-<li>Ops endpoints: <code>/health/live</code>, <code>/health/ready</code>, <code>/metrics</code>.</li>
+<li>Ops endpoints: <code>/health/live</code>, <code>/health/ready</code>, <code>/health/dependencies</code>, <code>/metrics</code>.</li>
 </ul>
 </body></html>`);
 });

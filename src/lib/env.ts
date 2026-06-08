@@ -34,11 +34,12 @@ const envSchema = z.object({
   WEBINAR_TEST_ROOM_MODE: z.enum(['on', 'off']),
   CORS_ORIGIN: z.string().min(1),
   WORKER_ROLE: z.enum(['api', 'webinar', 'all']).optional(),
+  TRUST_PROXY: z.enum(['false', 'true', '1', 'loopback']).default('false'),
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
 
-function isStrongPassword(value: string) {
+export function isStrongPassword(value: string) {
   return value.length >= 12 && /[a-zа-я]/i.test(value) && /\d/.test(value);
 }
 
@@ -126,6 +127,7 @@ function runtimeEnv() {
       'https://www.consultant.ru/rss/hotdocs.xml,https://www.consultant.ru/rss/nw.xml,https://www.consultant.ru/rss/db.xml',
     WEBINAR_TEST_ROOM_MODE: process.env.WEBINAR_TEST_ROOM_MODE ?? 'off',
     CORS_ORIGIN: process.env.CORS_ORIGIN ?? 'http://127.0.0.1:5174',
+    TRUST_PROXY: process.env.TRUST_PROXY ?? 'false',
   };
 }
 

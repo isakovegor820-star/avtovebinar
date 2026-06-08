@@ -4,7 +4,7 @@ import { webinarRouter } from './public/webinar.js';
 import { eventsRouter } from './public/events.js';
 import { partnersRouter } from './public/partners.js';
 import { sendCsrfToken } from '../lib/csrf.js';
-import { getReadiness } from '../lib/health.js';
+import { getDependencyStatus, getReadiness } from '../lib/health.js';
 
 export const publicRouter = Router();
 
@@ -23,6 +23,15 @@ publicRouter.get('/health/ready', async (_req, res, next) => {
   try {
     const readiness = await getReadiness();
     res.status(readiness.ok ? 200 : 503).json({ service: 'aspb-autowebinar', ...readiness });
+  } catch (error) {
+    next(error);
+  }
+});
+
+publicRouter.get('/health/dependencies', async (_req, res, next) => {
+  try {
+    const dependencies = await getDependencyStatus();
+    res.status(dependencies.ok ? 200 : 503).json({ service: 'aspb-autowebinar', ...dependencies });
   } catch (error) {
     next(error);
   }

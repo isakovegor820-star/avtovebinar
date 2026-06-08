@@ -84,6 +84,9 @@ describe('critical path integration scenarios', () => {
     expect(initialEmailJobs.length).toBe(1);
     expect(initialEmailJobs[0].type).toBe('registration_confirmation');
     expect(initialEmailJobs[0].status).toBe('pending');
+    expect(initialEmailJobs[0].webinarUrl).toContain('/crisis_premium/webinar.html?token=');
+    expect(initialEmailJobs[0].partnerUrl).toContain('/crisis_premium/webinar.html?token=');
+    expect(initialEmailJobs[0].partnerUrl).toContain('#partnerApplication');
 
     // Check lead insertion
     const lead = await prisma.lead.findUnique({
@@ -119,14 +122,15 @@ describe('critical path integration scenarios', () => {
     const accessTokenCount = await prisma.registrationToken.count({
       where: { registrationId: registrationsAfterRepeat[0].id },
     });
-    expect(accessTokenCount).toBe(2);
+    expect(accessTokenCount).toBeGreaterThanOrEqual(3);
 
     const tokenPurposes = await prisma.registrationToken.findMany({
       where: { registrationId: registrationsAfterRepeat[0].id },
       select: { purpose: true },
       orderBy: { purpose: 'asc' },
     });
-    expect(tokenPurposes.map(item => item.purpose)).toEqual(['registration', 'room_session']);
+    expect(tokenPurposes.filter(item => item.purpose === 'room_session').length).toBe(1);
+    expect(tokenPurposes.filter(item => item.purpose === 'registration').length).toBeGreaterThanOrEqual(2);
 
     const activeConfirmationJobsAfterRepeat = await prisma.emailOutboxJob.findMany({
       where: {
@@ -136,8 +140,10 @@ describe('critical path integration scenarios', () => {
       },
     });
     expect(activeConfirmationJobsAfterRepeat.length).toBe(1);
-    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).toBe('http://127.0.0.1:5174/crisis_premium/webinar.html');
-    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).not.toContain('token=');
+    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).toContain(
+      'http://127.0.0.1:5174/crisis_premium/webinar.html?token=',
+    );
+    expect(activeConfirmationJobsAfterRepeat[0].partnerUrl).toContain('#partnerApplication');
 
     const registrationBeforeEmailJob = await prisma.registration.findUnique({
       where: { id: registrationsAfterRepeat[0].id },
@@ -243,16 +249,12 @@ describe('critical path integration scenarios', () => {
     });
     expect(regInDbAfterApp?.crmStatus).toBe('contract_pending');
 
-    // 5a. URL token exchange is one-time and moves access into an httpOnly cookie.
-    const exchangeToken = createAccessToken();
-    await prisma.registrationToken.create({
-      data: {
-        registrationId: registrationsAfterRepeat[0].id,
-        tokenHash: hashToken(exchangeToken),
-        purpose: 'registration',
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-      },
-    });
+    // 5a. Email URL token exchange is one-time and moves access into an httpOnly cookie.
+    const exchangeToken = new URL(activeConfirmationJobsAfterRepeat[0].webinarUrl).searchParams.get('token');
+    expect(exchangeToken).toEqual(expect.any(String));
+    if (!exchangeToken) {
+      throw new Error('Expected email outbox webinar URL to contain an exchange token');
+    }
     const exchangeAgent = request.agent(app);
     const exchangeCsrfToken = await getCsrfToken(exchangeAgent);
     const exchangeResponse = await exchangeAgent
@@ -484,8 +486,7 @@ describe('critical path integration scenarios', () => {
 
     expect(activeJobs.length).toBe(1);
     expect(activeJobs[0].status).toBe('pending');
-    expect(activeJobs[0].webinarUrl).toBe('http://127.0.0.1:5174/crisis_premium/webinar.html');
-    expect(activeJobs[0].webinarUrl).not.toContain('token=');
+    expect(activeJobs[0].webinarUrl).toContain('http://127.0.0.1:5174/crisis_premium/webinar.html?token=');
     expect(sentJobs.length).toBe(1);
     expect(sentJobs[0].webinarUrl).toContain('already-sent');
   });
@@ -545,6 +546,11 @@ describe('critical path integration scenarios', () => {
     expect(readyResponse.status).toBe(200);
     expect(readyResponse.body.ok).toBe(true);
     expect(readyResponse.body.checks.database.ok).toBe(true);
+    expect(readyResponse.body.checks.smtp).toBeUndefined();
+
+    const dependencyResponse = await request(app).get('/health/dependencies');
+    expect(dependencyResponse.status).toBe(200);
+    expect(dependencyResponse.body.checks.smtp.ok).toBe(true);
 
     const csrfResponse = await request(app)
       .post('/api/registration/exchange/not-a-real-token-12345678901234567890')

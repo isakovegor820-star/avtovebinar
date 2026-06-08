@@ -55,8 +55,17 @@ export async function checkTelegram(): Promise<HealthCheck> {
 }
 
 export async function getReadiness() {
-  const [database, smtp, telegram] = await Promise.all([checkDatabase(), checkSmtp(), checkTelegram()]);
-  const checks = { database, smtp, telegram };
+  const database = await checkDatabase();
+  const checks = { database };
+  return {
+    ok: Object.values(checks).every(check => check.ok),
+    checks,
+  };
+}
+
+export async function getDependencyStatus() {
+  const [smtp, telegram] = await Promise.all([checkSmtp(), checkTelegram()]);
+  const checks = { smtp, telegram };
   return {
     ok: Object.values(checks).every(check => check.ok),
     checks,

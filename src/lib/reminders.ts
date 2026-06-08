@@ -3,6 +3,7 @@ import { env } from './env.js';
 import type { ReminderKind } from './email.js';
 import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
 import { sendTelegramMessageToChat, formatMoscowDate } from './telegram.js';
+import { createRoomExchangeUrl, getRoomTokenExpiresAt } from './roomLinks.js';
 
 type ReminderCandidate = {
   id: string;
@@ -67,11 +68,6 @@ export function getDueTelegramReminderKind(registration: ReminderCandidate, now 
 
 export function getPostWebinarFollowupDueAt(scheduledAt: Date, durationMinutes = 120) {
   return new Date(scheduledAt.getTime() + durationMinutes * 60 * 1000 + 10 * 60 * 1000);
-}
-
-function buildFrontendUrl(pathname: string) {
-  const url = new URL(pathname, env.PUBLIC_SITE_URL);
-  return url.toString();
 }
 
 function buildSegmentTip(status?: string | null) {
@@ -144,8 +140,16 @@ export async function runReminderJobOnce(now = new Date()) {
         continue;
       }
 
-      const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html');
       await prisma.$transaction(async tx => {
+        const webinarUrl = await createRoomExchangeUrl(tx, {
+          registrationId: registration.id,
+          expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+        });
+        const partnerUrl = await createRoomExchangeUrl(tx, {
+          registrationId: registration.id,
+          expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+          hash: 'partnerApplication',
+        });
         await enqueueReminderEmail(tx, {
           kind,
           registrationId: registration.id,
@@ -154,7 +158,7 @@ export async function runReminderJobOnce(now = new Date()) {
           toName: registration.lead.name,
           scheduledAt: registration.webinarSession.scheduledAt,
           webinarUrl,
-          partnerUrl: `${webinarUrl}#partnerApplication`,
+          partnerUrl,
         });
       });
       sent += 1;
@@ -214,7 +218,12 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
         '3h': 'через несколько часов',
         '30m': 'через 30 минут',
       }[kind];
-      const roomUrl = buildFrontendUrl('/crisis_premium/webinar.html');
+      const roomUrl = await prisma.$transaction(tx =>
+        createRoomExchangeUrl(tx, {
+          registrationId: registration.id,
+          expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+        }),
+      );
 
       await sendTelegramMessageToChat(
         registration.lead.telegramChatId,
@@ -285,7 +294,13 @@ export async function runTelegramFollowupJobOnce(now = new Date()) {
       continue;
     }
 
-    const partnerUrl = `${buildFrontendUrl('/crisis_premium/webinar.html')}#partnerApplication`;
+    const partnerUrl = await prisma.$transaction(tx =>
+      createRoomExchangeUrl(tx, {
+        registrationId: registration.id,
+        expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+        hash: 'partnerApplication',
+      }),
+    );
     await sendTelegramMessageToChat(
       registration.lead.telegramChatId,
       [

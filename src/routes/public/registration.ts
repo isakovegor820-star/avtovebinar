@@ -9,6 +9,7 @@ import { getWebinarLiveState } from '../../lib/webinarLive.js';
 import { enqueueRegistrationEmail } from '../../lib/emailOutbox.js';
 import { buildTelegramStartUrl, notifyRegistration } from '../../lib/telegram.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
+import { buildTokenizedFrontendUrl, createRoomExchangeToken } from '../../lib/roomLinks.js';
 import {
   buildAccessPayload,
   buildFrontendUrl,
@@ -59,11 +60,20 @@ registrationRouter.post(
 
     const email = data.email.toLowerCase();
     const exchangeToken = createAccessToken();
+    const partnerExchangeToken = createAccessToken();
+    const telegramExchangeToken = createAccessToken();
     const sessionToken = createAccessToken();
     const exchangeTokenHash = hashToken(exchangeToken);
+    const partnerExchangeTokenHash = hashToken(partnerExchangeToken);
+    const telegramExchangeTokenHash = hashToken(telegramExchangeToken);
     const sessionTokenHash = hashToken(sessionToken);
     const tokenExpiresAt = getRoomTokenExpiresAt(session);
-    const webinarUrl = buildFrontendUrl('/crisis_premium/webinar.html');
+    const emailWebinarUrl = buildTokenizedFrontendUrl('/crisis_premium/webinar.html', exchangeToken);
+    const emailPartnerUrl = buildTokenizedFrontendUrl(
+      '/crisis_premium/webinar.html',
+      partnerExchangeToken,
+      'partnerApplication',
+    );
     const successUrl = buildFrontendUrl('/crisis_premium/success.html');
 
     const { lead, registration } = await prisma.$transaction(async tx => {
@@ -123,7 +133,7 @@ registrationRouter.post(
       await tx.registrationToken.deleteMany({
         where: {
           registrationId: registration.id,
-          purpose: { in: [ROOM_EXCHANGE_TOKEN_PURPOSE, ROOM_SESSION_TOKEN_PURPOSE] },
+          purpose: ROOM_SESSION_TOKEN_PURPOSE,
         },
       });
 
@@ -131,6 +141,24 @@ registrationRouter.post(
         data: {
           registrationId: registration.id,
           tokenHash: exchangeTokenHash,
+          purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
+          expiresAt: tokenExpiresAt,
+        },
+      });
+
+      await tx.registrationToken.create({
+        data: {
+          registrationId: registration.id,
+          tokenHash: partnerExchangeTokenHash,
+          purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
+          expiresAt: tokenExpiresAt,
+        },
+      });
+
+      await tx.registrationToken.create({
+        data: {
+          registrationId: registration.id,
+          tokenHash: telegramExchangeTokenHash,
           purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
           expiresAt: tokenExpiresAt,
         },
@@ -151,8 +179,8 @@ registrationRouter.post(
         toEmail: lead.email,
         toName: lead.name,
         scheduledAt: session.scheduledAt,
-        webinarUrl,
-        partnerUrl: `${webinarUrl}#partnerApplication`,
+        webinarUrl: emailWebinarUrl,
+        partnerUrl: emailPartnerUrl,
       });
 
       return { lead, registration };
@@ -190,7 +218,7 @@ registrationRouter.post(
       successUrl,
       webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
       telegramUrl: env.TELEGRAM_GROUP_URL,
-      telegramBotUrl: buildTelegramStartUrl(),
+      telegramBotUrl: buildTelegramStartUrl(telegramExchangeToken),
       registration: {
         id: registration.id,
         scheduledAt: session.scheduledAt.toISOString(),
@@ -224,9 +252,16 @@ registrationRouter.post(
     const tokenExpiresAt = tokenRecord.expiresAt ?? getRoomTokenExpiresAt(registration.webinarSession);
 
     await prisma.$transaction(async tx => {
-      await tx.registrationToken.deleteMany({
-        where: { id: tokenRecord.id },
+      const claimedToken = await tx.registrationToken.deleteMany({
+        where: {
+          id: tokenRecord.id,
+          tokenHash: exchangeTokenHash,
+          purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
+        },
       });
+      if (claimedToken.count !== 1) {
+        throw new AppError(404, 'Registration not found');
+      }
 
       await tx.registrationToken.deleteMany({
         where: {
@@ -300,6 +335,18 @@ async function sendRegistrationState(req: Request, res: Response) {
     }
   }
 
+  const telegramBotUrl =
+    view === 'success'
+      ? buildTelegramStartUrl(
+          await prisma.$transaction(tx =>
+            createRoomExchangeToken(tx, {
+              registrationId: registration.id,
+              expiresAt: access.replayExpiresAt,
+            }),
+          ),
+        )
+      : buildTelegramStartUrl();
+
   res.json({
     ok: true,
     serverTime: now.toISOString(),
@@ -321,7 +368,7 @@ async function sendRegistrationState(req: Request, res: Response) {
       chatStatus: liveState.chatStatus,
     },
     telegramUrl: env.TELEGRAM_GROUP_URL,
-    telegramBotUrl: buildTelegramStartUrl(),
+    telegramBotUrl,
     webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
     lead: {
       name: registration.lead.name,

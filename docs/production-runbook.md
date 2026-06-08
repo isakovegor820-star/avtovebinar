@@ -8,7 +8,7 @@
 - `docker-compose.production.yml` для `api`, `webinar-worker` и PostgreSQL.
 - GitHub Actions CI: install, Prisma generate, migrate deploy, seed, build, tests, audit, Docker build, dependency-review, Semgrep, secretlint, dotenv-linter и staging deploy.
 - Strict production env guard в backend.
-- Healthchecks `/health/live`, `/health/ready`; Prometheus metrics `/metrics`.
+- Healthchecks `/health/live`, `/health/ready`; dependency status `/health/dependencies`; Prometheus metrics `/metrics`.
 - Cookie-only доступ в вебинарную комнату через `HttpOnly` cookie `aspb_room_token`.
 - Одноразовый exchange-token в письмах/Telegram-ссылках; URL очищается после exchange.
 - Email outbox: регистрация не падает из-за временной SMTP-ошибки.
@@ -47,6 +47,7 @@ cp .env.production.example .env.production
 - SMTP-поля
 - Telegram bot tokens и usernames
 - `WORKER_ROLE=api` для API container, `WORKER_ROLE=webinar` для worker container
+- `TRUST_PROXY=1`, если API стоит за Nginx/reverse proxy
 
 3. Проверить, что:
 
@@ -56,6 +57,7 @@ cp .env.production.example .env.production
 - `PUBLIC_SITE_URL` начинается с `https://`
 - `.env.production` не добавлен в Git
 - `DATABASE_URL` содержит pooling параметры `connection_limit` и `pool_timeout`
+- `TRUST_PROXY` включен только за доверенным reverse proxy
 
 ## Миграции и seed
 
@@ -98,14 +100,17 @@ Worker container запускает `WORKER_ROLE=webinar node dist/server.js` и
 
 ```bash
 curl https://ваш-домен/health/ready
+curl https://ваш-домен/health/dependencies
 curl https://ваш-домен/metrics
 ```
 
 Ожидаемый ответ:
 
 ```json
-{"service":"aspb-autowebinar","ok":true,"checks":{"database":{"ok":true},"smtp":{"ok":true},"telegram":{"ok":true}}}
+{"service":"aspb-autowebinar","ok":true,"checks":{"database":{"ok":true}}}
 ```
+
+`/health/dependencies` отдельно показывает состояние внешних SMTP/Telegram и не должен использоваться как основной container readiness.
 
 ## SSL
 

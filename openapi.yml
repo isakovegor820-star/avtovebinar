@@ -16,9 +16,17 @@ paths:
       summary: Readiness probe
       responses:
         "200":
-          description: External dependencies are ready
+          description: Core API and database are ready
         "503":
-          description: One or more dependencies are unavailable
+          description: Core API or database is unavailable
+  /health/dependencies:
+    get:
+      summary: External dependency status
+      responses:
+        "200":
+          description: SMTP and Telegram checks are healthy
+        "503":
+          description: One or more external dependencies are unavailable
   /metrics:
     get:
       summary: Prometheus metrics

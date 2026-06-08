@@ -52,7 +52,7 @@ Email-доставка переведена на outbox:
 - Email log маскирует персональные ссылки.
 - Критический путь покрыт integration и browser e2e.
 - README и runbook описывают текущую cookie-only архитектуру.
-- `/health/ready` проверяет БД, SMTP и Telegram; `/metrics` отдает Prometheus format.
+- `/health/ready` проверяет ядро API и БД; `/health/dependencies` отдельно проверяет SMTP и Telegram; `/metrics` отдает Prometheus format.
 - Telegram broadcast вынесен в durable worker с dead-letter queue.
 - CI включает dependency-review, Semgrep, secretlint, dotenv-linter и staging deploy через secrets.
 

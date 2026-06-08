@@ -103,12 +103,21 @@ export function bindQuestionForm() {
     track('question_submit_attempt', { textLength: text.length });
 
     try {
-      await post('/questions', { text });
+      const result = await post('/questions', { text });
 
       // FIX 6a: трекаем успешную отправку
       track('question_submitted');
 
       input.value = '';
+      if (window.__ASPB_WAITING_ROOM_CHAT__ && window.__liveChatAddMessage) {
+        window.__liveChatAddMessage({
+          id: result.questionId ? `local_${result.questionId}` : `local_${Date.now()}`,
+          kind: 'scripted_user',
+          authorName: 'Вы',
+          authorRole: '',
+          message: text,
+        });
+      }
       if (window.__liveChatRefresh) {
         window.__liveChatRefresh();
       }

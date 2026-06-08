@@ -5,6 +5,7 @@
 import { state } from './state.js';
 import { getJson, pad, formatMoscowDateTime } from './utils.js';
 import { getRegistrationState } from './registration.js';
+import { bindQuestionForm } from './questions.js';
 
 let countdownInterval = null;
 let countdownRetries = 0;
@@ -127,7 +128,15 @@ function renderChatPanelHtml() {
           <span id="chatOnlineLabel">чат открыт</span>
         </div>
       </div>
-      <div id="liveChatMessages" style="height:320px;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px"></div>
+      <div id="liveChatMessages" style="height:320px;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px">
+          <div style="width:28px;height:28px;border-radius:50%;background:#1e40af;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;font-weight:700">М</div>
+          <div style="flex:1;min-width:0">
+            <span style="font-size:11px;font-weight:700;color:#1e40af">Марина, юрист</span>
+            <p style="font-size:13px;color:#44474c;line-height:1.4;margin:2px 0 0;word-wrap:break-word">Добрый день всем. Чат открыт: можно заранее написать вопрос по своему кейсу.</p>
+          </div>
+        </div>
+      </div>
       <div style="padding:12px;background:#f4f8fc;border-top:1px solid rgba(210,228,251,.55)">
         <div style="position:relative">
           <input id="questionInput" type="text" placeholder="Задайте вопрос..." style="width:100%;box-sizing:border-box;border:1px solid rgba(91,100,112,.22);border-radius:14px;padding:12px 46px 12px 14px;font:14px Manrope,Arial,sans-serif;color:#041627;background:#fff;outline:none"/>
@@ -195,8 +204,10 @@ export function renderWaitingRoom(data) {
         <div id="webinarChatPanel" style="display:flex;justify-content:center">${renderChatPanelHtml()}</div>
       </div>
     </main>`;
+  window.__ASPB_WAITING_ROOM_CHAT__ = data.accessStatus === 'waiting' || data.accessStatus === 'pre_live';
   document.querySelector('[data-waiting-room-title]').textContent = title;
   document.querySelector('[data-waiting-room-text]').textContent = text;
+  bindQuestionForm();
 
   if (data.accessStatus === 'waiting' || data.accessStatus === 'pre_live') {
     startCountdown(data.webinar.scheduledAt);

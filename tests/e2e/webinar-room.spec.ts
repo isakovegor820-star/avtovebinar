@@ -206,7 +206,7 @@ test('chat remains visible and accepts questions after webinar end', async ({ pa
   await expect(page).toHaveURL(/webinar\.html$/);
   await expect(page.locator('#webinarChatPanel')).toBeVisible();
   await expect(page.locator('#chatActivity')).toContainText('Вебинар окончен, чат открыт');
-  await expect(page.locator('#questionInput')).toHaveAttribute('placeholder', 'Задайте вопрос...');
+  await expect(page.locator('#questionInput')).toHaveAttribute('placeholder', 'Задайте вопрос после эфира...');
   await expect(page.locator('#questionInput')).toBeEnabled();
 
   await page.locator('#questionInput').fill('Вопрос после завершения вебинара');

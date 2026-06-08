@@ -417,6 +417,32 @@ export async function hydrateTimeline() {
     if (liveEdgeMarker) liveEdgeMarker.style.left = '100%';
   }
 
+  function getLiveDvrSnapshot() {
+    const livePosition = getLivePosition();
+    return {
+      livePosition,
+      viewerPosition: Number(video.currentTime || 0),
+      behindLive: livePosition - Number(video.currentTime || 0) > liveToleranceSeconds,
+    };
+  }
+
+  if (isLiveVisual && window.__ASPB_ENABLE_TEST_HOOKS__) {
+    window.__ASPB_LIVE_DVR_TEST__ = {
+      snapshot: getLiveDvrSnapshot,
+      pauseAtCurrentPosition() {
+        pausedFromLive = isNearLive() && !manualBehindLive;
+        video.pause();
+        updateLiveControls();
+        return getLiveDvrSnapshot();
+      },
+      resumeToLive() {
+        seekToLive();
+        updateLiveControls();
+        return getLiveDvrSnapshot();
+      },
+    };
+  }
+
   video.addEventListener('timeupdate', () => {
     const current = video.currentTime;
     window.__aspbVideoPosition = current;

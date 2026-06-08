@@ -4,13 +4,7 @@
  */
 (function() {
   var API = window.location.protocol === 'file:' ? 'http://127.0.0.1:5174/api' : '/api';
-  var chatContainer = document.getElementById('liveChatMessages');
-  var chatPanel = document.getElementById('webinarChatPanel');
-  var input = document.getElementById('questionInput');
-  var submit = document.getElementById('questionSubmit');
-  var activity = document.getElementById('chatActivity');
-  var onlineLabel = document.getElementById('chatOnlineLabel');
-  if (!chatContainer) return;
+  if (!document.getElementById('liveChatMessages')) return;
 
   var renderedMessages = new Set();
   var isHiddenAfterEnd = false;
@@ -21,14 +15,18 @@
   }
 
   function setActivity(text) {
+    var activity = document.getElementById('chatActivity');
     if (activity) activity.textContent = text;
   }
 
   function setOnlineLabel(text) {
+    var onlineLabel = document.getElementById('chatOnlineLabel');
     if (onlineLabel) onlineLabel.textContent = text;
   }
 
   function setInputState(disabled, placeholder) {
+    var input = document.getElementById('questionInput');
+    var submit = document.getElementById('questionSubmit');
     if (input) {
       input.disabled = disabled;
       input.placeholder = placeholder || 'Задайте вопрос...';
@@ -66,6 +64,8 @@
   }
 
   function addMessage(msg) {
+    var chatContainer = document.getElementById('liveChatMessages');
+    if (!chatContainer) return;
     if (!msg || renderedMessages.has(msg.id)) return;
     renderedMessages.add(msg.id);
 
@@ -139,6 +139,7 @@
   }
 
   function renderChatState(data) {
+    var chatPanel = document.getElementById('webinarChatPanel');
     var chatStatus = data.liveState && data.liveState.chatStatus;
     var demoLive = data.testMode === true;
 
@@ -186,6 +187,12 @@
         });
       }
     } catch {
+      if (window.__ASPB_WAITING_ROOM_CHAT__) {
+        setInputState(false, 'Задайте вопрос...');
+        setActivity('Чат открыт, можно писать вопрос');
+        setOnlineLabel('чат открыт');
+        return;
+      }
       setActivity('Чат временно недоступен, переподключаемся...');
     }
   }

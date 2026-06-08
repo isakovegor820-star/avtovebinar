@@ -10,6 +10,7 @@ const envSchema = z.object({
   ADMIN_LOGIN: z.string().min(1),
   ADMIN_PASSWORD: z.string().min(12),
   ADMIN_COOKIE_SECRET: z.string().min(32),
+  ADMIN_DEV_BYPASS: z.enum(['true', 'false']).optional(),
   IP_HASH_SECRET: z.string().min(32),
   EMAIL_MODE: z.enum(['send', 'log']),
   SMTP_HOST: z.string().optional(),

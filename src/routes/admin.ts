@@ -41,7 +41,18 @@ async function requireAdmin(req: AdminRequest, _res: any, next: any) {
     return next(new AppError(401, 'Admin authorization required'));
   }
 
-  if (!session.adminId && env.NODE_ENV === 'production') {
+  if (!session.adminId) {
+    if (env.NODE_ENV === 'development' && env.ADMIN_DEV_BYPASS === 'true') {
+      req.admin = {
+        id: 'dev',
+        login: session.login ?? env.ADMIN_LOGIN,
+        email: session.email ?? null,
+        role: session.role ?? 'owner',
+      };
+      setContextIdentity({ adminId: req.admin.id });
+      return next();
+    }
+
     return next(new AppError(401, 'Admin authorization required'));
   }
 
@@ -61,14 +72,7 @@ async function requireAdmin(req: AdminRequest, _res: any, next: any) {
     return next();
   }
 
-  req.admin = {
-    id: null,
-    login: session.login ?? env.ADMIN_LOGIN,
-    email: session.email ?? null,
-    role: session.role ?? 'owner',
-  };
-  setContextIdentity({ adminId: req.admin.id ?? req.admin.login });
-  return next();
+  return next(new AppError(401, 'Admin authorization required'));
 }
 
 function requireRole(roles: AdminRole[]) {

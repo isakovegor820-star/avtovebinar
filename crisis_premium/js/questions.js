@@ -7,6 +7,11 @@ import { track, WEBINAR_INSIGHTS } from './analytics.js';
 
 let renderedInsightTimes = new Set();
 
+export function resetWebinarInsights() {
+  renderedInsightTimes.clear();
+  document.querySelectorAll('.webinar-insight-msg').forEach(el => el.remove());
+}
+
 export function setChatActivity(text) {
   const node = document.getElementById('chatActivity');
   if (node) node.textContent = text;
@@ -21,7 +26,10 @@ export function updateInsightHeader(currentTime) {
 
 export function updateWebinarInsights(currentTime, isSyncing = false) {
   const list = document.getElementById('questionList');
-  if (!list) return;
+  if (!list) {
+    renderedInsightTimes.clear();
+    return;
+  }
   updateInsightHeader(currentTime);
 
   const visibleItems = WEBINAR_INSIGHTS.filter(item => item.time <= currentTime);

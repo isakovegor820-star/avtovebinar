@@ -21,7 +21,7 @@ export function csrfHeaders() {
 export async function post(path, body) {
   const response = await fetch(`${API}${path}`, {
     method: 'POST',
-    credentials: 'include',
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(body)
   });
@@ -35,7 +35,7 @@ export async function post(path, body) {
 }
 
 export async function getJson(path) {
-  const response = await fetch(`${API}${path}`, { credentials: 'include' });
+  const response = await fetch(`${API}${path}`, { credentials: 'same-origin' });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload.error || 'Ошибка запроса');

@@ -106,9 +106,31 @@ export async function hydrateCurrentWebinar() {
     state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
     startCountdown(data.scheduledAt);
     updateTelegramLinks(data.telegramUrl);
+    updateLandingWebinarDate(data.scheduledAt);
   } catch {
     // Static preview still works without backend.
   }
+}
+
+function updateLandingWebinarDate(scheduledAt) {
+  const title = document.getElementById('webinarTargetTitle');
+  const label = document.getElementById('webinarTargetLabel');
+  if (!title && !label) return;
+
+  const date = new Date(scheduledAt);
+  const dayLabel = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    day: '2-digit',
+    month: 'long',
+  }).format(date);
+  const timeLabel = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+
+  if (title) title.textContent = `Ближайший эфир — ${dayLabel}`;
+  if (label) label.textContent = `Начало в ${timeLabel} по МСК`;
 }
 
 function getRoomStateOverlay() {

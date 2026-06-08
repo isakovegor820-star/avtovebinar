@@ -5,7 +5,7 @@
 import { state } from './state.js';
 import { getJson, formatTimelineTime } from './utils.js';
 import { timelinePath } from './registration.js';
-import { updateWebinarInsights, setChatActivity } from './questions.js';
+import { updateWebinarInsights, setChatActivity, resetWebinarInsights } from './questions.js';
 
 let viewerIntervalId = null;
 let liveControlsIntervalId = null;
@@ -120,6 +120,7 @@ function activateTimelineEvent(seconds, events) {
 
 export async function hydrateTimeline() {
   cleanupVideoPlayer();
+  resetWebinarInsights();
 
   const container = document.getElementById('videoPlayerContainer');
   const video = document.getElementById('webinarVideo');

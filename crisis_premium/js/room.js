@@ -3,7 +3,7 @@
  */
 
 import { state } from './state.js';
-import { getJson, pad, formatMoscowDateTime } from './utils.js';
+import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js';
 import { getRegistrationState } from './registration.js';
 
 let countdownInterval = null;
@@ -90,6 +90,19 @@ export function startCountdown(scheduledAt) {
   countdownInterval = setInterval(tick, 1000);
 }
 
+function updatePublicWebinarLabels(scheduledAt, serverTime) {
+  const day = formatMoscowWebinarDay(scheduledAt, serverTime);
+  const time = formatMoscowWebinarTime(scheduledAt);
+  const dayText = day === 'сегодня' || day === 'завтра' ? day : day;
+  document.querySelectorAll('[data-webinar-relative-label]').forEach(node => {
+    const prefix = node.dataset.webinarLabelPrefix || 'Ближайший эфир —';
+    node.textContent = `${prefix} ${dayText}`;
+  });
+  document.querySelectorAll('[data-webinar-target-label], #webinarTargetLabel').forEach(node => {
+    node.textContent = `${dayText[0].toUpperCase()}${dayText.slice(1)} в ${time} МСК`;
+  });
+}
+
 export function updateTelegramLinks(url) {
   if (!url) return;
   document.querySelectorAll('a[href*="t.me"]').forEach(link => {
@@ -104,22 +117,31 @@ export async function hydrateCurrentWebinar() {
     if (!data.ok) return;
     state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
     startCountdown(data.scheduledAt);
+    updatePublicWebinarLabels(data.scheduledAt, data.serverTime);
     updateTelegramLinks(data.telegramUrl);
   } catch {
     // Static preview still works without backend.
   }
 }
 
+function closeOverlay() {
+  const existing = document.getElementById('aspb-room-overlay');
+  if (existing) existing.remove();
+}
+
 export function renderLockedRoom(message) {
   const safeMessage = escapeHtml(message);
-  document.body.innerHTML = `
-    <main style="min-height:100vh;display:grid;place-items:center;background:#f8f9fa;color:#041627;font-family:Manrope,Arial,sans-serif;padding:24px">
-      <section style="max-width:560px;background:#fff;border:1px solid #d2e4fb;border-radius:24px;padding:36px;text-align:center;box-shadow:0 24px 70px rgba(4,22,39,.08)">
-        <h1 style="font-size:32px;margin:0 0 12px">Вход в комнату по персональной ссылке</h1>
-        <p style="font-size:18px;color:#44474c;line-height:1.55">${safeMessage}</p>
-        <a href="register.html" style="display:inline-flex;margin-top:20px;background:#041627;color:#fff;text-decoration:none;padding:16px 24px;border-radius:14px;font-weight:700">Зарегистрироваться</a>
-      </section>
-    </main>`;
+  closeOverlay();
+  const overlay = document.createElement('div');
+  overlay.id = 'aspb-room-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:grid;place-items:center;background:#f8f9fa;color:#041627;font-family:Manrope,Arial,sans-serif;padding:24px';
+  overlay.innerHTML = `
+    <section style="max-width:560px;background:#fff;border:1px solid #d2e4fb;border-radius:24px;padding:36px;text-align:center;box-shadow:0 24px 70px rgba(4,22,39,.08)">
+      <h1 style="font-size:32px;margin:0 0 12px">Вход в комнату по персональной ссылке</h1>
+      <p style="font-size:18px;color:#44474c;line-height:1.55">${safeMessage}</p>
+      <a href="register.html" style="display:inline-flex;margin-top:20px;background:#041627;color:#fff;text-decoration:none;padding:16px 24px;border-radius:14px;font-weight:700">Зарегистрироваться</a>
+    </section>`;
+  document.body.appendChild(overlay);
 }
 
 export function renderWaitingRoom(data) {
@@ -161,20 +183,23 @@ export function renderWaitingRoom(data) {
       ? '<a href="register.html" style="display:inline-flex;margin-top:28px;background:#fff;color:#041627;text-decoration:none;padding:16px 28px;border-radius:14px;font-weight:700;font-size:15px;box-shadow:0 4px 16px rgba(0,0,0,0.1)">Зарегистрироваться заново</a>'
       : '<a href="success.html" style="display:inline-flex;margin-top:28px;background:rgba(255,255,255,0.1);border:1px solid rgba(210,228,251,0.3);color:#d2e4fb;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:600;font-size:14px;backdrop-filter:blur(8px)">Проверить регистрацию</a>';
 
-  document.body.innerHTML = `
-    <main style="min-height:100vh;display:grid;place-items:center;background:#041627;color:#fff;font-family:Manrope,Arial,sans-serif;padding:24px;position:relative;overflow:hidden">
-      <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 30%,rgba(56,78,183,0.15),transparent 60%),radial-gradient(ellipse at 80% 70%,rgba(108,52,163,0.1),transparent 50%);pointer-events:none"></div>
-      <section style="max-width:560px;text-align:center;position:relative;z-index:1">
-        <div style="width:56px;height:56px;margin:0 auto 20px;border-radius:50%;background:rgba(210,228,251,0.1);border:1px solid rgba(210,228,251,0.2);display:flex;align-items:center;justify-content:center">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#b7d4f7" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        </div>
-        <p style="margin:0 0 8px;color:rgba(210,228,251,0.6);font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:11px">АСПБ автовебинар</p>
-        <h1 style="font-size:32px;font-weight:800;margin:0 0 12px;line-height:1.2">${escapeHtml(title)}</h1>
-        <p style="font-size:16px;color:rgba(255,255,255,0.6);line-height:1.6;margin:0">${escapeHtml(text)}</p>
-        ${countdownHtml}
-        ${action}
-      </section>
-    </main>`;
+  closeOverlay();
+  const overlay = document.createElement('div');
+  overlay.id = 'aspb-room-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:grid;place-items:center;background:#041627;color:#fff;font-family:Manrope,Arial,sans-serif;padding:24px;overflow:hidden';
+  overlay.innerHTML = `
+    <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 30%,rgba(56,78,183,0.15),transparent 60%),radial-gradient(ellipse at 80% 70%,rgba(108,52,163,0.1),transparent 50%);pointer-events:none"></div>
+    <section style="max-width:560px;text-align:center;position:relative;z-index:1">
+      <div style="width:56px;height:56px;margin:0 auto 20px;border-radius:50%;background:rgba(210,228,251,0.1);border:1px solid rgba(210,228,251,0.2);display:flex;align-items:center;justify-content:center">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#b7d4f7" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      </div>
+      <p style="margin:0 0 8px;color:rgba(210,228,251,0.6);font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:11px">АСПБ автовебинар</p>
+      <h1 style="font-size:32px;font-weight:800;margin:0 0 12px;line-height:1.2">${escapeHtml(title)}</h1>
+      <p style="font-size:16px;color:rgba(255,255,255,0.6);line-height:1.6;margin:0">${escapeHtml(text)}</p>
+      ${countdownHtml}
+      ${action}
+    </section>`;
+  document.body.appendChild(overlay);
 
   if (data.accessStatus === 'waiting' || data.accessStatus === 'pre_live') {
     startCountdown(data.webinar.scheduledAt);

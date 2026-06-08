@@ -193,6 +193,56 @@
   window.__liveChatRefresh = refreshChat;
   window.__liveChatAddMessage = addMessage;
 
+  // --- smart polling: backoff on errors, pause when tab hidden ---
+  var chatTimer = null;
+  var chatPollInterval = 2500;
+  var CHAT_POLL_MIN = 2500;
+  var CHAT_POLL_MAX = 30000;
+
+  function scheduleNextChatRefresh() {
+    if (chatTimer) clearTimeout(chatTimer);
+    if (document.visibilityState === 'hidden') {
+      chatTimer = null;
+      return;
+    }
+    chatTimer = setTimeout(async function() {
+      var ok = false;
+      try {
+        var response = await fetch(chatUrl(), { credentials: 'same-origin' });
+        var data = await response.json().catch(function() { return {}; });
+        if (!response.ok || !data.ok) throw new Error(data.error || 'Ошибка загрузки чата');
+        renderChatState(data);
+        if (Array.isArray(data.messages)) {
+          var videoPos = window.__aspbVideoPosition || 0;
+          var isTestMode = data.testMode === true;
+          data.messages.forEach(function(msg) {
+            if (isTestMode && typeof msg.offsetSeconds === 'number' && msg.isSynthetic) {
+              if (msg.offsetSeconds > videoPos + 2) return;
+            }
+            addMessage(msg);
+          });
+        }
+        ok = true;
+      } catch {
+        setActivity('Чат временно недоступен, переподключаемся...');
+      }
+      chatPollInterval = ok
+        ? CHAT_POLL_MIN
+        : Math.min(chatPollInterval * 1.5, CHAT_POLL_MAX);
+      scheduleNextChatRefresh();
+    }, chatPollInterval);
+  }
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+      chatPollInterval = CHAT_POLL_MIN;
+      scheduleNextChatRefresh();
+    } else if (chatTimer) {
+      clearTimeout(chatTimer);
+      chatTimer = null;
+    }
+  });
+
   refreshChat();
-  window.setInterval(refreshChat, 2500);
+  scheduleNextChatRefresh();
 })();

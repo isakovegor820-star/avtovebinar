@@ -12,9 +12,16 @@ import { track } from './analytics.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   await exchangeUrlTokenIfPresent().catch(() => {});
-  hydrateCurrentWebinar();
+
+  // hydrateCurrentWebinar sets serverTimeOffset needed by other modules
+  await hydrateCurrentWebinar().catch(() => {});
   hydrateSuccessPage();
-  hydrateWebinarRoom(() => hydrateTimeline());
+
+  // hydrateWebinarRoom may render locked/waiting overlay and return early;
+  // on success it calls hydrateTimeline which starts the video player
+  await hydrateWebinarRoom(() => hydrateTimeline()).catch(() => {});
+
+  // Bind UI handlers after async state is fully resolved
   bindRegistrationForm();
   bindQuestionForm();
   bindPartnerApplicationForm();

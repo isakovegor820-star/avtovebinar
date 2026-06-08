@@ -19,6 +19,7 @@ import {
 import { getEffectiveVideoDurationMinutes } from '../../lib/webinarLive.js';
 import { prisma } from '../../lib/prisma.js';
 import { setContextIdentity } from '../../lib/requestContext.js';
+import { logger } from '../../lib/logger.js';
 
 export const ROOM_SESSION_TOKEN_PURPOSE = 'room_session';
 export const ROOM_EXCHANGE_TOKEN_PURPOSE = 'registration';
@@ -188,7 +189,7 @@ export function buildFrontendUrl(pathname: string) {
 
 export function notifySafely(task: Promise<unknown>) {
   task.catch(error => {
-    console.error('[ASPБ telegram notify]', error);
+    logger.error({ err: error }, 'ASPБ telegram notify failed');
   });
 }
 

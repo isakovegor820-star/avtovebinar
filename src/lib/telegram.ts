@@ -1,4 +1,5 @@
 import { env } from './env.js';
+import { logger } from './logger.js';
 import { withCircuitBreaker, withRetries } from './resilience.js';
 
 type TelegramMessageInput = {
@@ -149,14 +150,14 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
   const text = input.text.slice(0, 3900);
 
   if (shouldLogAdminTelegram()) {
-    console.log('[ASPБ telegram log]', { textLength: text.length, hasReplyMarkup: Boolean(input.replyMarkup) });
+    logger.info({ textLength: text.length, hasReplyMarkup: Boolean(input.replyMarkup) }, 'ASPБ telegram log');
     return { sent: false, mode: 'log' as const };
   }
 
   const chatId = getConfiguredAdminChatId();
   if (!chatId) {
     if (!warnedAboutMissingChat) {
-      console.warn('[ASPБ telegram] TELEGRAM_ADMIN_CHAT_ID is empty. Admin notifications are disabled.');
+      logger.warn('ASPБ telegram admin notifications are disabled because TELEGRAM_ADMIN_CHAT_ID is empty');
       warnedAboutMissingChat = true;
     }
     return { sent: false, mode: 'send' as const, reason: 'missing_chat_id' as const };
@@ -197,7 +198,7 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
   const message = text.slice(0, 3900);
 
   if (shouldLogParticipantTelegram()) {
-    console.log('[ASPБ telegram participant log]', { chatId: maskChatId(chatId), textLength: message.length });
+    logger.info({ chatId: maskChatId(chatId), textLength: message.length }, 'ASPБ telegram participant log');
     return { sent: false, mode: 'log' as const };
   }
 

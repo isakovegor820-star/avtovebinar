@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { env } from './env.js';
+import { logger } from './logger.js';
 import { withCircuitBreaker, withRetries } from './resilience.js';
 
 type BaseEmailInput = {
@@ -80,14 +81,17 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
   const scheduled = formatScheduled(input.scheduledAt);
 
   if (shouldLogEmail()) {
-    console.log('[ASPБ email log]', {
-      to: maskEmail(input.to),
-      subject: input.subject,
-      scheduled,
-      webinarUrl: '[redacted-personal-link]',
-      telegramConfigured: Boolean(env.TELEGRAM_GROUP_URL),
-      partnerUrl: input.partnerUrl ? '[redacted-personal-link]' : null,
-    });
+    logger.info(
+      {
+        to: maskEmail(input.to),
+        subject: input.subject,
+        scheduled,
+        webinarUrl: '[redacted-personal-link]',
+        telegramConfigured: Boolean(env.TELEGRAM_GROUP_URL),
+        partnerUrl: input.partnerUrl ? '[redacted-personal-link]' : null,
+      },
+      'ASPБ email log',
+    );
     return { sent: false, mode: 'log' as const };
   }
 

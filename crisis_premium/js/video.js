@@ -7,9 +7,45 @@ import { getJson, formatTimelineTime } from './utils.js';
 import { timelinePath } from './registration.js';
 import { updateWebinarInsights, setChatActivity } from './questions.js';
 
+let viewerIntervalId = null;
+let liveControlsIntervalId = null;
+let countdownIntervalId = null;
+let keydownHandler = null;
+let visibilityChangeHandler = null;
+let fullscreenChangeHandler = null;
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
+
+export function cleanupVideoPlayer() {
+  if (viewerIntervalId) {
+    window.clearInterval(viewerIntervalId);
+    viewerIntervalId = null;
+  }
+  if (liveControlsIntervalId) {
+    window.clearInterval(liveControlsIntervalId);
+    liveControlsIntervalId = null;
+  }
+  if (countdownIntervalId) {
+    window.clearInterval(countdownIntervalId);
+    countdownIntervalId = null;
+  }
+  if (keydownHandler) {
+    document.removeEventListener('keydown', keydownHandler);
+    keydownHandler = null;
+  }
+  if (visibilityChangeHandler) {
+    document.removeEventListener('visibilitychange', visibilityChangeHandler);
+    visibilityChangeHandler = null;
+  }
+  if (fullscreenChangeHandler) {
+    document.removeEventListener('fullscreenchange', fullscreenChangeHandler);
+    fullscreenChangeHandler = null;
+  }
+}
+
+window.__aspbCleanupVideo = cleanupVideoPlayer;
 
 function toSafeHref(value) {
   if (!value) return null;
@@ -83,6 +119,8 @@ function activateTimelineEvent(seconds, events) {
 }
 
 export async function hydrateTimeline() {
+  cleanupVideoPlayer();
+
   const container = document.getElementById('videoPlayerContainer');
   const video = document.getElementById('webinarVideo');
   const fallback = document.getElementById('videoFallback');
@@ -209,13 +247,14 @@ export async function hydrateTimeline() {
         if (countdownMinutes) countdownMinutes.textContent = String(m).padStart(2, '0');
         if (countdownSeconds) countdownSeconds.textContent = String(s).padStart(2, '0');
         if (remaining <= 0) {
-          clearInterval(countdownInterval);
+          window.clearInterval(countdownIntervalId);
+          countdownIntervalId = null;
           window.location.reload();
         }
       }
 
       updateCountdown();
-      const countdownInterval = window.setInterval(updateCountdown, 1000);
+      countdownIntervalId = window.setInterval(updateCountdown, 1000);
     }
     // Fallback: force reload if countdown somehow misses the transition
     const reloadDelay = Math.max(1000, Math.min(30000, (webinarConfig.scheduledAt - (Date.now() + state.serverTimeOffset)) + 1000));
@@ -293,7 +332,7 @@ export async function hydrateTimeline() {
     if (viewerCountValue) viewerCountValue.textContent = String(viewers);
     setChatActivity('Чат идет в live-режиме');
 
-    setInterval(() => {
+    viewerIntervalId = window.setInterval(() => {
       const change = Math.floor(Math.random() * 7) - 3;
       viewers = Math.max(130, Math.min(190, viewers + change));
       if (viewerCountValue) viewerCountValue.textContent = String(viewers);
@@ -577,25 +616,27 @@ export async function hydrateTimeline() {
     });
   }
 
-  document.addEventListener('keydown', (e) => {
+  keydownHandler = (e) => {
     if (e.code === 'Space') {
       if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
       e.preventDefault();
       togglePlayState();
     }
-  });
+  };
+  document.addEventListener('keydown', keydownHandler);
 
-  document.addEventListener('visibilitychange', () => {
+  visibilityChangeHandler = () => {
     if (document.visibilityState === 'visible' && isLiveVisual) {
       if (!manualBehindLive) {
         seekToLive();
         video.play().catch(err => console.log('Visibility change auto-play failed:', err));
       }
     }
-  });
+  };
+  document.addEventListener('visibilitychange', visibilityChangeHandler);
 
   if (isLiveVisual) {
-    window.setInterval(updateLiveControls, 1000);
+    liveControlsIntervalId = window.setInterval(updateLiveControls, 1000);
   }
 
   if (playPauseBtn) {
@@ -661,7 +702,7 @@ export async function hydrateTimeline() {
       }
     });
 
-    document.addEventListener('fullscreenchange', () => {
+    fullscreenChangeHandler = () => {
       if (document.fullscreenElement === container) {
         fullscreenBtn.querySelector('span').textContent = 'fullscreen_exit';
         container.classList.add('p-0');
@@ -669,7 +710,8 @@ export async function hydrateTimeline() {
         fullscreenBtn.querySelector('span').textContent = 'fullscreen';
         container.classList.remove('p-0');
       }
-    });
+    };
+    document.addEventListener('fullscreenchange', fullscreenChangeHandler);
   }
 
   if (seekContainer) {

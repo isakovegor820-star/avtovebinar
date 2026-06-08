@@ -41,6 +41,53 @@ let CRM_STATUSES = [];
       return element;
     }
 
+    function showAdminToast(message, type) {
+      let container = document.getElementById('adminToastContainer');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'adminToastContainer';
+        container.style.position = 'fixed';
+        container.style.right = '20px';
+        container.style.bottom = '20px';
+        container.style.zIndex = '9999';
+        container.style.display = 'grid';
+        container.style.gap = '10px';
+        document.body.append(container);
+      }
+
+      const toast = document.createElement('div');
+      toast.textContent = message;
+      toast.style.padding = '12px 16px';
+      toast.style.borderRadius = '12px';
+      toast.style.boxShadow = '0 16px 40px rgba(4,22,39,.18)';
+      toast.style.fontWeight = '700';
+      toast.style.color = type === 'error' ? '#7f1d1d' : '#14532d';
+      toast.style.background = type === 'error' ? '#fee2e2' : '#dcfce7';
+      toast.style.border = type === 'error' ? '1px solid #fecaca' : '1px solid #bbf7d0';
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(8px)';
+      toast.style.transition = 'opacity .18s ease, transform .18s ease';
+      container.append(toast);
+      requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateY(0)';
+      });
+      window.setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        window.setTimeout(() => toast.remove(), 220);
+      }, 3000);
+    }
+
+    function markRequiredField(input, invalid) {
+      input.style.borderColor = invalid ? '#dc2626' : '';
+      input.style.boxShadow = invalid ? '0 0 0 2px rgba(220,38,38,.18)' : '';
+      if (invalid && input.dataset.requiredBound !== 'true') {
+        input.dataset.requiredBound = 'true';
+        input.addEventListener('input', () => markRequiredField(input, !input.value.trim()));
+      }
+    }
+
     function fmtDate(value) {
       if (!value) return '—';
       return new Intl.DateTimeFormat('ru-RU', { dateStyle:'short', timeStyle:'short' }).format(new Date(value));
@@ -141,11 +188,17 @@ let CRM_STATUSES = [];
     }
 
     async function createUser() {
-      const name = document.getElementById('newUserName').value.trim();
-      const email = document.getElementById('newUserEmail').value.trim();
-      const password = document.getElementById('newUserPassword').value;
+      const nameInput = document.getElementById('newUserName');
+      const emailInput = document.getElementById('newUserEmail');
+      const passwordInput = document.getElementById('newUserPassword');
+      const name = nameInput.value.trim();
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
       if (!name || !email || !password) {
-        alert('Заполните имя, email и пароль.');
+        markRequiredField(nameInput, !name);
+        markRequiredField(emailInput, !email);
+        markRequiredField(passwordInput, !password);
+        showAdminToast('Заполните обязательные поля', 'error');
         return;
       }
 
@@ -156,6 +209,9 @@ let CRM_STATUSES = [];
       document.getElementById('newUserName').value = '';
       document.getElementById('newUserEmail').value = '';
       document.getElementById('newUserPassword').value = '';
+      markRequiredField(nameInput, false);
+      markRequiredField(emailInput, false);
+      markRequiredField(passwordInput, false);
       await loadUsers();
     }
 
@@ -389,7 +445,7 @@ let CRM_STATUSES = [];
               tgUrl ? node('a', { href:tgUrl, target:'_blank', text:'Написать' }) : node('span', { class:'sub', text:'Нет username' }),
               node('button', { class:'ghost', text:'Отправить напоминание', onclick:async () => {
                 await api('/api/admin/registrations/' + id + '/telegram-reminder', { method:'POST', body:JSON.stringify({ text:manualReminderText }) });
-                alert('Напоминание отправлено');
+                showAdminToast('Напоминание отправлено', 'success');
               }}),
               node('button', { class:registration.isHot ? 'secondary' : '', text:registration.isHot ? 'Горячий' : 'Пометить горячим', onclick:async () => {
                 await api('/api/admin/registrations/' + id + '/hot', { method:'PATCH', body:JSON.stringify({ isHot:!registration.isHot }) });

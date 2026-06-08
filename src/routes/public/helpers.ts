@@ -19,9 +19,15 @@ import {
 import { getEffectiveVideoDurationMinutes } from '../../lib/webinarLive.js';
 import { prisma } from '../../lib/prisma.js';
 import { setContextIdentity } from '../../lib/requestContext.js';
+import {
+  buildFrontendUrl,
+  getRoomTokenExpiresAt,
+  ROOM_EXCHANGE_TOKEN_PURPOSE,
+  ROOM_SESSION_TOKEN_PURPOSE,
+} from '../../lib/roomLinks.js';
+import { logger } from '../../lib/logger.js';
 
-export const ROOM_SESSION_TOKEN_PURPOSE = 'room_session';
-export const ROOM_EXCHANGE_TOKEN_PURPOSE = 'registration';
+export { buildFrontendUrl, getRoomTokenExpiresAt, ROOM_EXCHANGE_TOKEN_PURPOSE, ROOM_SESSION_TOKEN_PURPOSE };
 
 export function roomAccessError(accessStatus: string) {
   if (accessStatus === 'waiting' || accessStatus === 'pre_live') {
@@ -66,19 +72,6 @@ export function setRoomTokenCookie(res: Response, token: string, replayExpiresAt
     secure: env.NODE_ENV === 'production',
     maxAge,
   });
-}
-
-export function getRoomTokenExpiresAt(session: {
-  scheduledAt: Date;
-  durationMinutes: number;
-  videoDurationSeconds?: number | null;
-  replayAvailableHours: number;
-}) {
-  return getReplayExpiresAt(
-    session.scheduledAt,
-    getEffectiveVideoDurationMinutes(session),
-    session.replayAvailableHours,
-  );
 }
 
 export async function findRegistrationByToken(token: string) {
@@ -181,14 +174,9 @@ export function buildAccessPayload(
   };
 }
 
-export function buildFrontendUrl(pathname: string) {
-  const url = new URL(pathname, env.PUBLIC_SITE_URL);
-  return url.toString();
-}
-
 export function notifySafely(task: Promise<unknown>) {
   task.catch(error => {
-    console.error('[ASPБ telegram notify]', error);
+    logger.error({ err: error }, '[ASPБ telegram notify]');
   });
 }
 

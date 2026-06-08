@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { asyncHandler, AppError, getClientIp } from '../lib/http.js';
 import { createAdminSession, hashIp, parseAdminSession } from '../lib/tokens.js';
-import { env } from '../lib/env.js';
+import { env, isStrongPassword } from '../lib/env.js';
 import { CRM_STATUS_LABELS, CRM_STATUSES, isCrmStatus } from '../lib/crm.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
 import { formatMoscowDate, sendTelegramMessageToChat } from '../lib/telegram.js';
@@ -21,6 +21,10 @@ export const adminRouter = Router();
 
 const ADMIN_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
 type AdminRole = (typeof ADMIN_ROLES)[number];
+const strongAdminPasswordSchema = z
+  .string()
+  .max(200)
+  .refine(isStrongPassword, 'Пароль должен быть не короче 12 символов и содержать буквы и цифры');
 
 function isAdminRole(value: string): value is AdminRole {
   return ADMIN_ROLES.includes(value as AdminRole);
@@ -41,7 +45,11 @@ async function requireAdmin(req: AdminRequest, _res: any, next: any) {
     return next(new AppError(401, 'Admin authorization required'));
   }
 
-  if (!session.adminId && env.NODE_ENV === 'production') {
+  if (!session.adminId) {
+    if (env.NODE_ENV === 'development' && env.ADMIN_DEV_BYPASS === 'true') {
+      req.admin = { id: 'dev', login: env.ADMIN_LOGIN, email: null, role: 'owner' };
+      return next();
+    }
     return next(new AppError(401, 'Admin authorization required'));
   }
 
@@ -228,7 +236,7 @@ adminRouter.post(
       .object({
         name: z.string().trim().min(2).max(120),
         email: z.string().trim().email().max(160),
-        password: z.string().min(8).max(200),
+        password: strongAdminPasswordSchema,
         role: z.string().default('manager'),
       })
       .parse(req.body);
@@ -282,7 +290,7 @@ adminRouter.patch(
         name: z.string().trim().min(2).max(120).optional(),
         role: z.string().optional(),
         isActive: z.boolean().optional(),
-        password: z.string().min(8).max(200).optional().or(z.literal('')),
+        password: strongAdminPasswordSchema.optional().or(z.literal('')),
       })
       .parse(req.body);
     const before = await prisma.adminUser.findUnique({

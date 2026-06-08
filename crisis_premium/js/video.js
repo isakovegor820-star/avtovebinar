@@ -7,6 +7,13 @@ import { getJson, formatTimelineTime } from './utils.js';
 import { timelinePath } from './registration.js';
 import { updateWebinarInsights, setChatActivity } from './questions.js';
 
+/* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
+let _viewerInterval = null;
+let _liveControlsInterval = null;
+let _keydownHandler = null;
+let _visibilityHandler = null;
+let _fullscreenHandler = null;
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -117,6 +124,13 @@ export async function hydrateTimeline() {
   }
 
   if (!active || !video) return;
+
+  // --- cleanup previous intervals and document-level listeners (prevents leaks on re-init) ---
+  if (_viewerInterval) { clearInterval(_viewerInterval); _viewerInterval = null; }
+  if (_liveControlsInterval) { clearInterval(_liveControlsInterval); _liveControlsInterval = null; }
+  if (_keydownHandler) { document.removeEventListener('keydown', _keydownHandler); _keydownHandler = null; }
+  if (_visibilityHandler) { document.removeEventListener('visibilitychange', _visibilityHandler); _visibilityHandler = null; }
+  if (_fullscreenHandler) { document.removeEventListener('fullscreenchange', _fullscreenHandler); _fullscreenHandler = null; }
 
   const data = await getJson(timelinePath());
   if (!data.ok) return;
@@ -275,8 +289,8 @@ export async function hydrateTimeline() {
     }
     if (isTestMode && seekContainer) {
       seekContainer.classList.remove('hidden');
-      seekContainer.style.cursor = 'default';
-      seekContainer.style.pointerEvents = 'none';
+      seekContainer.style.cursor = 'pointer';
+      seekContainer.style.pointerEvents = 'auto';
       seekContainer.style.background = 'rgba(239, 68, 68, 0.92)';
       seekContainer.style.boxShadow = '0 0 22px rgba(239,68,68,0.45), inset 0 0 0 1px rgba(255,255,255,0.2)';
       if (seekAvailable) seekAvailable.classList.add('hidden');
@@ -293,7 +307,7 @@ export async function hydrateTimeline() {
     if (viewerCountValue) viewerCountValue.textContent = String(viewers);
     setChatActivity('Чат идет в live-режиме');
 
-    setInterval(() => {
+    _viewerInterval = setInterval(() => {
       const change = Math.floor(Math.random() * 7) - 3;
       viewers = Math.max(130, Math.min(190, viewers + change));
       if (viewerCountValue) viewerCountValue.textContent = String(viewers);
@@ -415,32 +429,6 @@ export async function hydrateTimeline() {
     if (seekProgress) seekProgress.style.width = watchPercent + '%';
     if (seekThumb) seekThumb.style.left = watchPercent + '%';
     if (liveEdgeMarker) liveEdgeMarker.style.left = '100%';
-  }
-
-  function getLiveDvrSnapshot() {
-    const livePosition = getLivePosition();
-    return {
-      livePosition,
-      viewerPosition: Number(video.currentTime || 0),
-      behindLive: livePosition - Number(video.currentTime || 0) > liveToleranceSeconds,
-    };
-  }
-
-  if (isLiveVisual && window.__ASPB_ENABLE_TEST_HOOKS__) {
-    window.__ASPB_LIVE_DVR_TEST__ = {
-      snapshot: getLiveDvrSnapshot,
-      pauseAtCurrentPosition() {
-        pausedFromLive = isNearLive() && !manualBehindLive;
-        video.pause();
-        updateLiveControls();
-        return getLiveDvrSnapshot();
-      },
-      resumeToLive() {
-        seekToLive();
-        updateLiveControls();
-        return getLiveDvrSnapshot();
-      },
-    };
   }
 
   video.addEventListener('timeupdate', () => {
@@ -577,25 +565,27 @@ export async function hydrateTimeline() {
     });
   }
 
-  document.addEventListener('keydown', (e) => {
+  _keydownHandler = (e) => {
     if (e.code === 'Space') {
       if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
       e.preventDefault();
       togglePlayState();
     }
-  });
+  };
+  document.addEventListener('keydown', _keydownHandler);
 
-  document.addEventListener('visibilitychange', () => {
+  _visibilityHandler = () => {
     if (document.visibilityState === 'visible' && isLiveVisual) {
       if (!manualBehindLive) {
         seekToLive();
         video.play().catch(err => console.log('Visibility change auto-play failed:', err));
       }
     }
-  });
+  };
+  document.addEventListener('visibilitychange', _visibilityHandler);
 
   if (isLiveVisual) {
-    window.setInterval(updateLiveControls, 1000);
+    _liveControlsInterval = window.setInterval(updateLiveControls, 1000);
   }
 
   if (playPauseBtn) {
@@ -661,7 +651,7 @@ export async function hydrateTimeline() {
       }
     });
 
-    document.addEventListener('fullscreenchange', () => {
+    _fullscreenHandler = () => {
       if (document.fullscreenElement === container) {
         fullscreenBtn.querySelector('span').textContent = 'fullscreen_exit';
         container.classList.add('p-0');
@@ -669,11 +659,13 @@ export async function hydrateTimeline() {
         fullscreenBtn.querySelector('span').textContent = 'fullscreen';
         container.classList.remove('p-0');
       }
-    });
+    };
+    document.addEventListener('fullscreenchange', _fullscreenHandler);
   }
 
   if (seekContainer) {
     seekContainer.addEventListener('click', (e) => {
+      // Guard: no-op in test mode (seekbar is visual-only)
       if (isTestMode) return;
       const rect = seekContainer.getBoundingClientRect();
       const pos = clamp((e.clientX - rect.left) / rect.width, 0, 1);

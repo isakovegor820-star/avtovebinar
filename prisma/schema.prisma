@@ -144,6 +144,7 @@ model Registration {
   chatMessages              WebinarChatMessage[]
   emailOutboxJobs           EmailOutboxJob[]
 
+  @@unique([leadId, webinarSessionId])
   @@index([leadId])
   @@index([webinarSessionId])
   @@index([registeredAt])
@@ -151,7 +152,6 @@ model Registration {
   @@index([isHot])
   @@index([assignedManagerId])
   @@index([nextContactAt])
-  @@unique([leadId, webinarSessionId])
   @@map("registrations")
 }
 
@@ -231,18 +231,18 @@ model TelegramBroadcastDeadLetter {
 }
 
 model Question {
-  id               String         @id @default(cuid())
-  leadId           String         @map("lead_id")
-  registrationId   String         @map("registration_id")
-  webinarSessionId String         @map("webinar_session_id")
+  id               String              @id @default(cuid())
+  leadId           String              @map("lead_id")
+  registrationId   String              @map("registration_id")
+  webinarSessionId String              @map("webinar_session_id")
   text             String
-  isAnswered       Boolean        @default(false) @map("is_answered")
-  adminNote        String?        @map("admin_note")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
-  lead             Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  registration     Registration   @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  isAnswered       Boolean             @default(false) @map("is_answered")
+  adminNote        String?             @map("admin_note")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  lead             Lead                @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  registration     Registration        @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  webinarSession   WebinarSession      @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
   chatMessage      WebinarChatMessage?
 
   @@index([createdAt])
@@ -292,8 +292,10 @@ model Event {
   registration     Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   webinarSession   WebinarSession? @relation(fields: [webinarSessionId], references: [id], onDelete: SetNull)
 
+  @@index([eventName, createdAt])
   @@index([eventName])
   @@index([createdAt])
+  @@index([eventName, createdAt])
   @@index([registrationId])
   @@map("events")
 }

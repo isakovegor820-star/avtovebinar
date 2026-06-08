@@ -1,4 +1,13 @@
 let CRM_STATUSES = [];
+
+    function showToast(message, isError) {
+      var t = document.createElement('div');
+      t.textContent = message;
+      t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:12px 24px;border-radius:12px;font-size:14px;z-index:10000;transition:opacity .3s;max-width:480px;text-align:center;' + (isError ? 'background:#dc2626;color:#fff' : 'background:#041627;color:#fff');
+      document.body.appendChild(t);
+      setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { t.remove(); }, 300); }, 3000);
+    }
+
     function readCookie(name) {
       const prefix = name + '=';
       const item = document.cookie
@@ -145,7 +154,7 @@ let CRM_STATUSES = [];
       const email = document.getElementById('newUserEmail').value.trim();
       const password = document.getElementById('newUserPassword').value;
       if (!name || !email || !password) {
-        alert('Заполните имя, email и пароль.');
+        showToast('Заполните имя, email и пароль.', true);
         return;
       }
 
@@ -389,7 +398,7 @@ let CRM_STATUSES = [];
               tgUrl ? node('a', { href:tgUrl, target:'_blank', text:'Написать' }) : node('span', { class:'sub', text:'Нет username' }),
               node('button', { class:'ghost', text:'Отправить напоминание', onclick:async () => {
                 await api('/api/admin/registrations/' + id + '/telegram-reminder', { method:'POST', body:JSON.stringify({ text:manualReminderText }) });
-                alert('Напоминание отправлено');
+                showToast('Напоминание отправлено');
               }}),
               node('button', { class:registration.isHot ? 'secondary' : '', text:registration.isHot ? 'Горячий' : 'Пометить горячим', onclick:async () => {
                 await api('/api/admin/registrations/' + id + '/hot', { method:'PATCH', body:JSON.stringify({ isHot:!registration.isHot }) });

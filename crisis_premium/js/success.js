@@ -63,6 +63,11 @@ export async function hydrateSuccessPage() {
     }
     const roomLink = document.getElementById('successRoomLink') || document.querySelector('a[href*="webinar.html"]');
     if (roomLink) roomLink.setAttribute('href', roomHref);
+    const headerRoomLink = document.getElementById('successHeaderRoomLink');
+    if (headerRoomLink) {
+      headerRoomLink.setAttribute('href', roomHref);
+      headerRoomLink.textContent = 'Комната вебинара';
+    }
     if (data.testMode || data.webinar?.testMode) {
       const intro = document.getElementById('successIntroText');
       if (intro) {

@@ -10,15 +10,25 @@ import { bindQuestionForm } from './questions.js';
 import { bindPartnerApplicationForm } from './partner.js';
 import { track } from './analytics.js';
 
-document.addEventListener('DOMContentLoaded', async () => {
+async function init() {
   await exchangeUrlTokenIfPresent().catch(() => {});
-  hydrateCurrentWebinar();
+
+  const isWebinarRoom = window.location.pathname.endsWith('webinar.html');
+  if (!isWebinarRoom) {
+    await hydrateCurrentWebinar();
+  }
+
   hydrateSuccessPage();
-  hydrateWebinarRoom(() => hydrateTimeline());
+  await hydrateWebinarRoom(() => hydrateTimeline());
+
   bindRegistrationForm();
   bindQuestionForm();
   bindPartnerApplicationForm();
   bindTelegramTracking();
   bindRegistrationClicks();
   track('page_view');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  init();
 });

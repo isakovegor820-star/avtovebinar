@@ -13,6 +13,7 @@ import {
   sendTelegramMessageToChat,
 } from './telegram.js';
 import { buildFrontendUrl, createRoomExchangeUrl, getRoomTokenExpiresAt } from './roomLinks.js';
+import { logger } from './logger.js';
 
 type TelegramUpdate = {
   update_id: number;
@@ -122,7 +123,7 @@ function buildSegmentTip(status?: string | null) {
 
 function notifyAdminSafely(task: Promise<unknown>) {
   task.catch(error => {
-    console.error('[ASPБ telegram subscription notify]', error);
+    logger.error({ err: error }, '[ASPБ telegram subscription notify]');
   });
 }
 
@@ -429,7 +430,7 @@ async function pollOnce() {
       try {
         await handleUpdate(update);
       } catch (error) {
-        console.error('[ASPБ telegram bot update]', { updateId: update.update_id, error });
+        logger.error({ err: error, updateId: update.update_id }, '[ASPБ telegram bot update]');
       } finally {
         nextOffset = Math.max(nextOffset, update.update_id + 1);
       }
@@ -444,12 +445,12 @@ export function startParticipantTelegramBot() {
     return null;
   }
 
-  pollOnce().catch(error => console.error('[ASPБ telegram bot]', error));
+  pollOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram bot]'));
   interval = setInterval(() => {
-    pollOnce().catch(error => console.error('[ASPБ telegram bot]', error));
+    pollOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram bot]'));
   }, 3500);
 
-  console.log('[ASPБ telegram bot] participant polling enabled');
+  logger.info('[ASPБ telegram bot] participant polling enabled');
   return interval;
 }
 

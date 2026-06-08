@@ -1,9 +1,16 @@
 import { prisma } from './prisma.js';
 import { env } from './env.js';
 import type { ReminderKind } from './email.js';
-import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
+import {
+  EMAIL_JOB_REMINDER,
+  EMAIL_JOB_REPLAY,
+  enqueueReminderEmail,
+  enqueueReplayEmail,
+  runEmailOutboxJobOnce,
+} from './emailOutbox.js';
 import { sendTelegramMessageToChat, formatMoscowDate } from './telegram.js';
 import { createRoomExchangeUrl, getRoomTokenExpiresAt } from './roomLinks.js';
+import { logger } from './logger.js';
 
 type ReminderCandidate = {
   id: string;
@@ -68,6 +75,44 @@ export function getDueTelegramReminderKind(registration: ReminderCandidate, now 
 
 export function getPostWebinarFollowupDueAt(scheduledAt: Date, durationMinutes = 120) {
   return new Date(scheduledAt.getTime() + durationMinutes * 60 * 1000 + 10 * 60 * 1000);
+}
+
+function moscowDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function addDaysKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return moscowDateKey(new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0)));
+}
+
+export function formatWebinarRelativeDate(scheduledAt: Date, now = new Date()) {
+  const scheduledKey = moscowDateKey(scheduledAt);
+  const todayKey = moscowDateKey(now);
+  if (scheduledKey === todayKey) return 'сегодня';
+  if (scheduledKey === addDaysKey(todayKey, 1)) return 'завтра';
+  return new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    day: '2-digit',
+    month: 'long',
+  }).format(scheduledAt);
+}
+
+function formatWebinarReminderLabel(scheduledAt: Date, now = new Date()) {
+  const day = formatWebinarRelativeDate(scheduledAt, now);
+  const time = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(scheduledAt);
+  return `${day} в ${time} МСК`;
 }
 
 function buildSegmentTip(status?: string | null) {
@@ -213,11 +258,7 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
         continue;
       }
 
-      const label = {
-        '24h': 'завтра',
-        '3h': 'через несколько часов',
-        '30m': 'через 30 минут',
-      }[kind];
+      const label = formatWebinarReminderLabel(registration.webinarSession.scheduledAt, now);
       const roomUrl = await prisma.$transaction(tx =>
         createRoomExchangeUrl(tx, {
           registrationId: registration.id,
@@ -322,6 +363,105 @@ export async function runTelegramFollowupJobOnce(now = new Date()) {
   return { checked: registrations.length, sent };
 }
 
+export async function runReplayFollowupJobOnce(now = new Date()) {
+  const registrations = await prisma.registration.findMany({
+    where: {
+      status: 'registered',
+      roomEnteredAt: null,
+      webinarSession: {
+        replayEnabled: true,
+        scheduledAt: {
+          lte: now,
+          gte: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000),
+        },
+      },
+    },
+    include: {
+      lead: true,
+      webinarSession: true,
+    },
+    take: 100,
+  });
+
+  let checked = 0;
+  let emailQueued = 0;
+  let telegramSent = 0;
+
+  for (const registration of registrations) {
+    checked += 1;
+    const dueAt = getPostWebinarFollowupDueAt(
+      registration.webinarSession.scheduledAt,
+      registration.webinarSession.durationMinutes,
+    );
+    const replayExpiresAt = getRoomTokenExpiresAt(registration.webinarSession);
+    if (now < dueAt || now >= replayExpiresAt) {
+      continue;
+    }
+
+    const existingReplayEmailJob = await prisma.emailOutboxJob.count({
+      where: {
+        registrationId: registration.id,
+        type: EMAIL_JOB_REPLAY,
+      },
+    });
+
+    if (existingReplayEmailJob === 0) {
+      await prisma.$transaction(async tx => {
+        const replayUrl = await createRoomExchangeUrl(tx, {
+          registrationId: registration.id,
+          expiresAt: replayExpiresAt,
+        });
+        const partnerUrl = await createRoomExchangeUrl(tx, {
+          registrationId: registration.id,
+          expiresAt: replayExpiresAt,
+          hash: 'partnerApplication',
+        });
+        await enqueueReplayEmail(tx, {
+          registrationId: registration.id,
+          webinarSessionId: registration.webinarSessionId,
+          toEmail: registration.lead.email,
+          toName: registration.lead.name,
+          scheduledAt: registration.webinarSession.scheduledAt,
+          webinarUrl: replayUrl,
+          partnerUrl,
+        });
+      });
+      emailQueued += 1;
+    }
+
+    if (registration.telegramFollowupSentAt || !registration.lead.telegramChatId) {
+      continue;
+    }
+
+    const replayUrl = await prisma.$transaction(tx =>
+      createRoomExchangeUrl(tx, {
+        registrationId: registration.id,
+        expiresAt: replayExpiresAt,
+      }),
+    );
+    await sendTelegramMessageToChat(
+      registration.lead.telegramChatId,
+      [
+        'Запись вебинара АСПБ уже доступна.',
+        '',
+        'Если не получилось подключиться к эфиру, можно посмотреть его в удобное время:',
+        replayUrl,
+        '',
+        `Доступ к записи открыт до ${formatMoscowDate(replayExpiresAt)} МСК.`,
+        'В конце записи есть блок про партнерскую модель и следующий шаг для передачи клиентов на диагностику.',
+      ].join('\n'),
+    );
+
+    await prisma.registration.update({
+      where: { id: registration.id },
+      data: { telegramFollowupSentAt: now },
+    });
+    telegramSent += 1;
+  }
+
+  return { checked, emailQueued, telegramSent };
+}
+
 export async function cleanupExpiredRegistrationTokens(now = new Date()) {
   const result = await prisma.registrationToken.deleteMany({
     where: {
@@ -351,7 +491,7 @@ async function tryAcquireAdvisoryLock(): Promise<boolean> {
     `;
     return rows[0]?.locked === true;
   } catch (error) {
-    console.error('[ASPБ reminder lock] advisory lock acquire failed', error);
+    logger.error({ err: error }, '[ASPБ reminder lock] advisory lock acquire failed');
     // Если лок недоступен (например, не Postgres) — не блокируем работу одиночного инстанса.
     return true;
   }
@@ -361,7 +501,7 @@ async function releaseAdvisoryLock() {
   try {
     await prisma.$queryRaw`SELECT pg_advisory_unlock(${REMINDER_ADVISORY_LOCK_KEY})`;
   } catch (error) {
-    console.error('[ASPБ reminder lock] advisory unlock failed', error);
+    logger.error({ err: error }, '[ASPБ reminder lock] advisory unlock failed');
   }
 }
 
@@ -380,11 +520,11 @@ async function runReminderCycle() {
   }
 
   try {
-    await runReminderJobOnce().catch(error => console.error('[ASPБ reminders]', error));
-    await runEmailOutboxJobOnce().catch(error => console.error('[ASPБ email outbox]', error));
-    await runTelegramReminderJobOnce().catch(error => console.error('[ASPБ telegram reminders]', error));
-    await runTelegramFollowupJobOnce().catch(error => console.error('[ASPБ telegram followup]', error));
-    await cleanupExpiredRegistrationTokens().catch(error => console.error('[ASPБ token cleanup]', error));
+    await runReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ reminders]'));
+    await runEmailOutboxJobOnce().catch(error => logger.error({ err: error }, '[ASPБ email outbox]'));
+    await runTelegramReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram reminders]'));
+    await runReplayFollowupJobOnce().catch(error => logger.error({ err: error }, '[ASPБ replay followup]'));
+    await cleanupExpiredRegistrationTokens().catch(error => logger.error({ err: error }, '[ASPБ token cleanup]'));
   } finally {
     await releaseAdvisoryLock();
     reminderCycleRunning = false;
@@ -398,7 +538,7 @@ export function startReminderScheduler() {
 
   const run = () => {
     reminderCyclePromise = runReminderCycle()
-      .catch(error => console.error('[ASPБ reminder cycle]', error))
+      .catch(error => logger.error({ err: error }, '[ASPБ reminder cycle]'))
       .finally(() => {
         reminderCyclePromise = null;
       });

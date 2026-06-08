@@ -7,6 +7,10 @@ import { track, WEBINAR_INSIGHTS } from './analytics.js';
 
 let renderedInsightTimes = new Set();
 
+export function resetInsightTimes() {
+  renderedInsightTimes = new Set();
+}
+
 export function setChatActivity(text) {
   const node = document.getElementById('chatActivity');
   if (node) node.textContent = text;

@@ -1,5 +1,6 @@
 import { env } from './env.js';
 import { withCircuitBreaker, withRetries } from './resilience.js';
+import { logger } from './logger.js';
 
 type TelegramMessageInput = {
   text: string;
@@ -85,12 +86,20 @@ function participantBotToken() {
   return env.TELEGRAM_PARTICIPANT_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN;
 }
 
+function consultantBotToken() {
+  return env.TELEGRAM_CONSULTANT_BOT_TOKEN;
+}
+
 function shouldLogAdminTelegram() {
   return env.TELEGRAM_NOTIFY_MODE === 'log' || !adminBotToken();
 }
 
 function shouldLogParticipantTelegram() {
   return env.TELEGRAM_NOTIFY_MODE === 'log' || !participantBotToken();
+}
+
+function shouldLogConsultantTelegram() {
+  return env.TELEGRAM_NOTIFY_MODE === 'log' || !consultantBotToken();
 }
 
 function maskChatId(value: string) {
@@ -106,12 +115,20 @@ export function participantTelegramApiUrl(method: string) {
   return `https://api.telegram.org/bot${participantBotToken()}/${method}`;
 }
 
+export function consultantTelegramApiUrl(method: string) {
+  return `https://api.telegram.org/bot${consultantBotToken()}/${method}`;
+}
+
 export function hasParticipantTelegramBot() {
   return Boolean(participantBotToken());
 }
 
 export function hasAdminTelegramBot() {
   return Boolean(adminBotToken());
+}
+
+export function hasConsultantTelegramBot() {
+  return Boolean(consultantBotToken());
 }
 
 export function getConfiguredAdminChatId() {
@@ -133,6 +150,10 @@ export function isParticipantBotPollingEnabled() {
   );
 }
 
+export function isConsultantBotPollingEnabled() {
+  return env.TELEGRAM_CONSULTANT_BOT_POLLING === 'on';
+}
+
 export function formatMoscowDate(date: Date) {
   return new Intl.DateTimeFormat('ru-RU', {
     timeZone: 'Europe/Moscow',
@@ -149,14 +170,14 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
   const text = input.text.slice(0, 3900);
 
   if (shouldLogAdminTelegram()) {
-    console.log('[ASPБ telegram log]', { textLength: text.length, hasReplyMarkup: Boolean(input.replyMarkup) });
+    logger.info({ textLength: text.length, hasReplyMarkup: Boolean(input.replyMarkup) }, '[ASPБ telegram log]');
     return { sent: false, mode: 'log' as const };
   }
 
   const chatId = getConfiguredAdminChatId();
   if (!chatId) {
     if (!warnedAboutMissingChat) {
-      console.warn('[ASPБ telegram] TELEGRAM_ADMIN_CHAT_ID is empty. Admin notifications are disabled.');
+      logger.warn('[ASPБ telegram] TELEGRAM_ADMIN_CHAT_ID is empty. Admin notifications are disabled.');
       warnedAboutMissingChat = true;
     }
     return { sent: false, mode: 'send' as const, reason: 'missing_chat_id' as const };
@@ -197,7 +218,7 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
   const message = text.slice(0, 3900);
 
   if (shouldLogParticipantTelegram()) {
-    console.log('[ASPБ telegram participant log]', { chatId: maskChatId(chatId), textLength: message.length });
+    logger.info({ chatId: maskChatId(chatId), textLength: message.length }, '[ASPБ telegram participant log]');
     return { sent: false, mode: 'log' as const };
   }
 
@@ -208,6 +229,44 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
         'telegram.participant.sendMessage',
         () =>
           fetch(participantTelegramApiUrl('sendMessage'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: message,
+              disable_web_page_preview: true,
+            }),
+          }),
+        { attempts: 3, baseMs: 1000, maxMs: 15_000, retryAfterMs: getTelegramRetryAfterMs },
+      ),
+    { failureThreshold: 3, cooldownMs: 60_000 },
+  );
+
+  const payload = (await response.json()) as TelegramApiPayload;
+  if (!payload.ok) {
+    throw Object.assign(new Error(payload.description || 'Telegram sendMessage failed'), {
+      retryAfterSeconds: payload.parameters?.retry_after,
+    });
+  }
+
+  return { sent: true, mode: 'send' as const };
+}
+
+export async function sendConsultantTelegramMessageToChat(chatId: string, text: string) {
+  const message = text.slice(0, 3900);
+
+  if (shouldLogConsultantTelegram()) {
+    logger.info({ chatId: maskChatId(chatId), textLength: message.length }, '[ASPБ telegram consultant log]');
+    return { sent: false, mode: 'log' as const };
+  }
+
+  const response = await withCircuitBreaker(
+    'telegram.consultant',
+    () =>
+      withRetries(
+        'telegram.consultant.sendMessage',
+        () =>
+          fetch(consultantTelegramApiUrl('sendMessage'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -420,6 +479,9 @@ export async function checkTelegramConnectivity() {
   }
   if (hasParticipantTelegramBot()) {
     checks.push(withCircuitBreaker('telegram.participant', () => fetch(participantTelegramApiUrl('getMe'))));
+  }
+  if (hasConsultantTelegramBot()) {
+    checks.push(withCircuitBreaker('telegram.consultant', () => fetch(consultantTelegramApiUrl('getMe'))));
   }
 
   const responses = await Promise.all(checks);

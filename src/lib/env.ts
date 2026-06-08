@@ -28,6 +28,9 @@ const envSchema = z.object({
   TELEGRAM_PARTICIPANT_BOT_TOKEN: z.string().optional(),
   TELEGRAM_PARTICIPANT_BOT_USERNAME: z.string().optional(),
   TELEGRAM_PARTICIPANT_BOT_POLLING: z.enum(['on', 'off']),
+  TELEGRAM_CONSULTANT_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_CONSULTANT_BOT_USERNAME: z.string().optional(),
+  TELEGRAM_CONSULTANT_BOT_POLLING: z.enum(['on', 'off']),
   TELEGRAM_NEWS_BROADCAST: z.enum(['on', 'off']),
   TELEGRAM_NEWS_TIMES: z.string().min(1),
   TELEGRAM_NEWS_RSS_URLS: z.string().min(1),
@@ -35,6 +38,7 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().min(1),
   WORKER_ROLE: z.enum(['api', 'webinar', 'all']).optional(),
   TRUST_PROXY: z.enum(['false', 'true', '1', 'loopback']).default('false'),
+  ADMIN_DEV_BYPASS: z.enum(['false', 'true']).default('false'),
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
@@ -120,6 +124,7 @@ function runtimeEnv() {
     TELEGRAM_NOTIFY_MODE: process.env.TELEGRAM_NOTIFY_MODE ?? 'log',
     TELEGRAM_BOT_POLLING: process.env.TELEGRAM_BOT_POLLING ?? 'off',
     TELEGRAM_PARTICIPANT_BOT_POLLING: process.env.TELEGRAM_PARTICIPANT_BOT_POLLING ?? 'off',
+    TELEGRAM_CONSULTANT_BOT_POLLING: process.env.TELEGRAM_CONSULTANT_BOT_POLLING ?? 'off',
     TELEGRAM_NEWS_BROADCAST: process.env.TELEGRAM_NEWS_BROADCAST ?? 'off',
     TELEGRAM_NEWS_TIMES: process.env.TELEGRAM_NEWS_TIMES ?? '09:00,11:30,14:00,16:30,19:00',
     TELEGRAM_NEWS_RSS_URLS:

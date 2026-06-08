@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { env } from './env.js';
 import { prisma } from './prisma.js';
 import { sendTelegramMessageToChat } from './telegram.js';
+import { logger } from './logger.js';
 
 type FeedItem = {
   title: string;
@@ -286,7 +287,7 @@ export async function runTelegramNewsJobOnce(now = new Date()) {
       sent += 1;
     } catch (error) {
       failed += 1;
-      console.error('[ASPБ telegram news recipient]', error);
+      logger.error({ err: error }, '[ASPБ telegram news recipient]');
     }
   }
 
@@ -326,17 +327,17 @@ export function startTelegramNewsScheduler() {
 
   telegramNewsInterval = setInterval(() => {
     runTelegramNewsJobOnce().catch(error => {
-      console.error('[ASPБ telegram news]', error);
+      logger.error({ err: error }, '[ASPБ telegram news]');
     });
   }, 60 * 1000);
 
   telegramNewsStartupTimer = setTimeout(() => {
     runTelegramNewsJobOnce().catch(error => {
-      console.error('[ASPБ telegram news]', error);
+      logger.error({ err: error }, '[ASPБ telegram news]');
     });
   }, 8000);
 
-  console.log('[ASPБ telegram news] broadcast scheduler enabled');
+  logger.info('[ASPБ telegram news] broadcast scheduler enabled');
   return telegramNewsInterval;
 }
 

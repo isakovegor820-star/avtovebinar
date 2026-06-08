@@ -14,10 +14,6 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
     where: { scheduledAt },
     update: {
       status,
-      videoUrl: WEBINAR_VIDEO_PATH,
-      roomOpenBeforeMinutes: 15,
-      replayAvailableHours: WEBINAR_REPLAY_HOURS,
-      replayEnabled: true,
     },
     create: {
       title: WEBINAR_TITLE,

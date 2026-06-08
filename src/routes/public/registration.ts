@@ -133,7 +133,6 @@ registrationRouter.post(
       await tx.registrationToken.deleteMany({
         where: {
           registrationId: registration.id,
-          purpose: ROOM_SESSION_TOKEN_PURPOSE,
         },
       });
 

@@ -25,6 +25,7 @@ import {
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
 } from '../../lib/roomLinks.js';
+import { logger } from '../../lib/logger.js';
 
 export { buildFrontendUrl, getRoomTokenExpiresAt, ROOM_EXCHANGE_TOKEN_PURPOSE, ROOM_SESSION_TOKEN_PURPOSE };
 
@@ -175,7 +176,7 @@ export function buildAccessPayload(
 
 export function notifySafely(task: Promise<unknown>) {
   task.catch(error => {
-    console.error('[ASPБ telegram notify]', error);
+    logger.error({ err: error }, '[ASPБ telegram notify]');
   });
 }
 

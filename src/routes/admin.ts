@@ -45,7 +45,11 @@ async function requireAdmin(req: AdminRequest, _res: any, next: any) {
     return next(new AppError(401, 'Admin authorization required'));
   }
 
-  if (!session.adminId && env.NODE_ENV === 'production') {
+  if (!session.adminId) {
+    if (env.NODE_ENV === 'development' && env.ADMIN_DEV_BYPASS === 'true') {
+      req.admin = { id: 'dev', login: env.ADMIN_LOGIN, email: null, role: 'owner' };
+      return next();
+    }
     return next(new AppError(401, 'Admin authorization required'));
   }
 

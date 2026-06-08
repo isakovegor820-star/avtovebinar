@@ -4,60 +4,31 @@
  */
 (function() {
   var API = window.location.protocol === 'file:' ? 'http://127.0.0.1:5174/api' : '/api';
-  if (!document.getElementById('liveChatMessages')) return;
+  var chatContainer = document.getElementById('liveChatMessages');
+  var chatPanel = document.getElementById('webinarChatPanel');
+  var input = document.getElementById('questionInput');
+  var submit = document.getElementById('questionSubmit');
+  var activity = document.getElementById('chatActivity');
+  var onlineLabel = document.getElementById('chatOnlineLabel');
+  if (!chatContainer) return;
 
   var renderedMessages = new Set();
   var isHiddenAfterEnd = false;
-  var basePollInterval = 2500;
-  var hiddenTabPollInterval = 15000;
-  var maxPollInterval = 30000;
-  var pollInterval = basePollInterval;
-  var pollTimer = null;
-  var pollingStopped = false;
   var COLORS = ['#1e40af', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#4338ca'];
 
   function chatUrl() {
     return API + '/webinar/chat/session/current';
   }
 
-  function getEffectivePollInterval() {
-    return document.visibilityState === 'hidden' ? hiddenTabPollInterval : pollInterval;
-  }
-
-  function scheduleNextPoll(delay) {
-    if (pollTimer) window.clearTimeout(pollTimer);
-    if (pollingStopped) return;
-    pollTimer = window.setTimeout(refreshChat, delay);
-  }
-
-  function stopChatPolling() {
-    pollingStopped = true;
-    if (pollTimer) {
-      window.clearTimeout(pollTimer);
-      pollTimer = null;
-    }
-  }
-
-  function resumeChatPolling() {
-    if (!pollingStopped) return;
-    pollingStopped = false;
-    pollInterval = basePollInterval;
-    scheduleNextPoll(0);
-  }
-
   function setActivity(text) {
-    var activity = document.getElementById('chatActivity');
     if (activity) activity.textContent = text;
   }
 
   function setOnlineLabel(text) {
-    var onlineLabel = document.getElementById('chatOnlineLabel');
     if (onlineLabel) onlineLabel.textContent = text;
   }
 
   function setInputState(disabled, placeholder) {
-    var input = document.getElementById('questionInput');
-    var submit = document.getElementById('questionSubmit');
     if (input) {
       input.disabled = disabled;
       input.placeholder = placeholder || 'Задайте вопрос...';
@@ -95,8 +66,6 @@
   }
 
   function addMessage(msg) {
-    var chatContainer = document.getElementById('liveChatMessages');
-    if (!chatContainer) return;
     if (!msg || renderedMessages.has(msg.id)) return;
     renderedMessages.add(msg.id);
 
@@ -170,7 +139,6 @@
   }
 
   function renderChatState(data) {
-    var chatPanel = document.getElementById('webinarChatPanel');
     var chatStatus = data.liveState && data.liveState.chatStatus;
     var demoLive = data.testMode === true;
 
@@ -206,7 +174,6 @@
       var data = await response.json().catch(function() { return {}; });
       if (!response.ok || !data.ok) throw new Error(data.error || 'Ошибка загрузки чата');
 
-      pollInterval = basePollInterval;
       renderChatState(data);
       if (Array.isArray(data.messages)) {
         var videoPos = window.__aspbVideoPosition || 0;
@@ -218,41 +185,64 @@
           addMessage(msg);
         });
       }
-
-      var chatStatus = data.liveState && data.liveState.chatStatus;
-      if (!data.testMode && (chatStatus === 'ended' || data.accessStatus === 'replay' || data.accessStatus === 'closed')) {
-        stopChatPolling();
-        return;
-      }
-      scheduleNextPoll(getEffectivePollInterval());
     } catch {
-      if (window.__ASPB_WAITING_ROOM_CHAT__) {
-        setInputState(false, 'Задайте вопрос...');
-        setActivity('Чат открыт, можно писать вопрос');
-        setOnlineLabel('чат открыт');
-      } else {
+      setActivity('Чат временно недоступен, переподключаемся...');
+    }
+  }
+
+  window.__liveChatRefresh = refreshChat;
+  window.__liveChatAddMessage = addMessage;
+
+  // --- smart polling: backoff on errors, pause when tab hidden ---
+  var chatTimer = null;
+  var chatPollInterval = 2500;
+  var CHAT_POLL_MIN = 2500;
+  var CHAT_POLL_MAX = 30000;
+
+  function scheduleNextChatRefresh() {
+    if (chatTimer) clearTimeout(chatTimer);
+    if (document.visibilityState === 'hidden') {
+      chatTimer = null;
+      return;
+    }
+    chatTimer = setTimeout(async function() {
+      var ok = false;
+      try {
+        var response = await fetch(chatUrl(), { credentials: 'same-origin' });
+        var data = await response.json().catch(function() { return {}; });
+        if (!response.ok || !data.ok) throw new Error(data.error || 'Ошибка загрузки чата');
+        renderChatState(data);
+        if (Array.isArray(data.messages)) {
+          var videoPos = window.__aspbVideoPosition || 0;
+          var isTestMode = data.testMode === true;
+          data.messages.forEach(function(msg) {
+            if (isTestMode && typeof msg.offsetSeconds === 'number' && msg.isSynthetic) {
+              if (msg.offsetSeconds > videoPos + 2) return;
+            }
+            addMessage(msg);
+          });
+        }
+        ok = true;
+      } catch {
         setActivity('Чат временно недоступен, переподключаемся...');
       }
-      pollInterval = Math.min(maxPollInterval, pollInterval * 2);
-      scheduleNextPoll(getEffectivePollInterval());
-    }
+      chatPollInterval = ok
+        ? CHAT_POLL_MIN
+        : Math.min(chatPollInterval * 1.5, CHAT_POLL_MAX);
+      scheduleNextChatRefresh();
+    }, chatPollInterval);
   }
 
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'visible') {
-      if (!pollingStopped) {
-        pollInterval = basePollInterval;
-        refreshChat();
-      }
-      return;
+      chatPollInterval = CHAT_POLL_MIN;
+      scheduleNextChatRefresh();
+    } else if (chatTimer) {
+      clearTimeout(chatTimer);
+      chatTimer = null;
     }
-    scheduleNextPoll(getEffectivePollInterval());
   });
 
-  window.__liveChatRefresh = refreshChat;
-  window.__liveChatAddMessage = addMessage;
-  window.__liveChatStopPolling = stopChatPolling;
-  window.__liveChatResumePolling = resumeChatPolling;
-
   refreshChat();
+  scheduleNextChatRefresh();
 })();

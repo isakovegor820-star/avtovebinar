@@ -3,32 +3,29 @@
  */
 
 import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js';
-import { hydrateTimeline } from './video.js?v=simple-chat-1';
+import { hydrateTimeline } from './video.js';
 import { hydrateSuccessPage } from './success.js';
 import { bindRegistrationForm, bindRegistrationClicks, bindTelegramTracking, exchangeUrlTokenIfPresent } from './registration.js';
 import { bindQuestionForm } from './questions.js';
 import { bindPartnerApplicationForm } from './partner.js';
 import { track } from './analytics.js';
 
-async function init() {
+document.addEventListener('DOMContentLoaded', async () => {
   await exchangeUrlTokenIfPresent().catch(() => {});
 
-  const isWebinarRoom = window.location.pathname.endsWith('webinar.html');
-  if (!isWebinarRoom) {
-    await hydrateCurrentWebinar();
-  }
-
+  // hydrateCurrentWebinar sets serverTimeOffset needed by other modules
+  await hydrateCurrentWebinar().catch(() => {});
   hydrateSuccessPage();
-  await hydrateWebinarRoom(() => hydrateTimeline());
 
+  // hydrateWebinarRoom may render locked/waiting overlay and return early;
+  // on success it calls hydrateTimeline which starts the video player
+  await hydrateWebinarRoom(() => hydrateTimeline()).catch(() => {});
+
+  // Bind UI handlers after async state is fully resolved
   bindRegistrationForm();
   bindQuestionForm();
   bindPartnerApplicationForm();
   bindTelegramTracking();
   bindRegistrationClicks();
   track('page_view');
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  init();
 });

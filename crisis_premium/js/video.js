@@ -5,47 +5,18 @@
 import { state } from './state.js';
 import { getJson, formatTimelineTime } from './utils.js';
 import { timelinePath } from './registration.js';
-import { updateWebinarInsights, setChatActivity, resetWebinarInsights } from './questions.js';
+import { updateWebinarInsights, setChatActivity } from './questions.js';
 
-let viewerIntervalId = null;
-let liveControlsIntervalId = null;
-let countdownIntervalId = null;
-let keydownHandler = null;
-let visibilityChangeHandler = null;
-let fullscreenChangeHandler = null;
+/* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
+let _viewerInterval = null;
+let _liveControlsInterval = null;
+let _keydownHandler = null;
+let _visibilityHandler = null;
+let _fullscreenHandler = null;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
-
-export function cleanupVideoPlayer() {
-  if (viewerIntervalId) {
-    window.clearInterval(viewerIntervalId);
-    viewerIntervalId = null;
-  }
-  if (liveControlsIntervalId) {
-    window.clearInterval(liveControlsIntervalId);
-    liveControlsIntervalId = null;
-  }
-  if (countdownIntervalId) {
-    window.clearInterval(countdownIntervalId);
-    countdownIntervalId = null;
-  }
-  if (keydownHandler) {
-    document.removeEventListener('keydown', keydownHandler);
-    keydownHandler = null;
-  }
-  if (visibilityChangeHandler) {
-    document.removeEventListener('visibilitychange', visibilityChangeHandler);
-    visibilityChangeHandler = null;
-  }
-  if (fullscreenChangeHandler) {
-    document.removeEventListener('fullscreenchange', fullscreenChangeHandler);
-    fullscreenChangeHandler = null;
-  }
-}
-
-window.__aspbCleanupVideo = cleanupVideoPlayer;
 
 function toSafeHref(value) {
   if (!value) return null;
@@ -119,9 +90,6 @@ function activateTimelineEvent(seconds, events) {
 }
 
 export async function hydrateTimeline() {
-  cleanupVideoPlayer();
-  resetWebinarInsights();
-
   const container = document.getElementById('videoPlayerContainer');
   const video = document.getElementById('webinarVideo');
   const fallback = document.getElementById('videoFallback');
@@ -156,6 +124,13 @@ export async function hydrateTimeline() {
   }
 
   if (!active || !video) return;
+
+  // --- cleanup previous intervals and document-level listeners (prevents leaks on re-init) ---
+  if (_viewerInterval) { clearInterval(_viewerInterval); _viewerInterval = null; }
+  if (_liveControlsInterval) { clearInterval(_liveControlsInterval); _liveControlsInterval = null; }
+  if (_keydownHandler) { document.removeEventListener('keydown', _keydownHandler); _keydownHandler = null; }
+  if (_visibilityHandler) { document.removeEventListener('visibilitychange', _visibilityHandler); _visibilityHandler = null; }
+  if (_fullscreenHandler) { document.removeEventListener('fullscreenchange', _fullscreenHandler); _fullscreenHandler = null; }
 
   const data = await getJson(timelinePath());
   if (!data.ok) return;
@@ -248,14 +223,13 @@ export async function hydrateTimeline() {
         if (countdownMinutes) countdownMinutes.textContent = String(m).padStart(2, '0');
         if (countdownSeconds) countdownSeconds.textContent = String(s).padStart(2, '0');
         if (remaining <= 0) {
-          window.clearInterval(countdownIntervalId);
-          countdownIntervalId = null;
+          clearInterval(countdownInterval);
           window.location.reload();
         }
       }
 
       updateCountdown();
-      countdownIntervalId = window.setInterval(updateCountdown, 1000);
+      const countdownInterval = window.setInterval(updateCountdown, 1000);
     }
     // Fallback: force reload if countdown somehow misses the transition
     const reloadDelay = Math.max(1000, Math.min(30000, (webinarConfig.scheduledAt - (Date.now() + state.serverTimeOffset)) + 1000));
@@ -316,7 +290,7 @@ export async function hydrateTimeline() {
     if (isTestMode && seekContainer) {
       seekContainer.classList.remove('hidden');
       seekContainer.style.cursor = 'pointer';
-      seekContainer.style.pointerEvents = '';
+      seekContainer.style.pointerEvents = 'auto';
       seekContainer.style.background = 'rgba(239, 68, 68, 0.92)';
       seekContainer.style.boxShadow = '0 0 22px rgba(239,68,68,0.45), inset 0 0 0 1px rgba(255,255,255,0.2)';
       if (seekAvailable) seekAvailable.classList.add('hidden');
@@ -333,7 +307,7 @@ export async function hydrateTimeline() {
     if (viewerCountValue) viewerCountValue.textContent = String(viewers);
     setChatActivity('Чат идет в live-режиме');
 
-    viewerIntervalId = window.setInterval(() => {
+    _viewerInterval = setInterval(() => {
       const change = Math.floor(Math.random() * 7) - 3;
       viewers = Math.max(130, Math.min(190, viewers + change));
       if (viewerCountValue) viewerCountValue.textContent = String(viewers);
@@ -455,32 +429,6 @@ export async function hydrateTimeline() {
     if (seekProgress) seekProgress.style.width = watchPercent + '%';
     if (seekThumb) seekThumb.style.left = watchPercent + '%';
     if (liveEdgeMarker) liveEdgeMarker.style.left = '100%';
-  }
-
-  function getLiveDvrSnapshot() {
-    const livePosition = getLivePosition();
-    return {
-      livePosition,
-      viewerPosition: Number(video.currentTime || 0),
-      behindLive: livePosition - Number(video.currentTime || 0) > liveToleranceSeconds,
-    };
-  }
-
-  if (isLiveVisual && window.__ASPB_ENABLE_TEST_HOOKS__) {
-    window.__ASPB_LIVE_DVR_TEST__ = {
-      snapshot: getLiveDvrSnapshot,
-      pauseAtCurrentPosition() {
-        pausedFromLive = isNearLive() && !manualBehindLive;
-        video.pause();
-        updateLiveControls();
-        return getLiveDvrSnapshot();
-      },
-      resumeToLive() {
-        seekToLive();
-        updateLiveControls();
-        return getLiveDvrSnapshot();
-      },
-    };
   }
 
   video.addEventListener('timeupdate', () => {
@@ -617,16 +565,16 @@ export async function hydrateTimeline() {
     });
   }
 
-  keydownHandler = (e) => {
+  _keydownHandler = (e) => {
     if (e.code === 'Space') {
       if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
       e.preventDefault();
       togglePlayState();
     }
   };
-  document.addEventListener('keydown', keydownHandler);
+  document.addEventListener('keydown', _keydownHandler);
 
-  visibilityChangeHandler = () => {
+  _visibilityHandler = () => {
     if (document.visibilityState === 'visible' && isLiveVisual) {
       if (!manualBehindLive) {
         seekToLive();
@@ -634,10 +582,10 @@ export async function hydrateTimeline() {
       }
     }
   };
-  document.addEventListener('visibilitychange', visibilityChangeHandler);
+  document.addEventListener('visibilitychange', _visibilityHandler);
 
   if (isLiveVisual) {
-    liveControlsIntervalId = window.setInterval(updateLiveControls, 1000);
+    _liveControlsInterval = window.setInterval(updateLiveControls, 1000);
   }
 
   if (playPauseBtn) {
@@ -703,7 +651,7 @@ export async function hydrateTimeline() {
       }
     });
 
-    fullscreenChangeHandler = () => {
+    _fullscreenHandler = () => {
       if (document.fullscreenElement === container) {
         fullscreenBtn.querySelector('span').textContent = 'fullscreen_exit';
         container.classList.add('p-0');
@@ -712,22 +660,16 @@ export async function hydrateTimeline() {
         container.classList.remove('p-0');
       }
     };
-    document.addEventListener('fullscreenchange', fullscreenChangeHandler);
+    document.addEventListener('fullscreenchange', _fullscreenHandler);
   }
 
   if (seekContainer) {
     seekContainer.addEventListener('click', (e) => {
+      // Guard: no-op in test mode (seekbar is visual-only)
+      if (isTestMode) return;
       const rect = seekContainer.getBoundingClientRect();
       const pos = clamp((e.clientX - rect.left) / rect.width, 0, 1);
       if (videoDuration) {
-        if (isTestMode) {
-          const targetTime = pos * videoDuration;
-          video.currentTime = targetTime;
-          window.__aspbVideoPosition = targetTime;
-          video.play().catch(() => {});
-          return;
-        }
-
         const livePosition = getLivePosition();
         const requestedTime = isLive ? pos * Math.max(1, livePosition) : pos * videoDuration;
         const targetTime = isLive ? Math.min(requestedTime, livePosition) : requestedTime;

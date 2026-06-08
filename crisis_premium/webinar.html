@@ -3,14 +3,8 @@
 <html class="light" lang="ru"><head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Вебинарная комната | АСПБ</title>
-<meta name="description" content="Персональная вебинарная комната АСПБ для зарегистрированных участников."/>
 <meta name="robots" content="noindex, nofollow"/>
-<meta property="og:title" content="Вебинарная комната АСПБ"/>
-<meta property="og:description" content="Персональный доступ к вебинару АСПБ."/>
-<meta property="og:image" content="/crisis_premium/assets/og-image.png"/>
-<meta property="og:type" content="website"/>
-<link rel="canonical" href="/crisis_premium/webinar.html"/>
+<title>Вебинарная комната | АСПБ</title>
 <link rel="stylesheet" href="css/styles.css"/>
 <link href="webinar.css" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
@@ -90,13 +84,6 @@
     </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
-<noscript>
-  <div style="padding:2rem;text-align:center;background:#fef3c7;color:#92400e">
-    Для регистрации и просмотра вебинара необходим включённый JavaScript.
-    Пожалуйста, включите JavaScript в настройках браузера.
-  </div>
-</noscript>
-<div id="roomStateOverlay" class="hidden fixed inset-0 z-[1000] bg-background"></div>
 <!-- TopNavBar -->
 <header class="bg-background/90 backdrop-blur-md shadow-sm docked full-width top-0 sticky z-50">
 <div class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
@@ -343,8 +330,8 @@
 <p class="text-body-md text-primary-fixed-dim mb-6">Расскажите о своем потоке клиентов. Менеджер АСПБ уточнит формат сотрудничества и условия договора.</p>
 <form class="space-y-3" id="partnerApplicationForm">
 <input class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="sphere" placeholder="Ваша сфера: юрпрактика, банкротство, налоги, консалтинг" required/>
-<input class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="city" placeholder="Город"/>
-<select class="w-full rounded-xl border-white/20 bg-white/10 text-white focus:border-primary-fixed-dim focus:ring-primary-fixed-dim [&>option]:bg-white [&>option]:text-primary" name="clientFlow" required>
+<input class="w-full rounded-xl border-white/20 bg-white/10 text-white placeholder:text-white/60 focus:border-primary-fixed-dim focus:ring-primary-fixed-dim" name="city" placeholder="Город" required/>
+<select class="w-full rounded-xl border-white/20 bg-white/10 text-white focus:border-primary-fixed-dim focus:ring-primary-fixed-dim [&>option]:bg-white [&>option]:text-primary" name="clientFlow">
 <option value="">Поток проблемных клиентов</option>
 <option>1-2 клиента в месяц</option>
 <option>3-5 клиентов в месяц</option>

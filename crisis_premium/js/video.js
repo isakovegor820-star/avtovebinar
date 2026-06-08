@@ -314,8 +314,8 @@ export async function hydrateTimeline() {
     }
     if (isTestMode && seekContainer) {
       seekContainer.classList.remove('hidden');
-      seekContainer.style.cursor = 'default';
-      seekContainer.style.pointerEvents = 'none';
+      seekContainer.style.cursor = 'pointer';
+      seekContainer.style.pointerEvents = '';
       seekContainer.style.background = 'rgba(239, 68, 68, 0.92)';
       seekContainer.style.boxShadow = '0 0 22px rgba(239,68,68,0.45), inset 0 0 0 1px rgba(255,255,255,0.2)';
       if (seekAvailable) seekAvailable.classList.add('hidden');
@@ -716,10 +716,17 @@ export async function hydrateTimeline() {
 
   if (seekContainer) {
     seekContainer.addEventListener('click', (e) => {
-      if (isTestMode) return;
       const rect = seekContainer.getBoundingClientRect();
       const pos = clamp((e.clientX - rect.left) / rect.width, 0, 1);
       if (videoDuration) {
+        if (isTestMode) {
+          const targetTime = pos * videoDuration;
+          video.currentTime = targetTime;
+          window.__aspbVideoPosition = targetTime;
+          video.play().catch(() => {});
+          return;
+        }
+
         const livePosition = getLivePosition();
         const requestedTime = isLive ? pos * Math.max(1, livePosition) : pos * videoDuration;
         const targetTime = isLive ? Math.min(requestedTime, livePosition) : requestedTime;

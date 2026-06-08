@@ -292,6 +292,7 @@ model Event {
   registration     Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   webinarSession   WebinarSession? @relation(fields: [webinarSessionId], references: [id], onDelete: SetNull)
 
+  @@index([eventName, createdAt])
   @@index([eventName])
   @@index([createdAt])
   @@index([eventName, createdAt])

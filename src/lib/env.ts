@@ -10,7 +10,6 @@ const envSchema = z.object({
   ADMIN_LOGIN: z.string().min(1),
   ADMIN_PASSWORD: z.string().min(12),
   ADMIN_COOKIE_SECRET: z.string().min(32),
-  ADMIN_DEV_BYPASS: z.enum(['true', 'false']).optional(),
   IP_HASH_SECRET: z.string().min(32),
   EMAIL_MODE: z.enum(['send', 'log']),
   SMTP_HOST: z.string().optional(),
@@ -29,17 +28,22 @@ const envSchema = z.object({
   TELEGRAM_PARTICIPANT_BOT_TOKEN: z.string().optional(),
   TELEGRAM_PARTICIPANT_BOT_USERNAME: z.string().optional(),
   TELEGRAM_PARTICIPANT_BOT_POLLING: z.enum(['on', 'off']),
+  TELEGRAM_CONSULTANT_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_CONSULTANT_BOT_USERNAME: z.string().optional(),
+  TELEGRAM_CONSULTANT_BOT_POLLING: z.enum(['on', 'off']),
   TELEGRAM_NEWS_BROADCAST: z.enum(['on', 'off']),
   TELEGRAM_NEWS_TIMES: z.string().min(1),
   TELEGRAM_NEWS_RSS_URLS: z.string().min(1),
   WEBINAR_TEST_ROOM_MODE: z.enum(['on', 'off']),
   CORS_ORIGIN: z.string().min(1),
   WORKER_ROLE: z.enum(['api', 'webinar', 'all']).optional(),
+  TRUST_PROXY: z.enum(['false', 'true', '1', 'loopback']).default('false'),
+  ADMIN_DEV_BYPASS: z.enum(['false', 'true']).default('false'),
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
 
-function isStrongPassword(value: string) {
+export function isStrongPassword(value: string) {
   return value.length >= 12 && /[a-zа-я]/i.test(value) && /\d/.test(value);
 }
 
@@ -120,6 +124,7 @@ function runtimeEnv() {
     TELEGRAM_NOTIFY_MODE: process.env.TELEGRAM_NOTIFY_MODE ?? 'log',
     TELEGRAM_BOT_POLLING: process.env.TELEGRAM_BOT_POLLING ?? 'off',
     TELEGRAM_PARTICIPANT_BOT_POLLING: process.env.TELEGRAM_PARTICIPANT_BOT_POLLING ?? 'off',
+    TELEGRAM_CONSULTANT_BOT_POLLING: process.env.TELEGRAM_CONSULTANT_BOT_POLLING ?? 'off',
     TELEGRAM_NEWS_BROADCAST: process.env.TELEGRAM_NEWS_BROADCAST ?? 'off',
     TELEGRAM_NEWS_TIMES: process.env.TELEGRAM_NEWS_TIMES ?? '09:00,11:30,14:00,16:30,19:00',
     TELEGRAM_NEWS_RSS_URLS:
@@ -127,6 +132,7 @@ function runtimeEnv() {
       'https://www.consultant.ru/rss/hotdocs.xml,https://www.consultant.ru/rss/nw.xml,https://www.consultant.ru/rss/db.xml',
     WEBINAR_TEST_ROOM_MODE: process.env.WEBINAR_TEST_ROOM_MODE ?? 'off',
     CORS_ORIGIN: process.env.CORS_ORIGIN ?? 'http://127.0.0.1:5174',
+    TRUST_PROXY: process.env.TRUST_PROXY ?? 'false',
   };
 }
 

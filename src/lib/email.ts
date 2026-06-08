@@ -1,7 +1,7 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { env } from './env.js';
-import { logger } from './logger.js';
 import { withCircuitBreaker, withRetries } from './resilience.js';
+import { logger } from './logger.js';
 
 type BaseEmailInput = {
   to: string;
@@ -59,6 +59,43 @@ function formatScheduled(date: Date) {
   }).format(date);
 }
 
+function moscowDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function addDaysKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return moscowDateKey(new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0)));
+}
+
+function formatRelativeScheduled(date: Date, now = new Date()) {
+  const scheduledKey = moscowDateKey(date);
+  const todayKey = moscowDateKey(now);
+  const day =
+    scheduledKey === todayKey
+      ? 'сегодня'
+      : scheduledKey === addDaysKey(todayKey, 1)
+        ? 'завтра'
+        : new Intl.DateTimeFormat('ru-RU', {
+            timeZone: 'Europe/Moscow',
+            day: '2-digit',
+            month: 'long',
+          }).format(date);
+  const time = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+  return `${day} в ${time} МСК`;
+}
+
 function buildEmailText(input: BaseEmailInput, intro: string) {
   const scheduled = formatScheduled(input.scheduledAt);
 
@@ -90,7 +127,7 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
         telegramConfigured: Boolean(env.TELEGRAM_GROUP_URL),
         partnerUrl: input.partnerUrl ? '[redacted-personal-link]' : null,
       },
-      'ASPБ email log',
+      '[ASPБ email log]',
     );
     return { sent: false, mode: 'log' as const };
   }
@@ -141,9 +178,9 @@ export async function sendReminderEmail(input: BaseEmailInput & { kind: Reminder
   }).format(input.scheduledAt);
 
   const labelByKind: Record<ReminderKind, string> = {
-    '24h': 'до эфира осталось около 24 часов',
-    '3h': 'до эфира осталось около 3 часов',
-    '30m': 'до эфира осталось около 30 минут',
+    '24h': `эфир начнется ${formatRelativeScheduled(input.scheduledAt)}`,
+    '3h': `эфир начнется ${formatRelativeScheduled(input.scheduledAt)}`,
+    '30m': `эфир начнется ${formatRelativeScheduled(input.scheduledAt)}`,
   };
 
   const subject = `Напоминание АСПБ: эфир ${scheduled} МСК`;
@@ -151,6 +188,28 @@ export async function sendReminderEmail(input: BaseEmailInput & { kind: Reminder
     input,
     `${labelByKind[input.kind]}. Сохраните персональную ссылку и зайдите в комнату вовремя.`,
   );
+
+  return deliverEmail({ ...input, subject, text });
+}
+
+export async function sendReplayEmail(input: BaseEmailInput) {
+  const replayExpires = input.partnerUrl
+    ? 'В конце записи есть блок про партнерскую модель и заявка на следующий шаг.'
+    : 'Запись доступна по персональной ссылке.';
+  const subject = 'Запись вебинара АСПБ уже доступна';
+  const text = [
+    `${input.name}, запись вебинара АСПБ уже доступна.`,
+    '',
+    'Если не получилось подключиться к эфиру, можно посмотреть его в удобное время:',
+    input.webinarUrl,
+    '',
+    replayExpires,
+    input.partnerUrl ? `Заявка на партнерский договор: ${input.partnerUrl}` : '',
+    '',
+    'АСПБ — Антикризисная служба помощи бизнесу',
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   return deliverEmail({ ...input, subject, text });
 }

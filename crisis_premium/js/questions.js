@@ -7,9 +7,8 @@ import { track, WEBINAR_INSIGHTS } from './analytics.js';
 
 let renderedInsightTimes = new Set();
 
-export function resetWebinarInsights() {
-  renderedInsightTimes.clear();
-  document.querySelectorAll('.webinar-insight-msg').forEach(el => el.remove());
+export function resetInsightTimes() {
+  renderedInsightTimes = new Set();
 }
 
 export function setChatActivity(text) {
@@ -26,10 +25,7 @@ export function updateInsightHeader(currentTime) {
 
 export function updateWebinarInsights(currentTime, isSyncing = false) {
   const list = document.getElementById('questionList');
-  if (!list) {
-    renderedInsightTimes.clear();
-    return;
-  }
+  if (!list) return;
   updateInsightHeader(currentTime);
 
   const visibleItems = WEBINAR_INSIGHTS.filter(item => item.time <= currentTime);
@@ -90,9 +86,6 @@ export function bindQuestionForm() {
   const input = document.getElementById('questionInput');
   const button = document.getElementById('questionSubmit');
   if (!input || !button) return;
-  if (button.dataset.liveChatBound === 'true') return;
-  button.dataset.liveChatBound = 'true';
-  input.dataset.liveChatBound = 'true';
   const errorParent = input.parentElement;
 
   function clearQuestionError() {
@@ -111,21 +104,12 @@ export function bindQuestionForm() {
     track('question_submit_attempt', { textLength: text.length });
 
     try {
-      const result = await post('/questions', { text });
+      await post('/questions', { text });
 
       // FIX 6a: трекаем успешную отправку
       track('question_submitted');
 
       input.value = '';
-      if (window.__ASPB_WAITING_ROOM_CHAT__ && window.__liveChatAddMessage) {
-        window.__liveChatAddMessage({
-          id: result.questionId ? `local_${result.questionId}` : `local_${Date.now()}`,
-          kind: 'scripted_user',
-          authorName: 'Вы',
-          authorRole: '',
-          message: text,
-        });
-      }
       if (window.__liveChatRefresh) {
         window.__liveChatRefresh();
       }

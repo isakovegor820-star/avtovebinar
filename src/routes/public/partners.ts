@@ -21,14 +21,25 @@ const questionSchema = z.object({
   text: z.string().trim().min(3).max(2000),
 });
 
-const partnerApplicationSchema = z.object({
-  sphere: z.string().trim().max(160).optional().or(z.literal('')),
-  city: z.string().trim().max(120).optional().or(z.literal('')),
-  clientFlow: z.string().trim().max(160).optional().or(z.literal('')),
-  experience: z.string().trim().max(500).optional().or(z.literal('')),
-  preferredFormat: z.string().trim().max(160).optional().or(z.literal('')),
-  comment: z.string().trim().max(2000).optional().or(z.literal('')),
-});
+const partnerApplicationSchema = z
+  .object({
+    sphere: z.string().trim().max(160).optional().or(z.literal('')),
+    city: z.string().trim().max(120).optional().or(z.literal('')),
+    clientFlow: z.string().trim().max(160).optional().or(z.literal('')),
+    experience: z.string().trim().max(500).optional().or(z.literal('')),
+    preferredFormat: z.string().trim().max(160).optional().or(z.literal('')),
+    comment: z.string().trim().max(2000).optional().or(z.literal('')),
+  })
+  .superRefine((data, ctx) => {
+    const hasAnyValue = Object.values(data).some(value => clean(value));
+    if (!hasAnyValue) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'At least one partner application field is required',
+        path: ['partnerApplication'],
+      });
+    }
+  });
 
 partnersRouter.post(
   '/partner-application',

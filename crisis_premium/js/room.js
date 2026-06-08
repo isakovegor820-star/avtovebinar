@@ -9,6 +9,14 @@ import { bindQuestionForm } from './questions.js';
 
 let countdownInterval = null;
 let countdownRetries = 0;
+const ROOM_STATE_DUPLICATE_IDS = [
+  'webinarChatPanel',
+  'liveChatMessages',
+  'chatActivity',
+  'chatOnlineLabel',
+  'questionInput',
+  'questionSubmit',
+];
 
 function getServerNowMs() {
   return Date.now() + (state.serverTimeOffset || 0);
@@ -103,15 +111,57 @@ export async function hydrateCurrentWebinar() {
   }
 }
 
+function getRoomStateOverlay() {
+  let overlay = document.getElementById('roomStateOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'roomStateOverlay';
+    overlay.className = 'hidden fixed inset-0 z-[1000] bg-background';
+    document.body.prepend(overlay);
+  }
+  return overlay;
+}
+
+export function hideRoomStateOverlay() {
+  const overlay = getRoomStateOverlay();
+  overlay.classList.add('hidden');
+  overlay.textContent = '';
+  restoreBaseRoomIds();
+  window.__ASPB_WAITING_ROOM_CHAT__ = false;
+}
+
+function renderRoomStateOverlay(html) {
+  const overlay = getRoomStateOverlay();
+  suspendBaseRoomIds(overlay);
+  overlay.innerHTML = html;
+  overlay.classList.remove('hidden');
+}
+
+function suspendBaseRoomIds(overlay) {
+  ROOM_STATE_DUPLICATE_IDS.forEach(id => {
+    const node = document.getElementById(id);
+    if (!node || overlay.contains(node)) return;
+    node.dataset.roomStateOriginalId = id;
+    node.removeAttribute('id');
+  });
+}
+
+function restoreBaseRoomIds() {
+  document.querySelectorAll('[data-room-state-original-id]').forEach(node => {
+    node.id = node.dataset.roomStateOriginalId;
+    delete node.dataset.roomStateOriginalId;
+  });
+}
+
 export function renderLockedRoom(message) {
-  document.body.innerHTML = `
+  renderRoomStateOverlay(`
     <main style="min-height:100vh;display:grid;place-items:center;background:#f8f9fa;color:#041627;font-family:Manrope,Arial,sans-serif;padding:24px">
       <section style="max-width:560px;background:#fff;border:1px solid #d2e4fb;border-radius:24px;padding:36px;text-align:center;box-shadow:0 24px 70px rgba(4,22,39,.08)">
         <h1 style="font-size:32px;margin:0 0 12px">Вход в комнату по персональной ссылке</h1>
         <p data-locked-room-message style="font-size:18px;color:#44474c;line-height:1.55"></p>
         <a href="register.html" style="display:inline-flex;margin-top:20px;background:#041627;color:#fff;text-decoration:none;padding:16px 24px;border-radius:14px;font-weight:700">Зарегистрироваться</a>
       </section>
-    </main>`;
+    </main>`);
   document.querySelector('[data-locked-room-message]').textContent = String(message ?? '');
 }
 
@@ -187,7 +237,7 @@ export function renderWaitingRoom(data) {
       ? '<a href="register.html" style="display:inline-flex;margin-top:28px;background:#fff;color:#041627;text-decoration:none;padding:16px 28px;border-radius:14px;font-weight:700;font-size:15px;box-shadow:0 4px 16px rgba(0,0,0,0.1)">Зарегистрироваться заново</a>'
       : '<a href="success.html" style="display:inline-flex;margin-top:28px;background:rgba(255,255,255,0.1);border:1px solid rgba(210,228,251,0.3);color:#d2e4fb;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:600;font-size:14px;backdrop-filter:blur(8px)">Проверить регистрацию</a>';
 
-  document.body.innerHTML = `
+  renderRoomStateOverlay(`
     <main style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#041627;color:#fff;font-family:Manrope,Arial,sans-serif;padding:24px;position:relative;overflow:hidden">
       <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 30%,rgba(56,78,183,0.15),transparent 60%),radial-gradient(ellipse at 80% 70%,rgba(108,52,163,0.1),transparent 50%);pointer-events:none"></div>
       <div style="width:min(100%,1120px);display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px;align-items:center;position:relative;z-index:1">
@@ -203,7 +253,7 @@ export function renderWaitingRoom(data) {
         </section>
         <div id="webinarChatPanel" style="display:flex;justify-content:center">${renderChatPanelHtml()}</div>
       </div>
-    </main>`;
+    </main>`);
   window.__ASPB_WAITING_ROOM_CHAT__ = data.accessStatus === 'waiting' || data.accessStatus === 'pre_live';
   document.querySelector('[data-waiting-room-title]').textContent = title;
   document.querySelector('[data-waiting-room-text]').textContent = text;
@@ -270,6 +320,7 @@ export async function hydrateWebinarRoom(onSuccess) {
       }
 
       // Успех
+      hideRoomStateOverlay();
       const serverTime = new Date(data.serverTime).getTime();
       state.serverTimeOffset = serverTime - Date.now();
 

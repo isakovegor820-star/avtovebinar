@@ -142,10 +142,11 @@ export function buildAccessPayload(
   now: Date,
 ) {
   const effectiveDurationMinutes = getEffectiveVideoDurationMinutes(registration.webinarSession);
-  const scheduledAt =
-    registration.webinarSession.status === 'live'
-      ? registration.webinarSession.scheduledAt
-      : getCurrentOrNextWebinarDate(now, effectiveDurationMinutes);
+  const shouldUseStoredSchedule =
+    registration.webinarSession.status === 'live' || registration.webinarSession.status === 'finished';
+  const scheduledAt = shouldUseStoredSchedule
+    ? registration.webinarSession.scheduledAt
+    : getCurrentOrNextWebinarDate(now, effectiveDurationMinutes);
   const webinarSession = {
     ...registration.webinarSession,
     scheduledAt,

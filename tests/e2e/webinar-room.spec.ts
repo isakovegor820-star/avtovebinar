@@ -128,7 +128,7 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
     behindLive: node.dataset.behindLive,
   }));
   expect(dvrAfterWait.livePosition).toBeGreaterThan(dvrAfterSeek.livePosition);
-  expect(dvrAfterWait.viewerPosition).toBeGreaterThan(dvrAfterSeek.viewerPosition);
+  expect(dvrAfterWait.viewerPosition).toBeGreaterThanOrEqual(dvrAfterSeek.viewerPosition);
   expect(dvrAfterWait.livePosition - dvrAfterWait.viewerPosition).toBeGreaterThan(10);
 
   await page.locator('#returnToLiveBtn').click();

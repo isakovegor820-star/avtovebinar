@@ -784,6 +784,7 @@ export async function hydrateTimeline() {
       const rect = seekContainer.getBoundingClientRect();
       const pos = clamp((e.clientX - rect.left) / rect.width, 0, 1);
       if (videoDuration) {
+        const wasPlaying = !video.paused;
         const livePosition = getLivePosition();
         const requestedTime = isLive ? pos * Math.max(1, livePosition) : pos * videoDuration;
         const targetTime = isLive ? Math.min(requestedTime, livePosition) : requestedTime;
@@ -792,6 +793,9 @@ export async function hydrateTimeline() {
           manualBehindLive = getLivePosition() - targetTime > liveToleranceSeconds;
           pausedFromLive = false;
           updateLiveControls();
+          if (wasPlaying) {
+            video.play().catch(err => console.log('Seek resume failed:', err));
+          }
         } else {
           if (seekProgress) seekProgress.style.width = (targetTime / videoDuration * 100) + '%';
           if (seekThumb) seekThumb.style.left = (targetTime / videoDuration * 100) + '%';

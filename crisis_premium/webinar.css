@@ -68,8 +68,10 @@
 .custom-seek-hover {
   top: 50% !important;
   bottom: auto !important;
-  height: 8px !important;
-  transform: translateY(-50%);
+  height: 5px !important;
+  min-height: 5px !important;
+  max-height: 5px !important;
+  transform: translateY(-50%) !important;
 }
 
 #customSeekBarContainer::before {
@@ -82,13 +84,13 @@
 }
 
 #customSeekBarProgress {
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.38);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.34) !important;
 }
 
 #customSeekBarThumb,
 #customLiveEdgeMarker {
-  width: 14px;
-  height: 14px;
+  width: 12px !important;
+  height: 12px !important;
 }
 
 @media (max-width: 640px) {

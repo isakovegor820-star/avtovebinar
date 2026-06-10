@@ -83,8 +83,16 @@ function stripHtml(value: string) {
     .trim();
 }
 
-function xmlValue(source: string, tag: string) {
-  const match = source.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+const XML_TAG_PATTERNS = {
+  title: /<title[^>]*>([\s\S]*?)<\/title>/i,
+  link: /<link[^>]*>([\s\S]*?)<\/link>/i,
+  guid: /<guid[^>]*>([\s\S]*?)<\/guid>/i,
+  description: /<description[^>]*>([\s\S]*?)<\/description>/i,
+  pubDate: /<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i,
+} as const;
+
+function xmlValue(source: string, tag: keyof typeof XML_TAG_PATTERNS) {
+  const match = source.match(XML_TAG_PATTERNS[tag]);
   return match ? stripHtml(match[1]) : '';
 }
 

@@ -8,17 +8,11 @@ import { getRegistrationState } from './registration.js?v=account-access-4';
 
 let countdownInterval = null;
 let countdownRetries = 0;
+const htmlEscapeNode = document.createElement('span');
 
 function escapeHtml(value) {
-  // Semgrep ignore: naive HTML escaping is intentional here because
-  // this helper only produces safe `<main>/<section>` blocks for server-provided strings
-  // and no user-controlled markup is inserted as HTML.
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+  htmlEscapeNode.textContent = String(value ?? '');
+  return htmlEscapeNode.innerHTML;
 }
 
 function getNextLocalTarget() {

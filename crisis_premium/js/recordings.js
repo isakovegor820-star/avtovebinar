@@ -32,13 +32,11 @@ function setText(id, value) {
   if (node) node.textContent = value;
 }
 
+const htmlEscapeNode = document.createElement('span');
+
 function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+  htmlEscapeNode.textContent = String(value ?? '');
+  return htmlEscapeNode.innerHTML;
 }
 
 function formatAirDate(value) {

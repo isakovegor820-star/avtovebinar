@@ -26,7 +26,7 @@ ENV NODE_ENV=production
 
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --omit=dev \
+RUN npm ci --omit=dev --ignore-scripts \
   && npx prisma generate \
   && npm cache clean --force
 

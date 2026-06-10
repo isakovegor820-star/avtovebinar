@@ -2,7 +2,7 @@
  * registration.js — регистрация, tracking кликов, пути API.
  */
 
-import { clearAccessToken, urlToken } from './state.js';
+import { clearAccessToken, getUrlToken } from './state.js';
 import { post, getJson, utm } from './utils.js?v=account-access-4';
 import { track } from './analytics.js';
 
@@ -49,14 +49,25 @@ export async function redirectRegisteredUserFromRegisterPage() {
 }
 
 export async function exchangeUrlTokenIfPresent() {
+  const urlToken = getUrlToken();
   if (!urlToken) return false;
 
-  await post(`/registration/exchange/${encodeURIComponent(urlToken)}`, {});
+  await post('/registration/exchange', { token: urlToken });
   clearAccessToken();
 
   const cleanUrl = new URL(window.location.href);
   cleanUrl.searchParams.delete('token');
-  window.history.replaceState({}, document.title, `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+  const hash = cleanUrl.hash.replace(/^#/, '');
+  let nextHash = hash && !hash.includes('token=') ? hash : '';
+  if (hash.includes('token=')) {
+    const hashParams = new URLSearchParams(hash);
+    nextHash = hashParams.get('anchor') || '';
+  }
+  window.history.replaceState(
+    {},
+    document.title,
+    `${cleanUrl.pathname}${cleanUrl.search}${nextHash ? `#${nextHash}` : ''}`,
+  );
   document.dispatchEvent(new CustomEvent('aspb:room-token-exchanged'));
   return true;
 }

@@ -35,9 +35,11 @@ import {
   getReplayExpiresAt,
   getSessionStatus,
   getWebinarAccess,
+  WEBINAR_DURATION_MINUTES,
   WEBINAR_REPLAY_HOURS,
   WEBINAR_START_HOUR_MSK,
 } from '../src/lib/time.js';
+import { getClientIp } from '../src/lib/http.js';
 import { CRM_STATUSES, isCrmStatus } from '../src/lib/crm.js';
 import {
   formatWebinarRelativeDate,
@@ -110,14 +112,36 @@ describe('webinar time logic', () => {
 
   it('keeps firstSeen while the assigned webinar replay is still open', () => {
     const firstSeen = '2026-05-21T09:15:00.000Z';
-    const resolved = resolveFirstSeenAt(firstSeen, new Date('2026-05-28T17:59:00.000Z'));
+    const assignedWebinar = getNextWebinarDate(new Date(firstSeen));
+    const beforeReplayExpiry = new Date(
+      getReplayExpiresAt(assignedWebinar, WEBINAR_DURATION_MINUTES).getTime() - 60 * 1000,
+    );
+    const resolved = resolveFirstSeenAt(firstSeen, beforeReplayExpiry);
     expect(resolved.toISOString()).toBe(firstSeen);
   });
 
   it('resets firstSeen after the assigned webinar replay expires', () => {
-    const now = new Date('2026-05-29T08:00:00.000Z');
-    const resolved = resolveFirstSeenAt('2026-05-21T09:15:00.000Z', now);
+    const firstSeen = '2026-05-21T09:15:00.000Z';
+    const assignedWebinar = getNextWebinarDate(new Date(firstSeen));
+    const now = new Date(getReplayExpiresAt(assignedWebinar, WEBINAR_DURATION_MINUTES).getTime() + 1);
+    const resolved = resolveFirstSeenAt(firstSeen, now);
     expect(resolved).toBe(now);
+  });
+});
+
+describe('client IP extraction', () => {
+  it('uses Express req.ip instead of trusting x-forwarded-for directly', () => {
+    const req = {
+      ip: '10.0.0.42',
+      headers: {
+        'x-forwarded-for': '203.0.113.99',
+      },
+      socket: {
+        remoteAddress: '10.0.0.42',
+      },
+    };
+
+    expect(getClientIp(req as any)).toBe('10.0.0.42');
   });
 });
 

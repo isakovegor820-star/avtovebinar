@@ -236,21 +236,15 @@ export async function hydrateTimeline() {
   if (!data.ok) return;
 
   const webinarConfig = state.webinarConfig;
-  const videoDuration = data.video && data.video.durationSeconds ? Number(data.video.durationSeconds) : 568;
   const serverLiveState = data.liveState || webinarConfig?.liveState || null;
+  const videoDuration = data.video && data.video.durationSeconds
+    ? Number(data.video.durationSeconds)
+    : Number(serverLiveState?.durationSeconds || webinarConfig?.videoDurationSeconds || 568);
   if (webinarConfig && serverLiveState) {
     webinarConfig.liveState = serverLiveState;
     webinarConfig.videoDurationSeconds = serverLiveState.durationSeconds || videoDuration;
     webinarConfig.status = webinarConfig.status || serverLiveState.status;
   }
-
-  await initializeVideoSource(video, data.video || {}, fallback);
-  video.addEventListener('error', () => {
-    showVideoFallback(
-      fallback,
-      'Не удалось загрузить видео вебинара. Обновите страницу или попробуйте позже.',
-    );
-  });
 
   const isReplay = webinarConfig && webinarConfig.accessStatus === 'replay';
   const isLive = webinarConfig && webinarConfig.status === 'live' && !isReplay;
@@ -262,6 +256,25 @@ export async function hydrateTimeline() {
     webinarConfig.status === 'scheduled'
   );
   const isEnded = webinarConfig && !isTestMode && !isReplay && (webinarConfig.status === 'finished' || serverLiveState?.isEnded);
+
+  if (isPreLive) {
+    video.pause();
+    video.removeAttribute('src');
+    video.removeAttribute('poster');
+    video.load();
+    if (fallback) {
+      fallback.classList.add('hidden');
+      fallback.classList.remove('flex');
+    }
+  } else {
+    await initializeVideoSource(video, data.video || {}, fallback);
+    video.addEventListener('error', () => {
+      showVideoFallback(
+        fallback,
+        'Не удалось загрузить видео вебинара. Обновите страницу или попробуйте позже.',
+      );
+    });
+  }
 
   const liveBadge = document.getElementById('videoLiveBadge');
   if (liveBadge && webinarConfig) {
@@ -280,8 +293,8 @@ export async function hydrateTimeline() {
     }
   }
   const demoLiveStartedAt = Date.now() + state.serverTimeOffset;
-  window.__ASPB_HIDE_TIMELINE_ACTIONS__ = Boolean(isLiveVisual);
-  if (isLiveVisual && active) active.classList.add('hidden');
+  window.__ASPB_HIDE_TIMELINE_ACTIONS__ = Boolean(isLiveVisual || isPreLive);
+  if ((isLiveVisual || isPreLive) && active) active.classList.add('hidden');
   let broadcastStarted = false;
   let manualBehindLive = false;
   let pausedFromLive = false;
@@ -313,6 +326,7 @@ export async function hydrateTimeline() {
       const countdownHours = document.getElementById('countdownHours');
       const countdownMinutes = document.getElementById('countdownMinutes');
       const countdownSeconds = document.getElementById('countdownSeconds');
+      let countdownInterval = null;
 
       function updateCountdown() {
         const nowServer = Date.now() + state.serverTimeOffset;
@@ -325,13 +339,13 @@ export async function hydrateTimeline() {
         if (countdownMinutes) countdownMinutes.textContent = String(m).padStart(2, '0');
         if (countdownSeconds) countdownSeconds.textContent = String(s).padStart(2, '0');
         if (remaining <= 0) {
-          clearInterval(countdownInterval);
+          if (countdownInterval) clearInterval(countdownInterval);
           window.location.reload();
         }
       }
 
       updateCountdown();
-      const countdownInterval = window.setInterval(updateCountdown, 1000);
+      countdownInterval = window.setInterval(updateCountdown, 1000);
     }
     // Fallback: force reload if countdown somehow misses the transition
     const reloadDelay = Math.max(1000, Math.min(30000, (webinarConfig.scheduledAt - (Date.now() + state.serverTimeOffset)) + 1000));
@@ -407,15 +421,15 @@ export async function hydrateTimeline() {
     if (seekContainer) {
       seekContainer.setAttribute('aria-label', 'Live DVR: можно отмотать назад в уже прошедший эфир');
       seekContainer.dataset.liveMode = isLive ? 'dvr' : 'test';
-      seekContainer.style.background = 'rgba(239, 68, 68, 0.32)';
-      seekContainer.style.boxShadow = 'inset 0 0 0 1px rgba(255,255,255,0.16), 0 0 22px rgba(239,68,68,0.24)';
+      seekContainer.style.background = 'transparent';
+      seekContainer.style.boxShadow = 'none';
     }
     if (isTestMode && seekContainer) {
       seekContainer.classList.remove('hidden');
       seekContainer.style.cursor = 'pointer';
       seekContainer.style.pointerEvents = 'auto';
-      seekContainer.style.background = 'rgba(239, 68, 68, 0.92)';
-      seekContainer.style.boxShadow = '0 0 22px rgba(239,68,68,0.45), inset 0 0 0 1px rgba(255,255,255,0.2)';
+      seekContainer.style.background = 'transparent';
+      seekContainer.style.boxShadow = 'none';
       if (seekAvailable) seekAvailable.classList.add('hidden');
       if (seekProgress) {
         seekProgress.classList.remove('hidden');

@@ -6,7 +6,15 @@
 export const API = window.location.protocol === 'file:'
   ? 'http://127.0.0.1:5174/api' : '/api';
 
-export const urlToken = new URLSearchParams(window.location.search).get('token') || '';
+export function getUrlToken() {
+  const searchToken = new URLSearchParams(window.location.search).get('token');
+  if (searchToken) return searchToken;
+
+  const hash = window.location.hash.replace(/^#/, '');
+  if (!hash.includes('token=')) return '';
+
+  return new URLSearchParams(hash).get('token') || '';
+}
 
 export function clearAccessToken() {
   try {

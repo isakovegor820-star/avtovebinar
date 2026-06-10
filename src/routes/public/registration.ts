@@ -50,6 +50,66 @@ export const registerSchema = z.object({
   ...utmSchema,
 });
 
+const exchangeBodySchema = z.object({
+  token: z.string().min(20),
+});
+
+async function exchangeRegistrationToken(token: string, res: Response) {
+  const registration = await findRegistrationByToken(token);
+
+  if (!registration) {
+    throw new AppError(404, 'Registration not found');
+  }
+
+  const exchangeTokenHash = hashToken(token);
+  const tokenRecord = await prisma.registrationToken.findUnique({
+    where: { tokenHash: exchangeTokenHash },
+  });
+
+  if (!tokenRecord || tokenRecord.purpose === ROOM_SESSION_TOKEN_PURPOSE) {
+    throw new AppError(404, 'Registration not found');
+  }
+
+  const sessionToken = createAccessToken();
+  const sessionTokenHash = hashToken(sessionToken);
+  const tokenExpiresAt = tokenRecord.expiresAt ?? getRoomTokenExpiresAt(registration.webinarSession);
+
+  await prisma.$transaction(async tx => {
+    const claimedToken = await tx.registrationToken.deleteMany({
+      where: {
+        id: tokenRecord.id,
+        tokenHash: exchangeTokenHash,
+        purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
+      },
+    });
+    if (claimedToken.count !== 1) {
+      throw new AppError(404, 'Registration not found');
+    }
+
+    await tx.registrationToken.create({
+      data: {
+        registrationId: registration.id,
+        tokenHash: sessionTokenHash,
+        purpose: ROOM_SESSION_TOKEN_PURPOSE,
+        expiresAt: tokenExpiresAt,
+      },
+    });
+
+    await tx.registration.update({
+      where: { id: registration.id },
+      data: { accessTokenHash: sessionTokenHash },
+    });
+  });
+
+  setRoomTokenCookie(res, sessionToken, tokenExpiresAt);
+  res.json({
+    ok: true,
+    successUrl: buildFrontendUrl('/crisis_premium/success.html'),
+    webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
+    expiresAt: tokenExpiresAt.toISOString(),
+  });
+}
+
 registrationRouter.post(
   '/register',
   asyncHandler(async (req, res) => {
@@ -239,69 +299,19 @@ registrationRouter.post(
 );
 
 registrationRouter.post(
+  '/registration/exchange',
+  asyncHandler(async (req, res) => {
+    const { token } = exchangeBodySchema.parse(req.body);
+    await exchangeRegistrationToken(token, res);
+  }),
+);
+
+registrationRouter.post(
   '/registration/exchange/:token',
   asyncHandler(async (req, res) => {
+    // Legacy endpoint kept temporarily for old email/Telegram links and clients.
     const token = z.string().min(20).parse(req.params.token);
-    const registration = await findRegistrationByToken(token);
-
-    if (!registration) {
-      throw new AppError(404, 'Registration not found');
-    }
-
-    const exchangeTokenHash = hashToken(token);
-    const tokenRecord = await prisma.registrationToken.findUnique({
-      where: { tokenHash: exchangeTokenHash },
-    });
-
-    if (!tokenRecord || tokenRecord.purpose === ROOM_SESSION_TOKEN_PURPOSE) {
-      throw new AppError(404, 'Registration not found');
-    }
-
-    const sessionToken = createAccessToken();
-    const sessionTokenHash = hashToken(sessionToken);
-    const tokenExpiresAt = tokenRecord.expiresAt ?? getRoomTokenExpiresAt(registration.webinarSession);
-
-    await prisma.$transaction(async tx => {
-      const claimedToken = await tx.registrationToken.deleteMany({
-        where: {
-          id: tokenRecord.id,
-          tokenHash: exchangeTokenHash,
-          purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
-        },
-      });
-      if (claimedToken.count !== 1) {
-        throw new AppError(404, 'Registration not found');
-      }
-
-      await tx.registrationToken.deleteMany({
-        where: {
-          registrationId: registration.id,
-          purpose: ROOM_SESSION_TOKEN_PURPOSE,
-        },
-      });
-
-      await tx.registrationToken.create({
-        data: {
-          registrationId: registration.id,
-          tokenHash: sessionTokenHash,
-          purpose: ROOM_SESSION_TOKEN_PURPOSE,
-          expiresAt: tokenExpiresAt,
-        },
-      });
-
-      await tx.registration.update({
-        where: { id: registration.id },
-        data: { accessTokenHash: sessionTokenHash },
-      });
-    });
-
-    setRoomTokenCookie(res, sessionToken, tokenExpiresAt);
-    res.json({
-      ok: true,
-      successUrl: buildFrontendUrl('/crisis_premium/success.html'),
-      webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
-      expiresAt: tokenExpiresAt.toISOString(),
-    });
+    await exchangeRegistrationToken(token, res);
   }),
 );
 

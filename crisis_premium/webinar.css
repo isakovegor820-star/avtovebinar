@@ -57,6 +57,40 @@
   background: rgba(4, 22, 39, 0.38);
 }
 
+#customSeekBarContainer {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+#customSeekBarContainer::before,
+#customSeekBarAvailable,
+#customSeekBarProgress,
+.custom-seek-hover {
+  top: 50% !important;
+  bottom: auto !important;
+  height: 8px !important;
+  transform: translateY(-50%);
+}
+
+#customSeekBarContainer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+#customSeekBarProgress {
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.38);
+}
+
+#customSeekBarThumb,
+#customLiveEdgeMarker {
+  width: 14px;
+  height: 14px;
+}
+
 @media (max-width: 640px) {
   #customPlayerControls {
     padding: 12px;

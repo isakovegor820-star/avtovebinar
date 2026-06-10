@@ -85,9 +85,37 @@ async function sendTimeline(req: Request, res: Response) {
     throw roomAccessError(access.accessStatus);
   }
   const liveState = getWebinarLiveState(now, access.webinarSession, { testMode: access.testMode });
+  const basePayload = {
+    ok: true,
+    serverTime: now.toISOString(),
+    accessStatus: access.accessStatus,
+    webinarStatus: access.webinarStatus,
+    testMode: access.testMode,
+    roomState: getWebinarRoomState(access),
+    countdown: access.countdown,
+    liveState: {
+      scheduledAt: liveState.scheduledAt.toISOString(),
+      durationSeconds: liveState.durationSeconds,
+      liveOffsetSeconds: liveState.liveOffsetSeconds,
+      elapsedSeconds: liveState.elapsedSeconds,
+      isStarted: liveState.isStarted,
+      isEnded: liveState.isEnded,
+      status: liveState.status,
+      chatStatus: liveState.chatStatus,
+    },
+    replayExpiresAt: access.replayExpiresAt.toISOString(),
+    roomOpensAt: access.roomOpensAt.toISOString(),
+  };
+
+  res.setHeader('Cache-Control', 'private, max-age=30');
+  if (!access.canEnterRoom) {
+    res.json(basePayload);
+    return;
+  }
+
   const videoConfig = getWebinarVideoConfig(access.webinarSession);
 
-  const dbEvents = await getTimelineEvents(registration.webinarSessionId, access.webinarSession.videoDurationSeconds);
+  const dbEvents = await getTimelineEvents(access.webinarSession.id, access.webinarSession.videoDurationSeconds);
 
   const hasFreshTimeline =
     dbEvents.length > 0 && dbEvents.every(event => event.offsetSeconds <= access.webinarSession.videoDurationSeconds);
@@ -103,26 +131,8 @@ async function sendTimeline(req: Request, res: Response) {
       }))
     : DEFAULT_TIMELINE_EVENTS;
 
-  res.setHeader('Cache-Control', 'private, max-age=30');
   res.json({
-    ok: true,
-    serverTime: now.toISOString(),
-    accessStatus: access.accessStatus,
-    webinarStatus: access.webinarStatus,
-    testMode: access.testMode,
-    roomState: getWebinarRoomState(access),
-    liveState: {
-      scheduledAt: liveState.scheduledAt.toISOString(),
-      durationSeconds: liveState.durationSeconds,
-      liveOffsetSeconds: liveState.liveOffsetSeconds,
-      elapsedSeconds: liveState.elapsedSeconds,
-      isStarted: liveState.isStarted,
-      isEnded: liveState.isEnded,
-      status: liveState.status,
-      chatStatus: liveState.chatStatus,
-    },
-    replayExpiresAt: access.replayExpiresAt.toISOString(),
-    roomOpensAt: access.roomOpensAt.toISOString(),
+    ...basePayload,
     video: {
       src: videoConfig.src,
       hlsSrc: videoConfig.hlsSrc,
@@ -157,28 +167,35 @@ async function sendChat(req: Request, res: Response) {
   }
 
   const liveState = getWebinarLiveState(now, access.webinarSession, { testMode: access.testMode });
-  const realMessagesCacheKey = `webinar-chat-real:${registration.webinarSessionId}:${Math.floor(now.getTime() / 4_000)}`;
-  let persistedMessages =
-    getCache<Awaited<ReturnType<typeof prisma.webinarChatMessage.findMany>>>(realMessagesCacheKey);
-  if (!persistedMessages) {
-    persistedMessages = await prisma.webinarChatMessage.findMany({
-      where: {
-        webinarSessionId: registration.webinarSessionId,
-        visibleAt: { lte: now },
-      },
-      orderBy: [{ visibleAt: 'asc' }, { createdAt: 'asc' }],
-    });
-    setCache(realMessagesCacheKey, persistedMessages, 4_000);
+  const canExposeChatMessages = access.canEnterRoom || access.testMode || liveState.status === 'finished';
+  let persistedMessages: Awaited<ReturnType<typeof prisma.webinarChatMessage.findMany>> = [];
+  if (canExposeChatMessages) {
+    const realMessagesCacheKey = `webinar-chat-real:${access.webinarSession.id}:${Math.floor(now.getTime() / 4_000)}`;
+    const cachedPersistedMessages =
+      getCache<Awaited<ReturnType<typeof prisma.webinarChatMessage.findMany>>>(realMessagesCacheKey);
+    if (cachedPersistedMessages) {
+      persistedMessages = cachedPersistedMessages;
+    } else {
+      persistedMessages = await prisma.webinarChatMessage.findMany({
+        where: {
+          webinarSessionId: access.webinarSession.id,
+          visibleAt: { lte: now },
+        },
+        orderBy: [{ visibleAt: 'asc' }, { createdAt: 'asc' }],
+      });
+      setCache(realMessagesCacheKey, persistedMessages, 4_000);
+    }
   }
 
   const scriptedMessages =
-    liveState.chatStatus === 'live' || access.testMode || access.accessStatus === 'replay'
+    canExposeChatMessages && (liveState.chatStatus === 'live' || access.testMode || access.accessStatus === 'replay')
       ? getScriptedChatMessagesUntil(
           access.testMode || access.accessStatus === 'replay'
             ? access.webinarSession.videoDurationSeconds
             : liveState.liveOffsetSeconds,
           {
             durationSeconds: access.webinarSession.videoDurationSeconds,
+            validateDuration: false,
           },
         ).map(message => ({
           id: message.id,

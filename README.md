@@ -6,8 +6,8 @@
 
 Доступ в вебинарную комнату cookie-only:
 
-- одноразовый `exchange-token` поддерживается только для первичного обмена через `POST /api/registration/exchange/:token`;
-- письма, reminder и Telegram-ссылки используют одноразовый `webinar.html?token=...` только для восстановления доступа на новом устройстве;
+- одноразовый `exchange-token` поддерживается только для первичного обмена через `POST /api/registration/exchange` с body `{ "token": "..." }`; legacy `POST /api/registration/exchange/:token` временно поддерживается;
+- письма, reminder и Telegram-ссылки используют одноразовый `webinar.html#token=...`; legacy `?token=...` остается рабочим для старых ссылок;
 - backend удаляет exchange-token, выпускает session-token и ставит `HttpOnly` cookie `aspb_room_token`;
 - URL очищается от `token`;
 - дальнейшие запросы комнаты используют только cookie и endpoints `session/current`.
@@ -103,7 +103,8 @@ GET  /api/webinar/current
 GET  /api/webinar/timeline/session/current
 GET  /api/webinar/chat/session/current
 POST /api/register
-POST /api/registration/exchange/:token
+POST /api/registration/exchange
+POST /api/registration/exchange/:token (legacy)
 GET  /api/registration/session/current
 POST /api/events
 POST /api/questions
@@ -183,7 +184,7 @@ Observability: каждый request получает `x-correlation-id`, pino lo
 - Регистрация создает lead/registration и outbox email job.
 - API регистрации успешен при временно недоступном SMTP.
 - Success page открывается без token в URL.
-- Вход из email/Telegram с одноразовым `webinar.html?token=...` выполняет exchange и очищает URL.
+- Вход из email/Telegram с одноразовым `webinar.html#token=...` выполняет exchange и очищает URL.
 - Повторный exchange того же token возвращает отказ.
 - Room state, timeline и chat работают через cookie/session.
 - Live-полоска выглядит как live/DVR без серого хвоста до конца видео.

@@ -131,11 +131,14 @@ export function getScriptedChatMessagesUntil(
   options: {
     durationSeconds: number;
     includeAfterVideo?: boolean;
+    validateDuration?: boolean;
     scenario?: ScriptedChatScenario;
   },
 ) {
   const scenario = options.scenario ?? SCRIPTED_CHAT_SCENARIO;
-  assertScriptedChatFitsDuration(options.durationSeconds, scenario);
+  if (options.validateDuration !== false) {
+    assertScriptedChatFitsDuration(options.durationSeconds, scenario);
+  }
 
   const offset = Math.max(0, Math.floor(offsetSeconds));
   const duration = Math.max(1, Math.floor(options.durationSeconds));

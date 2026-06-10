@@ -9,7 +9,6 @@ import { hashIp, hashToken } from '../../lib/tokens.js';
 import { getClientIp } from '../../lib/http.js';
 import {
   getCountdown,
-  getCurrentOrNextWebinarDate,
   getNextWebinarDate,
   getReplayExpiresAt,
   getWebinarAccess,
@@ -141,16 +140,7 @@ export function buildAccessPayload(
   registration: NonNullable<Awaited<ReturnType<typeof findRegistrationByToken>>>,
   now: Date,
 ) {
-  const effectiveDurationMinutes = getEffectiveVideoDurationMinutes(registration.webinarSession);
-  const shouldUseStoredSchedule =
-    registration.webinarSession.status === 'live' || registration.webinarSession.status === 'finished';
-  const scheduledAt = shouldUseStoredSchedule
-    ? registration.webinarSession.scheduledAt
-    : getCurrentOrNextWebinarDate(now, effectiveDurationMinutes);
-  const webinarSession = {
-    ...registration.webinarSession,
-    scheduledAt,
-  };
+  const webinarSession = registration.webinarSession;
   const access = getWebinarAccess(
     now,
     webinarSession.scheduledAt,

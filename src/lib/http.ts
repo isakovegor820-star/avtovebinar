@@ -23,12 +23,11 @@ export function asyncHandler<T extends Request>(
 }
 
 export function getClientIp(req: Request) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0]?.trim();
+  if (typeof req.ip === 'string' && req.ip.trim()) {
+    return req.ip.trim();
   }
 
-  return req.socket.remoteAddress;
+  return req.socket.remoteAddress ?? '0.0.0.0';
 }
 
 export function errorMiddleware(error: unknown, _req: Request, res: Response, _next: NextFunction) {

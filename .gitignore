@@ -5,6 +5,8 @@ backups/
 test-results/
 playwright-report/
 blob-report/
+outputs/
+.impeccable/
 
 # Tailwind build output
 crisis_premium/css/styles.css
@@ -23,6 +25,9 @@ scratch/
 stitch_/
 stitch_6/
 /index.html
+АУДИТ_*.md
+ПРОМПТ_*.md
+Ответы_для_формы_Codex.md
 
 # Служебные diff-снапшоты — не должны попадать в публичную static-директорию
 crisis_premium/_diffs_*

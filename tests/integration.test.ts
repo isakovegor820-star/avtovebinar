@@ -23,13 +23,39 @@ async function getCsrfToken(agent: TestAgent) {
   return response.body.csrfToken as string;
 }
 
+function getExchangeTokenFromUrl(value: string) {
+  const url = new URL(value);
+  return url.searchParams.get('token') || new URLSearchParams(url.hash.replace(/^#/, '')).get('token');
+}
+
+async function loginAdmin(role: string, email: string) {
+  const password = `Test${role}Password123`;
+  const admin = await prisma.adminUser.create({
+    data: {
+      name: email,
+      email,
+      passwordHash: await hashPassword(password),
+      role,
+      isActive: true,
+    },
+  });
+  const agent = request.agent(app);
+  const csrfToken = await getCsrfToken(agent);
+  const loginResponse = await agent.post('/api/admin/login').set('x-csrf-token', csrfToken).send({
+    login: email,
+    password,
+  });
+  expect(loginResponse.status).toBe(200);
+  return { admin, agent, csrfToken };
+}
+
 beforeAll(async () => {
   // Sync prisma schema into 'test' PostgreSQL schema
   execSync('npx prisma db push --skip-generate --accept-data-loss', {
     env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
     stdio: 'ignore',
   });
-});
+}, 30_000);
 
 beforeEach(async () => {
   // Truncate tables to guarantee absolute test isolation
@@ -87,9 +113,11 @@ describe('critical path integration scenarios', () => {
     expect(initialEmailJobs.length).toBe(1);
     expect(initialEmailJobs[0].type).toBe('registration_confirmation');
     expect(initialEmailJobs[0].status).toBe('pending');
-    expect(initialEmailJobs[0].webinarUrl).toContain('/crisis_premium/webinar.html?token=');
-    expect(initialEmailJobs[0].partnerUrl).toContain('/crisis_premium/webinar.html?token=');
-    expect(initialEmailJobs[0].partnerUrl).toContain('#partnerApplication');
+    expect(initialEmailJobs[0].webinarUrl).toContain('/crisis_premium/webinar.html#token=');
+    expect(initialEmailJobs[0].partnerUrl).toContain('/crisis_premium/webinar.html#token=');
+    expect(new URLSearchParams(new URL(initialEmailJobs[0].partnerUrl!).hash.replace(/^#/, '')).get('anchor')).toBe(
+      'partnerApplication',
+    );
 
     // Check lead insertion
     const lead = await prisma.lead.findUnique({
@@ -144,9 +172,13 @@ describe('critical path integration scenarios', () => {
     });
     expect(activeConfirmationJobsAfterRepeat.length).toBe(1);
     expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).toContain(
-      'http://127.0.0.1:5174/crisis_premium/webinar.html?token=',
+      'http://127.0.0.1:5174/crisis_premium/webinar.html#token=',
     );
-    expect(activeConfirmationJobsAfterRepeat[0].partnerUrl).toContain('#partnerApplication');
+    expect(
+      new URLSearchParams(new URL(activeConfirmationJobsAfterRepeat[0].partnerUrl!).hash.replace(/^#/, '')).get(
+        'anchor',
+      ),
+    ).toBe('partnerApplication');
 
     const registrationBeforeEmailJob = await prisma.registration.findUnique({
       where: { id: registrationsAfterRepeat[0].id },
@@ -252,17 +284,19 @@ describe('critical path integration scenarios', () => {
     expect(regInDbAfterApp?.crmStatus).toBe('contract_pending');
 
     // 5a. Email URL token exchange is one-time and moves access into an httpOnly cookie.
-    const exchangeToken = new URL(activeConfirmationJobsAfterRepeat[0].webinarUrl).searchParams.get('token');
+    const exchangeToken = getExchangeTokenFromUrl(activeConfirmationJobsAfterRepeat[0].webinarUrl);
+    const legacyExchangeToken = getExchangeTokenFromUrl(activeConfirmationJobsAfterRepeat[0].partnerUrl ?? '');
     expect(exchangeToken).toEqual(expect.any(String));
-    if (!exchangeToken) {
-      throw new Error('Expected email outbox webinar URL to contain an exchange token');
+    expect(legacyExchangeToken).toEqual(expect.any(String));
+    if (!exchangeToken || !legacyExchangeToken) {
+      throw new Error('Expected email outbox webinar URLs to contain exchange tokens');
     }
     const exchangeAgent = request.agent(app);
     const exchangeCsrfToken = await getCsrfToken(exchangeAgent);
     const exchangeResponse = await exchangeAgent
-      .post(`/api/registration/exchange/${exchangeToken}`)
+      .post('/api/registration/exchange')
       .set('x-csrf-token', exchangeCsrfToken)
-      .send({});
+      .send({ token: exchangeToken });
     expect(exchangeResponse.status).toBe(200);
     expect(exchangeResponse.body.token).toBeUndefined();
     expect(exchangeResponse.body.webinarUrl).not.toContain('token=');
@@ -273,14 +307,25 @@ describe('critical path integration scenarios', () => {
     const repeatExchangeAgent = request.agent(app);
     const repeatExchangeCsrfToken = await getCsrfToken(repeatExchangeAgent);
     const repeatExchangeResponse = await repeatExchangeAgent
-      .post(`/api/registration/exchange/${exchangeToken}`)
+      .post('/api/registration/exchange')
       .set('x-csrf-token', repeatExchangeCsrfToken)
-      .send({});
+      .send({ token: exchangeToken });
     expect(repeatExchangeResponse.status).toBe(404);
 
     const exchangedSessionResponse = await exchangeAgent.get('/api/registration/session/current?view=success');
     expect(exchangedSessionResponse.status).toBe(200);
     expect(exchangedSessionResponse.body.lead.email).toBe('alex.test@aspb.ru');
+
+    const legacyExchangeAgent = request.agent(app);
+    const legacyExchangeCsrfToken = await getCsrfToken(legacyExchangeAgent);
+    const legacyExchangeResponse = await legacyExchangeAgent
+      .post(`/api/registration/exchange/${legacyExchangeToken}`)
+      .set('x-csrf-token', legacyExchangeCsrfToken)
+      .send({});
+    expect(legacyExchangeResponse.status).toBe(200);
+    expect(legacyExchangeResponse.headers['set-cookie']).toEqual(
+      expect.arrayContaining([expect.stringContaining('aspb_room_token=')]),
+    );
 
     await expect(request(app).get(`/api/registration/${exchangeToken}`)).resolves.toMatchObject({ status: 404 });
     await expect(request(app).get(`/api/webinar/timeline/${exchangeToken}`)).resolves.toMatchObject({ status: 404 });
@@ -347,6 +392,305 @@ describe('critical path integration scenarios', () => {
     expect(auditLogs.length).toBe(1);
     expect(auditLogs[0].action).toBe('registration.crm_status.update');
     expect(auditLogs[0].adminUserId).toBe(admin.id);
+  });
+
+  it('scopes admin registration PII by role', async () => {
+    const managerAccess = await loginAdmin('manager', 'manager-scope@aspb.ru');
+    const viewerAccess = await loginAdmin('viewer', 'viewer-scope@aspb.ru');
+    const adminAccess = await loginAdmin('admin', 'admin-scope@aspb.ru');
+    const otherManager = await prisma.adminUser.create({
+      data: {
+        name: 'other-manager',
+        email: 'other-manager@aspb.ru',
+        passwordHash: await hashPassword('OtherManagerPassword123'),
+        role: 'manager',
+        isActive: true,
+      },
+    });
+    const session = await prisma.webinarSession.create({
+      data: {
+        title: 'Role scope webinar',
+        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    async function createRegistration(email: string, overrides: Record<string, unknown> = {}) {
+      const lead = await prisma.lead.create({
+        data: {
+          name: email.split('@')[0],
+          phone: '+79990001111',
+          email,
+          consent: true,
+        },
+      });
+      return prisma.registration.create({
+        data: {
+          leadId: lead.id,
+          webinarSessionId: session.id,
+          accessTokenHash: hashToken(createAccessToken()),
+          ...overrides,
+        },
+        include: { lead: true },
+      });
+    }
+
+    const assignedToManager = await createRegistration('assigned-manager@aspb.ru', {
+      assignedManagerId: managerAccess.admin.id,
+    });
+    const unassignedHot = await createRegistration('unassigned-hot@aspb.ru', {
+      isHot: true,
+    });
+    const coldUnassigned = await createRegistration('cold-unassigned@aspb.ru');
+    const quietUnassigned = await createRegistration('quiet-unassigned@aspb.ru');
+    const assignedToOther = await createRegistration('assigned-other@aspb.ru', {
+      assignedManagerId: otherManager.id,
+      isHot: true,
+    });
+    const assignedQuestion = await prisma.question.create({
+      data: {
+        leadId: assignedToManager.leadId,
+        registrationId: assignedToManager.id,
+        webinarSessionId: session.id,
+        text: 'Assigned manager question',
+        adminNote: 'Internal answer note',
+      },
+    });
+    const hotQuestion = await prisma.question.create({
+      data: {
+        leadId: unassignedHot.leadId,
+        registrationId: unassignedHot.id,
+        webinarSessionId: session.id,
+        text: 'Unassigned hot question',
+      },
+    });
+    const coldQuestion = await prisma.question.create({
+      data: {
+        leadId: coldUnassigned.leadId,
+        registrationId: coldUnassigned.id,
+        webinarSessionId: session.id,
+        text: 'Cold question',
+      },
+    });
+    const otherQuestion = await prisma.question.create({
+      data: {
+        leadId: assignedToOther.leadId,
+        registrationId: assignedToOther.id,
+        webinarSessionId: session.id,
+        text: 'Other manager question',
+      },
+    });
+    const assignedApplication = await prisma.partnerApplication.create({
+      data: {
+        leadId: assignedToManager.leadId,
+        registrationId: assignedToManager.id,
+        webinarSessionId: session.id,
+        comment: 'Assigned application comment',
+        status: 'new',
+      },
+    });
+    const hotApplication = await prisma.partnerApplication.create({
+      data: {
+        leadId: unassignedHot.leadId,
+        registrationId: unassignedHot.id,
+        webinarSessionId: session.id,
+        comment: 'Unassigned hot application',
+        status: 'new',
+      },
+    });
+    const coldApplication = await prisma.partnerApplication.create({
+      data: {
+        leadId: coldUnassigned.leadId,
+        registrationId: coldUnassigned.id,
+        webinarSessionId: session.id,
+        comment: 'Cold application',
+        status: 'new',
+      },
+    });
+    const otherApplication = await prisma.partnerApplication.create({
+      data: {
+        leadId: assignedToOther.leadId,
+        registrationId: assignedToOther.id,
+        webinarSessionId: session.id,
+        comment: 'Other application',
+        status: 'new',
+      },
+    });
+
+    const adminListResponse = await adminAccess.agent.get('/api/admin/registrations');
+    expect(adminListResponse.status).toBe(200);
+    expect(adminListResponse.body.registrations.map((item: any) => item.id)).toEqual(
+      expect.arrayContaining([
+        assignedToManager.id,
+        unassignedHot.id,
+        coldUnassigned.id,
+        quietUnassigned.id,
+        assignedToOther.id,
+      ]),
+    );
+    expect(adminListResponse.body.registrations.find((item: any) => item.id === assignedToOther.id).lead.email).toBe(
+      'assigned-other@aspb.ru',
+    );
+
+    const managerListResponse = await managerAccess.agent.get('/api/admin/registrations');
+    expect(managerListResponse.status).toBe(200);
+    const managerRegistrationIds = managerListResponse.body.registrations.map((item: any) => item.id);
+    expect(managerRegistrationIds).toEqual(expect.arrayContaining([assignedToManager.id, unassignedHot.id]));
+    expect(managerRegistrationIds).not.toContain(coldUnassigned.id);
+    expect(managerRegistrationIds).not.toContain(quietUnassigned.id);
+    expect(managerRegistrationIds).not.toContain(assignedToOther.id);
+    expect(
+      managerListResponse.body.registrations.find((item: any) => item.id === assignedToManager.id).lead.email,
+    ).toBe('assigned-manager@aspb.ru');
+
+    const managerHotResponse = await managerAccess.agent.get('/api/admin/hot-leads');
+    expect(managerHotResponse.status).toBe(200);
+    const managerHotIds = managerHotResponse.body.registrations.map((item: any) => item.id);
+    expect(managerHotIds).toContain(unassignedHot.id);
+    expect(managerHotIds).not.toContain(assignedToOther.id);
+
+    const managerAllowedDetail = await managerAccess.agent.get(`/api/admin/registrations/${assignedToManager.id}`);
+    expect(managerAllowedDetail.status).toBe(200);
+    expect(managerAllowedDetail.body.registration.lead.email).toBe('assigned-manager@aspb.ru');
+
+    const managerColdDetail = await managerAccess.agent.get(`/api/admin/registrations/${quietUnassigned.id}`);
+    expect(managerColdDetail.status).toBe(404);
+    const managerOtherDetail = await managerAccess.agent.get(`/api/admin/registrations/${assignedToOther.id}`);
+    expect(managerOtherDetail.status).toBe(404);
+
+    const forbiddenStatusResponse = await managerAccess.agent
+      .patch(`/api/admin/registrations/${assignedToOther.id}/status`)
+      .set('x-csrf-token', managerAccess.csrfToken)
+      .send({ crmStatus: 'paid' });
+    expect(forbiddenStatusResponse.status).toBe(404);
+
+    const forbiddenHotResponse = await managerAccess.agent
+      .patch(`/api/admin/registrations/${assignedToOther.id}/hot`)
+      .set('x-csrf-token', managerAccess.csrfToken)
+      .send({ isHot: false });
+    expect(forbiddenHotResponse.status).toBe(404);
+
+    const forbiddenManagerResponse = await managerAccess.agent
+      .patch(`/api/admin/registrations/${assignedToOther.id}/manager`)
+      .set('x-csrf-token', managerAccess.csrfToken)
+      .send({ assignedManagerId: managerAccess.admin.id });
+    expect(forbiddenManagerResponse.status).toBe(404);
+
+    const forbiddenReminderResponse = await managerAccess.agent
+      .post(`/api/admin/registrations/${assignedToOther.id}/telegram-reminder`)
+      .set('x-csrf-token', managerAccess.csrfToken)
+      .send({ text: 'Reminder text' });
+    expect(forbiddenReminderResponse.status).toBe(404);
+
+    const forbiddenNoteResponse = await managerAccess.agent
+      .patch(`/api/admin/registrations/${assignedToOther.id}/note`)
+      .set('x-csrf-token', managerAccess.csrfToken)
+      .send({ managerNote: 'Should not be saved' });
+    expect(forbiddenNoteResponse.status).toBe(404);
+
+    const forbiddenQuestionResponse = await managerAccess.agent
+      .patch(`/api/admin/questions/${otherQuestion.id}`)
+      .set('x-csrf-token', managerAccess.csrfToken)
+      .send({ isAnswered: true, adminNote: 'Should not be saved' });
+    expect(forbiddenQuestionResponse.status).toBe(404);
+
+    const allowedQuestionResponse = await managerAccess.agent
+      .patch(`/api/admin/questions/${assignedQuestion.id}`)
+      .set('x-csrf-token', managerAccess.csrfToken)
+      .send({ isAnswered: true, adminNote: 'Manager answer' });
+    expect(allowedQuestionResponse.status).toBe(200);
+
+    await prisma.lead.update({
+      where: { id: assignedToManager.leadId },
+      data: { telegramChatId: '123456789' },
+    });
+    const allowedReminderResponse = await managerAccess.agent
+      .post(`/api/admin/registrations/${assignedToManager.id}/telegram-reminder`)
+      .set('x-csrf-token', managerAccess.csrfToken)
+      .send({ text: 'Personal reminder' });
+    expect(allowedReminderResponse.status).toBe(200);
+    expect(allowedReminderResponse.body.webinarUrl).toContain('/crisis_premium/webinar.html#token=');
+    expect(allowedReminderResponse.body.webinarUrl).not.toContain('?token=');
+
+    const viewerWriteResponse = await viewerAccess.agent
+      .patch(`/api/admin/registrations/${assignedToManager.id}/status`)
+      .set('x-csrf-token', viewerAccess.csrfToken)
+      .send({ crmStatus: 'paid' });
+    expect(viewerWriteResponse.status).toBe(403);
+
+    const untouchedOtherRegistration = await prisma.registration.findUniqueOrThrow({
+      where: { id: assignedToOther.id },
+    });
+    expect(untouchedOtherRegistration.crmStatus).toBe('new');
+    expect(untouchedOtherRegistration.isHot).toBe(true);
+    expect(untouchedOtherRegistration.assignedManagerId).toBe(otherManager.id);
+    expect(untouchedOtherRegistration.managerNote).toBeNull();
+
+    const untouchedOtherQuestion = await prisma.question.findUniqueOrThrow({ where: { id: otherQuestion.id } });
+    expect(untouchedOtherQuestion.isAnswered).toBe(false);
+    expect(untouchedOtherQuestion.adminNote).toBeNull();
+
+    const adminQuestionsResponse = await adminAccess.agent.get('/api/admin/questions');
+    expect(adminQuestionsResponse.status).toBe(200);
+    expect(adminQuestionsResponse.body.questions.map((item: any) => item.id)).toEqual(
+      expect.arrayContaining([assignedQuestion.id, hotQuestion.id, coldQuestion.id, otherQuestion.id]),
+    );
+    expect(adminQuestionsResponse.body.questions.find((item: any) => item.id === otherQuestion.id).text).toBe(
+      'Other manager question',
+    );
+
+    const managerQuestionsResponse = await managerAccess.agent.get('/api/admin/questions');
+    expect(managerQuestionsResponse.status).toBe(200);
+    const managerQuestionIds = managerQuestionsResponse.body.questions.map((item: any) => item.id);
+    expect(managerQuestionIds).toEqual(expect.arrayContaining([assignedQuestion.id, hotQuestion.id]));
+    expect(managerQuestionIds).not.toContain(coldQuestion.id);
+    expect(managerQuestionIds).not.toContain(otherQuestion.id);
+    expect(managerQuestionsResponse.body.questions.find((item: any) => item.id === assignedQuestion.id).text).toBe(
+      'Assigned manager question',
+    );
+
+    const viewerQuestionsResponse = await viewerAccess.agent.get('/api/admin/questions');
+    expect(viewerQuestionsResponse.status).toBe(200);
+    const viewerQuestion = viewerQuestionsResponse.body.questions.find((item: any) => item.id === assignedQuestion.id);
+    expect(viewerQuestion.text).toBe('[hidden]');
+    expect(viewerQuestion.adminNote).toBe('[hidden]');
+    expect(viewerQuestion.lead.email).not.toBe('assigned-manager@aspb.ru');
+    expect(viewerQuestion.lead.phone).not.toBe('+79990001111');
+
+    const adminApplicationsResponse = await adminAccess.agent.get('/api/admin/partner-applications');
+    expect(adminApplicationsResponse.status).toBe(200);
+    expect(adminApplicationsResponse.body.applications.map((item: any) => item.id)).toEqual(
+      expect.arrayContaining([assignedApplication.id, hotApplication.id, coldApplication.id, otherApplication.id]),
+    );
+    expect(
+      adminApplicationsResponse.body.applications.find((item: any) => item.id === otherApplication.id).comment,
+    ).toBe('Other application');
+
+    const managerApplicationsResponse = await managerAccess.agent.get('/api/admin/partner-applications');
+    expect(managerApplicationsResponse.status).toBe(200);
+    const managerApplicationIds = managerApplicationsResponse.body.applications.map((item: any) => item.id);
+    expect(managerApplicationIds).toEqual(expect.arrayContaining([assignedApplication.id, hotApplication.id]));
+    expect(managerApplicationIds).not.toContain(coldApplication.id);
+    expect(managerApplicationIds).not.toContain(otherApplication.id);
+
+    const viewerApplicationsResponse = await viewerAccess.agent.get('/api/admin/partner-applications');
+    expect(viewerApplicationsResponse.status).toBe(200);
+    const viewerApplication = viewerApplicationsResponse.body.applications.find(
+      (item: any) => item.id === assignedApplication.id,
+    );
+    expect(viewerApplication.comment).toBe('[hidden]');
+    expect(viewerApplication.lead.email).not.toBe('assigned-manager@aspb.ru');
+    expect(viewerApplication.lead.phone).not.toBe('+79990001111');
+
+    const viewerListResponse = await viewerAccess.agent.get('/api/admin/registrations');
+    expect(viewerListResponse.status).toBe(200);
+    const viewerAssigned = viewerListResponse.body.registrations.find((item: any) => item.id === assignedToManager.id);
+    expect(viewerAssigned.lead.email).not.toBe('assigned-manager@aspb.ru');
+    expect(viewerAssigned.lead.phone).not.toBe('+79990001111');
+
+    const viewerDetailResponse = await viewerAccess.agent.get(`/api/admin/registrations/${assignedToManager.id}`);
+    expect(viewerDetailResponse.status).toBe(200);
+    expect(viewerDetailResponse.body.registration.lead.email).not.toBe('assigned-manager@aspb.ru');
+    expect(viewerDetailResponse.body.auditLogs).toEqual([]);
   });
 
   it('requires CSRF for registration and ignores honeypot submissions', async () => {
@@ -517,7 +861,7 @@ describe('critical path integration scenarios', () => {
 
     expect(activeJobs.length).toBe(1);
     expect(activeJobs[0].status).toBe('pending');
-    expect(activeJobs[0].webinarUrl).toContain('http://127.0.0.1:5174/crisis_premium/webinar.html?token=');
+    expect(activeJobs[0].webinarUrl).toContain('http://127.0.0.1:5174/crisis_premium/webinar.html#token=');
     expect(sentJobs.length).toBe(1);
     expect(sentJobs[0].webinarUrl).toContain('already-sent');
   });
@@ -696,6 +1040,257 @@ describe('critical path integration scenarios', () => {
     expect(hiddenDetailResponse.status).toBe(404);
   });
 
+  it('does not expose room media URLs before live and exposes them during live and replay', async () => {
+    const session = await prisma.webinarSession.create({
+      data: {
+        title: 'Media gated webinar',
+        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+        status: 'scheduled',
+        videoDurationSeconds: 600,
+        posterUrl: '/crisis_premium/assets/webinar-poster.jpg',
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Media Gate',
+        phone: '+79990007766',
+        email: 'media-gate@aspb.ru',
+        consent: true,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        accessTokenHash: hashToken(createAccessToken()),
+      },
+    });
+    const sessionToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registration.id,
+        tokenHash: hashToken(sessionToken),
+        purpose: 'room_session',
+        expiresAt: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000),
+      },
+    });
+    const accountCookie = [`aspb_room_token=${sessionToken}`];
+
+    const waitingResponse = await request(app)
+      .get('/api/webinar/timeline/session/current')
+      .set('Cookie', accountCookie);
+    expect(waitingResponse.status).toBe(200);
+    expect(waitingResponse.body.accessStatus).toBe('waiting');
+    expect(waitingResponse.body.roomState).toBe('waiting');
+    expect(waitingResponse.body.countdown.totalSeconds).toBeGreaterThan(0);
+    expect(waitingResponse.body.video).toBeUndefined();
+    expect(waitingResponse.body.timeline).toBeUndefined();
+    expect(JSON.stringify(waitingResponse.body)).not.toContain('/crisis_premium/assets/webinar.mp4');
+    expect(JSON.stringify(waitingResponse.body)).not.toContain('webinar-poster.jpg');
+
+    await prisma.webinarSession.update({
+      where: { id: session.id },
+      data: {
+        scheduledAt: new Date(Date.now() - 2 * 60 * 1000),
+        status: 'live',
+        videoDurationSeconds: 600,
+      },
+    });
+
+    const liveResponse = await request(app).get('/api/webinar/timeline/session/current').set('Cookie', accountCookie);
+    expect(liveResponse.status).toBe(200);
+    expect(liveResponse.body.accessStatus).toBe('live');
+    expect(liveResponse.body.video).toMatchObject({
+      src: '/crisis_premium/assets/webinar.mp4',
+      poster: '/crisis_premium/assets/webinar-poster.jpg',
+      expected: true,
+    });
+    expect(liveResponse.body.timeline).toBeDefined();
+
+    await prisma.webinarSession.update({
+      where: { id: session.id },
+      data: {
+        scheduledAt: new Date(Date.now() - 5 * 60 * 1000),
+        status: 'finished',
+        videoDurationSeconds: 60,
+      },
+    });
+
+    const replayResponse = await request(app).get('/api/webinar/timeline/session/current').set('Cookie', accountCookie);
+    expect(replayResponse.status).toBe(200);
+    expect(replayResponse.body.accessStatus).toBe('replay');
+    expect(replayResponse.body.video).toMatchObject({
+      src: '/crisis_premium/assets/webinar.mp4',
+      poster: '/crisis_premium/assets/webinar-poster.jpg',
+      expected: true,
+    });
+    expect(replayResponse.body.timeline).toBeDefined();
+  });
+
+  it('keeps timeline and chat bound to the registered webinar session schedule', async () => {
+    const scheduledAt = new Date(Date.now() - 70 * 60 * 1000);
+    const session = await prisma.webinarSession.create({
+      data: {
+        title: 'Bound scheduled webinar',
+        scheduledAt,
+        status: 'scheduled',
+        videoDurationSeconds: 3860,
+        replayAvailableHours: 168,
+      },
+    });
+    const otherSession = await prisma.webinarSession.create({
+      data: {
+        title: 'Other webinar',
+        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+        status: 'scheduled',
+        videoDurationSeconds: 3860,
+      },
+    });
+    await prisma.webinarTimelineEvent.create({
+      data: {
+        webinarSessionId: session.id,
+        offsetSeconds: 0,
+        title: 'Registered session event',
+        text: 'This event belongs to the registered session',
+        type: 'message',
+      },
+    });
+    await prisma.webinarTimelineEvent.create({
+      data: {
+        webinarSessionId: otherSession.id,
+        offsetSeconds: 0,
+        title: 'Wrong session event',
+        text: 'This event must not leak',
+        type: 'message',
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Bound Session',
+        phone: '+79990001234',
+        email: 'bound-session@aspb.ru',
+        consent: true,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        accessTokenHash: hashToken(createAccessToken()),
+      },
+    });
+    await prisma.webinarChatMessage.create({
+      data: {
+        webinarSessionId: session.id,
+        registrationId: registration.id,
+        kind: 'participant',
+        authorName: 'Bound Session',
+        message: 'Persisted message from registered session',
+        isSynthetic: false,
+        visibleAt: new Date(Date.now() - 60 * 1000),
+      },
+    });
+    const sessionToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registration.id,
+        tokenHash: hashToken(sessionToken),
+        purpose: 'room_session',
+        expiresAt: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000),
+      },
+    });
+    const accountCookie = [`aspb_room_token=${sessionToken}`];
+
+    const timelineResponse = await request(app)
+      .get('/api/webinar/timeline/session/current')
+      .set('Cookie', accountCookie);
+    expect(timelineResponse.status).toBe(200);
+    expect(timelineResponse.body.accessStatus).toBe('replay');
+    expect(timelineResponse.body.liveState.scheduledAt).toBe(scheduledAt.toISOString());
+    expect(timelineResponse.body.timeline.map((event: any) => event.title)).toContain('Registered session event');
+    expect(timelineResponse.body.timeline.map((event: any) => event.title)).not.toContain('Wrong session event');
+
+    const chatResponse = await request(app).get('/api/webinar/chat/session/current').set('Cookie', accountCookie);
+    expect(chatResponse.status).toBe(200);
+    expect(chatResponse.body.accessStatus).toBe('replay');
+    expect(chatResponse.body.liveState.scheduledAt).toBe(scheduledAt.toISOString());
+    expect(
+      chatResponse.body.messages.some(
+        (message: any) => message.message === 'Persisted message from registered session',
+      ),
+    ).toBe(true);
+  });
+
+  it('does not expose persisted chat messages before broadcast start', async () => {
+    const session = await prisma.webinarSession.create({
+      data: {
+        title: 'Pre-live chat gate',
+        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+        status: 'scheduled',
+        videoDurationSeconds: 3860,
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Chat Gate',
+        phone: '+79990006677',
+        email: 'chat-gate@aspb.ru',
+        consent: true,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        accessTokenHash: hashToken(createAccessToken()),
+      },
+    });
+    await prisma.webinarChatMessage.create({
+      data: {
+        webinarSessionId: session.id,
+        registrationId: registration.id,
+        kind: 'participant',
+        authorName: 'Chat Gate',
+        message: 'Persisted pre-live message must stay hidden',
+        isSynthetic: false,
+        visibleAt: new Date(Date.now() - 60 * 1000),
+      },
+    });
+    const sessionToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registration.id,
+        tokenHash: hashToken(sessionToken),
+        purpose: 'room_session',
+        expiresAt: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000),
+      },
+    });
+    const accountCookie = [`aspb_room_token=${sessionToken}`];
+
+    const waitingResponse = await request(app).get('/api/webinar/chat/session/current').set('Cookie', accountCookie);
+    expect(waitingResponse.status).toBe(200);
+    expect(waitingResponse.body.accessStatus).toBe('waiting');
+    expect(waitingResponse.body.liveState.chatStatus).toBe('locked');
+    expect(waitingResponse.body.messages).toEqual([]);
+
+    await prisma.webinarSession.update({
+      where: { id: session.id },
+      data: {
+        scheduledAt: new Date(Date.now() - 2 * 60 * 1000),
+        status: 'live',
+      },
+    });
+
+    const liveResponse = await request(app).get('/api/webinar/chat/session/current').set('Cookie', accountCookie);
+    expect(liveResponse.status).toBe(200);
+    expect(liveResponse.body.accessStatus).toBe('live');
+    expect(
+      liveResponse.body.messages.some(
+        (message: any) => message.message === 'Persisted pre-live message must stay hidden',
+      ),
+    ).toBe(true);
+  });
+
   it('persists Telegram broadcast jobs outside process memory', async () => {
     const adminPasswordHash = await hashPassword('BroadcastAdminPassword123');
     await prisma.adminUser.create({
@@ -757,11 +1352,17 @@ describe('critical path integration scenarios', () => {
     expect(dependencyResponse.status).toBe(200);
     expect(dependencyResponse.body.checks.smtp.ok).toBe(true);
 
-    const csrfResponse = await request(app)
+    const bodyExchangeCsrfResponse = await request(app)
+      .post('/api/registration/exchange')
+      .send({ token: 'not-a-real-token-12345678901234567890' });
+    expect(bodyExchangeCsrfResponse.status).toBe(403);
+    expect(bodyExchangeCsrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+
+    const legacyExchangeCsrfResponse = await request(app)
       .post('/api/registration/exchange/not-a-real-token-12345678901234567890')
       .send({});
-    expect(csrfResponse.status).toBe(403);
-    expect(csrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+    expect(legacyExchangeCsrfResponse.status).toBe(403);
+    expect(legacyExchangeCsrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
 
     const metricsResponse = await request(app).get('/metrics');
     expect(metricsResponse.status).toBe(200);

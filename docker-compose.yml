@@ -6,9 +6,10 @@ services:
     environment:
       POSTGRES_USER: aspb
       POSTGRES_DB: aspb_autowebinar
+      # Local development only: do not use trust auth outside a developer machine.
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - aspb_postgres_data:/var/lib/postgresql/data
     healthcheck:

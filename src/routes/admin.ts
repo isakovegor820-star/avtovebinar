@@ -16,6 +16,7 @@ import {
 } from '../lib/telegramBroadcastWorker.js';
 import { setContextIdentity } from '../lib/requestContext.js';
 import { getAdminHtml } from '../responses/adminPage.js';
+import { createRoomExchangeUrl, getRoomTokenExpiresAt } from '../lib/roomLinks.js';
 
 export const adminRouter = Router();
 
@@ -144,6 +145,183 @@ async function audit(
       userAgent: req.headers['user-agent'] ?? null,
     },
   });
+}
+
+function getAdminRole(req: AdminRequest): AdminRole {
+  const role = req.admin?.role;
+  return typeof role === 'string' && isAdminRole(role) ? role : 'viewer';
+}
+
+function canSeeAllRegistrations(req: AdminRequest) {
+  const role = getAdminRole(req);
+  return role === 'owner' || role === 'admin';
+}
+
+function shouldMaskRegistrationPii(req: AdminRequest) {
+  return getAdminRole(req) === 'viewer';
+}
+
+function managerWorkQueueWhere(now = new Date()): Prisma.RegistrationWhereInput {
+  return {
+    OR: [{ isHot: true }, { roomEnteredAt: { not: null } }, { nextContactAt: { lte: now } }],
+  };
+}
+
+function getRegistrationAccessWhere(req: AdminRequest, where: Prisma.RegistrationWhereInput = {}) {
+  if (canSeeAllRegistrations(req) || getAdminRole(req) === 'viewer') {
+    return where;
+  }
+
+  const managerId = req.admin?.id;
+  if (!managerId) {
+    throw new AppError(403, 'Недостаточно прав');
+  }
+
+  return {
+    AND: [
+      where,
+      {
+        OR: [
+          { assignedManagerId: managerId },
+          {
+            AND: [{ assignedManagerId: null }, managerWorkQueueWhere()],
+          },
+        ],
+      },
+    ],
+  } satisfies Prisma.RegistrationWhereInput;
+}
+
+function getQuestionAccessWhere(req: AdminRequest, where: Prisma.QuestionWhereInput = {}) {
+  if (canSeeAllRegistrations(req) || getAdminRole(req) === 'viewer') {
+    return where;
+  }
+
+  return {
+    AND: [where, { registration: getRegistrationAccessWhere(req) }],
+  } satisfies Prisma.QuestionWhereInput;
+}
+
+function getPartnerApplicationAccessWhere(req: AdminRequest, where: Prisma.PartnerApplicationWhereInput = {}) {
+  if (canSeeAllRegistrations(req) || getAdminRole(req) === 'viewer') {
+    return where;
+  }
+
+  return {
+    AND: [where, { registration: { is: getRegistrationAccessWhere(req) } }],
+  } satisfies Prisma.PartnerApplicationWhereInput;
+}
+
+function maskName(value: string | null | undefined) {
+  if (!value) return value ?? null;
+  const trimmed = value.trim();
+  return trimmed ? `${trimmed.slice(0, 1)}***` : trimmed;
+}
+
+function maskEmail(value: string | null | undefined) {
+  if (!value) return value ?? null;
+  const [local, domain] = value.split('@');
+  if (!local || !domain) return '***';
+  return `${local.slice(0, 1)}***@${domain}`;
+}
+
+function maskPhone(value: string | null | undefined) {
+  if (!value) return value ?? null;
+  const digits = value.replace(/\D/g, '');
+  return digits ? `***${digits.slice(-4)}` : '***';
+}
+
+function maskNullable(value: string | null | undefined) {
+  return value ? '[hidden]' : (value ?? null);
+}
+
+function serializeLeadForAdmin(lead: any, maskPii: boolean, includeExtendedFields: boolean) {
+  const base = {
+    id: lead.id,
+    name: maskPii ? maskName(lead.name) : lead.name,
+    phone: maskPii ? maskPhone(lead.phone) : lead.phone,
+    email: maskPii ? maskEmail(lead.email) : lead.email,
+    city: lead.city,
+    professionalStatus: lead.professionalStatus,
+    telegramChatId: maskPii ? maskNullable(lead.telegramChatId) : lead.telegramChatId,
+    telegramUsername: maskPii ? maskNullable(lead.telegramUsername) : lead.telegramUsername,
+    telegramFirstName: maskPii ? maskName(lead.telegramFirstName) : lead.telegramFirstName,
+    telegramSubscribedAt: lead.telegramSubscribedAt,
+  };
+
+  if (!includeExtendedFields) {
+    return base;
+  }
+
+  return {
+    ...base,
+    source: lead.source,
+    utmSource: lead.utmSource,
+    utmMedium: lead.utmMedium,
+    utmCampaign: lead.utmCampaign,
+  };
+}
+
+function serializeRegistrationDetailForAdmin(registration: any, maskPii: boolean) {
+  if (!maskPii) {
+    return registration;
+  }
+
+  return {
+    ...registration,
+    lead: serializeLeadForAdmin(registration.lead, true, true),
+    questions: registration.questions?.map((question: any) => ({
+      ...question,
+      text: '[hidden]',
+      adminNote: question.adminNote ? '[hidden]' : question.adminNote,
+    })),
+    partnerApplications: registration.partnerApplications?.map((application: any) => ({
+      ...application,
+      comment: application.comment ? '[hidden]' : application.comment,
+    })),
+    events: registration.events?.map((event: any) => ({
+      ...event,
+      userAgent: null,
+      ipHash: null,
+      metadataJson: event.metadataJson ? null : event.metadataJson,
+    })),
+  };
+}
+
+function serializePartnerApplicationForAdmin(application: any, maskPii: boolean) {
+  return {
+    id: application.id,
+    registrationId: application.registrationId,
+    sphere: application.sphere,
+    city: application.city,
+    clientFlow: application.clientFlow,
+    experience: application.experience,
+    comment: maskPii && application.comment ? '[hidden]' : application.comment,
+    preferredFormat: application.preferredFormat,
+    status: application.status,
+    createdAt: application.createdAt,
+    lead: serializeLeadForAdmin(application.lead, maskPii, false),
+    webinar: application.webinarSession
+      ? {
+          scheduledAt: application.webinarSession.scheduledAt,
+        }
+      : null,
+  };
+}
+
+function serializeQuestionForAdmin(question: any, maskPii: boolean) {
+  return {
+    id: question.id,
+    registrationId: question.registrationId,
+    text: maskPii && question.text ? '[hidden]' : question.text,
+    isAnswered: question.isAnswered,
+    adminNote: maskPii && question.adminNote ? '[hidden]' : question.adminNote,
+    createdAt: question.createdAt,
+    lead: serializeLeadForAdmin(question.lead, maskPii, false),
+    webinar: {
+      scheduledAt: question.webinarSession.scheduledAt,
+    },
+  };
 }
 
 adminRouter.get('/admin', (_req, res) => {
@@ -441,8 +619,10 @@ adminRouter.get(
       lead: leadWhere,
     };
 
+    const adminReq = req as AdminRequest;
+    const maskPii = shouldMaskRegistrationPii(adminReq);
     const registrations = await prisma.registration.findMany({
-      where,
+      where: getRegistrationAccessWhere(adminReq, where),
       include: {
         lead: true,
         webinarSession: true,
@@ -469,22 +649,7 @@ adminRouter.get(
         telegramClickedAt: item.telegramClickedAt,
         questionCount: item._count.questions,
         partnerApplicationCount: item._count.partnerApplications,
-        lead: {
-          id: item.lead.id,
-          name: item.lead.name,
-          phone: item.lead.phone,
-          email: item.lead.email,
-          city: item.lead.city,
-          professionalStatus: item.lead.professionalStatus,
-          source: item.lead.source,
-          utmSource: item.lead.utmSource,
-          utmMedium: item.lead.utmMedium,
-          utmCampaign: item.lead.utmCampaign,
-          telegramChatId: item.lead.telegramChatId,
-          telegramUsername: item.lead.telegramUsername,
-          telegramFirstName: item.lead.telegramFirstName,
-          telegramSubscribedAt: item.lead.telegramSubscribedAt,
-        },
+        lead: serializeLeadForAdmin(item.lead, maskPii, true),
         webinar: {
           id: item.webinarSession.id,
           scheduledAt: item.webinarSession.scheduledAt,
@@ -498,16 +663,19 @@ adminRouter.get(
 adminRouter.get(
   '/api/admin/hot-leads',
   requireAdmin,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const adminReq = req as AdminRequest;
+    const maskPii = shouldMaskRegistrationPii(adminReq);
+    const hotQueueWhere: Prisma.RegistrationWhereInput = {
+      OR: [
+        { isHot: true },
+        { partnerApplications: { some: {} } },
+        { questions: { some: {} } },
+        { roomEnteredAt: { not: null } },
+      ],
+    };
     const registrations = await prisma.registration.findMany({
-      where: {
-        OR: [
-          { isHot: true },
-          { partnerApplications: { some: {} } },
-          { questions: { some: {} } },
-          { roomEnteredAt: { not: null } },
-        ],
-      },
+      where: getRegistrationAccessWhere(adminReq, hotQueueWhere),
       include: {
         lead: true,
         webinarSession: true,
@@ -531,16 +699,7 @@ adminRouter.get(
         telegramClickedAt: item.telegramClickedAt,
         questionCount: item._count.questions,
         partnerApplicationCount: item._count.partnerApplications,
-        lead: {
-          name: item.lead.name,
-          phone: item.lead.phone,
-          email: item.lead.email,
-          professionalStatus: item.lead.professionalStatus,
-          telegramChatId: item.lead.telegramChatId,
-          telegramUsername: item.lead.telegramUsername,
-          telegramFirstName: item.lead.telegramFirstName,
-          telegramSubscribedAt: item.lead.telegramSubscribedAt,
-        },
+        lead: serializeLeadForAdmin(item.lead, maskPii, false),
         webinar: {
           scheduledAt: item.webinarSession.scheduledAt,
         },
@@ -554,8 +713,10 @@ adminRouter.get(
   requireAdmin,
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
-    const registration = await prisma.registration.findUnique({
-      where: { id },
+    const adminReq = req as AdminRequest;
+    const maskPii = shouldMaskRegistrationPii(adminReq);
+    const registration = await prisma.registration.findFirst({
+      where: getRegistrationAccessWhere(adminReq, { id }),
       include: {
         lead: true,
         webinarSession: true,
@@ -570,14 +731,16 @@ adminRouter.get(
       throw new AppError(404, 'Registration not found');
     }
 
-    const auditLogs = await prisma.auditLog.findMany({
-      where: { entityType: 'registration', entityId: id },
-      include: { adminUser: { select: { name: true, email: true, role: true } } },
-      orderBy: { createdAt: 'desc' },
-      take: 30,
-    });
+    const auditLogs = maskPii
+      ? []
+      : await prisma.auditLog.findMany({
+          where: { entityType: 'registration', entityId: id },
+          include: { adminUser: { select: { name: true, email: true, role: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 30,
+        });
 
-    res.json({ ok: true, registration, auditLogs });
+    res.json({ ok: true, registration: serializeRegistrationDetailForAdmin(registration, maskPii), auditLogs });
   }),
 );
 
@@ -587,19 +750,27 @@ adminRouter.patch(
   requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
+    const adminReq = req as AdminRequest;
     const data = z.object({ crmStatus: z.string() }).parse(req.body);
 
     if (!isCrmStatus(data.crmStatus)) {
       throw new AppError(400, 'Invalid CRM status');
     }
 
-    const before = await prisma.registration.findUnique({ where: { id }, select: { crmStatus: true } });
+    const before = await prisma.registration.findFirst({
+      where: getRegistrationAccessWhere(adminReq, { id }),
+      select: { crmStatus: true },
+    });
+    if (!before) {
+      throw new AppError(404, 'Registration not found');
+    }
+
     const registration = await prisma.registration.update({
       where: { id },
       data: { crmStatus: data.crmStatus },
     });
 
-    await audit(req as AdminRequest, {
+    await audit(adminReq, {
       action: 'registration.crm_status.update',
       entityType: 'registration',
       entityId: id,
@@ -617,14 +788,22 @@ adminRouter.patch(
   requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
+    const adminReq = req as AdminRequest;
     const data = z.object({ isHot: z.boolean() }).parse(req.body);
-    const before = await prisma.registration.findUnique({ where: { id }, select: { isHot: true } });
+    const before = await prisma.registration.findFirst({
+      where: getRegistrationAccessWhere(adminReq, { id }),
+      select: { isHot: true },
+    });
+    if (!before) {
+      throw new AppError(404, 'Registration not found');
+    }
+
     const registration = await prisma.registration.update({
       where: { id },
       data: { isHot: data.isHot },
     });
 
-    await audit(req as AdminRequest, {
+    await audit(adminReq, {
       action: 'registration.hot.update',
       entityType: 'registration',
       entityId: id,
@@ -642,16 +821,20 @@ adminRouter.patch(
   requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
+    const adminReq = req as AdminRequest;
     const data = z
       .object({
         assignedManagerId: z.string().optional().nullable(),
         nextContactAt: z.string().optional().nullable(),
       })
       .parse(req.body);
-    const before = await prisma.registration.findUnique({
-      where: { id },
+    const before = await prisma.registration.findFirst({
+      where: getRegistrationAccessWhere(adminReq, { id }),
       select: { assignedManagerId: true, nextContactAt: true },
     });
+    if (!before) {
+      throw new AppError(404, 'Registration not found');
+    }
 
     if (data.assignedManagerId) {
       const manager = await prisma.adminUser.findUnique({ where: { id: data.assignedManagerId } });
@@ -668,7 +851,7 @@ adminRouter.patch(
       },
     });
 
-    await audit(req as AdminRequest, {
+    await audit(adminReq, {
       action: 'registration.manager.update',
       entityType: 'registration',
       entityId: id,
@@ -686,9 +869,10 @@ adminRouter.post(
   requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
+    const adminReq = req as AdminRequest;
     const data = z.object({ text: z.string().trim().max(1200).optional().or(z.literal('')) }).parse(req.body);
-    const registration = await prisma.registration.findUnique({
-      where: { id },
+    const registration = await prisma.registration.findFirst({
+      where: getRegistrationAccessWhere(adminReq, { id }),
       include: { lead: true, webinarSession: true },
     });
 
@@ -700,17 +884,20 @@ adminRouter.post(
       throw new AppError(400, 'У участника не подключен Telegram');
     }
 
-    const roomUrl = new URL('/crisis_premium/webinar.html', env.PUBLIC_SITE_URL);
+    const roomUrl = await prisma.$transaction(tx =>
+      createRoomExchangeUrl(tx, {
+        registrationId: registration.id,
+        expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+      }),
+    );
     const defaultText = [
       `${registration.lead.name}, напоминаем про вебинар АСПБ.`,
       '',
       `Начало: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
       '',
-      `Ваша персональная комната: ${roomUrl.toString()}`,
+      `Ваша персональная комната: ${roomUrl}`,
     ].join('\n');
-    const text = data.text
-      ? [data.text, '', `Ваша персональная комната: ${roomUrl.toString()}`].join('\n')
-      : defaultText;
+    const text = data.text ? [data.text, '', `Ваша персональная комната: ${roomUrl}`].join('\n') : defaultText;
 
     await sendTelegramMessageToChat(registration.lead.telegramChatId, text);
 
@@ -725,14 +912,14 @@ adminRouter.post(
       },
     });
 
-    await audit(req as AdminRequest, {
+    await audit(adminReq, {
       action: 'registration.telegram_reminder.send',
       entityType: 'registration',
       entityId: registration.id,
       after: { chatId: registration.lead.telegramChatId, textLength: text.length },
     });
 
-    res.json({ ok: true, sent: true });
+    res.json({ ok: true, sent: true, webinarUrl: roomUrl });
   }),
 );
 
@@ -742,14 +929,22 @@ adminRouter.patch(
   requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
+    const adminReq = req as AdminRequest;
     const data = z.object({ managerNote: z.string().max(5000).optional().or(z.literal('')) }).parse(req.body);
-    const before = await prisma.registration.findUnique({ where: { id }, select: { managerNote: true } });
+    const before = await prisma.registration.findFirst({
+      where: getRegistrationAccessWhere(adminReq, { id }),
+      select: { managerNote: true },
+    });
+    if (!before) {
+      throw new AppError(404, 'Registration not found');
+    }
+
     const registration = await prisma.registration.update({
       where: { id },
       data: { managerNote: data.managerNote || null },
     });
 
-    await audit(req as AdminRequest, {
+    await audit(adminReq, {
       action: 'registration.note.update',
       entityType: 'registration',
       entityId: id,
@@ -764,8 +959,11 @@ adminRouter.patch(
 adminRouter.get(
   '/api/admin/partner-applications',
   requireAdmin,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const adminReq = req as AdminRequest;
+    const maskPii = shouldMaskRegistrationPii(adminReq);
     const applications = await prisma.partnerApplication.findMany({
+      where: getPartnerApplicationAccessWhere(adminReq),
       include: {
         lead: true,
         registration: true,
@@ -777,28 +975,7 @@ adminRouter.get(
 
     res.json({
       ok: true,
-      applications: applications.map(application => ({
-        id: application.id,
-        registrationId: application.registrationId,
-        sphere: application.sphere,
-        city: application.city,
-        clientFlow: application.clientFlow,
-        experience: application.experience,
-        comment: application.comment,
-        preferredFormat: application.preferredFormat,
-        status: application.status,
-        createdAt: application.createdAt,
-        lead: {
-          name: application.lead.name,
-          email: application.lead.email,
-          phone: application.lead.phone,
-        },
-        webinar: application.webinarSession
-          ? {
-              scheduledAt: application.webinarSession.scheduledAt,
-            }
-          : null,
-      })),
+      applications: applications.map(application => serializePartnerApplicationForAdmin(application, maskPii)),
     });
   }),
 );
@@ -881,10 +1058,14 @@ adminRouter.get(
 adminRouter.get(
   '/api/admin/questions',
   requireAdmin,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const adminReq = req as AdminRequest;
+    const maskPii = shouldMaskRegistrationPii(adminReq);
     const questions = await prisma.question.findMany({
+      where: getQuestionAccessWhere(adminReq),
       include: {
         lead: true,
+        registration: true,
         webinarSession: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -893,21 +1074,7 @@ adminRouter.get(
 
     res.json({
       ok: true,
-      questions: questions.map(question => ({
-        id: question.id,
-        text: question.text,
-        isAnswered: question.isAnswered,
-        adminNote: question.adminNote,
-        createdAt: question.createdAt,
-        lead: {
-          name: question.lead.name,
-          email: question.lead.email,
-          phone: question.lead.phone,
-        },
-        webinar: {
-          scheduledAt: question.webinarSession.scheduledAt,
-        },
-      })),
+      questions: questions.map(question => serializeQuestionForAdmin(question, maskPii)),
     });
   }),
 );
@@ -918,8 +1085,16 @@ adminRouter.patch(
   requireRole(['owner', 'admin', 'manager']),
   asyncHandler(async (req, res) => {
     const id = z.string().parse(req.params.id);
+    const adminReq = req as AdminRequest;
     const data = z.object({ isAnswered: z.boolean(), adminNote: z.string().optional() }).parse(req.body);
-    const before = await prisma.question.findUnique({ where: { id }, select: { isAnswered: true, adminNote: true } });
+    const before = await prisma.question.findFirst({
+      where: getQuestionAccessWhere(adminReq, { id }),
+      select: { isAnswered: true, adminNote: true },
+    });
+    if (!before) {
+      throw new AppError(404, 'Question not found');
+    }
+
     const question = await prisma.question.update({
       where: { id },
       data: {
@@ -928,7 +1103,7 @@ adminRouter.patch(
       },
     });
 
-    await audit(req as AdminRequest, {
+    await audit(adminReq, {
       action: 'question.update',
       entityType: 'question',
       entityId: id,

@@ -23,10 +23,12 @@ export function buildFrontendUrl(pathname: string) {
 
 export function buildTokenizedFrontendUrl(pathname: string, token: string, hash?: string) {
   const url = new URL(pathname, env.PUBLIC_SITE_URL);
-  url.searchParams.set('token', token);
+  const fragment = new URLSearchParams();
+  fragment.set('token', token);
   if (hash) {
-    url.hash = hash.replace(/^#/, '');
+    fragment.set('anchor', hash.replace(/^#/, ''));
   }
+  url.hash = fragment.toString();
   return url.toString();
 }
 

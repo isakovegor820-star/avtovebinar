@@ -167,7 +167,7 @@ jobs:
           printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging_key
           chmod 600 ~/.ssh/staging_key
           ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
-            "cd '$STAGING_DEPLOY_PATH' && git pull --ff-only && docker compose --env-file .env.production -f docker-compose.production.yml build api webinar-worker && docker compose --env-file .env.production -f docker-compose.production.yml run --rm api npx prisma migrate deploy && docker compose --env-file .env.production -f docker-compose.production.yml up -d"
+            "cd '$STAGING_DEPLOY_PATH' && git pull --ff-only && COMPOSE_FILE=docker-compose.production.yml && [ -f docker-compose.deploy.yml ] && COMPOSE_FILE=docker-compose.deploy.yml || true && docker compose --env-file .env.production -f \$COMPOSE_FILE build api && docker compose --env-file .env.production -f \$COMPOSE_FILE run --rm api npx prisma migrate deploy && docker compose --env-file .env.production -f \$COMPOSE_FILE up -d"
 
   lint-pr:
     if: github.event_name == 'pull_request'

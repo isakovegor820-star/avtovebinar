@@ -318,8 +318,8 @@ describe('security configuration', () => {
     ).toThrow(/METRICS_TOKEN/);
   });
 
-  it('rejects production Telegram log mode or missing bot settings', () => {
-    expect(() =>
+  it('allows production Telegram log mode without bot settings', () => {
+    expect(
       validateProductionSecurity(
         secureProductionConfig({
           TELEGRAM_NOTIFY_MODE: 'log',
@@ -328,8 +328,22 @@ describe('security configuration', () => {
           TELEGRAM_PARTICIPANT_BOT_TOKEN: '',
           TELEGRAM_PARTICIPANT_BOT_USERNAME: '',
         }),
+      ).TELEGRAM_NOTIFY_MODE,
+    ).toBe('log');
+  });
+
+  it('rejects missing bot settings when production Telegram send mode is enabled', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          TELEGRAM_NOTIFY_MODE: 'send',
+          TELEGRAM_ADMIN_BOT_TOKEN: '',
+          TELEGRAM_ADMIN_CHAT_ID: '',
+          TELEGRAM_PARTICIPANT_BOT_TOKEN: '',
+          TELEGRAM_PARTICIPANT_BOT_USERNAME: '',
+        }),
       ),
-    ).toThrow(/TELEGRAM_NOTIFY_MODE.*TELEGRAM_ADMIN_BOT_TOKEN.*TELEGRAM_PARTICIPANT_BOT_TOKEN/s);
+    ).toThrow(/TELEGRAM_ADMIN_BOT_TOKEN.*TELEGRAM_PARTICIPANT_BOT_TOKEN/s);
   });
 
   it('rejects localhost production origins and video URLs', () => {

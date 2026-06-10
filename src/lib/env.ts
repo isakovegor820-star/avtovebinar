@@ -115,31 +115,43 @@ export function validateProductionSecurity(config: EnvConfig) {
   if (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS) {
     errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required in production');
   }
-  if (config.TELEGRAM_NOTIFY_MODE !== 'send') {
-    errors.push('TELEGRAM_NOTIFY_MODE must be "send" in production');
-  }
-  if (!(config.TELEGRAM_ADMIN_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) || !config.TELEGRAM_ADMIN_CHAT_ID) {
-    errors.push('TELEGRAM_ADMIN_BOT_TOKEN or TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_CHAT_ID are required in production');
-  }
+  const needsTelegramAdmin =
+    config.TELEGRAM_NOTIFY_MODE === 'send' ||
+    config.TELEGRAM_ADMIN_BOT_POLLING === 'on' ||
+    config.TELEGRAM_BOT_POLLING === 'on';
+  const needsTelegramParticipant =
+    config.TELEGRAM_NOTIFY_MODE === 'send' || config.TELEGRAM_PARTICIPANT_BOT_POLLING === 'on';
   if (
-    !(config.TELEGRAM_PARTICIPANT_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
-    !(config.TELEGRAM_PARTICIPANT_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME)
+    needsTelegramAdmin &&
+    (!(config.TELEGRAM_ADMIN_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) || !config.TELEGRAM_ADMIN_CHAT_ID)
   ) {
     errors.push(
-      'TELEGRAM_PARTICIPANT_BOT_TOKEN or TELEGRAM_BOT_TOKEN and participant bot username are required in production',
+      'TELEGRAM_ADMIN_BOT_TOKEN or TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_CHAT_ID are required when Telegram admin notifications are enabled',
+    );
+  }
+  if (
+    needsTelegramParticipant &&
+    (!(config.TELEGRAM_PARTICIPANT_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
+      !(config.TELEGRAM_PARTICIPANT_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME))
+  ) {
+    errors.push(
+      'TELEGRAM_PARTICIPANT_BOT_TOKEN or TELEGRAM_BOT_TOKEN and participant bot username are required when participant Telegram features are enabled',
     );
   }
   if (config.WEBINAR_TEST_ROOM_MODE === 'on') {
     errors.push('WEBINAR_TEST_ROOM_MODE must be "off" in production');
   }
-  if (!config.WEBINAR_VIDEO_HLS_URL) {
-    errors.push('WEBINAR_VIDEO_HLS_URL is required in production');
+  if (!config.WEBINAR_VIDEO_HLS_URL && !config.WEBINAR_VIDEO_URL) {
+    errors.push('WEBINAR_VIDEO_HLS_URL or WEBINAR_VIDEO_URL is required in production');
+  }
+  if (
+    (config.WEBINAR_VIDEO_PROVIDER === 'hls' || config.WEBINAR_VIDEO_PROVIDER === 'streaming') &&
+    !config.WEBINAR_VIDEO_HLS_URL
+  ) {
+    errors.push('WEBINAR_VIDEO_HLS_URL is required for hls/streaming video providers');
   }
   if (!config.WEBINAR_POSTER_URL) {
     errors.push('WEBINAR_POSTER_URL is required in production');
-  }
-  if (config.WEBINAR_VIDEO_PROVIDER === 'local') {
-    errors.push('WEBINAR_VIDEO_PROVIDER must not be "local" in production');
   }
   for (const origin of corsOrigins) {
     if (isLocalhostUrl(origin)) {

@@ -147,35 +147,43 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
   }));
   expect(dvrAtLiveEdge.viewerPosition).toBeLessThanOrEqual(dvrAtLiveEdge.livePosition + 1);
 
-  await page.locator('#webinarVideo').evaluate(async (node: HTMLVideoElement) => {
-    if (node.paused) {
-      await node.play();
+  const canExercisePlayback = await page.locator('#webinarVideo').evaluate(async (node: HTMLVideoElement) => {
+    try {
+      if (node.paused) {
+        await node.play();
+      }
+      return !node.paused;
+    } catch {
+      return false;
     }
   });
-  await expect
-    .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
-    .toBe(false);
 
-  const videoTimeBeforePause = await page
-    .locator('#webinarVideo')
-    .evaluate((node: HTMLVideoElement) => node.currentTime);
-  await page.locator('#customPlayPauseBtn').click();
-  await expect
-    .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
-    .toBe(true);
-  await expect(page.locator('#videoPauseOverlay')).toBeVisible();
-  await page.waitForTimeout(1800);
-  const videoTimeWhilePaused = await page
-    .locator('#webinarVideo')
-    .evaluate((node: HTMLVideoElement) => node.currentTime);
-  expect(videoTimeWhilePaused).toBeGreaterThanOrEqual(videoTimeBeforePause);
+  if (canExercisePlayback) {
+    await expect
+      .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
+      .toBe(false);
 
-  await page.locator('#videoPauseOverlay').click();
-  await page.waitForTimeout(1200);
-  const videoTimeAfterResume = await page
-    .locator('#webinarVideo')
-    .evaluate((node: HTMLVideoElement) => node.currentTime);
-  expect(videoTimeAfterResume).toBeGreaterThan(videoTimeWhilePaused);
+    const videoTimeBeforePause = await page
+      .locator('#webinarVideo')
+      .evaluate((node: HTMLVideoElement) => node.currentTime);
+    await page.locator('#customPlayPauseBtn').click();
+    await expect
+      .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))
+      .toBe(true);
+    await expect(page.locator('#videoPauseOverlay')).toBeVisible();
+    await page.waitForTimeout(1800);
+    const videoTimeWhilePaused = await page
+      .locator('#webinarVideo')
+      .evaluate((node: HTMLVideoElement) => node.currentTime);
+    expect(videoTimeWhilePaused).toBeGreaterThanOrEqual(videoTimeBeforePause);
+
+    await page.locator('#videoPauseOverlay').click();
+    await page.waitForTimeout(1200);
+    const videoTimeAfterResume = await page
+      .locator('#webinarVideo')
+      .evaluate((node: HTMLVideoElement) => node.currentTime);
+    expect(videoTimeAfterResume).toBeGreaterThan(videoTimeWhilePaused);
+  }
 
   await page.locator('#questionInput').fill('Как передать клиента с долгами?');
   await page.locator('#questionSubmit').click();

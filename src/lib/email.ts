@@ -102,7 +102,7 @@ function buildEmailText(input: BaseEmailInput, intro: string) {
   return [
     `${input.name}, ${intro}`,
     '',
-    'Тема: Экономика кризиса: как юристу зарабатывать на защите финансовых прав бизнеса',
+    'Тема: Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности',
     `Начало: ${scheduled} МСК`,
     `Ваша персональная ссылка на комнату: ${input.webinarUrl}`,
     `Telegram-уведомления: ${env.TELEGRAM_GROUP_URL}`,

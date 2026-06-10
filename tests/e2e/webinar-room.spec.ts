@@ -15,7 +15,7 @@ async function createExchangeRegistration(email: string) {
       title: 'E2E webinar',
       scheduledAt,
       status: 'live',
-      videoDurationSeconds: 568,
+      videoDurationSeconds: 3860,
     },
   });
   const lead = await prisma.lead.create({

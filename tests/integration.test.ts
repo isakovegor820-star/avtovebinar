@@ -797,7 +797,7 @@ describe('critical path integration scenarios', () => {
         title: 'Scripted chat test webinar',
         scheduledAt,
         status: 'live',
-        videoDurationSeconds: 568,
+        videoDurationSeconds: 3860,
       },
     });
     const lead = await prisma.lead.create({
@@ -837,7 +837,7 @@ describe('critical path integration scenarios', () => {
     expect(response.headers['cache-control']).toContain('max-age=4');
     expect(response.body.messages.length).toBeGreaterThan(0);
     expect(response.body.messages.some((message: any) => message.kind === 'agent_question')).toBe(true);
-    expect(response.body.messages.every((message: any) => message.offsetSeconds <= 568)).toBe(true);
+    expect(response.body.messages.every((message: any) => message.offsetSeconds <= 3860)).toBe(true);
     expect(response.body.messages[0]).toMatchObject({
       agentId: expect.any(String),
       answerStartSeconds: expect.any(Number),

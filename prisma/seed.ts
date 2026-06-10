@@ -6,6 +6,7 @@ import {
   WEBINAR_VIDEO_DURATION_SECONDS,
   WEBINAR_VIDEO_PATH,
 } from '../src/lib/webinarTimeline.js';
+import { getWebinarVideoConfig } from '../src/lib/webinarVideo.js';
 
 const prisma = new PrismaClient();
 
@@ -62,11 +63,14 @@ async function main() {
     orderBy: { createdAt: 'asc' },
   });
 
+  const videoConfig = getWebinarVideoConfig(session);
   const recordingData = {
     title: session.title,
-    description: 'Запись вебинара АСПБ с материалами и разбором антикризисных решений.',
-    posterUrl: session.posterUrl,
-    videoUrl: session.videoUrl ?? WEBINAR_VIDEO_PATH,
+    description:
+      'Запись вебинара АСПБ о том, как бухгалтеру, юристу или консультанту развиваться на рынке банкротства и передавать клиентов в партнерской модели.',
+    posterUrl: videoConfig.poster ?? session.posterUrl,
+    videoUrl: videoConfig.src ?? session.videoUrl ?? WEBINAR_VIDEO_PATH,
+    hlsUrl: videoConfig.hlsSrc,
     durationSeconds: session.videoDurationSeconds,
     publishedAt: null,
     visible: false,

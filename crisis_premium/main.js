@@ -1,13 +1,21 @@
 (function(){
-  const observer = new IntersectionObserver(function(entries){
-    entries.forEach(function(entry){
-      if(entry.isIntersecting){
-        entry.target.classList.add('is-visible');
-        observer.unobserve(entry.target);
-      }
+  document.documentElement.classList.add('js-reveal');
+
+  if (!('IntersectionObserver' in window)) {
+    document.querySelectorAll('.card-reveal').forEach(function(el){
+      el.classList.add('is-visible');
     });
-  },{threshold:0.15});
-  document.querySelectorAll('.card-reveal').forEach(function(el){observer.observe(el);});
+  } else {
+    const observer = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(entry.isIntersecting){
+          entry.target.classList.add('is-visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    },{threshold:0.15});
+    document.querySelectorAll('.card-reveal').forEach(function(el){observer.observe(el);});
+  }
 
   // 3D Tilt effect for bento cards
   document.querySelectorAll('.bento-card-tilt').forEach(function(card){

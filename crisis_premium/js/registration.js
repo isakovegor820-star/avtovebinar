@@ -3,7 +3,7 @@
  */
 
 import { clearAccessToken, urlToken } from './state.js';
-import { post, getJson, utm } from './utils.js';
+import { post, getJson, utm } from './utils.js?v=account-access-4';
 import { track } from './analytics.js';
 
 export function registrationStatePath(view) {
@@ -23,6 +23,31 @@ export function getRegistrationState(view) {
   return getJson(registrationStatePath(view));
 }
 
+export async function redirectRegisteredUserFromRegisterPage() {
+  if (!window.location.pathname.endsWith('register.html')) return false;
+
+  try {
+    const data = await getRegistrationState();
+    if (!data?.ok) return false;
+
+    try {
+      window.localStorage.setItem('crisisPremiumRegistered', 'true');
+    } catch {
+      // Server session is authoritative.
+    }
+
+    window.location.replace(data.successUrl || 'success.html');
+    return true;
+  } catch {
+    try {
+      window.localStorage.removeItem('crisisPremiumRegistered');
+    } catch {
+      // Ignore storage failures.
+    }
+    return false;
+  }
+}
+
 export async function exchangeUrlTokenIfPresent() {
   if (!urlToken) return false;
 
@@ -32,6 +57,7 @@ export async function exchangeUrlTokenIfPresent() {
   const cleanUrl = new URL(window.location.href);
   cleanUrl.searchParams.delete('token');
   window.history.replaceState({}, document.title, `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+  document.dispatchEvent(new CustomEvent('aspb:room-token-exchanged'));
   return true;
 }
 
@@ -78,6 +104,7 @@ export async function handleRegistrationSubmit(event, formOverride) {
       name: data.get('name'),
       phone: data.get('phone'),
       email: data.get('email'),
+      companyWebsite: data.get('companyWebsite') || '',
       city: data.get('city') || '',
       professionalStatus: data.get('professionalStatus'),
       clientsProblem: clients ? clients.value : '',

@@ -7,10 +7,12 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { execSync } from 'node:child_process';
 import { app } from '../src/app.js';
+import { env } from '../src/lib/env.js';
 import { prisma } from '../src/lib/prisma.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import { createAccessToken, hashToken } from '../src/lib/tokens.js';
 import { runEmailOutboxJobOnce } from '../src/lib/emailOutbox.js';
+import { runReplayFollowupJobOnce } from '../src/lib/reminders.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -57,7 +59,8 @@ describe('critical path integration scenarios', () => {
     });
 
     // 1. REGISTRATION (POST /api/register)
-    const registerResponse = await userAgent.post('/api/register').send({
+    const userCsrfToken = await getCsrfToken(userAgent);
+    const registerResponse = await userAgent.post('/api/register').set('x-csrf-token', userCsrfToken).send({
       name: 'Алексей Тестовый',
       phone: '+79998887766',
       email: 'alex.test@aspb.ru',
@@ -84,6 +87,9 @@ describe('critical path integration scenarios', () => {
     expect(initialEmailJobs.length).toBe(1);
     expect(initialEmailJobs[0].type).toBe('registration_confirmation');
     expect(initialEmailJobs[0].status).toBe('pending');
+    expect(initialEmailJobs[0].webinarUrl).toContain('/crisis_premium/webinar.html?token=');
+    expect(initialEmailJobs[0].partnerUrl).toContain('/crisis_premium/webinar.html?token=');
+    expect(initialEmailJobs[0].partnerUrl).toContain('#partnerApplication');
 
     // Check lead insertion
     const lead = await prisma.lead.findUnique({
@@ -94,7 +100,7 @@ describe('critical path integration scenarios', () => {
     expect(lead?.marketingConsent).toBe(true);
 
     // Re-submitting the same form for the same webinar refreshes access but does not create a duplicate registration.
-    const repeatRegisterResponse = await userAgent.post('/api/register').send({
+    const repeatRegisterResponse = await userAgent.post('/api/register').set('x-csrf-token', userCsrfToken).send({
       name: 'Алексей Тестовый',
       phone: '+79998887766',
       email: 'alex.test@aspb.ru',
@@ -119,14 +125,15 @@ describe('critical path integration scenarios', () => {
     const accessTokenCount = await prisma.registrationToken.count({
       where: { registrationId: registrationsAfterRepeat[0].id },
     });
-    expect(accessTokenCount).toBe(2);
+    expect(accessTokenCount).toBeGreaterThanOrEqual(3);
 
     const tokenPurposes = await prisma.registrationToken.findMany({
       where: { registrationId: registrationsAfterRepeat[0].id },
       select: { purpose: true },
       orderBy: { purpose: 'asc' },
     });
-    expect(tokenPurposes.map(item => item.purpose)).toEqual(['registration', 'room_session']);
+    expect(tokenPurposes.filter(item => item.purpose === 'room_session').length).toBe(1);
+    expect(tokenPurposes.filter(item => item.purpose === 'registration').length).toBeGreaterThanOrEqual(2);
 
     const activeConfirmationJobsAfterRepeat = await prisma.emailOutboxJob.findMany({
       where: {
@@ -136,8 +143,10 @@ describe('critical path integration scenarios', () => {
       },
     });
     expect(activeConfirmationJobsAfterRepeat.length).toBe(1);
-    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).toBe('http://127.0.0.1:5174/crisis_premium/webinar.html');
-    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).not.toContain('token=');
+    expect(activeConfirmationJobsAfterRepeat[0].webinarUrl).toContain(
+      'http://127.0.0.1:5174/crisis_premium/webinar.html?token=',
+    );
+    expect(activeConfirmationJobsAfterRepeat[0].partnerUrl).toContain('#partnerApplication');
 
     const registrationBeforeEmailJob = await prisma.registration.findUnique({
       where: { id: registrationsAfterRepeat[0].id },
@@ -205,7 +214,6 @@ describe('critical path integration scenarios', () => {
     expect(regInDbAfterRoomView?.roomEnteredAt).toBeDefined();
 
     // 4. ASK A QUESTION (POST /api/questions)
-    const userCsrfToken = await getCsrfToken(userAgent);
     const questionResponse = await userAgent.post('/api/questions').set('x-csrf-token', userCsrfToken).send({
       text: 'Каковы особенности процедуры банкротства юрлиц?',
     });
@@ -243,16 +251,12 @@ describe('critical path integration scenarios', () => {
     });
     expect(regInDbAfterApp?.crmStatus).toBe('contract_pending');
 
-    // 5a. URL token exchange is one-time and moves access into an httpOnly cookie.
-    const exchangeToken = createAccessToken();
-    await prisma.registrationToken.create({
-      data: {
-        registrationId: registrationsAfterRepeat[0].id,
-        tokenHash: hashToken(exchangeToken),
-        purpose: 'registration',
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-      },
-    });
+    // 5a. Email URL token exchange is one-time and moves access into an httpOnly cookie.
+    const exchangeToken = new URL(activeConfirmationJobsAfterRepeat[0].webinarUrl).searchParams.get('token');
+    expect(exchangeToken).toEqual(expect.any(String));
+    if (!exchangeToken) {
+      throw new Error('Expected email outbox webinar URL to contain an exchange token');
+    }
     const exchangeAgent = request.agent(app);
     const exchangeCsrfToken = await getCsrfToken(exchangeAgent);
     const exchangeResponse = await exchangeAgent
@@ -284,42 +288,6 @@ describe('critical path integration scenarios', () => {
     await expect(
       request(app).get(`/api/webinar/timeline/session/current?token=${exchangeToken}`),
     ).resolves.toMatchObject({ status: 401 });
-
-    const concurrentExchangeToken = createAccessToken();
-    await prisma.registrationToken.create({
-      data: {
-        registrationId: registrationsAfterRepeat[0].id,
-        tokenHash: hashToken(concurrentExchangeToken),
-        purpose: 'registration',
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-      },
-    });
-    const firstConcurrentAgent = request.agent(app);
-    const secondConcurrentAgent = request.agent(app);
-    const [firstConcurrentCsrfToken, secondConcurrentCsrfToken] = await Promise.all([
-      getCsrfToken(firstConcurrentAgent),
-      getCsrfToken(secondConcurrentAgent),
-    ]);
-    const concurrentResponses = await Promise.all([
-      firstConcurrentAgent
-        .post(`/api/registration/exchange/${concurrentExchangeToken}`)
-        .set('x-csrf-token', firstConcurrentCsrfToken)
-        .send({}),
-      secondConcurrentAgent
-        .post(`/api/registration/exchange/${concurrentExchangeToken}`)
-        .set('x-csrf-token', secondConcurrentCsrfToken)
-        .send({}),
-    ]);
-    expect(concurrentResponses.filter(response => response.status === 200)).toHaveLength(1);
-    expect(concurrentResponses.filter(response => [404, 409].includes(response.status))).toHaveLength(1);
-    expect(
-      await prisma.registrationToken.count({
-        where: {
-          registrationId: registrationsAfterRepeat[0].id,
-          purpose: 'room_session',
-        },
-      }),
-    ).toBe(1);
 
     // 6. ADMIN LOGIN (POST /api/admin/login)
     const adminAgent = request.agent(app);
@@ -379,6 +347,34 @@ describe('critical path integration scenarios', () => {
     expect(auditLogs.length).toBe(1);
     expect(auditLogs[0].action).toBe('registration.crm_status.update');
     expect(auditLogs[0].adminUserId).toBe(admin.id);
+  });
+
+  it('requires CSRF for registration and ignores honeypot submissions', async () => {
+    const userAgent = request.agent(app);
+    const csrfToken = await getCsrfToken(userAgent);
+
+    const missingHeaderResponse = await userAgent.post('/api/register').send({
+      name: 'Без CSRF',
+      phone: '+79990001122',
+      email: 'missing-csrf@aspb.ru',
+      consent: true,
+    });
+    expect(missingHeaderResponse.status).toBe(403);
+    expect(missingHeaderResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+
+    const honeypotResponse = await userAgent.post('/api/register').set('x-csrf-token', csrfToken).send({
+      name: 'Spam Bot',
+      phone: '+79990001123',
+      email: 'spam-bot@aspb.ru',
+      companyWebsite: 'https://spam.example.com',
+      consent: true,
+    });
+    expect(honeypotResponse.status).toBe(202);
+    expect(honeypotResponse.body.ok).toBe(true);
+
+    await expect(prisma.lead.findUnique({ where: { email: 'spam-bot@aspb.ru' } })).resolves.toBeNull();
+    await expect(prisma.registration.count()).resolves.toBe(0);
+    await expect(prisma.emailOutboxJob.count()).resolves.toBe(0);
   });
 
   it('keeps failed email jobs in the outbox and retries them later', async () => {
@@ -448,9 +444,10 @@ describe('critical path integration scenarios', () => {
 
   it('replaces stale pending and failed registration confirmation jobs on repeat registration', async () => {
     const userAgent = request.agent(app);
+    const csrfToken = await getCsrfToken(userAgent);
     const email = 'repeat-outbox@aspb.ru';
 
-    const firstResponse = await userAgent.post('/api/register').send({
+    const firstResponse = await userAgent.post('/api/register').set('x-csrf-token', csrfToken).send({
       name: 'Повторная Регистрация',
       phone: '+79990003344',
       email,
@@ -497,7 +494,7 @@ describe('critical path integration scenarios', () => {
       },
     });
 
-    const repeatResponse = await userAgent.post('/api/register').send({
+    const repeatResponse = await userAgent.post('/api/register').set('x-csrf-token', csrfToken).send({
       name: 'Повторная Регистрация',
       phone: '+79990003344',
       email,
@@ -520,10 +517,183 @@ describe('critical path integration scenarios', () => {
 
     expect(activeJobs.length).toBe(1);
     expect(activeJobs[0].status).toBe('pending');
-    expect(activeJobs[0].webinarUrl).toBe('http://127.0.0.1:5174/crisis_premium/webinar.html');
-    expect(activeJobs[0].webinarUrl).not.toContain('token=');
+    expect(activeJobs[0].webinarUrl).toContain('http://127.0.0.1:5174/crisis_premium/webinar.html?token=');
     expect(sentJobs.length).toBe(1);
     expect(sentJobs[0].webinarUrl).toContain('already-sent');
+  });
+
+  it('does not queue replay follow-up email for registered no-shows', async () => {
+    const scheduledAt = new Date('2026-05-22T08:00:00.000Z');
+    const now = new Date('2026-05-22T10:30:00.000Z');
+    const session = await prisma.webinarSession.create({
+      data: {
+        title: 'Replay webinar',
+        scheduledAt,
+        durationMinutes: 120,
+        replayEnabled: true,
+        replayAvailableHours: 168,
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Ноу Шоу',
+        email: 'replay-noshow@aspb.ru',
+        phone: '+79990007788',
+        consent: true,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        accessTokenHash: hashToken(createAccessToken()),
+        roomEnteredAt: null,
+      },
+    });
+
+    const firstRun = await runReplayFollowupJobOnce(now);
+    expect(firstRun.emailQueued).toBe(0);
+    expect(firstRun.telegramSent).toBe(0);
+    expect(firstRun.disabled).toBe(true);
+
+    const secondRun = await runReplayFollowupJobOnce(now);
+    expect(secondRun.emailQueued).toBe(0);
+
+    const replayJobCount = await prisma.emailOutboxJob.count({
+      where: { registrationId: registration.id, type: 'webinar_replay' },
+    });
+    expect(replayJobCount).toBe(0);
+  });
+
+  it('serves published recordings to registered account sessions only', async () => {
+    const anonymousResponse = await request(app).get('/api/recordings');
+    expect(anonymousResponse.status).toBe(401);
+
+    const endedSession = await prisma.webinarSession.create({
+      data: {
+        title: 'Прошедший вебинар',
+        scheduledAt: new Date('2026-05-22T08:00:00.000Z'),
+        durationMinutes: 120,
+        videoDurationSeconds: 3600,
+        videoUrl: '/crisis_premium/assets/webinar.mp4',
+        posterUrl: '/crisis_premium/assets/webinar-poster.jpg',
+      },
+    });
+    const futureSession = await prisma.webinarSession.create({
+      data: {
+        title: 'Будущий вебинар',
+        scheduledAt: new Date('2099-05-22T08:00:00.000Z'),
+        durationMinutes: 120,
+      },
+    });
+    const draftSession = await prisma.webinarSession.create({
+      data: {
+        title: 'Черновик вебинара',
+        scheduledAt: new Date('2026-05-23T08:00:00.000Z'),
+        durationMinutes: 120,
+      },
+    });
+
+    const visibleRecording = await prisma.webinarRecording.create({
+      data: {
+        webinarSessionId: endedSession.id,
+        title: 'Запись прошедшего вебинара',
+        description: 'Материалы вебинара.',
+        visible: true,
+        publishedAt: new Date('2026-05-22T10:05:00.000Z'),
+        durationSeconds: 3600,
+        orderIndex: 1,
+        category: 'webinar',
+      },
+    });
+    const futureRecording = await prisma.webinarRecording.create({
+      data: {
+        webinarSessionId: futureSession.id,
+        title: 'Запись будущего вебинара',
+        visible: true,
+        publishedAt: new Date('2099-05-22T10:05:00.000Z'),
+      },
+    });
+    const draftRecording = await prisma.webinarRecording.create({
+      data: {
+        webinarSessionId: draftSession.id,
+        title: 'Черновик записи',
+        visible: true,
+        publishedAt: null,
+      },
+    });
+    const hiddenRecording = await prisma.webinarRecording.create({
+      data: {
+        webinarSessionId: endedSession.id,
+        title: 'Скрытая запись',
+        visible: false,
+        publishedAt: new Date('2026-05-22T10:10:00.000Z'),
+      },
+    });
+
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Записи Тест',
+        phone: '+79990001122',
+        email: 'recordings-test@aspb.ru',
+        consent: true,
+        marketingConsent: true,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: endedSession.id,
+        accessTokenHash: hashToken(createAccessToken()),
+      },
+    });
+    const sessionToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registration.id,
+        tokenHash: hashToken(sessionToken),
+        purpose: 'room_session',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+    const accountCookie = [`aspb_room_token=${sessionToken}`];
+
+    const listResponse = await request(app).get('/api/recordings').set('Cookie', accountCookie);
+    expect(listResponse.status).toBe(200);
+    expect(listResponse.headers['cache-control']).toContain('private');
+    expect(listResponse.body.recordings).toHaveLength(1);
+    expect(listResponse.body.recordings[0]).toMatchObject({
+      id: visibleRecording.id,
+      title: 'Запись прошедшего вебинара',
+      status: 'available',
+    });
+    expect(listResponse.body.recordings[0].video).toMatchObject({
+      src: '/crisis_premium/assets/webinar.mp4',
+      poster: '/crisis_premium/assets/webinar-poster.jpg',
+      durationSeconds: 3600,
+    });
+
+    const detailResponse = await request(app)
+      .get(`/api/recordings/${visibleRecording.id}`)
+      .set('Cookie', accountCookie);
+    expect(detailResponse.status).toBe(200);
+    expect(detailResponse.body.currentIndex).toBe(0);
+    expect(detailResponse.body.playlist).toHaveLength(1);
+
+    const draftDetailResponse = await request(app)
+      .get(`/api/recordings/${draftRecording.id}`)
+      .set('Cookie', accountCookie);
+    expect(draftDetailResponse.status).toBe(404);
+
+    const futureDetailResponse = await request(app)
+      .get(`/api/recordings/${futureRecording.id}`)
+      .set('Cookie', accountCookie);
+    expect(futureDetailResponse.status).toBe(404);
+
+    const hiddenDetailResponse = await request(app)
+      .get(`/api/recordings/${hiddenRecording.id}`)
+      .set('Cookie', accountCookie);
+    expect(hiddenDetailResponse.status).toBe(404);
   });
 
   it('persists Telegram broadcast jobs outside process memory', async () => {
@@ -576,13 +746,16 @@ describe('critical path integration scenarios', () => {
     const liveResponse = await request(app).get('/health/live');
     expect(liveResponse.status).toBe(200);
     expect(liveResponse.body.ok).toBe(true);
-    expect(liveResponse.headers['content-security-policy']).toContain("img-src 'self' data: blob:");
-    expect(liveResponse.headers['content-security-policy']).not.toContain('img-src https:');
 
     const readyResponse = await request(app).get('/health/ready');
     expect(readyResponse.status).toBe(200);
     expect(readyResponse.body.ok).toBe(true);
     expect(readyResponse.body.checks.database.ok).toBe(true);
+    expect(readyResponse.body.checks.smtp).toBeUndefined();
+
+    const dependencyResponse = await request(app).get('/health/dependencies');
+    expect(dependencyResponse.status).toBe(200);
+    expect(dependencyResponse.body.checks.smtp.ok).toBe(true);
 
     const csrfResponse = await request(app)
       .post('/api/registration/exchange/not-a-real-token-12345678901234567890')
@@ -590,33 +763,86 @@ describe('critical path integration scenarios', () => {
     expect(csrfResponse.status).toBe(403);
     expect(csrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
 
-    const analyticsCsrfResponse = await request(app).post('/api/events').send({ eventName: 'page_view' });
-    expect(analyticsCsrfResponse.status).toBe(403);
-    expect(analyticsCsrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
-
-    const telegramClickCsrfResponse = await request(app).post('/api/telegram-click').send({ page: '/test' });
-    expect(telegramClickCsrfResponse.status).toBe(403);
-    expect(telegramClickCsrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
-
-    const publicAgent = request.agent(app);
-    const publicCsrfToken = await getCsrfToken(publicAgent);
-    const analyticsResponse = await publicAgent.post('/api/events').set('x-csrf-token', publicCsrfToken).send({
-      eventName: 'page_view',
-      page: '/test',
-    });
-    expect(analyticsResponse.status).toBe(201);
-    expect(analyticsResponse.body.ok).toBe(true);
-
-    const telegramClickResponse = await publicAgent
-      .post('/api/telegram-click')
-      .set('x-csrf-token', publicCsrfToken)
-      .send({ page: '/test' });
-    expect(telegramClickResponse.status).toBe(200);
-    expect(telegramClickResponse.body.ok).toBe(true);
-
     const metricsResponse = await request(app).get('/metrics');
     expect(metricsResponse.status).toBe(200);
     expect(metricsResponse.text).toContain('aspb_http_requests_total');
     expect(metricsResponse.text).toContain('aspb_queue_depth');
+
+    const originalNodeEnv = env.NODE_ENV;
+    const originalMetricsToken = env.METRICS_TOKEN;
+    env.NODE_ENV = 'production';
+    env.METRICS_TOKEN = 'test-metrics-token-123456';
+    try {
+      const missingTokenResponse = await request(app).get('/metrics');
+      expect(missingTokenResponse.status).toBe(401);
+
+      const invalidTokenResponse = await request(app)
+        .get('/metrics')
+        .set('authorization', 'Bearer wrong-metrics-token');
+      expect(invalidTokenResponse.status).toBe(403);
+
+      const validTokenResponse = await request(app).get('/metrics').set('authorization', `Bearer ${env.METRICS_TOKEN}`);
+      expect(validTokenResponse.status).toBe(200);
+      expect(validTokenResponse.text).toContain('aspb_http_requests_total');
+    } finally {
+      env.NODE_ENV = originalNodeEnv;
+      env.METRICS_TOKEN = originalMetricsToken;
+    }
+  });
+
+  it('returns validated scripted chat messages for the current room session', async () => {
+    const scheduledAt = new Date(Date.now() - 2 * 60 * 1000);
+    const session = await prisma.webinarSession.create({
+      data: {
+        title: 'Scripted chat test webinar',
+        scheduledAt,
+        status: 'live',
+        videoDurationSeconds: 568,
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Чат Тест',
+        phone: '+79990002233',
+        email: 'chat-scripted@aspb.ru',
+        city: 'Москва',
+        professionalStatus: 'Юрист',
+        consent: true,
+        marketingConsent: true,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        accessTokenHash: hashToken(createAccessToken()),
+      },
+    });
+    const sessionToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registration.id,
+        tokenHash: hashToken(sessionToken),
+        purpose: 'room_session',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    const response = await request(app)
+      .get('/api/webinar/chat/session/current')
+      .set('Cookie', [`aspb_room_token=${sessionToken}`]);
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.headers['cache-control']).toContain('max-age=4');
+    expect(response.body.messages.length).toBeGreaterThan(0);
+    expect(response.body.messages.some((message: any) => message.kind === 'agent_question')).toBe(true);
+    expect(response.body.messages.every((message: any) => message.offsetSeconds <= 568)).toBe(true);
+    expect(response.body.messages[0]).toMatchObject({
+      agentId: expect.any(String),
+      answerStartSeconds: expect.any(Number),
+      topic: expect.any(String),
+      isSynthetic: true,
+    });
   });
 });

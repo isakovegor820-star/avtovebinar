@@ -3,9 +3,43 @@
  */
 
 import { state } from './state.js';
-import { formatUtcIcsDate } from './utils.js';
-import { getRegistrationState } from './registration.js';
-import { updateTelegramLinks } from './room.js';
+import { formatUtcIcsDate, getJson } from './utils.js?v=account-access-4';
+import { getRegistrationState } from './registration.js?v=account-access-4';
+import { updateTelegramLinks } from './room.js?v=account-access-4';
+import { track } from './analytics.js';
+
+function clearLocalAccessHint() {
+  try {
+    window.localStorage.removeItem('crisisPremiumRegistered');
+  } catch {
+    // Server state is authoritative.
+  }
+}
+
+function revealSuccessContent() {
+  document.getElementById('successContent')?.removeAttribute('hidden');
+  document.body.classList.add('success-access-ready');
+}
+
+function renderSuccessAccessGate() {
+  clearLocalAccessHint();
+  const gate = document.getElementById('successAccessGate');
+  if (!gate) return;
+
+  gate.innerHTML = `
+    <div class="success-access-panel">
+      <div class="success-access-icon" aria-hidden="true">
+        <span class="material-symbols-outlined">lock</span>
+      </div>
+      <h1>Доступ не найден</h1>
+      <p>Кабинет участника показывается только после успешной регистрации. Если вы уже регистрировались, откройте персональную ссылку из письма или Telegram, чтобы восстановить доступ на этом устройстве.</p>
+      <div class="success-access-actions">
+        <a class="success-access-primary" href="register.html">Зарегистрироваться</a>
+        <a class="success-access-secondary" href="index.html">На главную</a>
+      </div>
+    </div>
+  `;
+}
 
 function bindSuccessCalendar(data) {
   const button = document.getElementById('successCalendarButton');
@@ -53,7 +87,17 @@ export async function hydrateSuccessPage() {
 
   try {
     const data = await getRegistrationState('success');
-    if (!data.ok) return;
+    if (!data.ok) {
+      renderSuccessAccessGate();
+      return;
+    }
+    try {
+      window.localStorage.setItem('crisisPremiumRegistered', 'true');
+    } catch {
+      // Cookie/session access is enough when localStorage is unavailable.
+    }
+    revealSuccessContent();
+    window.dispatchEvent(new CustomEvent('aspb:registration-state', { detail: data }));
     const roomHref = data.webinarUrl || 'webinar.html';
     state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
     updateTelegramLinks(data.telegramUrl);
@@ -63,6 +107,10 @@ export async function hydrateSuccessPage() {
     }
     const roomLink = document.getElementById('successRoomLink') || document.querySelector('a[href*="webinar.html"]');
     if (roomLink) roomLink.setAttribute('href', roomHref);
+    const recordingsLink = document.getElementById('successRecordingsLink');
+    if (recordingsLink) {
+      recordingsLink.addEventListener('click', () => track('recording_cta_click', { source: 'success' }));
+    }
     if (data.testMode || data.webinar?.testMode) {
       const intro = document.getElementById('successIntroText');
       if (intro) {
@@ -74,6 +122,7 @@ export async function hydrateSuccessPage() {
       }
     }
     bindSuccessCalendar(data);
+    hydrateRecordingsSummary().catch(() => {});
     const dateNode = document.getElementById('successWebinarDate');
     if (dateNode) {
       dateNode.textContent = new Intl.DateTimeFormat('ru-RU', {
@@ -111,6 +160,28 @@ export async function hydrateSuccessPage() {
       });
     }
   } catch {
-    // Keep static success page readable.
+    renderSuccessAccessGate();
   }
+}
+
+async function hydrateRecordingsSummary() {
+  const summary = document.getElementById('successRecordingsSummary');
+  if (!summary) return;
+
+  const payload = await getJson('/recordings');
+  summary.classList.remove('hidden');
+
+  const title = document.getElementById('successRecordingsTitle');
+  const text = document.getElementById('successRecordingsText');
+  const link = document.getElementById('successRecordingsLink');
+  if (!payload.recordings?.length) {
+    if (title) title.textContent = 'Записи появятся после завершения эфира';
+    if (text) text.textContent = 'После окончания вебинара запись автоматически появится в разделе “Записи”.';
+    return;
+  }
+
+  const latest = payload.recordings[0];
+  if (title) title.textContent = latest.title;
+  if (text) text.textContent = 'Последняя запись уже доступна в вашем кабинете без срока истечения.';
+  if (link) link.setAttribute('href', `recordings.html?id=${encodeURIComponent(latest.id)}`);
 }

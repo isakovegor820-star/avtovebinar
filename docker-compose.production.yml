@@ -36,7 +36,7 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    command: ["node", "dist/server.js"]
+    command: ["node", "dist/src/server.js"]
     healthcheck:
       test: ["CMD-SHELL", "node -e \"process.exit(0)\""]
       interval: 30s

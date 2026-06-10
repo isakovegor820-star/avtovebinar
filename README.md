@@ -7,7 +7,7 @@
 Доступ в вебинарную комнату cookie-only:
 
 - одноразовый `exchange-token` поддерживается только для первичного обмена через `POST /api/registration/exchange/:token`;
-- новые письма, reminder и Telegram-ссылки не генерируют `webinar.html?token=...`;
+- письма, reminder и Telegram-ссылки используют одноразовый `webinar.html?token=...` только для восстановления доступа на новом устройстве;
 - backend удаляет exchange-token, выпускает session-token и ставит `HttpOnly` cookie `aspb_room_token`;
 - URL очищается от `token`;
 - дальнейшие запросы комнаты используют только cookie и endpoints `session/current`.
@@ -80,6 +80,13 @@ crisis_premium/assets/webinar.mp4
 
 Чат server-backed: сообщения и вопросы хранятся в БД, scripted chat синхронизируется с серверным live offset.
 
+Подготовленные вопросы агентов хранятся в `webinar-data/agent-chat-scenario.json`. Для финальной записи:
+
+1. Обновите `WEBINAR_VIDEO_DURATION_SECONDS` в `.env` / production env по фактической длительности файла или HLS-записи.
+2. Разметьте ответы в видео и поставьте `sendAtSeconds` у вопросов за 40-70 секунд до `answerStartSeconds`.
+3. Не оставляйте сообщения за пределами `WEBINAR_VIDEO_DURATION_SECONDS`, если это не post-webinar сообщение с `allowAfterVideo: true`.
+4. Запустите `npm test` перед публикацией: тесты валидируют сценарий и duration.
+
 ## Основные API
 
 Public:
@@ -88,7 +95,8 @@ Public:
 GET  /api/health
 GET  /health/live
 GET  /health/ready
-GET  /metrics
+GET  /health/dependencies
+GET  /metrics (production: Authorization: Bearer METRICS_TOKEN)
 GET  /docs
 GET  /openapi.yml
 GET  /api/webinar/current
@@ -130,20 +138,23 @@ PUBLIC_SITE_URL=https://ваш-домен
 CORS_ORIGIN=https://ваш-домен
 DATABASE_URL=postgresql://...
 WORKER_ROLE=api|webinar|all
+TRUST_PROXY=1 # если API работает за reverse proxy
 ADMIN_LOGIN=...
 ADMIN_PASSWORD=...
 ADMIN_COOKIE_SECRET=...
 IP_HASH_SECRET=...
+METRICS_TOKEN=...
 EMAIL_MODE=send
 SMTP_HOST=...
 SMTP_PORT=587
 SMTP_USER=...
 SMTP_PASS=...
 EMAIL_FROM=...
+WEBINAR_VIDEO_DURATION_SECONDS=3600
 WEBINAR_TEST_ROOM_MODE=off
 ```
 
-Production guard запрещает дефолтные admin-секреты, `EMAIL_MODE=log`, HTTP `PUBLIC_SITE_URL`, wildcard CORS и test-room mode. `DATABASE_URL` должен включать pooling параметры, например `connection_limit=10&pool_timeout=20`.
+Production guard запрещает дефолтные admin-секреты, пустой `METRICS_TOKEN`, `EMAIL_MODE=log`, HTTP `PUBLIC_SITE_URL`, wildcard CORS и test-room mode. `DATABASE_URL` должен включать pooling параметры, например `connection_limit=10&pool_timeout=20`. `TRUST_PROXY` включайте только при запуске за доверенным reverse proxy.
 
 Docker production:
 
@@ -165,14 +176,14 @@ Helmet включает CSP, frame/object restrictions, COEP/CORP, cookie harden
 
 Публичные файлы `/.well-known/security.txt` и `/robots.txt` отдаются из static frontend root.
 
-Observability: каждый request получает `x-correlation-id`, pino logs включают `correlation_id`, `userId`/`adminId` где доступны. `/metrics` отдает Prometheus text format: request counters/duration, 5xx rate alert state, email outbox depth, Telegram broadcast queue/dead-letter depth.
+Observability: каждый request получает `x-correlation-id`, pino logs включают `correlation_id`, `userId`/`adminId` где доступны. `/health/ready` проверяет готовность ядра API и БД, `/health/dependencies` отдельно проверяет SMTP/Telegram. `/metrics` отдает Prometheus text format: request counters/duration, 5xx rate alert state, email outbox depth, Telegram broadcast queue/dead-letter depth; в production endpoint требует `Authorization: Bearer <METRICS_TOKEN>`.
 
 ## QA checklist
 
 - Регистрация создает lead/registration и outbox email job.
 - API регистрации успешен при временно недоступном SMTP.
 - Success page открывается без token в URL.
-- Legacy-вход с одноразовым `webinar.html?token=...` выполняет exchange и очищает URL.
+- Вход из email/Telegram с одноразовым `webinar.html?token=...` выполняет exchange и очищает URL.
 - Повторный exchange того же token возвращает отказ.
 - Room state, timeline и chat работают через cookie/session.
 - Live-полоска выглядит как live/DVR без серого хвоста до конца видео.

@@ -100,10 +100,15 @@ partnersRouter.post(
     }
     const now = new Date();
     const access = buildAccessPayload(registration, now);
-    const liveState = getWebinarLiveState(now, registration.webinarSession, { testMode: access.testMode });
-    const liveOffsetSeconds = Math.max(0, liveState.liveOffsetSeconds);
+    if (!access.canEnterRoom) {
+      throw roomAccessError(access.accessStatus);
+    }
+    const liveState = getWebinarLiveState(now, access.webinarSession, { testMode: access.testMode });
+    if (!access.testMode && liveState.status !== 'live' && liveState.status !== 'finished') {
+      throw new AppError(423, 'Webinar chat is closed');
+    }
 
-    const question = await prisma.$transaction(async tx => {
+    const { question, chatMessage } = await prisma.$transaction(async tx => {
       const question = await tx.question.create({
         data: {
           leadId: registration.leadId,
@@ -113,7 +118,7 @@ partnersRouter.post(
         },
       });
 
-      await tx.webinarChatMessage.create({
+      const chatMessage = await tx.webinarChatMessage.create({
         data: {
           webinarSessionId: registration.webinarSessionId,
           registrationId: registration.id,
@@ -127,7 +132,7 @@ partnersRouter.post(
         },
       });
 
-      return question;
+      return { question, chatMessage };
     });
 
     await saveEvent({
@@ -153,11 +158,11 @@ partnersRouter.post(
         webinarSessionId: registration.webinarSessionId,
         registrationId: registration.id,
         text: data.text,
-        liveOffsetSeconds,
+        liveOffsetSeconds: liveState.liveOffsetSeconds,
         now,
       }),
     );
 
-    res.status(201).json({ ok: true, questionId: question.id });
+    res.status(201).json({ ok: true, questionId: question.id, chatMessageId: chatMessage.id });
   }),
 );

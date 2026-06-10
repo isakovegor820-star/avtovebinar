@@ -3,14 +3,17 @@
 <html class="light" lang="ru"><head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta name="description" content="АСПБ — автоматизированная система помощи банкротам. Бесплатный вебинар по экономике кризиса и списанию долгов."/>
+<meta property="og:title" content="АСПБ — Экономика кризиса"/>
+<meta property="og:description" content="Бесплатный вебинар: как работает система помощи банкротам в кризис"/>
+<meta property="og:type" content="website"/>
 <title>АСПБ — Экономика кризиса</title>
 <link rel="stylesheet" href="css/styles.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-<link href="flow-tabs.css" rel="stylesheet"/>
-<link href="buttons.css" rel="stylesheet"/>
-<link href="app-styles.css" rel="stylesheet"/>
+<link href="flow-tabs.css?v=nav-tabs-3" rel="stylesheet"/>
+<link href="buttons.css?v=restore-animations-1" rel="stylesheet"/>
+<link href="app-styles.css?v=restore-animations-1" rel="stylesheet"/>
 </head>
 <body class="bg-background text-on-surface font-body-md selection:bg-primary-fixed selection:text-on-primary-fixed">
 <!-- TopNavBar -->
@@ -54,7 +57,7 @@
 <span class="hero-title-accent">законно и системно</span>
                     </h1>
 <p class="hero-lead max-w-xl">
-                        Покажем, как юристу находить клиентов с долговыми и банкротными рисками, <span class="hero-lead-strong">передавать сложную часть в АСПБ</span> и получать <span class="hero-lead-em">партнерское вознаграждение</span> без расширения команды и лишней операционки.
+                        Команда опытных арбитражных управляющих покажет, как юристу без практики в банкротстве находить клиентов, успешно вести процедуры или <span class="hero-lead-strong">передавать сложные кейсы арбитражным управляющим</span> и получать <span class="hero-lead-em">гарантированное вознаграждение</span> без увеличения команды и дополнительной операционки.
                     </p>
 <div class="grid sm:grid-cols-3 gap-3 max-w-xl">
 <div class="hero-proof-card rounded-lg p-3 border border-outline-variant/30">
@@ -95,8 +98,8 @@
 <div class="flex items-center gap-4">
 <span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">event</span>
 <div>
-<p class="text-label-md font-label-md text-primary">Ближайший эфир — завтра</p>
-<p class="text-label-sm font-label-sm text-on-surface-variant" id="webinarTargetLabel">Начало в 19:00 по МСК</p>
+<p class="text-label-md font-label-md text-primary" data-webinar-relative-label>Ближайший эфир</p>
+<p class="text-label-sm font-label-sm text-on-surface-variant" id="webinarTargetLabel" data-webinar-target-label>Время эфира уточняется</p>
 </div>
 </div>
 <div class="mt-4 grid grid-cols-4 gap-2" id="heroCountdown" aria-label="Отсчет до эфира" aria-live="polite">
@@ -616,7 +619,7 @@
 <!-- Founder card -->
 <div class="card-reveal team-card team-founder-card group md:col-span-3">
 <div class="grid lg:grid-cols-[0.82fr_1.18fr] lg:min-h-[350px]">
-<div class="team-photo-frame relative overflow-hidden rounded-xl lg:rounded-r-none aspect-square">
+<div class="team-photo-frame relative overflow-hidden rounded-xl lg:rounded-r-none h-[260px] sm:h-[300px] lg:h-auto">
 <img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/vasiliy-artin.jpg" alt="Василий Артин"/>
 <div class="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-primary text-white px-4 py-2 text-label-sm font-label-sm">
 <span class="material-symbols-outlined text-[18px]">workspace_premium</span>
@@ -646,7 +649,7 @@
 
 <!-- Card 2 -->
 <div class="card-reveal card-reveal--delay team-card group">
-<div class="team-photo-frame relative overflow-hidden rounded-xl mb-3 aspect-square">
+<div class="team-photo-frame team-member-photo-frame relative overflow-hidden rounded-xl mb-3 aspect-square">
 <img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/lyashchenko-elena.jpg" alt="Лященко Елена"/>
 <div class="team-card-tooltip">
 <p class="text-[12px] text-white/90 leading-relaxed">Сопровождает процедуру так, чтобы клиент понимал каждый этап: документы, сроки, суд и коммуникация с кредиторами</p>
@@ -664,7 +667,7 @@
 
 <!-- Card 3 -->
 <div class="card-reveal team-card group" style="animation-delay:0.24s">
-<div class="team-photo-frame relative overflow-hidden rounded-xl mb-3 aspect-square">
+<div class="team-photo-frame team-member-photo-frame relative overflow-hidden rounded-xl mb-3 aspect-square">
 <img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/gerasimov-alexander.jpg" alt="Александр Герасимов"/>
 <div class="team-card-tooltip">
 <p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: списал 12.4 млн долга для ИП за 7 месяцев, сохранив единственное жильё клиента</p>
@@ -682,7 +685,7 @@
 
 <!-- Card 4 -->
 <div class="card-reveal team-card group" style="animation-delay:0.3s">
-<div class="team-photo-frame relative overflow-hidden rounded-xl mb-3 aspect-square">
+<div class="team-photo-frame team-member-photo-frame relative overflow-hidden rounded-xl mb-3 aspect-square">
 <img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/andrey-abukaev.jpg" alt="Андрей Абукаев"/>
 <div class="team-card-tooltip">
 <p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: снял субсидиарную ответственность 18 млн с директора через оспаривание сделок</p>
@@ -975,13 +978,13 @@
 <span class="material-symbols-outlined">event_available</span>
 </span>
 <span class="flex-1">
-<span class="block text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-1">если не успею</span>
+<span class="block text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-1">после эфира</span>
 <span class="block text-label-md font-label-md text-primary">Будет ли запись эфира?</span>
 </span>
 <span class="faq-chevron material-symbols-outlined w-9 h-9 rounded-lg bg-surface-container text-primary flex items-center justify-center transition-all">expand_more</span>
 </summary>
 <div class="faq-answer px-5 md:px-6 pb-6 md:pl-[88px] text-body-md text-on-surface-variant">
-                    Да, запись будет доступна зарегистрированным участникам в течение 24 часов после завершения трансляции. Но лучше прийти в прямой эфир: там можно задать вопрос по своей ситуации.
+                    Да, запись появится в разделе «Записи» личного кабинета после завершения трансляции и останется доступной без срока истечения. В прямом эфире можно задать вопрос по своей ситуации.
                 </div>
 </details>
 </div>
@@ -1032,10 +1035,10 @@
 </div>
 </div>
 </footer>
-<script src="landing-interactions.js"></script>
-<script type="module" src="js/main.js"></script>
-<script src="flow-tabs.js"></script>
-<script src="buttons.js"></script>
-<script src="particles-bg.js"></script>
-<script src="main.js"></script>
+<script src="landing-interactions.js?v=restore-animations-1"></script>
+<script type="module" src="js/main.js?v=account-access-5"></script>
+<script src="flow-tabs.js?v=nav-tabs-3"></script>
+<script src="buttons.js?v=restore-animations-1"></script>
+<script src="particles-bg.js?v=restore-animations-1"></script>
+<script src="main.js?v=restore-animations-1"></script>
 </body></html>

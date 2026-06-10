@@ -1,426 +1,154 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { z } from 'zod';
+
+export type ScriptedChatKind = 'scripted_user' | 'agent_question';
+
+const DEFAULT_SCENARIO_PATH = path.join(process.cwd(), 'webinar-data', 'agent-chat-scenario.json');
+
+const scriptedChatMessageSchema = z
+  .object({
+    id: z.string().min(1),
+    sendAtSeconds: z.number().int().nonnegative(),
+    answerStartSeconds: z.number().int().nonnegative().optional(),
+    relatedVideoSeconds: z.number().int().nonnegative().optional(),
+    agentId: z.string().min(1),
+    agentName: z.string().min(1),
+    agentRole: z.string().min(1),
+    message: z.string().trim().min(3).max(700),
+    kind: z.enum(['scripted_user', 'agent_question']),
+    topic: z.string().trim().min(1).optional(),
+    visible: z.boolean().default(true),
+    priority: z.number().int().optional(),
+    allowAfterVideo: z.boolean().default(false),
+  })
+  .strict()
+  .refine(value => value.answerStartSeconds !== undefined || value.relatedVideoSeconds !== undefined, {
+    message: 'Each scripted chat message needs answerStartSeconds or relatedVideoSeconds',
+  });
+
+const scriptedChatScenarioSchema = z
+  .object({
+    version: z.literal(1),
+    description: z.string().optional(),
+    messages: z.array(scriptedChatMessageSchema),
+  })
+  .strict()
+  .superRefine((scenario, ctx) => {
+    const ids = new Set<string>();
+    for (const [index, message] of scenario.messages.entries()) {
+      if (ids.has(message.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['messages', index, 'id'],
+          message: `Duplicate scripted chat message id "${message.id}"`,
+        });
+      }
+      ids.add(message.id);
+    }
+  });
+
+export type ScriptedChatScenarioItem = z.infer<typeof scriptedChatMessageSchema>;
+export type ScriptedChatScenario = z.infer<typeof scriptedChatScenarioSchema>;
+
 export type ScriptedChatMessage = {
   id: string;
   offsetSeconds: number;
+  answerStartSeconds?: number;
+  relatedVideoSeconds?: number;
+  agentId: string;
   authorName: string;
   authorRole: string;
-  authorCity: string;
   message: string;
-  kind: 'scripted_user' | 'agent_question';
+  kind: ScriptedChatKind;
   isSynthetic: true;
   videoBlock: string;
+  topic?: string;
+  priority?: number;
 };
 
-export const SCRIPTED_CHAT_MESSAGES: ScriptedChatMessage[] = [
-  // ── Блок 0-1. Старт эфира ──────────────────────────────────────
-  {
-    id: 'scripted_001',
-    offsetSeconds: 8,
-    authorName: 'Марина',
-    authorRole: 'юрист',
-    authorCity: 'Москва',
-    message: 'Коллеги, добрый день. Интересно, как это применять именно в юридической практике.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Старт эфира',
-  },
-  {
-    id: 'scripted_002',
-    offsetSeconds: 24,
-    authorName: 'Игорь',
-    authorRole: 'адвокат',
-    authorCity: 'Казань',
-    message: 'Тема актуальная, клиенты с долгами стали приходить чаще.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Старт эфира',
-  },
+export function parseScriptedChatScenario(input: unknown) {
+  return scriptedChatScenarioSchema.parse(input);
+}
 
-  // ── Агент-вопрос → Блок 2: сигналы долгового клиента ──────────
-  {
-    id: 'scripted_003',
-    offsetSeconds: 75,
-    authorName: 'Елена',
-    authorRole: 'налоговый консультант',
-    authorCity: 'Екатеринбург',
-    message: 'Если у клиента уже блокировка счета по налогам, это тоже тот самый сигнал?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Сигналы долгового клиента',
-  },
+export function loadScriptedChatScenarioFromFile(filePath = DEFAULT_SCENARIO_PATH) {
+  try {
+    const raw = readFileSync(filePath, 'utf8');
+    return parseScriptedChatScenario(JSON.parse(raw));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid scripted chat scenario at ${filePath}: ${message}`);
+  }
+}
 
-  {
-    id: 'scripted_004',
-    offsetSeconds: 105,
-    authorName: 'Дмитрий',
-    authorRole: 'юрист',
-    authorCity: 'Новосибирск',
-    message: 'Согласен про риск отпустить клиента. Обычно после консультации он уходит искать решение сам.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Проблема потери клиента',
-  },
+export const SCRIPTED_CHAT_SCENARIO = loadScriptedChatScenarioFromFile();
 
-  // ── Агент-вопрос → Блок 6: безопасная коммуникация с клиентом ─
-  {
-    id: 'scripted_005',
-    offsetSeconds: 135,
-    authorName: 'Антон',
-    authorRole: 'финансовый консультант',
-    authorCity: 'Самара',
-    message: 'А как корректно говорить с клиентом, чтобы не обещать ему невозможного?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Безопасная коммуникация',
-  },
+export function assertScriptedChatFitsDuration(
+  durationSeconds: number,
+  scenario: ScriptedChatScenario = SCRIPTED_CHAT_SCENARIO,
+) {
+  const duration = Math.floor(Number(durationSeconds));
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(`Invalid webinar video duration for scripted chat: ${durationSeconds}`);
+  }
 
-  // ── Агент-вопрос → Блок 5: что берёт на себя АСПБ ────────────
-  {
-    id: 'scripted_006',
-    offsetSeconds: 190,
-    authorName: 'Ольга',
-    authorRole: 'юрист',
-    authorCity: 'Ростов-на-Дону',
-    message: 'Правильно понимаю, что документы и процедуру берет на себя команда АСПБ?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Что берет на себя АСПБ',
-  },
+  const invalid = scenario.messages.filter(message => {
+    if (message.visible === false || message.allowAfterVideo) {
+      return false;
+    }
+    return message.sendAtSeconds > duration;
+  });
 
-  {
-    id: 'scripted_007',
-    offsetSeconds: 220,
-    authorName: 'Марина',
-    authorRole: 'юрист',
-    authorCity: 'Москва',
-    message: 'Для партнеров важно, чтобы не пришлось самим вести банкротство. Это как раз боль.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Роль партнера',
-  },
+  if (invalid.length > 0) {
+    const ids = invalid.map(message => `${message.id}@${message.sendAtSeconds}s`).join(', ');
+    throw new Error(
+      `Scripted chat scenario exceeds webinar video duration ${duration}s. ` +
+        `Move these messages inside the video duration or set allowAfterVideo: true: ${ids}`,
+    );
+  }
+}
 
-  {
-    id: 'scripted_008',
-    offsetSeconds: 265,
-    authorName: 'Сергей',
-    authorRole: 'арбитражный юрист',
-    authorCity: 'Пермь',
-    message: 'Есть кейсы, где клиент боится слова банкротство. Диагностика звучит спокойнее.',
-    kind: 'scripted_user',
+function toRuntimeMessage(message: ScriptedChatScenarioItem): ScriptedChatMessage {
+  return {
+    id: message.id,
+    offsetSeconds: message.sendAtSeconds,
+    answerStartSeconds: message.answerStartSeconds,
+    relatedVideoSeconds: message.relatedVideoSeconds,
+    agentId: message.agentId,
+    authorName: message.agentName,
+    authorRole: message.agentRole,
+    message: message.message,
+    kind: message.kind,
     isSynthetic: true,
-    videoBlock: 'Диагностика вместо давления',
-  },
+    videoBlock: message.topic ?? 'Вопрос по теме',
+    topic: message.topic,
+    priority: message.priority,
+  };
+}
 
-  // ── Агент-вопрос → Блок 6: когда передавать клиента ───────────
-  {
-    id: 'scripted_009',
-    offsetSeconds: 325,
-    authorName: 'Елена',
-    authorRole: 'налоговый консультант',
-    authorCity: 'Екатеринбург',
-    message: 'Про ФНС и кредиторов очень узнаваемо. А когда уже пора передавать клиента дальше?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Когда передавать клиента',
+export function getScriptedChatMessagesUntil(
+  offsetSeconds: number,
+  options: {
+    durationSeconds: number;
+    includeAfterVideo?: boolean;
+    scenario?: ScriptedChatScenario;
   },
+) {
+  const scenario = options.scenario ?? SCRIPTED_CHAT_SCENARIO;
+  assertScriptedChatFitsDuration(options.durationSeconds, scenario);
 
-  // ── Агент-вопрос → Блок 6: типы клиентов (ИП vs юрлицо) ──────
-  {
-    id: 'scripted_010',
-    offsetSeconds: 355,
-    authorName: 'Игорь',
-    authorRole: 'адвокат',
-    authorCity: 'Казань',
-    message: 'Если клиент ИП, маршрут отличается от юрлица или сначала все равно диагностика?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Типы клиентов',
-  },
+  const offset = Math.max(0, Math.floor(offsetSeconds));
+  const duration = Math.max(1, Math.floor(options.durationSeconds));
 
-  {
-    id: 'scripted_011',
-    offsetSeconds: 390,
-    authorName: 'Дмитрий',
-    authorRole: 'юрист',
-    authorCity: 'Новосибирск',
-    message: 'Условия партнерства фиксируются договором - это правильно, без устных договоренностей спокойнее.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Партнерская модель',
-  },
-
-  // ── Агент-вопрос → Блок 7: вознаграждение партнера ────────────
-  {
-    id: 'scripted_014',
-    offsetSeconds: 415,
-    authorName: 'Сергей',
-    authorRole: 'арбитражный юрист',
-    authorCity: 'Пермь',
-    message: 'Подскажите, а когда фиксируется партнерское вознаграждение — сразу при передаче клиента?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Вознаграждение партнера',
-  },
-
-  {
-    id: 'scripted_012',
-    offsetSeconds: 450,
-    authorName: 'Ольга',
-    authorRole: 'юрист',
-    authorCity: 'Ростов-на-Дону',
-    message: 'Вспомнила двух клиентов за май: долги, кредиторы и просроченные налоги.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Вопрос участникам',
-  },
-
-  // ── Агент-вопрос → Блок 8: возражение "я не юрист" ───────────
-  {
-    id: 'scripted_015',
-    offsetSeconds: 472,
-    authorName: 'Марина',
-    authorRole: 'бухгалтер',
-    authorCity: 'Краснодар',
-    message: 'Я бухгалтер, а не юрист. Мне вообще можно участвовать в партнерстве?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Возражения перед стартом',
-  },
-
-  {
-    id: 'scripted_013',
-    offsetSeconds: 510,
-    authorName: 'Антон',
-    authorRole: 'финансовый консультант',
-    authorCity: 'Самара',
-    message: 'После эфира оставлю заявку, хочу понять формат передачи клиентов.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Финальный шаг',
-  },
-
-  // ── Агент-вопрос → Блок 9: удалённая работа ──────────────────
-  {
-    id: 'scripted_016',
-    offsetSeconds: 540,
-    authorName: 'Игорь',
-    authorRole: 'адвокат',
-    authorCity: 'Казань',
-    message: 'Можно ли работать с АСПБ удаленно, из другого города?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Финальный CTA',
-  },
-  {
-    id: 'scripted_017',
-    offsetSeconds: 660,
-    authorName: 'Марина',
-    authorRole: 'юрист',
-    authorCity: 'Москва',
-    message: 'Хорошо, что акцент на диагностике. Так проще объяснить клиенту первый шаг без давления.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Диагностика клиента',
-  },
-  {
-    id: 'scripted_018',
-    offsetSeconds: 780,
-    authorName: 'Дмитрий',
-    authorRole: 'юрист',
-    authorCity: 'Новосибирск',
-    message: 'А если клиент уже судится с кредитором, его еще можно передавать на диагностику?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Клиент в судебной стадии',
-  },
-  {
-    id: 'scripted_019',
-    offsetSeconds: 900,
-    authorName: 'Ольга',
-    authorRole: 'юрист',
-    authorCity: 'Ростов-на-Дону',
-    message: 'Задала бы вопрос по ИП с налоговой задолженностью. Там как раз неясно, что делать первым.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Вопрос по кейсу',
-  },
-  {
-    id: 'scripted_020',
-    offsetSeconds: 1020,
-    authorName: 'Сергей',
-    authorRole: 'арбитражный юрист',
-    authorCity: 'Пермь',
-    message: 'Какие документы лучше запросить у клиента до передачи в АСПБ?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Первичный пакет документов',
-  },
-  {
-    id: 'scripted_021',
-    offsetSeconds: 1140,
-    authorName: 'Елена',
-    authorRole: 'налоговый консультант',
-    authorCity: 'Екатеринбург',
-    message: 'Поняла: партнер не заменяет процедуру, а помогает клиенту попасть в правильный маршрут.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Роль партнера',
-  },
-  {
-    id: 'scripted_022',
-    offsetSeconds: 1260,
-    authorName: 'Антон',
-    authorRole: 'финансовый консультант',
-    authorCity: 'Самара',
-    message: 'Если у клиента несколько банков и ФНС одновременно, диагностика начинается с общей картины долгов?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Комплексная долговая нагрузка',
-  },
-  {
-    id: 'scripted_023',
-    offsetSeconds: 1380,
-    authorName: 'Марина',
-    authorRole: 'юрист',
-    authorCity: 'Москва',
-    message: 'Для моей практики важно, чтобы клиент понимал: я не бросаю его, а передаю профильной команде.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Сохранение доверия',
-  },
-  {
-    id: 'scripted_024',
-    offsetSeconds: 1500,
-    authorName: 'Игорь',
-    authorRole: 'адвокат',
-    authorCity: 'Казань',
-    message: 'Как фиксируется, что клиент пришел именно от партнера?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Фиксация передачи клиента',
-  },
-  {
-    id: 'scripted_025',
-    offsetSeconds: 1620,
-    authorName: 'Дмитрий',
-    authorRole: 'юрист',
-    authorCity: 'Новосибирск',
-    message: 'Договорная фиксация партнерства снимает главный страх по вознаграждению.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Договорная модель',
-  },
-  {
-    id: 'scripted_026',
-    offsetSeconds: 1740,
-    authorName: 'Ольга',
-    authorRole: 'юрист',
-    authorCity: 'Ростов-на-Дону',
-    message: 'Можно ли передавать клиента, если он пока только думает о банкротстве и боится процедуры?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Клиент сомневается',
-  },
-  {
-    id: 'scripted_027',
-    offsetSeconds: 1860,
-    authorName: 'Сергей',
-    authorRole: 'арбитражный юрист',
-    authorCity: 'Пермь',
-    message: 'Маршрут через диагностику действительно звучит мягче, чем сразу говорить про процедуру.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Мягкий вход',
-  },
-  {
-    id: 'scripted_028',
-    offsetSeconds: 1980,
-    authorName: 'Елена',
-    authorRole: 'налоговый консультант',
-    authorCity: 'Екатеринбург',
-    message: 'Если основной долг налоговый, АСПБ тоже смотрит риски субсидиарной ответственности?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Налоговые риски',
-  },
-  {
-    id: 'scripted_029',
-    offsetSeconds: 2160,
-    authorName: 'Антон',
-    authorRole: 'финансовый консультант',
-    authorCity: 'Самара',
-    message: 'У меня часто приходят предприниматели уже после кассового разрыва. Теперь понятнее, куда их вести.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Предприниматели с кассовым разрывом',
-  },
-  {
-    id: 'scripted_030',
-    offsetSeconds: 2340,
-    authorName: 'Марина',
-    authorRole: 'юрист',
-    authorCity: 'Москва',
-    message: 'Партнер может присутствовать в коммуникации с клиентом после передачи?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Коммуникация после передачи',
-  },
-  {
-    id: 'scripted_031',
-    offsetSeconds: 2520,
-    authorName: 'Игорь',
-    authorRole: 'адвокат',
-    authorCity: 'Казань',
-    message: 'Вижу, что модель подходит не только банкротным юристам, но и тем, кто видит проблему раньше.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Для смежных практик',
-  },
-  {
-    id: 'scripted_032',
-    offsetSeconds: 2700,
-    authorName: 'Дмитрий',
-    authorRole: 'юрист',
-    authorCity: 'Новосибирск',
-    message: 'Заявку на партнерский договор лучше оставлять уже с описанием типовых клиентов?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Заявка на договор',
-  },
-  {
-    id: 'scripted_033',
-    offsetSeconds: 2880,
-    authorName: 'Ольга',
-    authorRole: 'юрист',
-    authorCity: 'Ростов-на-Дону',
-    message: 'После вебинара соберу 2-3 кейса и опишу поток. Так разговор с менеджером будет предметнее.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Подготовка к заявке',
-  },
-  {
-    id: 'scripted_034',
-    offsetSeconds: 3060,
-    authorName: 'Сергей',
-    authorRole: 'арбитражный юрист',
-    authorCity: 'Пермь',
-    message: 'Если клиент из другого региона, это не мешает начать работу через АСПБ?',
-    kind: 'agent_question',
-    isSynthetic: true,
-    videoBlock: 'Региональные клиенты',
-  },
-  {
-    id: 'scripted_035',
-    offsetSeconds: 3240,
-    authorName: 'Елена',
-    authorRole: 'налоговый консультант',
-    authorCity: 'Екатеринбург',
-    message: 'Спасибо, стало понятно, что следующий шаг - заявка и разбор моего потока клиентов.',
-    kind: 'scripted_user',
-    isSynthetic: true,
-    videoBlock: 'Финальный шаг',
-  },
-];
-
-export function getScriptedChatMessagesUntil(offsetSeconds: number) {
-  return SCRIPTED_CHAT_MESSAGES.filter(message => message.offsetSeconds <= offsetSeconds);
+  return scenario.messages
+    .filter(message => message.visible !== false)
+    .filter(message => message.sendAtSeconds <= offset)
+    .filter(message => message.sendAtSeconds <= duration || (options.includeAfterVideo && message.allowAfterVideo))
+    .sort((left, right) => {
+      if (left.sendAtSeconds !== right.sendAtSeconds) {
+        return left.sendAtSeconds - right.sendAtSeconds;
+      }
+      return (left.priority ?? 0) - (right.priority ?? 0);
+    })
+    .map(toRuntimeMessage);
 }

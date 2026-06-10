@@ -4,6 +4,7 @@ export const WEBINAR_REPLAY_HOURS = 24 * 7;
 export const WEBINAR_ROOM_OPEN_BEFORE_MINUTES = 15;
 export const WEBINAR_START_HOUR_MSK = 19;
 export type WebinarAccessStatus = 'waiting' | 'pre_live' | 'live' | 'replay' | 'closed';
+export type WebinarRoomState = WebinarAccessStatus | 'test';
 
 type MoscowParts = {
   year: number;
@@ -33,6 +34,18 @@ export function getNextWebinarDate(firstSeenAt: Date): Date {
   const parts = getMoscowParts(firstSeenAt);
   const todayStart = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, WEBINAR_START_HOUR_MSK - 3, 0, 0));
   if (firstSeenAt.getTime() <= todayStart.getTime()) {
+    return todayStart;
+  }
+
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1, WEBINAR_START_HOUR_MSK - 3, 0, 0));
+}
+
+export function getCurrentOrNextWebinarDate(now: Date, durationMinutes = WEBINAR_DURATION_MINUTES): Date {
+  const parts = getMoscowParts(now);
+  const todayStart = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, WEBINAR_START_HOUR_MSK - 3, 0, 0));
+  const todayEnd = new Date(todayStart.getTime() + durationMinutes * 60 * 1000);
+
+  if (now.getTime() <= todayEnd.getTime()) {
     return todayStart;
   }
 
@@ -110,6 +123,16 @@ export function getCountdown(now: Date, scheduledAt: Date) {
   const seconds = totalSeconds % 60;
 
   return { days, hours, minutes, seconds, totalSeconds };
+}
+
+export function getWebinarRoomState(input: {
+  accessStatus: WebinarAccessStatus;
+  testMode?: boolean;
+}): WebinarRoomState {
+  if (input.testMode) {
+    return 'test';
+  }
+  return input.accessStatus;
 }
 
 export function parseFirstSeenCookie(value: unknown) {

@@ -4,18 +4,38 @@
 
   const current = mount.dataset.current || "landing";
 
-  const storage = {
-    get(key) {
-      try {
-        return window.localStorage.getItem(key) || "";
-      } catch {
-        return "";
-      }
-    },
-  };
+  let registeredWebinarHref = "webinar.html";
 
   function webinarHref() {
-    return "webinar.html";
+    return registeredWebinarHref;
+  }
+
+  function replaceLinkContent(link, label) {
+    const icon = link.querySelector(".material-symbols-outlined")?.cloneNode(true) || null;
+    link.replaceChildren();
+    if (icon) {
+      link.appendChild(icon);
+      link.appendChild(document.createTextNode(" "));
+    }
+    link.appendChild(document.createTextNode(label));
+  }
+
+  function markRegisteredAccess(data) {
+    const roomHref = data?.webinarUrl || "webinar.html";
+    registeredWebinarHref = roomHref;
+
+    document.querySelectorAll('a[href$="register.html"], a[href*="register.html"]').forEach((link) => {
+      if (link.closest(".recordings-access-gate")) return;
+      if (link.closest("#aspb-room-overlay")) return;
+      link.setAttribute("href", "success.html");
+      replaceLinkContent(link, "Мой доступ");
+    });
+
+    document.querySelectorAll('a[href$="webinar.html"], a[href*="webinar.html"]').forEach((link) => {
+      if (link.id === "successRoomLink" || link.closest("[data-flow-tabs]") || link.textContent.includes("Комната")) {
+        link.setAttribute("href", roomHref);
+      }
+    });
   }
 
   function el(tag, options = {}, children = []) {
@@ -29,20 +49,31 @@
   }
 
   function render(hintText, isLive = false, scheduledAt = null, serverTime = null) {
-    const activeTab = current === "webinar" ? "webinar" : current === "landing" ? "landing" : "";
+    mount.style.display = "";
+    const activeTab =
+      current === "landing"
+        ? "landing"
+        : current === "webinar"
+        ? "webinar"
+        : current === "recordings"
+          ? "recordings"
+          : "";
     const stages = [
-      { id: "landing", label: "Главная", href: "index.html", meta: "Сайт" },
-      { id: "webinar", label: "Вебинар", href: webinarHref(), meta: isLive ? "Идет эфир" : "Доступ открыт" }
+      { id: "landing", label: "Главная", href: "index.html", icon: "home" },
+      { id: "webinar", label: "Комната", href: webinarHref(), icon: "meeting_room" },
+      { id: "recordings", label: "Записи", href: "recordings.html", icon: "video_library" }
     ];
 
-    mount.className = "flow-tabs";
+    mount.className = ["flow-tabs", mount.dataset.extraClass || ""].filter(Boolean).join(" ");
+    if (mount.dataset.stickyTop) {
+      mount.style.setProperty("top", mount.dataset.stickyTop, "important");
+    }
     mount.replaceChildren();
 
     const inner = el("div", { className: "flow-tabs__inner" });
-    inner.appendChild(el("div", { className: "flow-tabs__label", text: "Разделы" }));
 
     const nav = el("nav", { className: "flow-tabs__list" });
-    nav.setAttribute("aria-label", "Разделы вебинара");
+    nav.setAttribute("aria-label", "Навигация вебинара");
 
     stages.forEach((stage, index) => {
       const tab = el("a", {
@@ -50,17 +81,22 @@
         href: stage.href,
         ariaCurrent: stage.id === activeTab ? "page" : ""
       });
-      tab.appendChild(el("span", { className: "flow-tabs__index", text: String(index + 1) }));
+      tab.style.setProperty("--flow-tab-index", String(index));
+      const icon = el("span", { className: "flow-tabs__icon material-symbols-outlined", text: stage.icon });
+      icon.setAttribute("aria-hidden", "true");
+      tab.appendChild(icon);
 
       const copy = el("span", { className: "flow-tabs__copy" });
-      const labelWrapper = el("span", { style: "display:inline-flex;align-items:center;gap:6px" });
+      const labelWrapper = el("span", { className: "flow-tabs__title" });
       if (stage.id === "webinar" && isLive) {
         labelWrapper.appendChild(el("span", { className: "flow-tabs__live-dot" }));
       }
-      labelWrapper.appendChild(el("span", { text: stage.label }));
+      labelWrapper.appendChild(el("span", { className: "flow-tabs__label-text", text: stage.label }));
       copy.appendChild(labelWrapper);
       
-      copy.appendChild(el("span", { className: "flow-tabs__meta", text: stage.meta }));
+      if (stage.meta) {
+        copy.appendChild(el("span", { className: "flow-tabs__meta", text: stage.meta }));
+      }
       tab.appendChild(copy);
 
       tab.addEventListener("pointerdown", () => {
@@ -77,70 +113,59 @@
     });
 
     inner.appendChild(nav);
-
-    const hintNode = el("div", { className: "flow-tabs__hint", text: hintText });
-    inner.appendChild(hintNode);
     mount.appendChild(inner);
+  }
 
-    if (scheduledAt && !isLive) {
-      const target = new Date(scheduledAt).getTime();
-      const offset = serverTime ? new Date(serverTime).getTime() - Date.now() : 0;
+  const api = window.location.protocol === "file:" ? "http://127.0.0.1:5174/api" : "/api";
+  const fetchUrl = `${api}/registration/session/current`;
 
-      function tick() {
-        const diff = Math.max(0, target - (Date.now() + offset));
-        if (diff <= 0) {
-          hintNode.innerHTML = `<span class="flow-tabs__live-dot"></span>ЭФИР ИДЕТ`;
-          return;
-        }
-        const total = Math.floor(diff / 1000);
-        const hours = Math.floor(total / 3600);
-        const minutes = Math.floor((total % 3600) / 60);
-        const seconds = total % 60;
-        const pad = (v) => String(v).padStart(2, '0');
-        hintNode.textContent = `До начала: ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
-      }
-
-      tick();
-      window.setInterval(tick, 1000);
-    } else if (isLive) {
-      hintNode.innerHTML = `<span class="flow-tabs__live-dot"></span>ЭФИР ИДЕТ`;
+  function clearLocalAccessHint() {
+    try {
+      window.localStorage.removeItem("crisisPremiumRegistered");
+    } catch {
+      // Server state is authoritative.
     }
   }
 
-  const isRegistered = storage.get("crisisPremiumRegistered") === "true";
-  const api = window.location.protocol === "file:" ? "http://127.0.0.1:5174/api" : "/api";
-  const fetchUrl = `${api}/registration/session/current`;
+  function applyRegistrationState(data) {
+    if (!data?.ok) return false;
+
+    const isLive = data.accessStatus === "live" || data.webinarStatus === "live" || data.webinar?.status === "live";
+    const scheduledAt = data.webinar?.scheduledAt;
+    const serverTime = data.serverTime;
+    markRegisteredAccess(data);
+    window.setTimeout(() => markRegisteredAccess(data), 0);
+    window.setTimeout(() => markRegisteredAccess(data), 800);
+
+    let hintText = "Вебинар доступен";
+    if (current === "success") {
+      hintText = "Регистрация принята";
+    } else if (isLive) {
+      hintText = "Эфир идет";
+    } else if (data.accessStatus === "replay") {
+      hintText = "Запись доступна";
+    }
+
+    render(hintText, isLive, scheduledAt, serverTime);
+    return true;
+  }
+
+  window.addEventListener("aspb:registration-state", (event) => {
+    applyRegistrationState(event.detail);
+  });
 
   fetch(fetchUrl, { credentials: "include" })
     .then((response) => (response.ok ? response.json() : null))
     .then((data) => {
       if (!data?.ok) {
-        if (isRegistered) {
-          render(current === "success" ? "Регистрация принята" : "Вебинар доступен", false, null);
-        } else {
-          mount.remove();
-        }
+        clearLocalAccessHint();
+        mount.remove();
         return;
       }
 
-      const isLive = data.accessStatus === "live" || data.webinarStatus === "live" || data.webinar?.status === "live";
-      const scheduledAt = data.webinar?.scheduledAt;
-      const serverTime = data.serverTime;
-
-      let hintText = "Вебинар доступен";
-      if (current === "success") {
-        hintText = "Регистрация принята";
-      } else if (isLive) {
-        hintText = "Эфир идет";
-      }
-
-      render(hintText, isLive, scheduledAt, serverTime);
+      applyRegistrationState(data);
     })
     .catch(() => {
-      if (isRegistered) {
-        render(current === "success" ? "Регистрация принята" : "Вебинар доступен", false, null);
-      } else {
-        mount.remove();
-      }
+      mount.remove();
     });
 })();

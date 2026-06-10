@@ -1,9 +1,16 @@
 export const cspStyleElementHashes = [
   "'sha256-IqfW4U3+OPPiRwpZ5bIFeOCC8B0HpFMdawJa0BWZ8CQ='",
+  "'sha256-CwNNyA/RBoyb9DF6vZK4oy2xFquqJJa3f+mAexqG48Y='",
   "'sha256-LABFIL9dUK/529IduVqNeZ8HBjBmhlALiIkkxfjEEyM='",
+  "'sha256-MOvneP/9r99Gf3Q5lr9/tQqiSQt42GmAKDjZ0FSgj9w='",
+  "'sha256-dKRksqqzVH2gl9G5408V2eRTRHkM/DGHkv25DkwLMwo='",
+  "'sha256-ti4hM5NGVVLqlU3Drf/EVL8HcqvCYgjEICWjUe7d2p0='",
+  "'sha256-ggk6uYOwLUlm6ryt37usS2oqkQx1rUtuGsPTkUxK2YM='",
   "'sha256-jPCvYITk0WhPOAsTtx7lYUH2vRr9C6VLrLAiuth6ci4='",
   "'sha256-qwaQGJh4tKesmADeerp7jQepH5qWM0S/hCFBXGKgGys='",
+  "'sha256-VtUjZsOiGzCPfR/p1G6b6QJlVa2+V5St4+xZgQ3TP5o='",
   "'sha256-xaOT4XwOn75COIPam9qTEJz2ppGi6NmxUEoH4pnDISc='",
+  "'sha256-bl8aEF3/4PtLHmxIOM05s3EkHEE6aIdZeXn1DFpBSds='",
 ] as const;
 
 export const cspStyleAttributeHashes = [
@@ -15,6 +22,7 @@ export const cspStyleAttributeHashes = [
   "'sha256-32mYGAQxBjRbIqEhE8i3momV3VlKU/I11QWNCRHvsw8='",
   "'sha256-6VVBsTITRwWsbwPUe5v1t1WyL8wfzlRedqXTZGwl4o8='",
   "'sha256-8Z+NIkNTY9PA6IZWyla86zLScyPYu+DMCE0SOb56Xx8='",
+  "'sha256-8ckUv/yNNaZKKfQbxHI53y+iD7gnz0X0QyD0GXLUch4='",
   "'sha256-9e+ktBxFw9D/As5ch68uMsBzlOxfViGqAVU24FAgYjA='",
   "'sha256-9hJpCFYxmZblLb9cPM0Y89p3pCR0rgOv2HXbHhREIDE='",
   "'sha256-C2qbYx/8SmpfH5s0PNuL3ak6y9YYS7KS5eD101q2Ia8='",

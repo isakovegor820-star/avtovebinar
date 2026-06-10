@@ -57,6 +57,37 @@ async function main() {
     });
   }
 
+  const existingRecording = await prisma.webinarRecording.findFirst({
+    where: { webinarSessionId: session.id },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const recordingData = {
+    title: session.title,
+    description: 'Запись вебинара АСПБ с материалами и разбором антикризисных решений.',
+    posterUrl: session.posterUrl,
+    videoUrl: session.videoUrl ?? WEBINAR_VIDEO_PATH,
+    durationSeconds: session.videoDurationSeconds,
+    publishedAt: null,
+    visible: false,
+    orderIndex: 0,
+    category: 'webinar',
+  };
+
+  if (existingRecording) {
+    await prisma.webinarRecording.update({
+      where: { id: existingRecording.id },
+      data: recordingData,
+    });
+  } else {
+    await prisma.webinarRecording.create({
+      data: {
+        webinarSessionId: session.id,
+        ...recordingData,
+      },
+    });
+  }
+
   const adminLogin = process.env.ADMIN_LOGIN;
   const adminPassword = process.env.ADMIN_PASSWORD;
   if (!adminLogin || !adminPassword) {

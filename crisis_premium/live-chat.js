@@ -4,10 +4,18 @@
  */
 (function() {
   var API = window.location.protocol === 'file:' ? 'http://127.0.0.1:5174/api' : '/api';
-  if (!document.getElementById('liveChatMessages')) return;
+  var chatContainer = document.getElementById('liveChatMessages');
+  var chatPanel = document.getElementById('webinarChatPanel');
+  var input = document.getElementById('questionInput');
+  var submit = document.getElementById('questionSubmit');
+  var activity = document.getElementById('chatActivity');
+  var onlineLabel = document.getElementById('chatOnlineLabel');
+  if (!chatContainer) return;
 
   var renderedMessages = new Set();
+  var currentLead = null;
   var isHiddenAfterEnd = false;
+  var roomReady = false;
   var COLORS = ['#1e40af', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#4338ca'];
 
   function chatUrl() {
@@ -15,18 +23,14 @@
   }
 
   function setActivity(text) {
-    var activity = document.getElementById('chatActivity');
     if (activity) activity.textContent = text;
   }
 
   function setOnlineLabel(text) {
-    var onlineLabel = document.getElementById('chatOnlineLabel');
     if (onlineLabel) onlineLabel.textContent = text;
   }
 
   function setInputState(disabled, placeholder) {
-    var input = document.getElementById('questionInput');
-    var submit = document.getElementById('questionSubmit');
     if (input) {
       input.disabled = disabled;
       input.placeholder = placeholder || 'Задайте вопрос...';
@@ -64,10 +68,10 @@
   }
 
   function addMessage(msg) {
-    var chatContainer = document.getElementById('liveChatMessages');
-    if (!chatContainer) return;
-    if (!msg || renderedMessages.has(msg.id)) return;
-    renderedMessages.add(msg.id);
+    if (!msg) return;
+    var renderKey = msg.questionId ? 'question:' + msg.questionId : msg.id;
+    if (!renderKey || renderedMessages.has(renderKey)) return;
+    renderedMessages.add(renderKey);
 
     var isAgentQuestion = msg.kind === 'agent_question';
 
@@ -75,12 +79,13 @@
     item.className = 'flex gap-2.5 chat-msg-enter';
     item.style.animation = 'chatMsgIn 0.3s ease forwards';
     if (isAgentQuestion) {
-      item.style.background = 'rgba(30, 64, 175, 0.04)';
-      item.style.borderLeft = '2px solid rgba(30, 64, 175, 0.25)';
+      item.style.background = 'rgba(30, 64, 175, 0.055)';
+      item.style.border = '1px solid rgba(30, 64, 175, 0.12)';
       item.style.paddingLeft = '8px';
+      item.style.paddingRight = '8px';
       item.style.paddingTop = '4px';
       item.style.paddingBottom = '4px';
-      item.style.borderRadius = '0 6px 6px 0';
+      item.style.borderRadius = '6px';
     }
 
     var avatarColor = msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
@@ -128,7 +133,7 @@
       badge.style.padding = '1px 5px';
       badge.style.marginLeft = '6px';
       badge.style.verticalAlign = 'middle';
-      badge.textContent = 'вопрос';
+      badge.textContent = 'частый вопрос';
       text.append(badge);
     }
 
@@ -139,11 +144,19 @@
   }
 
   function renderChatState(data) {
-    var chatPanel = document.getElementById('webinarChatPanel');
     var chatStatus = data.liveState && data.liveState.chatStatus;
     var demoLive = data.testMode === true;
 
-    if (!demoLive && (chatStatus === 'ended' || data.accessStatus === 'replay')) {
+    if (!demoLive && data.accessStatus === 'replay') {
+      if (chatPanel) chatPanel.classList.remove('hidden');
+      isHiddenAfterEnd = false;
+      setInputState(false, 'Задайте вопрос после эфира...');
+      setActivity('Запись открыта, чат доступен для вопросов');
+      setOnlineLabel('чат открыт');
+      return;
+    }
+
+    if (!demoLive && chatStatus === 'ended') {
       if (chatPanel) chatPanel.classList.remove('hidden');
       isHiddenAfterEnd = false;
       setInputState(false, 'Задайте вопрос после эфира...');
@@ -165,41 +178,109 @@
     }
 
     setInputState(false, 'Задайте вопрос...');
-    setActivity('Чат идет в live-режиме');
-    setOnlineLabel('онлайн');
+    setActivity('Вопросы и чат синхронизированы с эфиром');
+    setOnlineLabel('синхронно');
   }
 
   async function refreshChat() {
+    if (!roomReady) {
+      setActivity('Чат подключится после входа в комнату');
+      return false;
+    }
+
     try {
       var response = await fetch(chatUrl(), { credentials: 'same-origin' });
       var data = await response.json().catch(function() { return {}; });
       if (!response.ok || !data.ok) throw new Error(data.error || 'Ошибка загрузки чата');
 
+      if (data.lead) currentLead = data.lead;
       renderChatState(data);
       if (Array.isArray(data.messages)) {
         var videoPos = window.__aspbVideoPosition || 0;
         var isTestMode = data.testMode === true;
         data.messages.forEach(function(msg) {
-          if (isTestMode && typeof msg.offsetSeconds === 'number' && msg.isSynthetic) {
+          if ((isTestMode || data.accessStatus === 'replay') && typeof msg.offsetSeconds === 'number' && msg.isSynthetic) {
             if (msg.offsetSeconds > videoPos + 2) return;
           }
           addMessage(msg);
         });
       }
+      return true;
     } catch {
-      if (window.__ASPB_WAITING_ROOM_CHAT__) {
-        setInputState(false, 'Задайте вопрос...');
-        setActivity('Чат открыт, можно писать вопрос');
-        setOnlineLabel('чат открыт');
-        return;
-      }
-      setActivity('Чат временно недоступен, переподключаемся...');
+      setActivity('Подключаем чат к вашей комнате...');
+      return false;
     }
   }
 
   window.__liveChatRefresh = refreshChat;
   window.__liveChatAddMessage = addMessage;
 
-  refreshChat();
-  window.setInterval(refreshChat, 2500);
+  // --- smart polling: backoff on errors, pause when tab hidden ---
+  var chatTimer = null;
+  var chatPollInterval = 4000;
+  var CHAT_POLL_MIN = 4000;
+  var CHAT_POLL_MAX = 15000;
+
+  function scheduleNextChatRefresh() {
+    if (chatTimer) clearTimeout(chatTimer);
+    if (document.visibilityState === 'hidden') {
+      chatTimer = null;
+      return;
+    }
+    chatTimer = setTimeout(async function() {
+      var ok = await refreshChat();
+      chatPollInterval = ok
+        ? CHAT_POLL_MIN
+        : Math.min(chatPollInterval * 1.5, CHAT_POLL_MAX);
+      scheduleNextChatRefresh();
+    }, chatPollInterval);
+  }
+
+  async function requestImmediateChatRefresh() {
+    chatPollInterval = CHAT_POLL_MIN;
+    if (chatTimer) {
+      clearTimeout(chatTimer);
+      chatTimer = null;
+    }
+    await refreshChat();
+    scheduleNextChatRefresh();
+  }
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+      requestImmediateChatRefresh();
+    } else if (chatTimer) {
+      clearTimeout(chatTimer);
+      chatTimer = null;
+    }
+  });
+
+  document.addEventListener('aspb:room-token-exchanged', requestImmediateChatRefresh);
+  document.addEventListener('aspb:room-ready', function() {
+    roomReady = true;
+    requestImmediateChatRefresh();
+  });
+  document.addEventListener('aspb:chat-refresh-request', requestImmediateChatRefresh);
+
+  document.addEventListener('aspb:chat-question-submitted', function(event) {
+    var detail = event.detail || {};
+    if (!detail.text) return;
+    addMessage({
+      id: detail.chatMessageId || ('local_' + Date.now()),
+      questionId: detail.questionId,
+      kind: 'user',
+      authorName: currentLead && currentLead.name ? currentLead.name : 'Вы',
+      authorRole: currentLead && currentLead.professionalStatus ? currentLead.professionalStatus : '',
+      message: detail.text,
+      isSynthetic: false,
+    });
+    window.setTimeout(refreshChat, 800);
+  });
+
+  if (window.__ASPB_ROOM_READY__ === true) {
+    roomReady = true;
+    requestImmediateChatRefresh();
+  } else {
+    setActivity('Чат подключится после входа в комнату');
+  }
 })();

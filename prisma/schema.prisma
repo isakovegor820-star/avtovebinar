@@ -86,7 +86,7 @@ model WebinarSession {
   durationMinutes       Int                    @default(120) @map("duration_minutes")
   videoUrl              String?                @map("video_url")
   posterUrl             String?                @map("poster_url")
-  videoDurationSeconds  Int                    @default(3300) @map("video_duration_seconds")
+  videoDurationSeconds  Int                    @default(568) @map("video_duration_seconds")
   roomOpenBeforeMinutes Int                    @default(15) @map("room_open_before_minutes")
   replayAvailableHours  Int                    @default(168) @map("replay_available_hours")
   replayEnabled         Boolean                @default(true) @map("replay_enabled")
@@ -101,10 +101,34 @@ model WebinarSession {
   timelineEvents        WebinarTimelineEvent[]
   chatMessages          WebinarChatMessage[]
   emailOutboxJobs       EmailOutboxJob[]
+  recordings            WebinarRecording[]
 
   @@unique([scheduledAt])
   @@index([status])
   @@map("webinar_sessions")
+}
+
+model WebinarRecording {
+  id               String         @id @default(cuid())
+  webinarSessionId String         @map("webinar_session_id")
+  title            String
+  description      String?
+  posterUrl        String?        @map("poster_url")
+  videoUrl         String?        @map("video_url")
+  hlsUrl           String?        @map("hls_url")
+  durationSeconds  Int?           @map("duration_seconds")
+  publishedAt      DateTime?      @map("published_at")
+  visible          Boolean        @default(false)
+  orderIndex       Int            @default(0) @map("order_index")
+  category         String?
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+
+  @@index([webinarSessionId])
+  @@index([visible, publishedAt, orderIndex])
+  @@index([category])
+  @@map("webinar_recordings")
 }
 
 model Registration {
@@ -245,6 +269,9 @@ model Question {
   webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
   chatMessage      WebinarChatMessage?
 
+  @@index([leadId])
+  @@index([registrationId])
+  @@index([webinarSessionId])
   @@index([createdAt])
   @@index([isAnswered])
   @@map("questions")
@@ -292,9 +319,16 @@ model Event {
   registration     Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   webinarSession   WebinarSession? @relation(fields: [webinarSessionId], references: [id], onDelete: SetNull)
 
+  @@index([eventName, createdAt])
   @@index([eventName])
   @@index([createdAt])
   @@index([registrationId])
+  @@index([leadId])
+  @@index([webinarSessionId])
+  @@index([source])
+  @@index([utmSource])
+  @@index([utmMedium])
+  @@index([utmCampaign])
   @@map("events")
 }
 

@@ -21,7 +21,7 @@ export function csrfHeaders() {
 export async function post(path, body) {
   const response = await fetch(`${API}${path}`, {
     method: 'POST',
-    credentials: 'include',
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(body)
   });
@@ -38,7 +38,10 @@ export async function getJson(path) {
   const response = await fetch(`${API}${path}`, { credentials: 'include' });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error || 'Ошибка запроса');
+    const error = new Error(payload.error || 'Ошибка запроса');
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
   return payload;
 }
@@ -62,6 +65,43 @@ export function formatMoscowDateTime(value) {
     hour: '2-digit',
     minute: '2-digit'
   }).format(new Date(value));
+}
+
+function moscowDateKey(value) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date(value));
+  const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function addDaysKey(dateKey, days) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0));
+  return moscowDateKey(date);
+}
+
+export function formatMoscowWebinarDay(scheduledAt, serverTime) {
+  const scheduleKey = moscowDateKey(scheduledAt);
+  const todayKey = moscowDateKey(serverTime || new Date());
+  if (scheduleKey === todayKey) return 'сегодня';
+  if (scheduleKey === addDaysKey(todayKey, 1)) return 'завтра';
+  return new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    day: '2-digit',
+    month: 'long'
+  }).format(new Date(scheduledAt));
+}
+
+export function formatMoscowWebinarTime(scheduledAt) {
+  return new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(scheduledAt));
 }
 
 export function formatUtcIcsDate(value) {

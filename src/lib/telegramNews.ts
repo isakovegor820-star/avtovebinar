@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { env } from './env.js';
 import { prisma } from './prisma.js';
 import { sendTelegramMessageToChat } from './telegram.js';
+import { logger } from './logger.js';
 
 type FeedItem = {
   title: string;
@@ -65,16 +66,6 @@ const FALLBACK_NEWS = [
   },
 ];
 
-const XML_VALUE_PATTERNS = {
-  title: /<title[^>]*>([\s\S]*?)<\/title>/i,
-  link: /<link[^>]*>([\s\S]*?)<\/link>/i,
-  guid: /<guid[^>]*>([\s\S]*?)<\/guid>/i,
-  description: /<description[^>]*>([\s\S]*?)<\/description>/i,
-  pubDate: /<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i,
-} as const;
-
-type XmlValueTag = keyof typeof XML_VALUE_PATTERNS;
-
 function decodeXml(value: string) {
   return value
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -92,8 +83,8 @@ function stripHtml(value: string) {
     .trim();
 }
 
-function xmlValue(source: string, tag: XmlValueTag) {
-  const match = source.match(XML_VALUE_PATTERNS[tag]);
+function xmlValue(source: string, tag: string) {
+  const match = source.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
   return match ? stripHtml(match[1]) : '';
 }
 
@@ -296,7 +287,7 @@ export async function runTelegramNewsJobOnce(now = new Date()) {
       sent += 1;
     } catch (error) {
       failed += 1;
-      console.error('[ASPБ telegram news recipient]', error);
+      logger.error({ err: error }, '[ASPБ telegram news recipient]');
     }
   }
 
@@ -336,17 +327,17 @@ export function startTelegramNewsScheduler() {
 
   telegramNewsInterval = setInterval(() => {
     runTelegramNewsJobOnce().catch(error => {
-      console.error('[ASPБ telegram news]', error);
+      logger.error({ err: error }, '[ASPБ telegram news]');
     });
   }, 60 * 1000);
 
   telegramNewsStartupTimer = setTimeout(() => {
     runTelegramNewsJobOnce().catch(error => {
-      console.error('[ASPБ telegram news]', error);
+      logger.error({ err: error }, '[ASPБ telegram news]');
     });
   }, 8000);
 
-  console.log('[ASPБ telegram news] broadcast scheduler enabled');
+  logger.info('[ASPБ telegram news] broadcast scheduler enabled');
   return telegramNewsInterval;
 }
 

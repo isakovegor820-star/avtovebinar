@@ -3,8 +3,8 @@
  */
 
 import { state } from './state.js';
-import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js';
-import { getRegistrationState } from './registration.js';
+import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js?v=account-access-4';
+import { getRegistrationState } from './registration.js?v=account-access-4';
 
 let countdownInterval = null;
 let countdownRetries = 0;
@@ -33,13 +33,19 @@ function getNextLocalTarget() {
   return Date.UTC(m.year, m.month - 1, m.day + 1, 16, 0, 0);
 }
 
-export function startCountdown(scheduledAt) {
+function resolveUpcomingWebinarAt(scheduledAt) {
   let target = new Date(scheduledAt).getTime();
   const now = Date.now() + state.serverTimeOffset;
 
-  if (target <= now) {
+  if (!Number.isFinite(target) || target <= now) {
     target = getNextLocalTarget();
   }
+
+  return new Date(target).toISOString();
+}
+
+export function startCountdown(scheduledAt) {
+  let target = new Date(resolveUpcomingWebinarAt(scheduledAt)).getTime();
 
   const nodes = {
     days: document.querySelector('[data-countdown-days]'),
@@ -82,6 +88,7 @@ export function startCountdown(scheduledAt) {
       countdownInterval = null;
       countdownRetries++;
       target = getNextLocalTarget();
+      updatePublicWebinarLabels(new Date(target).toISOString(), new Date(Date.now() + state.serverTimeOffset).toISOString());
       countdownInterval = setInterval(tick, 1000);
     }
   }
@@ -116,8 +123,9 @@ export async function hydrateCurrentWebinar() {
     const data = await getJson('/webinar/current');
     if (!data.ok) return;
     state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
-    startCountdown(data.scheduledAt);
-    updatePublicWebinarLabels(data.scheduledAt, data.serverTime);
+    const scheduledAt = resolveUpcomingWebinarAt(data.scheduledAt || data.webinar?.scheduledAt);
+    startCountdown(scheduledAt);
+    updatePublicWebinarLabels(scheduledAt, data.serverTime);
     updateTelegramLinks(data.telegramUrl);
   } catch {
     // Static preview still works without backend.
@@ -144,15 +152,19 @@ export function renderLockedRoom(message) {
   document.body.appendChild(overlay);
 }
 
+function isAccessError(error) {
+  return error && [401, 403, 404].includes(Number(error.status));
+}
+
 export function renderWaitingRoom(data) {
   const title = data.accessStatus === 'closed'
-    ? 'Доступ к записи завершен'
+    ? 'Вебинар завершен'
     : data.accessStatus === 'pre_live'
       ? 'Комната скоро откроется'
       : 'Эфир еще не начался';
   const text =
     data.accessStatus === 'closed'
-      ? 'Срок доступа к записи по этой персональной ссылке истек.'
+      ? 'Постоянная запись доступна зарегистрированным участникам в разделе “Записи”.'
       : data.accessStatus === 'pre_live'
         ? `Эфир стартует ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК. Страница обновится автоматически.`
       : `Комната откроется к началу эфира: ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК.`;
@@ -180,7 +192,7 @@ export function renderWaitingRoom(data) {
 
   const action =
     data.accessStatus === 'closed'
-      ? '<a href="register.html" style="display:inline-flex;margin-top:28px;background:#fff;color:#041627;text-decoration:none;padding:16px 28px;border-radius:14px;font-weight:700;font-size:15px;box-shadow:0 4px 16px rgba(0,0,0,0.1)">Зарегистрироваться заново</a>'
+      ? '<a href="recordings.html" style="display:inline-flex;margin-top:28px;background:#fff;color:#041627;text-decoration:none;padding:16px 28px;border-radius:14px;font-weight:700;font-size:15px;box-shadow:0 4px 16px rgba(0,0,0,0.1)">Смотреть записи</a>'
       : '<a href="success.html" style="display:inline-flex;margin-top:28px;background:rgba(255,255,255,0.1);border:1px solid rgba(210,228,251,0.3);color:#d2e4fb;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:600;font-size:14px;backdrop-filter:blur(8px)">Проверить регистрацию</a>';
 
   closeOverlay();
@@ -210,16 +222,27 @@ export function renderWaitingRoom(data) {
 export function updateRoomStatus(webinar) {
   const node = document.getElementById('webinarStatusText');
   const countdownContainer = document.getElementById('countdownContainer');
+  const chatTitle = document.querySelector('#webinarChatPanel h3');
+  const chatActivity = document.getElementById('chatActivity');
+  const onlineLabel = document.getElementById('chatOnlineLabel');
   if (!node || !webinar) return;
   if (webinar.testMode) {
     node.textContent = 'Эфир идет. Включайте трансляцию и задавайте вопросы в чате.';
+    if (chatTitle) chatTitle.textContent = 'Чат эфира';
+    if (chatActivity) chatActivity.textContent = 'Вопросы и чат синхронизированы с эфиром';
+    if (onlineLabel) onlineLabel.textContent = 'синхронно';
     if (countdownContainer) countdownContainer.classList.add('hidden');
   } else if (webinar.accessStatus === 'live' || webinar.status === 'live') {
-    node.textContent = 'Эфир идет. Включайте запись и следите за подсказками АСПБ.';
+    node.textContent = 'Эфир идет. Включайте трансляцию и следите за подсказками АСПБ.';
+    if (chatTitle) chatTitle.textContent = 'Чат эфира';
+    if (chatActivity) chatActivity.textContent = 'Вопросы и чат синхронизированы с эфиром';
+    if (onlineLabel) onlineLabel.textContent = 'синхронно';
     if (countdownContainer) countdownContainer.classList.add('hidden');
   } else if (webinar.accessStatus === 'replay' || webinar.status === 'finished') {
-    const expires = webinar.replayExpiresAt ? ` Доступ к записи открыт до ${formatMoscowDateTime(webinar.replayExpiresAt)} МСК.` : '';
-    node.textContent = `Вебинар окончен, но запись доступна по вашей персональной ссылке.${expires} Чат остается открытым для вопросов, а заявку можно оставить ниже.`;
+    node.textContent = 'Вебинар завершен. Постоянная запись доступна в разделе “Записи”; здесь можно задать вопрос в чате и оставить заявку ниже.';
+    if (chatTitle) chatTitle.textContent = 'Чат после вебинара';
+    if (chatActivity) chatActivity.textContent = 'Запись открыта, чат доступен для вопросов';
+    if (onlineLabel) onlineLabel.textContent = 'чат открыт';
     if (countdownContainer) countdownContainer.classList.add('hidden');
   } else {
     const date = new Intl.DateTimeFormat('ru-RU', {
@@ -230,6 +253,9 @@ export function updateRoomStatus(webinar) {
       minute: '2-digit'
     }).format(new Date(webinar.scheduledAt));
     node.textContent = `Вы зарегистрированы. Эфир начнется ${date} МСК.`;
+    if (chatTitle) chatTitle.textContent = 'Чат эфира';
+    if (chatActivity) chatActivity.textContent = 'Чат откроется в момент старта эфира';
+    if (onlineLabel) onlineLabel.textContent = 'ожидание';
     if (countdownContainer) countdownContainer.classList.remove('hidden');
   }
 }
@@ -264,20 +290,36 @@ export async function hydrateWebinarRoom(onSuccess) {
 
       state.webinarConfig = {
         scheduledAt: new Date(data.webinar.scheduledAt).getTime(),
-        status: data.testMode ? 'test' : data.liveState?.status || data.webinar.status,
+        status: data.roomState || (data.testMode ? 'test' : data.liveState?.status || data.webinar.status),
         accessStatus: data.accessStatus,
         durationMinutes: data.webinar.durationMinutes,
         videoDurationSeconds: data.webinar.videoDurationSeconds,
         liveState: data.liveState
       };
+      document.body.dataset.webinarAccessStatus = data.accessStatus;
 
       updateTelegramLinks(data.telegramUrl);
       startCountdown(data.webinar.scheduledAt);
       updateRoomStatus({ ...data.webinar, accessStatus: data.accessStatus, replayExpiresAt: data.replayExpiresAt, testMode: data.testMode });
+      window.__ASPB_ROOM_READY__ = true;
+      document.dispatchEvent(new CustomEvent('aspb:room-ready', {
+        detail: {
+          accessStatus: data.accessStatus,
+          roomState: data.roomState || state.webinarConfig.status,
+          testMode: data.testMode === true
+        }
+      }));
       await onSuccess();
       return;
 
     } catch (err) {
+      if (isAccessError(err)) {
+        renderLockedRoom(
+          'Комната открывается только после регистрации или по персональной ссылке из письма/Telegram. Если вы уже регистрировались, откройте ссылку из сообщения заново.',
+        );
+        return;
+      }
+
       if (attempt < MAX_RETRIES) {
         if (statusNode) {
           statusNode.textContent = `Подключаемся... попытка ${attempt} из ${MAX_RETRIES}`;

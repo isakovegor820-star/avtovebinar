@@ -30,9 +30,15 @@ paths:
   /metrics:
     get:
       summary: Prometheus metrics
+      security:
+        - metricsBearer: []
       responses:
         "200":
           description: Prometheus text exposition
+        "401":
+          description: Metrics token is missing in production
+        "403":
+          description: Metrics token is invalid in production
   /api/register:
     post:
       summary: Register a webinar participant
@@ -109,3 +115,8 @@ paths:
       responses:
         "202":
           description: Broadcast job queued
+components:
+  securitySchemes:
+    metricsBearer:
+      type: http
+      scheme: bearer

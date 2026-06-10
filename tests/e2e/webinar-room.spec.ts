@@ -93,6 +93,9 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
 
   await expect(page.locator('#videoPlayerContainer')).toBeVisible();
   await expect(page.locator('#customSeekBarContainer')).toBeVisible();
+  await expect(page.locator('#liveChatMessages')).toContainText('частый вопрос', { timeout: 4000 });
+  await expect(page.locator('#customViewerCount')).toBeHidden();
+  await expect(page.locator('#viewerCountValue')).not.toHaveText(/^\d+$/);
   await expect(page.locator('#customSeekBarContainer')).toHaveAttribute('data-live-mode', 'dvr');
   await expect(page.locator('#customSeekBarAvailable')).toHaveAttribute('style', /width:\s*100%/);
   await expect(page.locator('#customLiveEdgeMarker')).toBeVisible();
@@ -199,7 +202,10 @@ test('chat remains visible and accepts questions after webinar end', async ({ pa
   await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`);
   await expect(page).toHaveURL(/webinar\.html$/);
   await expect(page.locator('#webinarChatPanel')).toBeVisible();
-  await expect(page.locator('#chatActivity')).toContainText('Вебинар окончен, чат открыт');
+  await expect(page.locator('#webinarStatusText')).toContainText('Постоянная запись доступна');
+  await expect(page.locator('#videoPlayOverlay')).toContainText('Смотреть запись');
+  await expect(page.locator('#videoLiveBadge')).toContainText('ЗАПИСЬ');
+  await expect(page.locator('#chatActivity')).toContainText('Запись открыта, чат доступен для вопросов');
   await expect(page.locator('#questionInput')).toHaveAttribute('placeholder', 'Задайте вопрос после эфира...');
   await expect(page.locator('#questionInput')).toBeEnabled();
 

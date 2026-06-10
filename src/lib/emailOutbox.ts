@@ -1,9 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { sendRegistrationEmail, sendReminderEmail, type ReminderKind } from './email.js';
+import { logger } from './logger.js';
 
 export const EMAIL_JOB_REGISTRATION = 'registration_confirmation';
 export const EMAIL_JOB_REMINDER = 'webinar_reminder';
+export const EMAIL_JOB_REPLAY = 'webinar_replay';
 
 const EMAIL_OUTBOX_BATCH_SIZE = 25;
 const EMAIL_OUTBOX_MAX_ATTEMPTS = 10;
@@ -77,6 +79,18 @@ export async function enqueueReminderEmail(tx: EmailOutboxTx, input: EnqueueBase
       nextAttemptAt: new Date(),
     },
   });
+}
+
+export async function enqueueReplayEmail(tx: EmailOutboxTx, input: EnqueueBase) {
+  await tx.emailOutboxJob.deleteMany({
+    where: {
+      registrationId: input.registrationId,
+      type: EMAIL_JOB_REPLAY,
+      sentAt: null,
+    },
+  });
+
+  return null;
 }
 
 async function sendEmailJob(
@@ -159,12 +173,24 @@ async function markEmailJobFailed(
 ) {
   const attempts = job.attempts + 1;
   const canRetry = attempts < EMAIL_OUTBOX_MAX_ATTEMPTS;
+  const lastError = normalizeError(error);
+  logger.error(
+    {
+      err: error,
+      jobId: job.id,
+      type: job.type,
+      reminderKind: job.reminderKind,
+      attempts,
+      willRetry: canRetry,
+    },
+    '[ASPБ email outbox] send failed',
+  );
   await prisma.emailOutboxJob.update({
     where: { id: job.id },
     data: {
       status: 'failed',
       attempts,
-      lastError: normalizeError(error),
+      lastError,
       nextAttemptAt: canRetry ? nextRetryAt(now, attempts) : null,
     },
   });
@@ -188,6 +214,19 @@ async function resetStaleSendingJobs(now: Date) {
 }
 
 export async function runEmailOutboxJobOnce(now = new Date(), senders: EmailOutboxSenders = {}) {
+  await prisma.emailOutboxJob.updateMany({
+    where: {
+      type: EMAIL_JOB_REPLAY,
+      sentAt: null,
+      status: { in: ['pending', 'failed', 'sending'] },
+    },
+    data: {
+      status: 'cancelled',
+      lastError: 'Replay follow-up emails are disabled; recordings are available in the account library.',
+      nextAttemptAt: null,
+    },
+  });
+
   await resetStaleSendingJobs(now);
 
   const jobs = await prisma.emailOutboxJob.findMany({

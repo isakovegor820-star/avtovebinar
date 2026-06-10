@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "build": "tsc",
     "css:build": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --minify",
     "css:watch": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --watch",
@@ -40,6 +40,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
+    "hls.js": "^1.6.16",
     "nodemailer": "^8.0.7",
     "pino": "9.6.0",
     "prisma": "^6.19.0",

@@ -13,6 +13,8 @@ let _liveControlsInterval = null;
 let _keydownHandler = null;
 let _visibilityHandler = null;
 let _fullscreenHandler = null;
+let _hlsInstance = null;
+let _hlsScriptPromise = null;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -29,6 +31,103 @@ function toSafeHref(value) {
   } catch {
     return null;
   }
+}
+
+function showVideoFallback(fallback, message) {
+  if (!fallback) return;
+  const text = fallback.querySelector('[data-video-fallback-text]');
+  if (text && message) text.textContent = message;
+  fallback.classList.remove('hidden');
+  fallback.classList.add('flex');
+}
+
+function loadHlsScript() {
+  if (window.Hls) return Promise.resolve(window.Hls);
+  if (_hlsScriptPromise) return _hlsScriptPromise;
+
+  _hlsScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = '/vendor/hls.js/hls.min.js';
+    script.async = true;
+    script.onload = () => resolve(window.Hls);
+    script.onerror = () => reject(new Error('hls.js load failed'));
+    document.head.appendChild(script);
+  });
+
+  return _hlsScriptPromise;
+}
+
+async function initializeVideoSource(video, videoData, fallback) {
+  const hlsSrc = videoData && videoData.hlsSrc;
+  const mp4Src = videoData && videoData.src;
+  const poster = videoData && videoData.poster;
+  const fallbackAllowed = Boolean(videoData && videoData.fallbackAllowed);
+
+  if (_hlsInstance) {
+    _hlsInstance.destroy();
+    _hlsInstance = null;
+  }
+
+  video.removeAttribute('controls');
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.addEventListener('contextmenu', e => e.preventDefault());
+
+  if (poster) video.setAttribute('poster', poster);
+
+  if (hlsSrc) {
+    video.crossOrigin = 'anonymous';
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = hlsSrc;
+      video.load();
+      return;
+    }
+
+    try {
+      const Hls = await loadHlsScript();
+      if (!Hls || !Hls.isSupported()) {
+        throw new Error('HLS is not supported in this browser');
+      }
+
+      const hls = new Hls({
+        lowLatencyMode: false,
+        enableWorker: true,
+      });
+      _hlsInstance = hls;
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data || !data.fatal) return;
+        showVideoFallback(
+          fallback,
+          'Не удалось загрузить поток вебинара. Обновите страницу или откройте ссылку позже.',
+        );
+        hls.destroy();
+        _hlsInstance = null;
+      });
+      hls.loadSource(hlsSrc);
+      hls.attachMedia(video);
+      return;
+    } catch (error) {
+      console.error('HLS initialization failed:', error);
+      if (!fallbackAllowed || !mp4Src) {
+        showVideoFallback(
+          fallback,
+          'Не удалось запустить HLS-поток вебинара. Проверьте соединение или попробуйте открыть комнату позже.',
+        );
+        return;
+      }
+    }
+  }
+
+  if (mp4Src && fallbackAllowed) {
+    video.src = mp4Src;
+    video.load();
+    return;
+  }
+
+  showVideoFallback(
+    fallback,
+    'Видео вебинара пока недоступно. Команда АСПБ уже проверяет поток.',
+  );
 }
 
 function activateTimelineEvent(seconds, events) {
@@ -131,6 +230,7 @@ export async function hydrateTimeline() {
   if (_keydownHandler) { document.removeEventListener('keydown', _keydownHandler); _keydownHandler = null; }
   if (_visibilityHandler) { document.removeEventListener('visibilitychange', _visibilityHandler); _visibilityHandler = null; }
   if (_fullscreenHandler) { document.removeEventListener('fullscreenchange', _fullscreenHandler); _fullscreenHandler = null; }
+  if (_hlsInstance) { _hlsInstance.destroy(); _hlsInstance = null; }
 
   const data = await getJson(timelinePath());
   if (!data.ok) return;
@@ -144,39 +244,41 @@ export async function hydrateTimeline() {
     webinarConfig.status = webinarConfig.status || serverLiveState.status;
   }
 
-  if (data.video && data.video.src) {
-    const source = video.querySelector('source');
-    if (source) source.setAttribute('src', data.video.src);
-    if (data.video.poster) video.setAttribute('poster', data.video.poster);
-    video.load();
-    video.addEventListener('error', () => {
-      if (fallback) {
-        fallback.classList.remove('hidden');
-        fallback.classList.add('flex');
-      }
-    });
-    video.addEventListener('contextmenu', e => e.preventDefault());
-  }
+  await initializeVideoSource(video, data.video || {}, fallback);
+  video.addEventListener('error', () => {
+    showVideoFallback(
+      fallback,
+      'Не удалось загрузить видео вебинара. Обновите страницу или попробуйте позже.',
+    );
+  });
+
+  const isReplay = webinarConfig && webinarConfig.accessStatus === 'replay';
+  const isLive = webinarConfig && webinarConfig.status === 'live' && !isReplay;
+  const isTestMode = webinarConfig && webinarConfig.status === 'test';
+  const isLiveVisual = isLive || isTestMode;
+  const isPreLive = webinarConfig && (
+    webinarConfig.accessStatus === 'waiting' ||
+    webinarConfig.accessStatus === 'pre_live' ||
+    webinarConfig.status === 'scheduled'
+  );
+  const isEnded = webinarConfig && !isTestMode && !isReplay && (webinarConfig.status === 'finished' || serverLiveState?.isEnded);
 
   const liveBadge = document.getElementById('videoLiveBadge');
   if (liveBadge && webinarConfig) {
-    if (webinarConfig.status === 'test') {
+    if (isTestMode) {
       liveBadge.className = 'absolute top-4 right-4 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md';
       liveBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>ПРЯМОЙ ЭФИР';
-    } else if (webinarConfig.status === 'live') {
+    } else if (isLive) {
       liveBadge.className = 'absolute top-4 right-4 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md';
       liveBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>ПРЯМОЙ ЭФИР';
+    } else if (isReplay) {
+      liveBadge.className = 'absolute top-4 right-4 bg-black/55 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md';
+      liveBadge.innerHTML = '<span class="material-symbols-outlined text-[15px]">play_circle</span>ЗАПИСЬ';
     } else {
       liveBadge.className = 'absolute top-4 right-4 bg-black/40 backdrop-blur-sm px-3 py-1 rounded-full text-white text-label-sm z-10';
-      liveBadge.textContent = '🔴 ЗАПИСЬ ТРАНСЛЯЦИИ';
+      liveBadge.textContent = 'ЗАПИСЬ';
     }
   }
-
-  const isLive = webinarConfig && webinarConfig.status === 'live';
-  const isTestMode = webinarConfig && webinarConfig.status === 'test';
-  const isLiveVisual = isLive || isTestMode;
-  const isPreLive = webinarConfig && (webinarConfig.accessStatus === 'pre_live' || webinarConfig.status === 'scheduled');
-  const isEnded = webinarConfig && !isTestMode && (webinarConfig.status === 'finished' || webinarConfig.accessStatus === 'replay' || serverLiveState?.isEnded);
   const demoLiveStartedAt = Date.now() + state.serverTimeOffset;
   window.__ASPB_HIDE_TIMELINE_ACTIONS__ = Boolean(isLiveVisual);
   if (isLiveVisual && active) active.classList.add('hidden');
@@ -234,6 +336,22 @@ export async function hydrateTimeline() {
     // Fallback: force reload if countdown somehow misses the transition
     const reloadDelay = Math.max(1000, Math.min(30000, (webinarConfig.scheduledAt - (Date.now() + state.serverTimeOffset)) + 1000));
     window.setTimeout(() => window.location.reload(), reloadDelay);
+  } else if (isReplay) {
+    video.pause();
+    video.currentTime = 0;
+    if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
+    if (customControls) customControls.classList.remove('hidden');
+    if (playOverlay) {
+      playOverlay.classList.remove('hidden', 'opacity-0');
+      playOverlay.classList.remove('webinar-prelive-overlay');
+      playOverlay.innerHTML = `
+        <div class="w-16 h-16 bg-white/15 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-white/25 hover:scale-105 transition-transform shadow-lg">
+          <span class="material-symbols-outlined text-white text-4xl">play_arrow</span>
+        </div>
+        <p class="text-headline-sm text-white font-bold tracking-wide uppercase">Смотреть запись</p>
+        <p class="text-body-md text-white/75 mt-1 max-w-md">Вебинар уже завершен. Постоянная запись доступна в разделе «Записи».</p>
+      `;
+    }
   } else if (isEnded) {
     video.pause();
     if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
@@ -246,7 +364,8 @@ export async function hydrateTimeline() {
           <span class="material-symbols-outlined text-white text-4xl">check_circle</span>
         </div>
         <p class="text-headline-md text-white font-bold tracking-wide uppercase">Вебинар окончен</p>
-        <p class="text-body-lg text-white/80 mt-1 max-w-md">Чат остается открытым. Задайте вопрос или оставьте заявку ниже.</p>
+        <p class="text-body-lg text-white/80 mt-1 max-w-md">Запись появится в разделе «Записи». Чат остается открытым для вопросов.</p>
+        <a href="recordings.html" class="mt-5 inline-flex items-center justify-center bg-white text-primary px-5 py-3 rounded-lg font-bold">Смотреть записи</a>
       `;
     }
   } else if (isTestMode) {
@@ -275,6 +394,10 @@ export async function hydrateTimeline() {
   if (isLiveVisual) {
     if (liveIndicator) liveIndicator.classList.add('hidden');
     if (liveIndicator) liveIndicator.querySelector('span:last-child').textContent = 'Идет эфир';
+    if (liveBadge) liveBadge.classList.remove('hidden');
+    const viewerBadge = document.getElementById('customViewerCount');
+    if (viewerBadge) viewerBadge.classList.add('hidden');
+    if (viewerCountValue) viewerCountValue.textContent = 'синхронно';
     if (customTimeDisplay) customTimeDisplay.classList.add('hidden');
     if (playPauseBtn) playPauseBtn.classList.remove('hidden');
     if (seekContainer) seekContainer.classList.remove('hidden');
@@ -302,22 +425,13 @@ export async function hydrateTimeline() {
       if (seekThumb) seekThumb.classList.add('hidden');
       if (liveEdgeMarker) liveEdgeMarker.classList.add('hidden');
     }
-
-    let viewers = Math.floor(Math.random() * (165 - 145) + 145);
-    if (viewerCountValue) viewerCountValue.textContent = String(viewers);
-    setChatActivity('Чат идет в live-режиме');
-
-    _viewerInterval = setInterval(() => {
-      const change = Math.floor(Math.random() * 7) - 3;
-      viewers = Math.max(130, Math.min(190, viewers + change));
-      if (viewerCountValue) viewerCountValue.textContent = String(viewers);
-    }, 8000);
+    setChatActivity('Вопросы и чат синхронизированы с эфиром');
   } else {
     if (liveIndicator) liveIndicator.classList.add('hidden');
     const viewerBadge = document.getElementById('customViewerCount');
     if (viewerBadge) viewerBadge.classList.add('hidden');
     if (customTimeDisplay) customTimeDisplay.classList.remove('hidden');
-    if (liveBadge && webinarConfig?.status !== 'test') liveBadge.classList.add('hidden');
+    if (liveBadge) liveBadge.classList.toggle('hidden', !isReplay);
     if (seekAvailable) seekAvailable.classList.add('hidden');
     if (liveEdgeMarker) liveEdgeMarker.classList.add('hidden');
     if (seekContainer) {

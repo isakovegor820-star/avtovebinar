@@ -44,6 +44,7 @@ cp .env.production.example .env.production
 - `ADMIN_PASSWORD`
 - `ADMIN_COOKIE_SECRET`
 - `IP_HASH_SECRET`
+- `METRICS_TOKEN` для `Authorization: Bearer ...` на `/metrics`
 - SMTP-поля
 - Telegram bot tokens и usernames
 - `WORKER_ROLE=api` для API container, `WORKER_ROLE=webinar` для worker container
@@ -57,6 +58,7 @@ cp .env.production.example .env.production
 - `PUBLIC_SITE_URL` начинается с `https://`
 - `.env.production` не добавлен в Git
 - `DATABASE_URL` содержит pooling параметры `connection_limit` и `pool_timeout`
+- `METRICS_TOKEN` заполнен непубличным значением длиной минимум 16 символов
 - `TRUST_PROXY` включен только за доверенным reverse proxy
 
 ## Миграции и seed
@@ -91,17 +93,17 @@ API container сам выполнит:
 
 ```bash
 npx prisma migrate deploy
-WORKER_ROLE=api node dist/server.js
+WORKER_ROLE=api node dist/src/server.js
 ```
 
-Worker container запускает `WORKER_ROLE=webinar node dist/server.js` и не открывает HTTP-порт.
+Worker container запускает `WORKER_ROLE=webinar node dist/src/server.js` и не открывает HTTP-порт.
 
 Проверка:
 
 ```bash
 curl https://ваш-домен/health/ready
 curl https://ваш-домен/health/dependencies
-curl https://ваш-домен/metrics
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://ваш-домен/metrics
 ```
 
 Ожидаемый ответ:
@@ -156,11 +158,13 @@ CI уже добавлен в `.github/workflows/ci.yml`.
 - `npx prisma migrate deploy`
 - `npm run seed`
 - `npm run build`
+- production command smoke: `test -f dist/src/server.js`
 - `npm test`
 - `npx playwright install --with-deps chromium`
 - `npm run e2e`
 - `npm audit --omit=dev`
 - `docker build`
+- Docker production command smoke: `test -f dist/src/server.js` inside the image
 - dependency review для PR
 - Semgrep SAST
 - secretlint и dotenv-linter
@@ -198,6 +202,7 @@ npm run e2e
 - [ ] Домен подключен.
 - [ ] HTTPS работает.
 - [ ] `.env.production` заполнен реальными значениями.
+- [ ] `METRICS_TOKEN` задан и сохранен только в secret/env.
 - [ ] `EMAIL_MODE=send`.
 - [ ] SMTP протестирован.
 - [ ] Telegram participant bot протестирован.
@@ -212,6 +217,7 @@ npm run e2e
 - [ ] `npm run e2e` проходит.
 - [ ] GitHub Actions CI проходит.
 - [ ] Docker image собирается.
+- [ ] В image существует `dist/src/server.js`.
 - [ ] `docker compose --env-file .env.production -f docker-compose.production.yml up -d --build` запускается.
 - [ ] `/api/health` отвечает.
 - [ ] Регистрация создает lead/registration.

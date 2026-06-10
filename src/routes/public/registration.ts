@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { createAccessToken, hashToken } from '../../lib/tokens.js';
-import { getNextWebinarDate } from '../../lib/time.js';
+import { getNextWebinarDate, getWebinarRoomState } from '../../lib/time.js';
 import { getWebinarLiveState } from '../../lib/webinarLive.js';
 import { enqueueRegistrationEmail } from '../../lib/emailOutbox.js';
 import { buildTelegramStartUrl, notifyRegistration } from '../../lib/telegram.js';
@@ -40,6 +40,7 @@ export const registerSchema = z.object({
   name: z.string().trim().min(2).max(120),
   phone: z.string().trim().min(6).max(40),
   email: z.string().trim().email().max(160),
+  companyWebsite: z.string().trim().max(200).optional().or(z.literal('')),
   city: z.string().trim().max(120).optional().or(z.literal('')),
   professionalStatus: z.string().trim().max(120).optional().or(z.literal('')),
   status: z.string().trim().max(120).optional().or(z.literal('')),
@@ -53,6 +54,16 @@ registrationRouter.post(
   '/register',
   asyncHandler(async (req, res) => {
     const data = registerSchema.parse(req.body);
+    if (clean(data.companyWebsite)) {
+      res.status(202).json({
+        ok: true,
+        successUrl: buildFrontendUrl('/crisis_premium/success.html'),
+        webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
+        telegramUrl: env.TELEGRAM_GROUP_URL,
+      });
+      return;
+    }
+
     const firstSeenAt = getFirstSeen(req, res);
     const scheduledAt = getNextWebinarDate(firstSeenAt);
     const session = await findOrCreateWebinarSession(scheduledAt);
@@ -304,7 +315,7 @@ async function sendRegistrationState(req: Request, res: Response) {
 
   const now = new Date();
   const access = buildAccessPayload(registration, now);
-  const liveState = getWebinarLiveState(now, registration.webinarSession, { testMode: access.testMode });
+  const liveState = getWebinarLiveState(now, access.webinarSession, { testMode: access.testMode });
   const requestToken = clean(req.cookies?.aspb_room_token);
   if (requestToken) {
     setRoomTokenCookie(res, requestToken, access.replayExpiresAt);
@@ -352,6 +363,7 @@ async function sendRegistrationState(req: Request, res: Response) {
     accessStatus: access.accessStatus,
     webinarStatus: access.webinarStatus,
     testMode: access.testMode,
+    roomState: getWebinarRoomState(access),
     replayExpiresAt: access.replayExpiresAt.toISOString(),
     roomOpensAt: access.roomOpensAt.toISOString(),
     canEnterRoom: access.canEnterRoom,
@@ -383,17 +395,17 @@ async function sendRegistrationState(req: Request, res: Response) {
       crmStatus: registration.crmStatus,
     },
     webinar: {
-      id: registration.webinarSession.id,
-      title: registration.webinarSession.title,
-      scheduledAt: registration.webinarSession.scheduledAt.toISOString(),
+      id: access.webinarSession.id,
+      title: access.webinarSession.title,
+      scheduledAt: access.webinarSession.scheduledAt.toISOString(),
       roomOpensAt: access.roomOpensAt.toISOString(),
       replayExpiresAt: access.replayExpiresAt.toISOString(),
-      durationMinutes: registration.webinarSession.durationMinutes,
-      videoDurationSeconds: registration.webinarSession.videoDurationSeconds,
-      replayAvailableHours: registration.webinarSession.replayAvailableHours,
-      replayEnabled: registration.webinarSession.replayEnabled,
+      durationMinutes: access.webinarSession.durationMinutes,
+      videoDurationSeconds: access.webinarSession.videoDurationSeconds,
+      replayAvailableHours: access.webinarSession.replayAvailableHours,
+      replayEnabled: access.webinarSession.replayEnabled,
       testMode: access.testMode,
-      status: liveState.status,
+      status: getWebinarRoomState(access),
       countdown: access.countdown,
     },
   });

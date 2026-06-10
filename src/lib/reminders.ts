@@ -1,13 +1,7 @@
 import { prisma } from './prisma.js';
 import { env } from './env.js';
 import type { ReminderKind } from './email.js';
-import {
-  EMAIL_JOB_REMINDER,
-  EMAIL_JOB_REPLAY,
-  enqueueReminderEmail,
-  enqueueReplayEmail,
-  runEmailOutboxJobOnce,
-} from './emailOutbox.js';
+import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
 import { sendTelegramMessageToChat, formatMoscowDate } from './telegram.js';
 import { createRoomExchangeUrl, getRoomTokenExpiresAt } from './roomLinks.js';
 import { logger } from './logger.js';
@@ -302,164 +296,13 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
 }
 
 export async function runTelegramFollowupJobOnce(now = new Date()) {
-  const registrations = await prisma.registration.findMany({
-    where: {
-      status: 'registered',
-      telegramFollowupSentAt: null,
-      partnerApplications: { none: {} },
-      lead: {
-        telegramChatId: { not: null },
-      },
-      webinarSession: {
-        scheduledAt: {
-          lte: now,
-          gte: new Date(now.getTime() - 12 * 60 * 60 * 1000),
-        },
-      },
-    },
-    include: {
-      lead: true,
-      webinarSession: true,
-    },
-    take: 100,
-  });
-
-  let sent = 0;
-  for (const registration of registrations) {
-    if (!registration.lead.telegramChatId) continue;
-    const dueAt = getPostWebinarFollowupDueAt(
-      registration.webinarSession.scheduledAt,
-      registration.webinarSession.durationMinutes,
-    );
-    if (now < dueAt || now.getTime() - dueAt.getTime() > 3 * 60 * 60 * 1000) {
-      continue;
-    }
-
-    const partnerUrl = await prisma.$transaction(tx =>
-      createRoomExchangeUrl(tx, {
-        registrationId: registration.id,
-        expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
-        hash: 'partnerApplication',
-      }),
-    );
-    await sendTelegramMessageToChat(
-      registration.lead.telegramChatId,
-      [
-        'Если вы узнали своих клиентов в примерах вебинара, сделайте следующий шаг.',
-        '',
-        'Оставьте заявку на партнерский договор: менеджер АСПБ покажет, как передавать такие ситуации и фиксировать условия сотрудничества.',
-        '',
-        `Заявка: ${partnerUrl}`,
-      ].join('\n'),
-    );
-
-    await prisma.registration.update({
-      where: { id: registration.id },
-      data: { telegramFollowupSentAt: now },
-    });
-    sent += 1;
-  }
-
-  return { checked: registrations.length, sent };
+  void now;
+  return { checked: 0, sent: 0, disabled: true };
 }
 
 export async function runReplayFollowupJobOnce(now = new Date()) {
-  const registrations = await prisma.registration.findMany({
-    where: {
-      status: 'registered',
-      roomEnteredAt: null,
-      webinarSession: {
-        replayEnabled: true,
-        scheduledAt: {
-          lte: now,
-          gte: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000),
-        },
-      },
-    },
-    include: {
-      lead: true,
-      webinarSession: true,
-    },
-    take: 100,
-  });
-
-  let checked = 0;
-  let emailQueued = 0;
-  let telegramSent = 0;
-
-  for (const registration of registrations) {
-    checked += 1;
-    const dueAt = getPostWebinarFollowupDueAt(
-      registration.webinarSession.scheduledAt,
-      registration.webinarSession.durationMinutes,
-    );
-    const replayExpiresAt = getRoomTokenExpiresAt(registration.webinarSession);
-    if (now < dueAt || now >= replayExpiresAt) {
-      continue;
-    }
-
-    const existingReplayEmailJob = await prisma.emailOutboxJob.count({
-      where: {
-        registrationId: registration.id,
-        type: EMAIL_JOB_REPLAY,
-      },
-    });
-
-    if (existingReplayEmailJob === 0) {
-      await prisma.$transaction(async tx => {
-        const replayUrl = await createRoomExchangeUrl(tx, {
-          registrationId: registration.id,
-          expiresAt: replayExpiresAt,
-        });
-        const partnerUrl = await createRoomExchangeUrl(tx, {
-          registrationId: registration.id,
-          expiresAt: replayExpiresAt,
-          hash: 'partnerApplication',
-        });
-        await enqueueReplayEmail(tx, {
-          registrationId: registration.id,
-          webinarSessionId: registration.webinarSessionId,
-          toEmail: registration.lead.email,
-          toName: registration.lead.name,
-          scheduledAt: registration.webinarSession.scheduledAt,
-          webinarUrl: replayUrl,
-          partnerUrl,
-        });
-      });
-      emailQueued += 1;
-    }
-
-    if (registration.telegramFollowupSentAt || !registration.lead.telegramChatId) {
-      continue;
-    }
-
-    const replayUrl = await prisma.$transaction(tx =>
-      createRoomExchangeUrl(tx, {
-        registrationId: registration.id,
-        expiresAt: replayExpiresAt,
-      }),
-    );
-    await sendTelegramMessageToChat(
-      registration.lead.telegramChatId,
-      [
-        'Запись вебинара АСПБ уже доступна.',
-        '',
-        'Если не получилось подключиться к эфиру, можно посмотреть его в удобное время:',
-        replayUrl,
-        '',
-        `Доступ к записи открыт до ${formatMoscowDate(replayExpiresAt)} МСК.`,
-        'В конце записи есть блок про партнерскую модель и следующий шаг для передачи клиентов на диагностику.',
-      ].join('\n'),
-    );
-
-    await prisma.registration.update({
-      where: { id: registration.id },
-      data: { telegramFollowupSentAt: now },
-    });
-    telegramSent += 1;
-  }
-
-  return { checked, emailQueued, telegramSent };
+  void now;
+  return { checked: 0, emailQueued: 0, telegramSent: 0, disabled: true };
 }
 
 export async function cleanupExpiredRegistrationTokens(now = new Date()) {
@@ -523,7 +366,6 @@ async function runReminderCycle() {
     await runReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ reminders]'));
     await runEmailOutboxJobOnce().catch(error => logger.error({ err: error }, '[ASPБ email outbox]'));
     await runTelegramReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram reminders]'));
-    await runReplayFollowupJobOnce().catch(error => logger.error({ err: error }, '[ASPБ replay followup]'));
     await cleanupExpiredRegistrationTokens().catch(error => logger.error({ err: error }, '[ASPБ token cleanup]'));
   } finally {
     await releaseAdvisoryLock();

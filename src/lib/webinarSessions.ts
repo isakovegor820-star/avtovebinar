@@ -13,6 +13,14 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
   return prisma.webinarSession.upsert({
     where: { scheduledAt },
     update: {
+      title: WEBINAR_TITLE,
+      durationMinutes: WEBINAR_DURATION_MINUTES,
+      videoUrl: WEBINAR_VIDEO_PATH,
+      videoDurationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
+      roomOpenBeforeMinutes: 15,
+      replayAvailableHours: WEBINAR_REPLAY_HOURS,
+      replayEnabled: true,
+      liveMode: 'simulated',
       status,
     },
     create: {

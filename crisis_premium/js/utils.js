@@ -38,7 +38,10 @@ export async function getJson(path) {
   const response = await fetch(`${API}${path}`, { credentials: 'include' });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error || 'Ошибка запроса');
+    const error = new Error(payload.error || 'Ошибка запроса');
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
   return payload;
 }

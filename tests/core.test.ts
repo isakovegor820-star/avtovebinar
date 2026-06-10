@@ -30,6 +30,7 @@ import { registerSchema } from '../src/routes/public.js';
 import { resolveFirstSeenAt } from '../src/routes/public/helpers.js';
 import {
   getCountdown,
+  getCurrentOrNextWebinarDate,
   getNextWebinarDate,
   getReplayExpiresAt,
   getSessionStatus,
@@ -38,7 +39,12 @@ import {
   WEBINAR_START_HOUR_MSK,
 } from '../src/lib/time.js';
 import { CRM_STATUSES, isCrmStatus } from '../src/lib/crm.js';
-import { getDueReminderKind, getDueTelegramReminderKind, getPostWebinarFollowupDueAt } from '../src/lib/reminders.js';
+import {
+  formatWebinarRelativeDate,
+  getDueReminderKind,
+  getDueTelegramReminderKind,
+  getPostWebinarFollowupDueAt,
+} from '../src/lib/reminders.js';
 import { getDueNewsSlot } from '../src/lib/telegramNews.js';
 import { validateProductionSecurity } from '../src/lib/env.js';
 import { PUBLIC_ANALYTICS_EVENTS } from '../src/lib/events.js';
@@ -62,6 +68,16 @@ describe('webinar time logic', () => {
   it('schedules across the end of a month', () => {
     const scheduledAt = getNextWebinarDate(new Date('2026-05-31T16:15:00.000Z'));
     expect(scheduledAt.toISOString()).toBe('2026-06-01T16:00:00.000Z');
+  });
+
+  it('keeps the current daily slot during the scheduled webinar window', () => {
+    const scheduledAt = getCurrentOrNextWebinarDate(new Date('2026-05-21T16:30:00.000Z'), 120);
+    expect(scheduledAt.toISOString()).toBe('2026-05-21T16:00:00.000Z');
+  });
+
+  it('switches the room schedule to tomorrow after the daily webinar ends', () => {
+    const scheduledAt = getCurrentOrNextWebinarDate(new Date('2026-05-21T18:01:00.000Z'), 120);
+    expect(scheduledAt.toISOString()).toBe('2026-05-22T16:00:00.000Z');
   });
 
   it('returns scheduled, live and finished statuses', () => {
@@ -175,6 +191,15 @@ describe('email reminder logic', () => {
       '2026-05-22T10:10:00.000Z',
     );
   });
+
+  it('formats Telegram reminder day relative to Moscow date', () => {
+    expect(formatWebinarRelativeDate(new Date('2026-06-08T16:00:00.000Z'), new Date('2026-06-08T11:00:00.000Z'))).toBe(
+      'сегодня',
+    );
+    expect(formatWebinarRelativeDate(new Date('2026-06-09T16:00:00.000Z'), new Date('2026-06-08T20:00:00.000Z'))).toBe(
+      'завтра',
+    );
+  });
 });
 
 describe('security configuration', () => {
@@ -186,8 +211,10 @@ describe('security configuration', () => {
       DATABASE_URL: 'postgresql://example',
       ADMIN_LOGIN: 'owner@aspb.example.com',
       ADMIN_PASSWORD: 'StrongPassword123',
+      ADMIN_DEV_BYPASS: 'false',
       ADMIN_COOKIE_SECRET: 'unit-test-admin-cookie-secret-with-32-chars',
       IP_HASH_SECRET: 'unit-test-ip-hash-secret-with-32-chars',
+      METRICS_TOKEN: 'unit-test-metrics-token-with-32-chars',
       EMAIL_MODE: 'send',
       SMTP_HOST: 'smtp.example.com',
       SMTP_PORT: 587,
@@ -195,19 +222,27 @@ describe('security configuration', () => {
       SMTP_PASS: 'smtp-pass',
       EMAIL_FROM: 'АСПБ <no-reply@example.com>',
       TELEGRAM_GROUP_URL: 'https://t.me/example',
-      TELEGRAM_ADMIN_BOT_TOKEN: '',
+      TELEGRAM_ADMIN_BOT_TOKEN: 'admin-bot-token',
       TELEGRAM_BOT_TOKEN: '',
       TELEGRAM_BOT_USERNAME: '',
-      TELEGRAM_ADMIN_CHAT_ID: '',
+      TELEGRAM_ADMIN_CHAT_ID: '123456',
       TELEGRAM_ADMIN_BOT_POLLING: 'off',
       TELEGRAM_NOTIFY_MODE: 'send',
       TELEGRAM_BOT_POLLING: 'off',
-      TELEGRAM_PARTICIPANT_BOT_TOKEN: '',
-      TELEGRAM_PARTICIPANT_BOT_USERNAME: '',
+      TELEGRAM_PARTICIPANT_BOT_TOKEN: 'participant-bot-token',
+      TELEGRAM_PARTICIPANT_BOT_USERNAME: 'aspb_participant_bot',
       TELEGRAM_PARTICIPANT_BOT_POLLING: 'off',
+      TELEGRAM_CONSULTANT_BOT_TOKEN: '',
+      TELEGRAM_CONSULTANT_BOT_USERNAME: '',
+      TELEGRAM_CONSULTANT_BOT_POLLING: 'off',
       TELEGRAM_NEWS_BROADCAST: 'off',
       TELEGRAM_NEWS_TIMES: '09:00',
       TELEGRAM_NEWS_RSS_URLS: '',
+      WEBINAR_VIDEO_PROVIDER: 'hls',
+      WEBINAR_VIDEO_HLS_URL: 'https://cdn.example.com/webinar/master.m3u8',
+      WEBINAR_VIDEO_URL: '',
+      WEBINAR_POSTER_URL: 'https://cdn.example.com/webinar/poster.jpg',
+      WEBINAR_VIDEO_DURATION_SECONDS: 568,
       WEBINAR_TEST_ROOM_MODE: 'off',
       CORS_ORIGIN: 'https://aspb.example.com',
       TRUST_PROXY: 'false',
@@ -224,6 +259,7 @@ describe('security configuration', () => {
         DATABASE_URL: 'postgresql://example',
         ADMIN_LOGIN: 'admin',
         ADMIN_PASSWORD: 'weak-pass',
+        ADMIN_DEV_BYPASS: 'false',
         ADMIN_COOKIE_SECRET: 'short-admin-cookie-secret',
         IP_HASH_SECRET: 'short-ip-hash-secret',
         EMAIL_MODE: 'log',
@@ -243,9 +279,17 @@ describe('security configuration', () => {
         TELEGRAM_PARTICIPANT_BOT_TOKEN: '',
         TELEGRAM_PARTICIPANT_BOT_USERNAME: '',
         TELEGRAM_PARTICIPANT_BOT_POLLING: 'off',
+        TELEGRAM_CONSULTANT_BOT_TOKEN: '',
+        TELEGRAM_CONSULTANT_BOT_USERNAME: '',
+        TELEGRAM_CONSULTANT_BOT_POLLING: 'off',
         TELEGRAM_NEWS_BROADCAST: 'off',
         TELEGRAM_NEWS_TIMES: '09:00',
         TELEGRAM_NEWS_RSS_URLS: '',
+        WEBINAR_VIDEO_PROVIDER: 'local',
+        WEBINAR_VIDEO_HLS_URL: '',
+        WEBINAR_VIDEO_URL: '',
+        WEBINAR_POSTER_URL: '',
+        WEBINAR_VIDEO_DURATION_SECONDS: 568,
         WEBINAR_TEST_ROOM_MODE: 'off',
         CORS_ORIGIN: 'https://example.com',
         TRUST_PROXY: 'false',
@@ -262,6 +306,43 @@ describe('security configuration', () => {
         }),
       ),
     ).toThrow(/EMAIL_MODE.*WEBINAR_TEST_ROOM_MODE/s);
+  });
+
+  it('requires a production metrics token', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          METRICS_TOKEN: '',
+        }),
+      ),
+    ).toThrow(/METRICS_TOKEN/);
+  });
+
+  it('rejects production Telegram log mode or missing bot settings', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          TELEGRAM_NOTIFY_MODE: 'log',
+          TELEGRAM_ADMIN_BOT_TOKEN: '',
+          TELEGRAM_ADMIN_CHAT_ID: '',
+          TELEGRAM_PARTICIPANT_BOT_TOKEN: '',
+          TELEGRAM_PARTICIPANT_BOT_USERNAME: '',
+        }),
+      ),
+    ).toThrow(/TELEGRAM_NOTIFY_MODE.*TELEGRAM_ADMIN_BOT_TOKEN.*TELEGRAM_PARTICIPANT_BOT_TOKEN/s);
+  });
+
+  it('rejects localhost production origins and video URLs', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          PUBLIC_SITE_URL: 'https://localhost',
+          CORS_ORIGIN: 'https://localhost',
+          WEBINAR_VIDEO_HLS_URL: 'https://localhost/video/master.m3u8',
+          WEBINAR_POSTER_URL: 'https://127.0.0.1/poster.jpg',
+        }),
+      ),
+    ).toThrow(/PUBLIC_SITE_URL.*CORS_ORIGIN.*WEBINAR_VIDEO_HLS_URL.*WEBINAR_POSTER_URL/s);
   });
 
   it('accepts a hardened production configuration', () => {

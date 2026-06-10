@@ -9,7 +9,7 @@
 <link href="webinar.css" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-<link href="flow-tabs.css" rel="stylesheet"/>
+<link href="flow-tabs.css?v=nav-tabs-3" rel="stylesheet"/>
 <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -81,6 +81,14 @@
         .live-edge-pulse {
             animation: liveEdgePulse 1.4s ease-in-out infinite;
         }
+        .webinar-flow-tabs {
+            top: 80px;
+        }
+        @media (max-width: 820px) {
+            .webinar-flow-tabs {
+                top: 104px;
+            }
+        }
     </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
@@ -98,6 +106,7 @@
 <a class="bg-primary text-on-primary px-6 py-2.5 rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="#partnerApplication">Оставить заявку</a>
 </div>
 </header>
+<div data-current="webinar" data-flow-tabs data-extra-class="webinar-flow-tabs" data-sticky-top="80px"></div>
 <main class="flex-grow max-w-container-max-width mx-auto w-full px-gutter py-8 md:py-12">
 <!-- Hero & Player Section -->
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -120,9 +129,7 @@
 <!-- Autowebinar Player -->
 <div id="videoPlayerContainer" class="relative aspect-video bg-primary-container rounded-lg overflow-hidden shadow-lg group">
   <!-- Remove controls to hide native player UI. Use pointer-events-none to prevent browser native overlays. -->
-  <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline preload="metadata" poster="assets/webinar-poster.jpg">
-    <source src="assets/webinar.mp4" type="video/mp4"/>
-  </video>
+  <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline webkit-playsinline preload="metadata" poster="assets/webinar-poster.jpg"></video>
   <div id="webinarStandbyBackdrop" class="webinar-standby-backdrop absolute inset-0" aria-hidden="true"></div>
 
   <!-- Fallback Screen when video cannot load -->
@@ -131,7 +138,7 @@
       <span class="material-symbols-outlined text-white text-4xl">movie</span>
     </div>
     <h1 class="text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h1>
-    <p class="text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Добавьте файл <strong>crisis_premium/assets/webinar.mp4</strong>, и эта комната сразу станет полноценным автовебинаром.</p>
+    <p data-video-fallback-text class="text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Поток вебинара временно недоступен. Обновите страницу или попробуйте открыть персональную ссылку позже.</p>
   </div>
 
   <!-- Countdown Overlay — shown before broadcast starts -->
@@ -173,7 +180,7 @@
 
     <!-- Live/DVR seekbar: красная часть показывает доступный эфир, точка справа — live-edge -->
     <div id="customSeekBarContainer"
-         class="w-full h-3 bg-white/20 rounded-full cursor-pointer group/seek relative mb-1 overflow-visible">
+         class="w-full h-11 rounded-full cursor-pointer group/seek relative mb-1 overflow-visible">
       <div id="customSeekBarAvailable"
            class="hidden absolute inset-y-0 left-0 bg-red-500/25 rounded-full pointer-events-none"
            style="width: 0%">
@@ -190,14 +197,14 @@
            class="hidden absolute top-1/2 w-4 h-4 rounded-full bg-red-500 border-2 border-white pointer-events-none live-edge-pulse"
            style="left: 0%">
       </div>
-      <div class="absolute inset-y-0 left-0 right-0 rounded-full opacity-0 group-hover/seek:opacity-100 bg-white/10 transition-opacity"></div>
+      <div class="custom-seek-hover absolute left-0 right-0 rounded-full opacity-0 group-hover/seek:opacity-100 bg-white/10 transition-opacity"></div>
     </div>
 
     <!-- Control Buttons -->
     <div class="flex items-center justify-between w-full">
       <div class="flex items-center gap-4">
         <!-- Play/Pause Button -->
-        <button id="customPlayPauseBtn" type="button" class="text-white hover:text-red-500 transition-colors flex items-center justify-center">
+        <button id="customPlayPauseBtn" type="button" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
           <span class="material-symbols-outlined text-[28px]">play_arrow</span>
         </button>
 
@@ -207,25 +214,24 @@
           <span>В эфире</span>
         </div>
 
-        <!-- Viewer Count Badge -->
-        <div id="customViewerCount" class="flex items-center gap-1.5 text-white/80 text-xs bg-white/10 px-2.5 py-1 rounded-full">
-          <span class="material-symbols-outlined text-[16px] text-white/60">visibility</span>
-          <!-- FIX 2: правдоподобное начальное число, JS обновит его после загрузки -->
-          <span id="viewerCountValue" class="font-semibold">147</span>
+        <!-- Neutral live sync badge; keep hidden unless backend supplies a real metric later. -->
+        <div id="customViewerCount" class="hidden flex items-center gap-1.5 text-white/80 text-xs bg-white/10 px-2.5 py-1 rounded-full">
+          <span class="material-symbols-outlined text-[16px] text-white/60">sync</span>
+          <span id="viewerCountValue" class="font-semibold">синхронно</span>
         </div>
       </div>
 
       <div class="flex items-center gap-4">
         <!-- Volume / Mute Control -->
         <div class="flex items-center gap-2 group/volume">
-          <button id="customMuteBtn" type="button" class="text-white hover:text-red-500 transition-colors flex items-center justify-center">
+          <button id="customMuteBtn" type="button" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
             <span class="material-symbols-outlined text-[24px]">volume_up</span>
           </button>
           <input id="customVolumeSlider" type="range" min="0" max="1" step="0.05" value="1" class="w-16 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-red-600 hover:accent-red-500 transition-all"/>
         </div>
 
         <!-- Fullscreen Button -->
-        <button id="customFullscreenBtn" type="button" class="text-white hover:text-red-500 transition-colors flex items-center justify-center">
+        <button id="customFullscreenBtn" type="button" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
           <span class="material-symbols-outlined text-[24px]">fullscreen</span>
         </button>
       </div>
@@ -233,8 +239,7 @@
   </div>
 
   <!-- Small top right badge for live mode if controls are hidden -->
-  <div class="absolute top-4 right-4 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md" id="videoLiveBadge">
-    <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>ПРЯМОЙ ЭФИР
+  <div class="hidden absolute top-4 right-4 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md" id="videoLiveBadge">
   </div>
 </div>
 <div class="bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-5 shadow-sm" id="timelineActive">
@@ -262,8 +267,8 @@
 </div>
 <div class="p-3 bg-surface-container-low border-t border-outline-variant/10">
 <div class="relative">
-<input id="questionInput" class="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl py-2.5 pl-4 pr-11 focus:ring-primary focus:border-primary text-[14px]" placeholder="Задайте вопрос..." type="text"/>
-<button id="questionSubmit" class="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:scale-110 transition-transform" type="button">
+<input id="questionInput" class="w-full min-h-[44px] bg-surface-container-lowest border border-outline-variant/30 rounded-xl py-3 pl-4 pr-14 focus:ring-primary focus:border-primary text-[14px]" placeholder="Задайте вопрос..." type="text"/>
+<button id="questionSubmit" class="absolute right-1 top-1/2 -translate-y-1/2 w-11 h-11 rounded-lg text-primary hover:scale-105 transition-transform flex items-center justify-center" type="button">
 <span class="material-symbols-outlined text-[20px]">send</span>
 </button>
 </div>
@@ -432,7 +437,8 @@
 </div>
 </footer>
 
-<script type="module" src="js/main.js"></script>
-<script src="live-chat.js"></script>
+<script type="module" src="js/main.js?v=account-access-6"></script>
+<script src="live-chat.js?v=webinar-chat-4"></script>
+<script src="flow-tabs.js?v=nav-tabs-3"></script>
 <script src="card-reveal.js"></script>
 </body></html>

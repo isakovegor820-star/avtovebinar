@@ -12,6 +12,7 @@ RUN npx prisma generate
 
 COPY tailwind.config.cjs ./
 COPY crisis_premium ./crisis_premium
+COPY webinar-data ./webinar-data
 RUN npm run css:build
 
 COPY tsconfig.json ./
@@ -31,6 +32,7 @@ RUN npm ci --omit=dev \
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/crisis_premium ./crisis_premium
+COPY --from=build /app/webinar-data ./webinar-data
 
 EXPOSE 5174
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
@@ -38,4 +40,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 USER node
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/server.js"]

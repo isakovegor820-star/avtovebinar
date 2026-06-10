@@ -104,12 +104,19 @@ export function bindQuestionForm() {
     track('question_submit_attempt', { textLength: text.length });
 
     try {
-      await post('/questions', { text });
+      const result = await post('/questions', { text });
 
       // FIX 6a: трекаем успешную отправку
       track('question_submitted');
 
       input.value = '';
+      document.dispatchEvent(new CustomEvent('aspb:chat-question-submitted', {
+        detail: {
+          text,
+          questionId: result.questionId,
+          chatMessageId: result.chatMessageId,
+        },
+      }));
       if (window.__liveChatRefresh) {
         window.__liveChatRefresh();
       }

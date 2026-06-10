@@ -4,6 +4,7 @@ import { logger } from './lib/logger.js';
 import { startReminderScheduler, stopReminderScheduler } from './lib/reminders.js';
 import { startParticipantTelegramBot, stopParticipantTelegramBot } from './lib/telegramParticipantBot.js';
 import { startAdminTelegramBot, stopAdminTelegramBot } from './lib/telegramAdminBot.js';
+import { startConsultantTelegramBot, stopConsultantTelegramBot } from './lib/telegramConsultantBot.js';
 import { startTelegramNewsScheduler, stopTelegramNewsScheduler } from './lib/telegramNews.js';
 import { prisma } from './lib/prisma.js';
 import { startTelegramBroadcastWorker, stopTelegramBroadcastWorker } from './lib/telegramBroadcastWorker.js';
@@ -57,6 +58,7 @@ function startWebinarWorker() {
   startBackgroundTask('reminder scheduler', startReminderScheduler, stopReminderScheduler);
   startBackgroundTask('admin telegram bot', startAdminTelegramBot, stopAdminTelegramBot);
   startBackgroundTask('participant telegram bot', startParticipantTelegramBot, stopParticipantTelegramBot);
+  startBackgroundTask('consultant telegram bot', startConsultantTelegramBot, stopConsultantTelegramBot);
   startBackgroundTask('telegram news scheduler', startTelegramNewsScheduler, stopTelegramNewsScheduler);
   startBackgroundTask('telegram broadcast worker', startTelegramBroadcastWorker, stopTelegramBroadcastWorker);
   logger.info({ workerRole }, 'АСПБ autowebinar webinar worker started');

@@ -21,6 +21,7 @@ export const adminRouter = Router();
 
 const ADMIN_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
 type AdminRole = (typeof ADMIN_ROLES)[number];
+type AnalyticsGroupBy = 'source' | 'utmSource' | 'utmMedium' | 'utmCampaign';
 const strongAdminPasswordSchema = z
   .string()
   .max(200)
@@ -28,6 +29,22 @@ const strongAdminPasswordSchema = z
 
 function isAdminRole(value: string): value is AdminRole {
   return ADMIN_ROLES.includes(value as AdminRole);
+}
+
+const leadAnalyticsColumns: Record<AnalyticsGroupBy, Prisma.Sql> = {
+  source: Prisma.raw('l."source"'),
+  utmSource: Prisma.raw('l."utm_source"'),
+  utmMedium: Prisma.raw('l."utm_medium"'),
+  utmCampaign: Prisma.raw('l."utm_campaign"'),
+};
+
+type AnalyticsCountRow = {
+  key: string | null;
+  count: number | bigint;
+};
+
+function toCount(value: number | bigint) {
+  return typeof value === 'bigint' ? Number(value) : value;
 }
 
 type AdminRequest = Request & {
@@ -1009,6 +1026,7 @@ adminRouter.get(
       return groups.get(key)!;
     };
 
+    const leadColumn = leadAnalyticsColumns[groupField];
     const [
       visitorEvents,
       telegramClickEvents,
@@ -1019,65 +1037,85 @@ adminRouter.get(
       applications,
       contracts,
     ] = await Promise.all([
-      prisma.event.findMany({
+      prisma.event.groupBy({
+        by: [groupField],
         where: { eventName: 'page_view', createdAt: dateRange },
-        select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true },
-      }),
-      prisma.event.findMany({
+        _count: { _all: true },
+      } as any),
+      prisma.event.groupBy({
+        by: [groupField],
         where: { eventName: 'telegram_click', createdAt: dateRange },
-        select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true },
-      }),
-      prisma.registration.findMany({
-        where: { registeredAt: dateRange },
-        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } },
-      }),
-      prisma.lead.findMany({
-        where: { telegramSubscribedAt: dateRange },
-        select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true },
-      }),
-      prisma.registration.findMany({
-        where: { roomEnteredAt: dateRange },
-        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } },
-      }),
-      prisma.question.findMany({
-        where: { createdAt: dateRange },
-        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } },
-      }),
-      prisma.partnerApplication.findMany({
-        where: { createdAt: dateRange },
-        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } },
-      }),
-      prisma.partnerApplication.findMany({
-        where: {
-          OR: [{ contractSignedAt: dateRange }, { status: { in: ['contract_signed', 'paid'] }, updatedAt: dateRange }],
-        },
-        include: { lead: { select: { source: true, utmSource: true, utmMedium: true, utmCampaign: true } } },
-      }),
+        _count: { _all: true },
+      } as any),
+      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
+        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
+        FROM "registrations" r
+        JOIN "leads" l ON l."id" = r."lead_id"
+        WHERE r."registered_at" >= ${from} AND r."registered_at" <= ${to}
+        GROUP BY ${leadColumn}
+      `),
+      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
+        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
+        FROM "leads" l
+        WHERE l."telegram_subscribed_at" >= ${from} AND l."telegram_subscribed_at" <= ${to}
+        GROUP BY ${leadColumn}
+      `),
+      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
+        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
+        FROM "registrations" r
+        JOIN "leads" l ON l."id" = r."lead_id"
+        WHERE r."room_entered_at" >= ${from} AND r."room_entered_at" <= ${to}
+        GROUP BY ${leadColumn}
+      `),
+      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
+        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
+        FROM "questions" q
+        JOIN "leads" l ON l."id" = q."lead_id"
+        WHERE q."created_at" >= ${from} AND q."created_at" <= ${to}
+        GROUP BY ${leadColumn}
+      `),
+      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
+        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
+        FROM "partner_applications" p
+        JOIN "leads" l ON l."id" = p."lead_id"
+        WHERE p."created_at" >= ${from} AND p."created_at" <= ${to}
+        GROUP BY ${leadColumn}
+      `),
+      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
+        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
+        FROM "partner_applications" p
+        JOIN "leads" l ON l."id" = p."lead_id"
+        WHERE (
+          (p."contract_signed_at" >= ${from} AND p."contract_signed_at" <= ${to})
+          OR (p."status" IN ('contract_signed', 'paid') AND p."updated_at" >= ${from} AND p."updated_at" <= ${to})
+        )
+        GROUP BY ${leadColumn}
+      `),
     ]);
 
-    visitorEvents.forEach(item => {
-      groupFor(item[groupField]).visitors += 1;
+    (visitorEvents as Array<Record<string, unknown> & { _count: { _all: number } }>).forEach(item => {
+      groupFor(item[groupField]).visitors += item._count._all;
     });
-    telegramClickEvents.forEach(item => {
-      groupFor(item[groupField]).telegramClicks += 1;
+    (telegramClickEvents as Array<Record<string, unknown> & { _count: { _all: number } }>).forEach(item => {
+      groupFor(item[groupField]).telegramClicks += item._count._all;
     });
     registrations.forEach(item => {
-      groupFor(item.lead[groupField]).registrations += 1;
+      groupFor(item.key).registrations += toCount(item.count);
     });
     telegramSubscribers.forEach(item => {
-      groupFor(item[groupField]).telegramSubscribers += 1;
+      groupFor(item.key).telegramSubscribers += toCount(item.count);
     });
     roomEntries.forEach(item => {
-      groupFor(item.lead[groupField]).roomEntries += 1;
+      groupFor(item.key).roomEntries += toCount(item.count);
     });
     questions.forEach(item => {
-      groupFor(item.lead[groupField]).questions += 1;
+      groupFor(item.key).questions += toCount(item.count);
     });
     applications.forEach(item => {
-      groupFor(item.lead[groupField]).applications += 1;
+      groupFor(item.key).applications += toCount(item.count);
     });
     contracts.forEach(item => {
-      groupFor(item.lead[groupField]).contracts += 1;
+      groupFor(item.key).contracts += toCount(item.count);
     });
 
     const summary = emptyGroup();
@@ -1119,6 +1157,100 @@ adminRouter.get(
         contractRate: rate(summary.contracts, summary.applications),
       },
       groups: rows,
+    });
+  }),
+);
+
+adminRouter.get(
+  '/api/admin/analytics/events',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const query = z
+      .object({
+        from: z.string().optional(),
+        to: z.string().optional(),
+        eventName: z.string().trim().max(120).optional(),
+        page: z.coerce.number().int().positive().default(1),
+        pageSize: z.coerce.number().int().min(1).max(200).default(50),
+      })
+      .parse(req.query);
+    const now = new Date();
+    const from = query.from
+      ? new Date(`${query.from}T00:00:00.000Z`)
+      : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const to = query.to ? new Date(`${query.to}T23:59:59.999Z`) : now;
+    const where = {
+      createdAt: { gte: from, lte: to },
+      eventName: query.eventName || undefined,
+    };
+    const [total, events] = await Promise.all([
+      prisma.event.count({ where }),
+      prisma.event.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          eventName: true,
+          page: true,
+          source: true,
+          utmSource: true,
+          utmMedium: true,
+          utmCampaign: true,
+          leadId: true,
+          registrationId: true,
+          webinarSessionId: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    res.json({
+      ok: true,
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+      events,
+    });
+  }),
+);
+
+adminRouter.get(
+  '/api/admin/analytics/events/daily',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const query = z
+      .object({
+        from: z.string().optional(),
+        to: z.string().optional(),
+        eventName: z.string().trim().max(120).optional(),
+      })
+      .parse(req.query);
+    const now = new Date();
+    const from = query.from
+      ? new Date(`${query.from}T00:00:00.000Z`)
+      : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const to = query.to ? new Date(`${query.to}T23:59:59.999Z`) : now;
+
+    const rows = await prisma.$queryRaw<Array<{ day: Date; eventName: string; count: number | bigint }>>(Prisma.sql`
+      SELECT date_trunc('day', "created_at") AS day, "event_name" AS "eventName", COUNT(*)::int AS count
+      FROM "events"
+      WHERE "created_at" >= ${from}
+        AND "created_at" <= ${to}
+        AND (${query.eventName ?? null}::text IS NULL OR "event_name" = ${query.eventName ?? null})
+      GROUP BY day, "event_name"
+      ORDER BY day ASC, "event_name" ASC
+    `);
+
+    res.json({
+      ok: true,
+      period: { from: from.toISOString(), to: to.toISOString() },
+      rows: rows.map(row => ({
+        day: row.day.toISOString(),
+        eventName: row.eventName,
+        count: toCount(row.count),
+      })),
     });
   }),
 );

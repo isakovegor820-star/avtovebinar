@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { registrationRouter } from './public/registration.js';
 import { webinarRouter } from './public/webinar.js';
+import { recordingsRouter } from './public/recordings.js';
 import { eventsRouter } from './public/events.js';
 import { partnersRouter } from './public/partners.js';
 import { sendCsrfToken } from '../lib/csrf.js';
@@ -42,5 +43,6 @@ publicRouter.get('/csrf', sendCsrfToken);
 // Sub-routers (all paths are defined inside each module)
 publicRouter.use(registrationRouter);
 publicRouter.use(webinarRouter);
+publicRouter.use(recordingsRouter);
 publicRouter.use(eventsRouter);
 publicRouter.use(partnersRouter);

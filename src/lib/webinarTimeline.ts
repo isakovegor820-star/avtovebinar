@@ -1,3 +1,5 @@
+import { env } from './env.js';
+
 export type TimelineEventSeed = {
   offsetSeconds: number;
   title: string;
@@ -8,44 +10,44 @@ export type TimelineEventSeed = {
 };
 
 export const WEBINAR_VIDEO_PATH = '/crisis_premium/assets/webinar.mp4';
-export const WEBINAR_VIDEO_DURATION_SECONDS = 568;
+export const WEBINAR_VIDEO_DURATION_SECONDS = env.WEBINAR_VIDEO_DURATION_SECONDS;
 
 export const DEFAULT_TIMELINE_EVENTS: TimelineEventSeed[] = [
   {
     offsetSeconds: 0,
     title: 'Старт: что вы проверяете в этом эфире',
     text: 'Это короткий тестовый автовебинар. Смотрите его не как обычное видео, а как маршрут: проблема клиента, роль юриста, передача в АСПБ и следующий шаг после просмотра.',
-    type: 'message'
+    type: 'message',
   },
   {
     offsetSeconds: 40,
     title: 'Клиент уже пришел к вам с сигналом',
     text: 'Если доверитель говорит про долги, блокировки, ФНС, кредиторов или риск закрытия бизнеса, это уже не просто консультация. Это момент, где юрист может показать законный маршрут.',
-    type: 'message'
+    type: 'message',
   },
   {
     offsetSeconds: 95,
     title: 'Главный риск: отпустить клиента в пустоту',
     text: 'Обычно человек уходит искать решение сам. Сильнее работает другой сценарий: вы не обещаете невозможного, а предлагаете диагностику и передачу в АСПБ.',
-    type: 'chat_prompt'
+    type: 'chat_prompt',
   },
   {
     offsetSeconds: 155,
     title: 'Что берет на себя АСПБ',
     text: 'АСПБ нужна как команда, которая забирает сложную часть: диагностику, документы, процедуру, суд, кредиторов и сопровождение. Юрист остается точкой доверия, а не операционным исполнителем.',
-    type: 'chat_prompt'
+    type: 'chat_prompt',
   },
   {
     offsetSeconds: 220,
     title: 'Роль юриста в партнерской модели',
     text: 'Ваша роль — увидеть проблему, объяснить первый шаг и передать клиента. Это не требует самостоятельно вести банкротство или перестраивать всю практику.',
-    type: 'message'
+    type: 'message',
   },
   {
     offsetSeconds: 290,
     title: 'Фраза, которую стоит услышать у клиента',
     text: 'Если клиент говорит: "счет заблокировали", "не тяну налоги", "кредиторы давят", "как закрыться с долгами" — это повод не заканчивать разговор, а предложить диагностику.',
-    type: 'message'
+    type: 'message',
   },
   {
     offsetSeconds: 365,
@@ -53,7 +55,7 @@ export const DEFAULT_TIMELINE_EVENTS: TimelineEventSeed[] = [
     text: 'Партнерский интерес возникает не из обещаний, а из системного маршрута: клиент получает законный выход, АСПБ ведет процедуру, а условия сотрудничества фиксируются договором.',
     type: 'cta',
     ctaLabel: 'Посмотреть путь партнера',
-    ctaUrl: '#partnerPath'
+    ctaUrl: '#partnerPath',
   },
   {
     offsetSeconds: 440,
@@ -61,13 +63,13 @@ export const DEFAULT_TIMELINE_EVENTS: TimelineEventSeed[] = [
     text: 'Вспомните одного клиента за последний месяц: были ли у него долги, ФНС, кредиторы, кассовый разрыв или риск банкротства? Если да — задайте вопрос в комнате.',
     type: 'cta',
     ctaLabel: 'Задать вопрос',
-    ctaUrl: '#questionInput'
+    ctaUrl: '#questionInput',
   },
   {
     offsetSeconds: 505,
     title: 'Финальный шаг после просмотра',
     text: 'Если вы узнали своих клиентов в примерах, не закрывайте страницу. Оставьте заявку на партнерский договор, чтобы менеджер АСПБ разобрал ваш поток и формат передачи.',
-    type: 'chat_prompt'
+    type: 'chat_prompt',
   },
   {
     offsetSeconds: 550,
@@ -75,6 +77,6 @@ export const DEFAULT_TIMELINE_EVENTS: TimelineEventSeed[] = [
     text: 'Главная цель теста выполнена: видео, таймлайн, вопросы и финальная заявка работают как единая автоворонка. Дальше можно записывать полноценную версию с Василием.',
     type: 'final',
     ctaLabel: 'Оставить заявку на партнерский договор',
-    ctaUrl: '#partnerApplication'
-  }
+    ctaUrl: '#partnerApplication',
+  },
 ];

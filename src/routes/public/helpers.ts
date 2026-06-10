@@ -9,6 +9,7 @@ import { hashIp, hashToken } from '../../lib/tokens.js';
 import { getClientIp } from '../../lib/http.js';
 import {
   getCountdown,
+  getCurrentOrNextWebinarDate,
   getNextWebinarDate,
   getReplayExpiresAt,
   getWebinarAccess,
@@ -140,16 +141,25 @@ export function buildAccessPayload(
   registration: NonNullable<Awaited<ReturnType<typeof findRegistrationByToken>>>,
   now: Date,
 ) {
+  const effectiveDurationMinutes = getEffectiveVideoDurationMinutes(registration.webinarSession);
+  const scheduledAt =
+    registration.webinarSession.status === 'live'
+      ? registration.webinarSession.scheduledAt
+      : getCurrentOrNextWebinarDate(now, effectiveDurationMinutes);
+  const webinarSession = {
+    ...registration.webinarSession,
+    scheduledAt,
+  };
   const access = getWebinarAccess(
     now,
-    registration.webinarSession.scheduledAt,
-    getEffectiveVideoDurationMinutes(registration.webinarSession),
-    registration.webinarSession.replayAvailableHours,
-    registration.webinarSession.roomOpenBeforeMinutes,
-    registration.webinarSession.replayEnabled,
+    webinarSession.scheduledAt,
+    getEffectiveVideoDurationMinutes(webinarSession),
+    webinarSession.replayAvailableHours,
+    webinarSession.roomOpenBeforeMinutes,
+    webinarSession.replayEnabled,
   );
 
-  if (env.NODE_ENV !== 'production' && env.WEBINAR_TEST_ROOM_MODE === 'on') {
+  if (env.NODE_ENV !== 'production' && env.WEBINAR_TEST_ROOM_MODE === 'on' && access.accessStatus !== 'replay') {
     return {
       accessStatus: 'replay' as const,
       webinarStatus: 'test',
@@ -157,7 +167,8 @@ export function buildAccessPayload(
       replayExpiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
       canEnterRoom: true,
       canViewRoom: true,
-      countdown: getCountdown(now, now),
+      countdown: getCountdown(now, webinarSession.scheduledAt),
+      webinarSession,
       testMode: true,
     };
   }
@@ -168,8 +179,9 @@ export function buildAccessPayload(
     roomOpensAt: access.roomOpensAt,
     replayExpiresAt: access.replayExpiresAt,
     canEnterRoom: access.canEnterRoom,
-    canViewRoom: access.canEnterRoom || access.accessStatus === 'pre_live',
-    countdown: getCountdown(now, registration.webinarSession.scheduledAt),
+    canViewRoom: access.accessStatus !== 'closed',
+    countdown: getCountdown(now, webinarSession.scheduledAt),
+    webinarSession,
     testMode: false,
   };
 }

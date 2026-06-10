@@ -142,6 +142,7 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
         () =>
           transporter.sendMail({
             from: env.EMAIL_FROM,
+            replyTo: env.EMAIL_REPLY_TO,
             to: input.to,
             subject: input.subject,
             text: input.text,
@@ -193,23 +194,7 @@ export async function sendReminderEmail(input: BaseEmailInput & { kind: Reminder
 }
 
 export async function sendReplayEmail(input: BaseEmailInput) {
-  const replayExpires = input.partnerUrl
-    ? 'В конце записи есть блок про партнерскую модель и заявка на следующий шаг.'
-    : 'Запись доступна по персональной ссылке.';
-  const subject = 'Запись вебинара АСПБ уже доступна';
-  const text = [
-    `${input.name}, запись вебинара АСПБ уже доступна.`,
-    '',
-    'Если не получилось подключиться к эфиру, можно посмотреть его в удобное время:',
-    input.webinarUrl,
-    '',
-    replayExpires,
-    input.partnerUrl ? `Заявка на партнерский договор: ${input.partnerUrl}` : '',
-    '',
-    'АСПБ — Антикризисная служба помощи бизнесу',
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  return deliverEmail({ ...input, subject, text });
+  void input;
+  logger.info('[ASPБ email] replay follow-up email skipped: recordings are available in the account library');
+  return { sent: false, mode: 'disabled' as const };
 }

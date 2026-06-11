@@ -506,7 +506,8 @@ describe('critical path integration scenarios', () => {
     const accessResponse = await restoreAgent.get('/api/participant/access/current');
     expect(accessResponse.status).toBe(200);
     expect(accessResponse.body.lead.email).toBe(email);
-    expect(accessResponse.body.webinar.id).toBe(webinarSession.id);
+    expect(accessResponse.body.webinar.id).not.toBe(webinarSession.id);
+    expect(accessResponse.body.webinar.scheduledAt).toBe(getDailyBroadcastDate(new Date()).toISOString());
     expect(accessResponse.body.telegram.subscribed).toBe(false);
     expect(accessResponse.body.telegram.botUrl).toContain('https://t.me/');
 
@@ -532,7 +533,8 @@ describe('critical path integration scenarios', () => {
     expect(registrations.length).toBe(1);
   });
 
-  it('restores closed registrations for the permanent recordings library', async () => {
+  it('restores old registrations but keeps recordings locked until the daily broadcast ends', async () => {
+    setTestNow(new Date('2026-06-11T12:00:00.000Z'));
     const scheduledAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
     const email = `closed-library-${Date.now()}@aspb.ru`;
     const { webinarSession } = await createRegisteredParticipant(email, scheduledAt);
@@ -580,17 +582,44 @@ describe('critical path integration scenarios', () => {
 
     const accessResponse = await restoreAgent.get('/api/participant/access/current');
     expect(accessResponse.status).toBe(200);
-    expect(accessResponse.body.accessStatus).toBe('closed');
+    expect(accessResponse.body.accessStatus).toBe('waiting');
     expect(accessResponse.body.recordings).toMatchObject({
+      available: false,
+      locked: true,
+      count: 0,
+    });
+
+    const lockedRecordingsResponse = await restoreAgent.get('/api/recordings');
+    expect(lockedRecordingsResponse.status).toBe(200);
+    expect(lockedRecordingsResponse.body).toMatchObject({
+      locked: true,
+      accessStatus: 'waiting',
+      recordings: [],
+    });
+
+    const lockedDetailResponse = await restoreAgent.get(`/api/recordings/${recording.id}`);
+    expect(lockedDetailResponse.status).toBe(403);
+
+    setTestNow(new Date('2026-06-11T18:00:00.000Z'));
+    const unlockedAccessResponse = await restoreAgent.get('/api/participant/access/current');
+    expect(unlockedAccessResponse.status).toBe(200);
+    expect(unlockedAccessResponse.body.recordings).toMatchObject({
       available: true,
+      locked: false,
       count: expect.any(Number),
+      accessStatus: 'replay',
     });
 
     const recordingsResponse = await restoreAgent.get('/api/recordings');
     expect(recordingsResponse.status).toBe(200);
+    expect(recordingsResponse.body.locked).toBe(false);
     expect(recordingsResponse.body.recordings).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: recording.id, title: 'Постоянная запись' })]),
     );
+
+    const detailResponse = await restoreAgent.get(`/api/recordings/${recording.id}`);
+    expect(detailResponse.status).toBe(200);
+    expect(detailResponse.body.recording.id).toBe(recording.id);
   });
 
   it('rejects expired participant login tokens without creating a room session', async () => {
@@ -1247,6 +1276,7 @@ describe('critical path integration scenarios', () => {
   });
 
   it('serves published recordings to registered account sessions only', async () => {
+    setTestNow(new Date('2026-06-11T18:00:00.000Z'));
     const anonymousResponse = await request(app).get('/api/recordings');
     expect(anonymousResponse.status).toBe(401);
 

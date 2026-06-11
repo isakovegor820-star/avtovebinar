@@ -3,7 +3,13 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { getWebinarEndAt } from '../../lib/time.js';
 import { getWebinarVideoConfig } from '../../lib/webinarVideo.js';
-import { findRegistrationForRequest, saveEvent } from './helpers.js';
+import {
+  buildFrontendUrl,
+  buildTodayBroadcastAccessPayload,
+  canOpenRecordings,
+  findRegistrationForRequest,
+  saveEvent,
+} from './helpers.js';
 
 export const recordingsRouter = Router();
 
@@ -86,11 +92,59 @@ function serializeRecording(recording: RecordingWithSession) {
   };
 }
 
+async function getRecordingsGate(registration: Awaited<ReturnType<typeof requireRecordingAccount>>, now: Date) {
+  const access = await buildTodayBroadcastAccessPayload(registration, now);
+  const recordingAvailableAt = getWebinarEndAt(
+    access.webinarSession.scheduledAt,
+    access.webinarSession.durationMinutes,
+  );
+
+  return {
+    access,
+    available: canOpenRecordings(access),
+    payload: {
+      locked: !canOpenRecordings(access),
+      accessStatus: access.accessStatus,
+      webinarStatus: access.webinarStatus,
+      roomUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
+      recordingsUrl: buildFrontendUrl('/crisis_premium/recordings.html'),
+      webinar: {
+        id: access.webinarSession.id,
+        title: access.webinarSession.title,
+        scheduledAt: access.webinarSession.scheduledAt.toISOString(),
+        recordingAvailableAt: recordingAvailableAt.toISOString(),
+        countdown: access.countdown,
+        durationMinutes: access.webinarSession.durationMinutes,
+      },
+    },
+  };
+}
+
 recordingsRouter.get(
   '/recordings',
   asyncHandler(async (req, res) => {
     const registration = await requireRecordingAccount(req);
     const now = new Date();
+    const gate = await getRecordingsGate(registration, now);
+
+    if (!gate.available) {
+      await saveEvent({
+        eventName: 'recordings_locked',
+        req,
+        registration,
+        page: '/crisis_premium/recordings.html',
+      });
+
+      res.setHeader('Cache-Control', 'private, max-age=15');
+      res.json({
+        ok: true,
+        serverTime: now.toISOString(),
+        ...gate.payload,
+        recordings: [],
+      });
+      return;
+    }
+
     const recordings = await fetchPublishedRecordings(now);
 
     await saveEvent({
@@ -104,6 +158,11 @@ recordingsRouter.get(
     res.json({
       ok: true,
       serverTime: now.toISOString(),
+      locked: false,
+      accessStatus: gate.access.accessStatus,
+      webinarStatus: gate.access.webinarStatus,
+      roomUrl: gate.payload.roomUrl,
+      webinar: gate.payload.webinar,
       recordings: recordings.map(serializeRecording),
     });
   }),
@@ -114,6 +173,11 @@ recordingsRouter.get(
   asyncHandler(async (req, res) => {
     const registration = await requireRecordingAccount(req);
     const now = new Date();
+    const gate = await getRecordingsGate(registration, now);
+    if (!gate.available) {
+      throw new AppError(403, 'Recording opens after the broadcast');
+    }
+
     const recordings = await fetchPublishedRecordings(now);
     const index = recordings.findIndex(recording => recording.id === req.params.id);
     if (index === -1) {

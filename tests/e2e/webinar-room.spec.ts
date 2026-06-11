@@ -211,7 +211,7 @@ test('exchange token is removed from URL and daily room stays cookie-only', asyn
   await expect(page.locator('#partnerApplicationStatus')).toContainText('Заявка отправлена');
 });
 
-test('published recordings stay available from the participant library', async ({ page }) => {
+test('recordings library follows the daily broadcast gate', async ({ page }) => {
   const { exchangeToken, registration } = await createExchangeRegistration(`ended-${Date.now()}@aspb.ru`);
   await prisma.webinarRecording.create({
     data: {
@@ -232,6 +232,18 @@ test('published recordings stay available from the participant library', async (
   expect(page.url()).not.toContain('token=');
 
   await page.goto('/crisis_premium/recordings.html');
+  const recordingsResponse = await page.request.get('/api/recordings');
+  expect(recordingsResponse.ok()).toBeTruthy();
+  const recordingsPayload = await recordingsResponse.json();
+
+  if (recordingsPayload.locked) {
+    await expect(page.locator('#recordingsApp')).toContainText(/Запись откроется после эфира|Сейчас идет эфир/);
+    await expect(page.locator('#recordingsCounter')).toBeHidden();
+    await expect(page.locator('#recordingVideo')).toHaveCount(0);
+    await expect(page.locator('#recordingsApp')).not.toContainText('Постоянная запись E2E');
+    return;
+  }
+
   await expect(page.locator('#recordingsPlaylist')).toContainText('Постоянная запись E2E');
   await expect(page.locator('#recordingsCounter')).toBeVisible();
   await expect(page.locator('#recordingVideo')).toHaveAttribute('src', /webinar\.mp4/);

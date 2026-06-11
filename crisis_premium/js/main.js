@@ -4,9 +4,9 @@
 
 import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=account-access-15';
 import { hydrateTimeline } from './video.js?v=room-countdown-1';
-import { hydrateSuccessPage } from './success.js?v=account-access-14';
-import { hydrateAccessPage } from './access.js?v=account-access-14';
-import { hydrateRecordingsPage } from './recordings.js?v=account-access-14';
+import { hydrateSuccessPage } from './success.js?v=account-access-16';
+import { hydrateAccessPage } from './access.js?v=account-access-16';
+import { hydrateRecordingsPage } from './recordings.js?v=account-access-16';
 import {
   bindRegistrationForm,
   bindRegistrationClicks,

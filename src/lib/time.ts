@@ -54,6 +54,11 @@ export function getCurrentOrNextWebinarDate(now: Date, durationMinutes = WEBINAR
 
 export const getDailyBroadcastDate = getCurrentOrNextWebinarDate;
 
+export function getTodayWebinarDate(now: Date): Date {
+  const parts = getMoscowParts(now);
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, WEBINAR_START_HOUR_MSK - 3, 0, 0));
+}
+
 export function getSessionStatus(now: Date, scheduledAt: Date, durationMinutes = WEBINAR_DURATION_MINUTES) {
   const starts = scheduledAt.getTime();
   const ends = starts + durationMinutes * 60 * 1000;

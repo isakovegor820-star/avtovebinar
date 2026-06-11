@@ -4,6 +4,7 @@
 
 import { state } from './state.js';
 import {
+  formatMoscowDateTime,
   formatMoscowWebinarDay,
   formatMoscowWebinarTime,
   formatUtcIcsDate,
@@ -139,7 +140,10 @@ export async function hydrateSuccessPage() {
     if (intro) intro.textContent = buildSuccessIntro(data);
     const recordingsLink = document.getElementById('successRecordingsLink');
     if (recordingsLink) {
-      recordingsLink.addEventListener('click', () => track('recording_cta_click', { source: 'success' }));
+      recordingsLink.addEventListener('click', () => track('recording_cta_click', {
+        source: 'success',
+        locked: recordingsLink.dataset.locked === 'true',
+      }));
     }
     if (data.testMode || data.webinar?.testMode) {
       if (intro) {
@@ -203,14 +207,42 @@ async function hydrateRecordingsSummary() {
   const title = document.getElementById('successRecordingsTitle');
   const text = document.getElementById('successRecordingsText');
   const link = document.getElementById('successRecordingsLink');
+  if (payload.locked) {
+    const availableAt = payload.webinar?.recordingAvailableAt
+      ? formatMoscowDateTime(payload.webinar.recordingAvailableAt)
+      : '';
+    const isLive = payload.accessStatus === 'live';
+    if (title) title.textContent = isLive ? 'Сейчас идет эфир' : 'Запись откроется после эфира';
+    if (text) {
+      text.textContent = isLive
+        ? 'Запись не открывается параллельно с трансляцией. Подключайтесь к комнате и смотрите эфир по расписанию.'
+        : `До эфира запись закрыта. После завершения${availableAt ? `, ориентировочно ${availableAt} МСК,` : ''} она появится в разделе “Записи”.`;
+    }
+    if (link) {
+      link.setAttribute('href', payload.roomUrl || 'webinar.html');
+      link.dataset.locked = 'true';
+      link.innerHTML = `<span class="material-symbols-outlined text-xl">${isLive ? 'play_circle' : 'schedule'}</span>${isLive ? 'Подключиться к эфиру' : 'Открыть окно ожидания'}`;
+    }
+    return;
+  }
+
   if (!payload.recordings?.length) {
     if (title) title.textContent = 'Записи появятся после завершения эфира';
     if (text) text.textContent = 'После окончания вебинара запись автоматически появится в разделе “Записи”.';
+    if (link) {
+      link.setAttribute('href', payload.roomUrl || 'webinar.html');
+      link.dataset.locked = 'true';
+      link.innerHTML = '<span class="material-symbols-outlined text-xl">schedule</span>Открыть окно ожидания';
+    }
     return;
   }
 
   const latest = payload.recordings[0];
   if (title) title.textContent = latest.title;
   if (text) text.textContent = 'Последняя запись уже доступна в вашем кабинете без срока истечения.';
-  if (link) link.setAttribute('href', `recordings.html?id=${encodeURIComponent(latest.id)}`);
+  if (link) {
+    link.setAttribute('href', `recordings.html?id=${encodeURIComponent(latest.id)}`);
+    link.dataset.locked = 'false';
+    link.innerHTML = '<span class="material-symbols-outlined text-xl">video_library</span>Смотреть запись';
+  }
 }

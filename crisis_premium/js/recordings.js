@@ -2,7 +2,7 @@
  * recordings.js — cabinet media library and recording playback.
  */
 
-import { getJson, formatTimelineTime } from './utils.js?v=account-access-14';
+import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=account-access-14';
 import { track } from './analytics.js';
 
 let hlsInstance = null;
@@ -57,12 +57,34 @@ function statusLabel(recording, serverTime) {
 function showEmpty() {
   const root = document.getElementById('recordingsApp');
   if (!root) return;
+  document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
   root.innerHTML = `
     <section class="recordings-empty">
       <span class="material-symbols-outlined">video_library</span>
       <h1>Записи пока готовятся</h1>
       <p>Как только материал будет опубликован, он появится здесь без повторной регистрации.</p>
       <a href="webinar.html" class="recordings-primary-link">Открыть вебинар</a>
+    </section>
+  `;
+}
+
+function showLocked(payload) {
+  const root = document.getElementById('recordingsApp');
+  if (!root) return;
+  document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
+  const scheduledAt = payload.webinar?.scheduledAt ? formatMoscowDateTime(payload.webinar.scheduledAt) : '19:00';
+  const availableAt = payload.webinar?.recordingAvailableAt ? formatMoscowDateTime(payload.webinar.recordingAvailableAt) : '';
+  const isLive = payload.accessStatus === 'live';
+  root.innerHTML = `
+    <section class="recordings-empty">
+      <span class="material-symbols-outlined">${isLive ? 'live_tv' : 'lock_clock'}</span>
+      <h1>${isLive ? 'Сейчас идет эфир' : 'Запись откроется после эфира'}</h1>
+      <p>${
+        isLive
+          ? 'Не открываем полную запись во время трансляции, чтобы не ломать эфирный сценарий. Подключайтесь к комнате и смотрите по таймлайну.'
+          : `До старта в ${escapeHtml(scheduledAt)} МСК запись закрыта. После эфира${availableAt ? `, ориентировочно ${escapeHtml(availableAt)} МСК,` : ''} она появится здесь как обычная запись.`
+      }</p>
+      <a href="${escapeHtml(payload.roomUrl || 'webinar.html')}" class="recordings-primary-link">${isLive ? 'Подключиться к эфиру' : 'Открыть окно ожидания'}</a>
     </section>
   `;
 }
@@ -311,6 +333,11 @@ export async function hydrateRecordingsPage() {
   try {
     const payload = await getJson('/recordings');
     if (!payload.ok) return;
+
+    if (payload.locked) {
+      showLocked(payload);
+      return;
+    }
 
     if (!payload.recordings.length) {
       showEmpty();

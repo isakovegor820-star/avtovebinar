@@ -14,8 +14,8 @@ function statusLabel(data) {
   if (data.accessStatus === 'live') return 'Эфир идет';
   if (data.accessStatus === 'replay') return 'Запись доступна';
   if (data.accessStatus === 'closed') return 'Доступ к эфиру закрыт';
-  if (data.accessStatus === 'pre_live') return 'Комната скоро откроется';
-  return 'Вы зарегистрированы';
+  if (data.accessStatus === 'pre_live') return 'Ожидание эфира';
+  return 'Эфир по расписанию';
 }
 
 function statusText(data) {
@@ -23,8 +23,8 @@ function statusText(data) {
   if (data.accessStatus === 'live') return 'Можно открыть комнату и подключиться к трансляции.';
   if (data.accessStatus === 'replay') return 'Это запись вебинара. Чат работает как форма вопроса для команды АСПБ.';
   if (data.accessStatus === 'closed') return 'Вебинарная комната закрыта. Опубликованные записи остаются в библиотеке участника без повторной регистрации.';
-  if (data.accessStatus === 'pre_live') return `Комната открыта для проверки доступа. Эфир стартует ${date} МСК.`;
-  return `Эфир стартует ${date} МСК. До начала подключите Telegram-напоминание.`;
+  if (data.accessStatus === 'pre_live') return `До старта осталось меньше 15 минут. Откройте окно ожидания: эфир начнется ${date} МСК.`;
+  return `Вы зарегистрированы. До ${date} МСК доступ к видео закрыт: сейчас главное — напоминание и окно ожидания.`;
 }
 
 function setText(id, value) {
@@ -35,6 +35,12 @@ function setText(id, value) {
 function setHref(id, value) {
   const node = document.getElementById(id);
   if (node && value) node.setAttribute('href', value);
+}
+
+function setLinkContent(id, icon, label) {
+  const node = document.getElementById(id);
+  if (!node) return;
+  node.innerHTML = `<span class="material-symbols-outlined text-[18px]">${icon}</span>${label}`;
 }
 
 function showMode(mode) {
@@ -123,6 +129,13 @@ function renderAccess(data) {
   );
   setHref('accessRoomLink', data.roomUrl || data.links?.room || 'webinar.html');
   setHref('accessRecoverLink', data.links?.access || 'access.html');
+  if (data.accessStatus === 'live') {
+    setLinkContent('accessRoomLink', 'play_circle', 'Подключиться к эфиру');
+  } else if (data.accessStatus === 'waiting' || data.accessStatus === 'pre_live') {
+    setLinkContent('accessRoomLink', 'schedule', 'Открыть окно ожидания');
+  } else {
+    setLinkContent('accessRoomLink', 'meeting_room', 'Открыть комнату');
+  }
 
   const telegramStatus = data.telegram?.subscribed
     ? `Telegram привязан${data.telegram?.username ? `: @${data.telegram.username}` : ''}`
@@ -132,11 +145,23 @@ function renderAccess(data) {
   const recordings = document.getElementById('accessRecordings');
   const recordingsText = document.getElementById('accessRecordingsText');
   const recordingsLink = document.getElementById('accessRecordingsLink');
-  if (recordings) recordings.classList.toggle('hidden', !data.recordings?.available);
-  if (recordingsText && data.recordings?.available) {
-    recordingsText.textContent = `Доступно записей: ${data.recordings.count}. Они честно отмечены как записи, не как прямой эфир.`;
+  const recordingsLocked = Boolean(data.recordings?.locked);
+  if (recordings) recordings.classList.toggle('hidden', !(data.recordings?.available || recordingsLocked));
+  if (recordingsText && recordingsLocked) {
+    const availableAt = data.recordings?.recordingAvailableAt
+      ? formatMoscowDateTime(data.recordings.recordingAvailableAt)
+      : '';
+    recordingsText.textContent = `Запись откроется после эфира${availableAt ? ` — ориентировочно ${availableAt} МСК` : ''}. До этого видео доступно только в трансляции по расписанию.`;
+  } else if (recordingsText && data.recordings?.available) {
+    recordingsText.textContent = `Доступно записей: ${data.recordings.count}. Это библиотека записей, не прямой эфир.`;
   }
-  if (recordingsLink && data.recordings?.url) recordingsLink.setAttribute('href', data.recordings.url);
+  if (recordingsLink && recordingsLocked) {
+    recordingsLink.setAttribute('href', data.roomUrl || data.links?.room || 'webinar.html');
+    setLinkContent('accessRecordingsLink', 'schedule', 'Открыть окно ожидания');
+  } else if (recordingsLink && data.recordings?.url) {
+    recordingsLink.setAttribute('href', data.recordings.url);
+    setLinkContent('accessRecordingsLink', 'video_library', 'Открыть записи');
+  }
 
   bindLogout();
 }

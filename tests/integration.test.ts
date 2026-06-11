@@ -533,7 +533,7 @@ describe('critical path integration scenarios', () => {
     expect(registrations.length).toBe(1);
   });
 
-  it('restores old registrations but keeps recordings locked until the daily broadcast ends', async () => {
+  it('restores old registrations and keeps published recordings available before the daily broadcast', async () => {
     setTestNow(new Date('2026-06-11T12:00:00.000Z'));
     const scheduledAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
     const email = `closed-library-${Date.now()}@aspb.ru`;
@@ -584,30 +584,9 @@ describe('critical path integration scenarios', () => {
     expect(accessResponse.status).toBe(200);
     expect(accessResponse.body.accessStatus).toBe('waiting');
     expect(accessResponse.body.recordings).toMatchObject({
-      available: false,
-      locked: true,
-      count: 0,
-    });
-
-    const lockedRecordingsResponse = await restoreAgent.get('/api/recordings');
-    expect(lockedRecordingsResponse.status).toBe(200);
-    expect(lockedRecordingsResponse.body).toMatchObject({
-      locked: true,
-      accessStatus: 'waiting',
-      recordings: [],
-    });
-
-    const lockedDetailResponse = await restoreAgent.get(`/api/recordings/${recording.id}`);
-    expect(lockedDetailResponse.status).toBe(403);
-
-    setTestNow(new Date('2026-06-11T18:00:00.000Z'));
-    const unlockedAccessResponse = await restoreAgent.get('/api/participant/access/current');
-    expect(unlockedAccessResponse.status).toBe(200);
-    expect(unlockedAccessResponse.body.recordings).toMatchObject({
       available: true,
       locked: false,
       count: expect.any(Number),
-      accessStatus: 'replay',
     });
 
     const recordingsResponse = await restoreAgent.get('/api/recordings');
@@ -1276,7 +1255,7 @@ describe('critical path integration scenarios', () => {
   });
 
   it('serves published recordings to registered account sessions only', async () => {
-    setTestNow(new Date('2026-06-11T18:00:00.000Z'));
+    setTestNow(new Date('2026-06-11T12:00:00.000Z'));
     const anonymousResponse = await request(app).get('/api/recordings');
     expect(anonymousResponse.status).toBe(401);
 

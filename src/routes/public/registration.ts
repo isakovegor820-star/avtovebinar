@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { createAccessToken, hashToken } from '../../lib/tokens.js';
-import { getDailyBroadcastDate, getWebinarAccess, getWebinarEndAt, getWebinarRoomState } from '../../lib/time.js';
+import { getDailyBroadcastDate, getWebinarAccess, getWebinarRoomState } from '../../lib/time.js';
 import { getEffectiveVideoDurationMinutes, getWebinarLiveState } from '../../lib/webinarLive.js';
 import { enqueueParticipantLoginEmail, enqueueRegistrationEmail } from '../../lib/emailOutbox.js';
 import { buildTelegramStartUrl, notifyRegistration } from '../../lib/telegram.js';
@@ -13,9 +13,7 @@ import { buildTokenizedFrontendUrl, createTelegramStartToken } from '../../lib/r
 import {
   buildAccessPayload,
   buildDailyRoomAccessPayload,
-  buildTodayBroadcastAccessPayload,
   buildFrontendUrl,
-  canOpenRecordings,
   clearRoomTokenCookie,
   clean,
   findRegistrationForRequest,
@@ -625,19 +623,13 @@ registrationRouter.get(
 
     const now = new Date();
     const access = await buildDailyRoomAccessPayload(registration, now);
-    const recordingAccess = await buildTodayBroadcastAccessPayload(registration, now);
-    const recordingsOpen = canOpenRecordings(recordingAccess);
-    const recordingAvailableAt = getWebinarEndAt(
-      recordingAccess.webinarSession.scheduledAt,
-      recordingAccess.webinarSession.durationMinutes,
-    );
     const liveState = getWebinarLiveState(now, access.webinarSession, { testMode: access.testMode });
     const requestToken = clean(req.cookies?.aspb_room_token);
     if (requestToken) {
       setRoomTokenCookie(res, requestToken, getParticipantSessionExpiresAt(now));
     }
 
-    const recordingCount = recordingsOpen ? await getPublishedRecordingsCount(now) : 0;
+    const recordingCount = await getPublishedRecordingsCount(now);
     const telegramTokenExpiresAt =
       access.replayExpiresAt > now ? access.replayExpiresAt : new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const telegramBotUrl = registration.lead.telegramChatId
@@ -701,13 +693,10 @@ registrationRouter.get(
         botUrl: telegramBotUrl,
       },
       recordings: {
-        available: recordingsOpen && recordingCount > 0,
-        locked: !recordingsOpen,
+        available: recordingCount > 0,
+        locked: false,
         count: recordingCount,
         url: buildFrontendUrl('/crisis_premium/recordings.html'),
-        accessStatus: recordingAccess.accessStatus,
-        webinarStatus: recordingAccess.webinarStatus,
-        recordingAvailableAt: recordingAvailableAt.toISOString(),
       },
       links: {
         access: buildFrontendUrl('/crisis_premium/access.html'),

@@ -69,11 +69,11 @@ async function main() {
     description:
       'Запись вебинара АСПБ о том, как бухгалтеру, юристу или консультанту развиваться на рынке банкротства и передавать клиентов в партнерской модели.',
     posterUrl: videoConfig.poster ?? session.posterUrl,
-    videoUrl: videoConfig.src ?? session.videoUrl ?? WEBINAR_VIDEO_PATH,
+    videoUrl: WEBINAR_VIDEO_PATH,
     hlsUrl: videoConfig.hlsSrc,
-    durationSeconds: session.videoDurationSeconds,
-    publishedAt: null,
-    visible: false,
+    durationSeconds: 568,
+    publishedAt: new Date('2026-06-10T17:05:00.000Z'),
+    visible: true,
     orderIndex: 0,
     category: 'webinar',
   };

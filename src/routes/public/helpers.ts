@@ -12,7 +12,6 @@ import {
   getDailyBroadcastDate,
   getNextWebinarDate,
   getReplayExpiresAt,
-  getTodayWebinarDate,
   getWebinarAccess,
   parseFirstSeenCookie,
   WEBINAR_DURATION_MINUTES,
@@ -213,19 +212,6 @@ export async function buildDailyRoomAccessPayload(
   const scheduledAt = getDailyBroadcastDate(now);
   const webinarSession = await findOrCreateWebinarSession(scheduledAt, now);
   return buildAccessPayload(registration, now, { webinarSession });
-}
-
-export async function buildTodayBroadcastAccessPayload(
-  registration: NonNullable<Awaited<ReturnType<typeof findRegistrationByToken>>>,
-  now: Date,
-) {
-  const scheduledAt = getTodayWebinarDate(now);
-  const webinarSession = await findOrCreateWebinarSession(scheduledAt, now);
-  return buildAccessPayload(registration, now, { webinarSession });
-}
-
-export function canOpenRecordings(access: ReturnType<typeof buildAccessPayload>) {
-  return access.testMode || access.accessStatus === 'replay' || access.accessStatus === 'closed';
 }
 
 export function notifySafely(task: Promise<unknown>) {

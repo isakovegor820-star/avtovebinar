@@ -226,7 +226,7 @@ test('registered participant does not see registration CTA in landing header', a
   await expect(page.locator('header a[data-participant-cta="true"]')).toHaveAttribute('href', /webinar\.html/);
 });
 
-test('recordings library follows the daily broadcast gate', async ({ page }) => {
+test('published recording stays available before the daily broadcast', async ({ page }) => {
   const { exchangeToken, registration } = await createExchangeRegistration(`ended-${Date.now()}@aspb.ru`);
   await prisma.webinarRecording.create({
     data: {
@@ -250,14 +250,7 @@ test('recordings library follows the daily broadcast gate', async ({ page }) => 
   const recordingsResponse = await page.request.get('/api/recordings');
   expect(recordingsResponse.ok()).toBeTruthy();
   const recordingsPayload = await recordingsResponse.json();
-
-  if (recordingsPayload.locked) {
-    await expect(page.locator('#recordingsApp')).toContainText(/Запись откроется после эфира|Сейчас идет эфир/);
-    await expect(page.locator('#recordingsCounter')).toBeHidden();
-    await expect(page.locator('#recordingVideo')).toHaveCount(0);
-    await expect(page.locator('#recordingsApp')).not.toContainText('Постоянная запись E2E');
-    return;
-  }
+  expect(recordingsPayload.locked).toBe(false);
 
   await expect(page.locator('#recordingsPlaylist')).toContainText('Постоянная запись E2E');
   await expect(page.locator('#recordingsCounter')).toBeVisible();

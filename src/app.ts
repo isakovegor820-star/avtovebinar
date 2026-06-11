@@ -285,11 +285,6 @@ const staticOptions = {
   },
 };
 app.use('/vendor/hls.js', express.static(path.join(rootDir, 'node_modules', 'hls.js', 'dist'), staticOptions));
-if (env.NODE_ENV === 'production') {
-  app.get(['/crisis_premium/assets/webinar.mp4', '/assets/webinar.mp4'], (_req, res) => {
-    res.status(404).json({ ok: false, error: 'Webinar video is served from configured HLS/CDN storage in production' });
-  });
-}
 app.use('/crisis_premium', express.static(frontendDir, staticOptions));
 app.use(express.static(frontendDir, staticOptions));
 

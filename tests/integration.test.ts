@@ -1264,8 +1264,8 @@ describe('critical path integration scenarios', () => {
         title: 'Прошедший вебинар',
         scheduledAt: new Date('2026-05-22T08:00:00.000Z'),
         durationMinutes: 120,
-        videoDurationSeconds: 3600,
-        videoUrl: '/crisis_premium/assets/webinar.mp4',
+        videoDurationSeconds: 3860,
+        videoUrl: 'https://aspb-partners.ru/crisis_premium/assets/media/vasiliy-artin-2026-06-10/video.mp4',
         posterUrl: '/crisis_premium/assets/webinar-poster.jpg',
       },
     });
@@ -1289,9 +1289,10 @@ describe('critical path integration scenarios', () => {
         webinarSessionId: endedSession.id,
         title: 'Запись прошедшего вебинара',
         description: 'Материалы вебинара.',
+        videoUrl: '/crisis_premium/assets/webinar.mp4',
         visible: true,
         publishedAt: new Date('2026-05-22T10:05:00.000Z'),
-        durationSeconds: 3600,
+        durationSeconds: 568,
         orderIndex: 1,
         category: 'webinar',
       },
@@ -1359,9 +1360,11 @@ describe('critical path integration scenarios', () => {
     });
     expect(listResponse.body.recordings[0].video).toMatchObject({
       src: '/crisis_premium/assets/webinar.mp4',
+      hlsSrc: null,
       poster: '/crisis_premium/assets/webinar-poster.jpg',
-      durationSeconds: 3600,
+      durationSeconds: 568,
     });
+    expect(JSON.stringify(listResponse.body.recordings[0])).not.toContain('vasiliy-artin-2026-06-10');
 
     const detailResponse = await request(app)
       .get(`/api/recordings/${visibleRecording.id}`)

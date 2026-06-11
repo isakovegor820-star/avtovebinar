@@ -47,6 +47,10 @@ async function requireRecordingAccount(req: Request) {
 function serializeRecording(recording: RecordingWithSession) {
   const fallbackVideo = getWebinarVideoConfig(recording.webinarSession);
   const durationSeconds = recording.durationSeconds ?? recording.webinarSession.videoDurationSeconds;
+  const hasRecordingMedia = Boolean(recording.videoUrl || recording.hlsUrl);
+  const videoSrc = recording.videoUrl ?? (hasRecordingMedia ? null : fallbackVideo.src);
+  const hlsSrc = recording.hlsUrl ?? (hasRecordingMedia ? null : fallbackVideo.hlsSrc);
+  const externalMp4Allowed = Boolean(recording.videoUrl) || (!hasRecordingMedia && fallbackVideo.externalMp4Allowed);
 
   return {
     id: recording.id,
@@ -54,8 +58,8 @@ function serializeRecording(recording: RecordingWithSession) {
     title: recording.title,
     description: recording.description,
     posterUrl: recording.posterUrl ?? fallbackVideo.poster,
-    videoUrl: recording.videoUrl ?? fallbackVideo.src,
-    hlsUrl: recording.hlsUrl ?? fallbackVideo.hlsSrc,
+    videoUrl: videoSrc,
+    hlsUrl: hlsSrc,
     durationSeconds,
     publishedAt: recording.publishedAt?.toISOString() ?? null,
     visible: recording.visible,
@@ -73,15 +77,15 @@ function serializeRecording(recording: RecordingWithSession) {
       durationMinutes: recording.webinarSession.durationMinutes,
     },
     video: {
-      src: recording.videoUrl ?? fallbackVideo.src,
-      hlsSrc: recording.hlsUrl ?? fallbackVideo.hlsSrc,
+      src: videoSrc,
+      hlsSrc,
       provider: fallbackVideo.provider,
       durationSeconds,
       poster: recording.posterUrl ?? fallbackVideo.poster,
       fallbackAllowed: fallbackVideo.fallbackAllowed,
       localFallbackAllowed: fallbackVideo.localFallbackAllowed,
-      externalMp4Allowed: Boolean(recording.videoUrl) || fallbackVideo.externalMp4Allowed,
-      expected: Boolean(recording.hlsUrl ?? recording.videoUrl ?? fallbackVideo.hlsSrc ?? fallbackVideo.src),
+      externalMp4Allowed,
+      expected: Boolean(hlsSrc ?? videoSrc),
     },
   };
 }

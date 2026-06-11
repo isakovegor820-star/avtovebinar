@@ -235,7 +235,7 @@ test('published recording stays available before the daily broadcast', async ({ 
       description: 'Эта запись доступна участнику после регистрации.',
       videoUrl: '/crisis_premium/assets/webinar.mp4',
       posterUrl: '/crisis_premium/assets/webinar-poster.jpg',
-      durationSeconds: 3860,
+      durationSeconds: 568,
       publishedAt: new Date(Date.now() - 60 * 1000),
       visible: true,
       orderIndex: 1,
@@ -251,6 +251,9 @@ test('published recording stays available before the daily broadcast', async ({ 
   expect(recordingsResponse.ok()).toBeTruthy();
   const recordingsPayload = await recordingsResponse.json();
   expect(recordingsPayload.locked).toBe(false);
+  expect(recordingsPayload.recordings[0].video.src).toBe('/crisis_premium/assets/webinar.mp4');
+  expect(recordingsPayload.recordings[0].video.hlsSrc).toBeNull();
+  expect(recordingsPayload.recordings[0].durationSeconds).toBe(568);
 
   await expect(page.locator('#recordingsPlaylist')).toContainText('Постоянная запись E2E');
   await expect(page.locator('#recordingsCounter')).toBeVisible();

@@ -210,7 +210,7 @@ test('chat remains visible and accepts questions after webinar end', async ({ pa
   await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`);
   await expect(page).toHaveURL(/webinar\.html$/);
   await expect(page.locator('#webinarChatPanel')).toBeVisible();
-  await expect(page.locator('#webinarStatusText')).toContainText('Постоянная запись доступна');
+  await expect(page.locator('#webinarStatusText')).toContainText('Запись доступна');
   await expect(page.locator('#videoPlayOverlay')).toContainText('Смотреть запись');
   await expect(page.locator('#videoLiveBadge')).toContainText('ЗАПИСЬ');
   await expect(page.locator('#chatActivity')).toContainText('Запись открыта, чат доступен для вопросов');

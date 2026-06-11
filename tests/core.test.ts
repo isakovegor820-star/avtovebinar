@@ -475,7 +475,7 @@ describe('webinar video config', () => {
     );
   });
 
-  it('keeps the local video fallback disabled in production', () => {
+  it('uses the broadcast MP4 fallback while keeping local fallback disabled in production', () => {
     withVideoEnv(
       {
         NODE_ENV: 'production',
@@ -485,8 +485,10 @@ describe('webinar video config', () => {
       },
       () => {
         const config = getWebinarVideoConfig();
-        expect(config.src).toBeNull();
-        expect(config.externalMp4Allowed).toBe(false);
+        expect(config.src).toBe(
+          'https://aspb-partners.ru/crisis_premium/assets/media/vasiliy-artin-2026-06-10/video.mp4',
+        );
+        expect(config.externalMp4Allowed).toBe(true);
         expect(config.localFallbackAllowed).toBe(false);
       },
     );

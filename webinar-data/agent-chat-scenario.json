@@ -21,14 +21,27 @@
       "sendAtSeconds": 245,
       "answerStartSeconds": 360,
       "relatedVideoSeconds": 360,
-      "agentId": "egor-ismakov",
-      "agentName": "Егор Исмаков",
+      "agentId": "egor-isakov",
+      "agentName": "Егор Исаков",
       "agentRole": "юрист",
       "kind": "agent_question",
       "topic": "Опыт команды",
       "message": "Где можно проверить цифры по процедурам и понять, что за командой действительно есть практика?",
       "visible": true,
       "priority": 10
+    },
+    {
+      "id": "scripted_u_001",
+      "sendAtSeconds": 420,
+      "relatedVideoSeconds": 420,
+      "agentId": "andrey-tax",
+      "agentName": "Андрей",
+      "agentRole": "налоговый консультант",
+      "kind": "scripted_user",
+      "topic": "Практика команды",
+      "message": "А по налоговым спорам и блокировкам счетов тоже можно передавать на первичный разбор?",
+      "visible": true,
+      "priority": 12
     },
     {
       "id": "agent_q_002",
@@ -59,18 +72,44 @@
       "priority": 30
     },
     {
+      "id": "scripted_u_002",
+      "sendAtSeconds": 990,
+      "relatedVideoSeconds": 990,
+      "agentId": "irina-buh",
+      "agentName": "Ирина",
+      "agentRole": "бухгалтер",
+      "kind": "scripted_user",
+      "topic": "Партнерская модель",
+      "message": "Интересно, можно ли сначала просто познакомить клиента с командой, без рекомендации конкретной процедуры?",
+      "visible": true,
+      "priority": 32
+    },
+    {
       "id": "agent_q_004",
       "sendAtSeconds": 1150,
       "answerStartSeconds": 1260,
       "relatedVideoSeconds": 1260,
-      "agentId": "egor-ismakov",
-      "agentName": "Егор Исмаков",
+      "agentId": "egor-isakov",
+      "agentName": "Егор Исаков",
       "agentRole": "юрист",
       "kind": "agent_question",
       "topic": "Сигналы клиента",
       "message": "Как понять, что клиенту уже нужна финансово-правовая диагностика: блокировка счета, 115-ФЗ, налоги, конфликты собственников?",
       "visible": true,
       "priority": 40
+    },
+    {
+      "id": "scripted_u_003",
+      "sendAtSeconds": 1340,
+      "relatedVideoSeconds": 1340,
+      "agentId": "sergey-consultant",
+      "agentName": "Сергей",
+      "agentRole": "консультант",
+      "kind": "scripted_user",
+      "topic": "Сигналы клиента",
+      "message": "Если клиент уже на исполнительном производстве, его еще имеет смысл направлять или поздно?",
+      "visible": true,
+      "priority": 42
     },
     {
       "id": "agent_q_005",
@@ -101,18 +140,44 @@
       "priority": 60
     },
     {
+      "id": "scripted_u_004",
+      "sendAtSeconds": 1965,
+      "relatedVideoSeconds": 1965,
+      "agentId": "olga-law",
+      "agentName": "Ольга",
+      "agentRole": "юрист",
+      "kind": "scripted_user",
+      "topic": "Польза для клиента",
+      "message": "А если у клиента есть имущество, диагностика сначала смотрит риски по нему?",
+      "visible": true,
+      "priority": 62
+    },
+    {
       "id": "agent_q_007",
       "sendAtSeconds": 2070,
       "answerStartSeconds": 2135,
       "relatedVideoSeconds": 2135,
       "agentId": "fideev-ilyas",
-      "agentName": "Фидеев Ильяс Александрович",
+      "agentName": "Фидеев Ильяс",
       "agentRole": "партнер",
       "kind": "agent_question",
       "topic": "Вознаграждение партнера",
       "message": "20-30% партнерского вознаграждения считается от прибыли или от дохода компании?",
       "visible": true,
       "priority": 70
+    },
+    {
+      "id": "scripted_u_005",
+      "sendAtSeconds": 2220,
+      "relatedVideoSeconds": 2220,
+      "agentId": "viktoria-partner",
+      "agentName": "Виктория",
+      "agentRole": "партнер",
+      "kind": "scripted_user",
+      "topic": "Вознаграждение партнера",
+      "message": "Выплата партнеру происходит после оплаты клиентом или после завершения процедуры?",
+      "visible": true,
+      "priority": 72
     },
     {
       "id": "agent_q_008",
@@ -157,6 +222,19 @@
       "priority": 100
     },
     {
+      "id": "scripted_u_006",
+      "sendAtSeconds": 2875,
+      "relatedVideoSeconds": 2875,
+      "agentId": "maksim-agent",
+      "agentName": "Максим",
+      "agentRole": "консультант",
+      "kind": "scripted_user",
+      "topic": "Без вложений",
+      "message": "Есть ли короткий скрипт, как корректно предложить клиенту диагностику и не напугать его словом банкротство?",
+      "visible": true,
+      "priority": 102
+    },
+    {
       "id": "agent_q_011",
       "sendAtSeconds": 2980,
       "answerStartSeconds": 3010,
@@ -183,6 +261,19 @@
       "message": "Есть ли потолок по доходу партнера, если у меня большая база контактов?",
       "visible": true,
       "priority": 120
+    },
+    {
+      "id": "scripted_u_007",
+      "sendAtSeconds": 3105,
+      "relatedVideoSeconds": 3105,
+      "agentId": "ruslan-business",
+      "agentName": "Руслан",
+      "agentRole": "предприниматель",
+      "kind": "scripted_user",
+      "topic": "Ответственность",
+      "message": "Если я передал контакт, а клиент потом передумал, это как-то влияет на мои отношения с АСПБ?",
+      "visible": true,
+      "priority": 122
     },
     {
       "id": "agent_q_013",
@@ -225,6 +316,19 @@
       "message": "Если я бухгалтер, не будет ли это конфликтом с моей основной услугой?",
       "visible": true,
       "priority": 150
+    },
+    {
+      "id": "scripted_u_008",
+      "sendAtSeconds": 3350,
+      "relatedVideoSeconds": 3350,
+      "agentId": "anna-buh",
+      "agentName": "Анна",
+      "agentRole": "бухгалтер",
+      "kind": "scripted_user",
+      "topic": "Конфликт с основной услугой",
+      "message": "Можно ли работать только с теми клиентами, где я уже вижу финансовые документы и понимаю картину?",
+      "visible": true,
+      "priority": 152
     },
     {
       "id": "agent_q_016",

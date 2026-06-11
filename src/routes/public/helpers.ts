@@ -180,7 +180,7 @@ export function buildAccessPayload(
 
   if (env.NODE_ENV !== 'production' && env.WEBINAR_TEST_ROOM_MODE === 'on' && access.accessStatus !== 'replay') {
     return {
-      accessStatus: 'replay' as const,
+      accessStatus: 'live' as const,
       webinarStatus: 'test',
       roomOpensAt: now,
       replayExpiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),

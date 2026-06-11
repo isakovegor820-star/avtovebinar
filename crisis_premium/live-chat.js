@@ -122,21 +122,6 @@
     text.style.fontWeight = isAgentQuestion ? '500' : 'normal';
     text.textContent = msg.message;
 
-    if (isAgentQuestion) {
-      var badge = document.createElement('span');
-      badge.style.display = 'inline-block';
-      badge.style.fontSize = '9px';
-      badge.style.fontWeight = '700';
-      badge.style.color = '#1e40af';
-      badge.style.background = 'rgba(30, 64, 175, 0.1)';
-      badge.style.borderRadius = '4px';
-      badge.style.padding = '1px 5px';
-      badge.style.marginLeft = '6px';
-      badge.style.verticalAlign = 'middle';
-      badge.textContent = 'частый вопрос';
-      text.append(badge);
-    }
-
     body.append(author, text);
     item.append(avatar, body);
     chatContainer.appendChild(item);

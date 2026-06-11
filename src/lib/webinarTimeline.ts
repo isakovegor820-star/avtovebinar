@@ -9,7 +9,13 @@ export type TimelineEventSeed = {
   ctaUrl?: string;
 };
 
-export const WEBINAR_VIDEO_PATH = '/crisis_premium/assets/webinar.mp4';
+const DEFAULT_BROADCAST_MEDIA_BASE = 'https://aspb-partners.ru/crisis_premium/assets/media/vasiliy-artin-2026-06-10';
+
+export const WEBINAR_RECORDING_VIDEO_PATH = '/crisis_premium/assets/webinar.mp4';
+export const WEBINAR_RECORDING_POSTER_PATH = '/crisis_premium/assets/webinar-poster.jpg';
+export const WEBINAR_BROADCAST_VIDEO_URL = env.WEBINAR_VIDEO_URL ?? `${DEFAULT_BROADCAST_MEDIA_BASE}/video.mp4`;
+export const WEBINAR_BROADCAST_POSTER_URL = env.WEBINAR_POSTER_URL ?? `${DEFAULT_BROADCAST_MEDIA_BASE}/poster.jpg`;
+export const WEBINAR_VIDEO_PATH = WEBINAR_BROADCAST_VIDEO_URL;
 export const WEBINAR_VIDEO_DURATION_SECONDS = env.WEBINAR_VIDEO_DURATION_SECONDS;
 
 export const DEFAULT_TIMELINE_EVENTS: TimelineEventSeed[] = [

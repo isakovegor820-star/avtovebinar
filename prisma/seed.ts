@@ -2,13 +2,15 @@ import { PrismaClient } from '@prisma/client';
 import { getNextWebinarDate, WEBINAR_DURATION_MINUTES, WEBINAR_REPLAY_HOURS, WEBINAR_TITLE } from '../src/lib/time.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import {
+  WEBINAR_BROADCAST_POSTER_URL,
+  WEBINAR_BROADCAST_VIDEO_URL,
+  WEBINAR_RECORDING_POSTER_PATH,
+  WEBINAR_RECORDING_VIDEO_PATH,
   DEFAULT_TIMELINE_EVENTS,
   WEBINAR_VIDEO_DURATION_SECONDS,
-  WEBINAR_VIDEO_PATH,
 } from '../src/lib/webinarTimeline.js';
 
 const prisma = new PrismaClient();
-const RECORDING_POSTER_PATH = '/crisis_premium/assets/webinar-poster.jpg';
 
 async function main() {
   const scheduledAt = getNextWebinarDate(new Date());
@@ -18,7 +20,8 @@ async function main() {
     update: {
       title: WEBINAR_TITLE,
       durationMinutes: WEBINAR_DURATION_MINUTES,
-      videoUrl: WEBINAR_VIDEO_PATH,
+      videoUrl: WEBINAR_BROADCAST_VIDEO_URL,
+      posterUrl: WEBINAR_BROADCAST_POSTER_URL,
       videoDurationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
       roomOpenBeforeMinutes: 15,
       replayAvailableHours: WEBINAR_REPLAY_HOURS,
@@ -30,7 +33,8 @@ async function main() {
       title: WEBINAR_TITLE,
       scheduledAt,
       durationMinutes: WEBINAR_DURATION_MINUTES,
-      videoUrl: WEBINAR_VIDEO_PATH,
+      videoUrl: WEBINAR_BROADCAST_VIDEO_URL,
+      posterUrl: WEBINAR_BROADCAST_POSTER_URL,
       videoDurationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
       roomOpenBeforeMinutes: 15,
       replayAvailableHours: WEBINAR_REPLAY_HOURS,
@@ -67,8 +71,8 @@ async function main() {
     title: session.title,
     description:
       'Запись вебинара АСПБ о том, как бухгалтеру, юристу или консультанту развиваться на рынке банкротства и передавать клиентов в партнерской модели.',
-    posterUrl: RECORDING_POSTER_PATH,
-    videoUrl: WEBINAR_VIDEO_PATH,
+    posterUrl: WEBINAR_RECORDING_POSTER_PATH,
+    videoUrl: WEBINAR_RECORDING_VIDEO_PATH,
     hlsUrl: null,
     durationSeconds: 568,
     publishedAt: new Date('2026-06-10T17:05:00.000Z'),

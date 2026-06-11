@@ -1446,9 +1446,11 @@ describe('critical path integration scenarios', () => {
     expect(liveResponse.body.accessStatus).toBe('live');
     expect(liveResponse.body.liveState.scheduledAt).toBe(dailyScheduledAt.toISOString());
     expect(liveResponse.body.video).toMatchObject({
-      src: '/crisis_premium/assets/webinar.mp4',
+      src: 'https://aspb-partners.ru/crisis_premium/assets/media/vasiliy-artin-2026-06-10/video.mp4',
+      poster: 'https://aspb-partners.ru/crisis_premium/assets/media/vasiliy-artin-2026-06-10/poster.jpg',
       expected: true,
     });
+    expect(JSON.stringify(liveResponse.body.video)).not.toContain('/crisis_premium/assets/webinar.mp4');
     expect(liveResponse.body.timeline).toBeDefined();
 
     setTestNow(new Date('2026-06-11T18:00:00.000Z'));

@@ -1,5 +1,5 @@
 import { env } from './env.js';
-import { WEBINAR_VIDEO_PATH } from './webinarTimeline.js';
+import { WEBINAR_BROADCAST_POSTER_URL, WEBINAR_BROADCAST_VIDEO_URL } from './webinarTimeline.js';
 
 export type WebinarVideoConfig = {
   provider: typeof env.WEBINAR_VIDEO_PROVIDER;
@@ -17,14 +17,14 @@ export function getWebinarVideoConfig(session?: {
 }): WebinarVideoConfig {
   const localFallbackAllowed = env.NODE_ENV !== 'production';
   const hlsSrc = env.WEBINAR_VIDEO_HLS_URL ?? null;
-  const configuredMp4 = env.WEBINAR_VIDEO_URL ?? session?.videoUrl ?? null;
-  const src = configuredMp4 ?? (localFallbackAllowed ? WEBINAR_VIDEO_PATH : null);
+  const configuredMp4 = env.WEBINAR_VIDEO_URL ?? session?.videoUrl ?? WEBINAR_BROADCAST_VIDEO_URL;
+  const src = configuredMp4 ?? null;
 
   return {
     provider: env.WEBINAR_VIDEO_PROVIDER,
     src,
     hlsSrc,
-    poster: env.WEBINAR_POSTER_URL ?? session?.posterUrl ?? null,
+    poster: env.WEBINAR_POSTER_URL ?? session?.posterUrl ?? WEBINAR_BROADCAST_POSTER_URL,
     fallbackAllowed: localFallbackAllowed,
     localFallbackAllowed,
     externalMp4Allowed: Boolean(configuredMp4),
@@ -33,7 +33,13 @@ export function getWebinarVideoConfig(session?: {
 
 export function getVideoCspOrigins() {
   const publicOrigin = new URL(env.PUBLIC_SITE_URL).origin;
-  const urls = [env.WEBINAR_VIDEO_URL, env.WEBINAR_VIDEO_HLS_URL, env.WEBINAR_POSTER_URL].filter(Boolean);
+  const urls = [
+    env.WEBINAR_VIDEO_URL,
+    env.WEBINAR_VIDEO_HLS_URL,
+    env.WEBINAR_POSTER_URL,
+    WEBINAR_BROADCAST_VIDEO_URL,
+    WEBINAR_BROADCAST_POSTER_URL,
+  ].filter(Boolean);
   return [
     ...new Set(
       urls.flatMap(value => {

@@ -62,9 +62,12 @@ async function expectDailyRoomState(page: Page) {
     return access;
   }
 
-  await expect(page.locator('#aspb-room-overlay')).toBeVisible();
-  await expect(page.locator('#aspb-room-overlay')).toContainText(/Трансляция начнется|Трансляция скоро начнется/);
-  await expect(page.locator('#aspb-room-overlay')).toContainText('19:00 МСК');
+  await expect(page.locator('#aspb-room-overlay')).toHaveCount(0);
+  await expect(page.locator('#videoPlayerContainer')).toBeVisible();
+  await expect(page.locator('#webinarChatPanel')).toBeVisible();
+  await expect(page.locator('#videoPlayOverlay')).toBeVisible();
+  await expect(page.locator('#videoPlayOverlay')).toContainText('Трансляция начнётся через');
+  await expect(page.locator('#webinarStatusText')).toContainText('Вы зарегистрированы');
   expect(await page.locator('#webinarVideo').getAttribute('src')).toBeNull();
   return access;
 }

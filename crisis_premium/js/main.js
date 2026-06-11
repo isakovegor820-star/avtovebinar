@@ -2,7 +2,7 @@
  * main.js — точка входа. Только инициализация.
  */
 
-import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=account-access-15';
+import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=account-access-17';
 import { hydrateTimeline } from './video.js?v=room-countdown-1';
 import { hydrateSuccessPage } from './success.js?v=account-access-16';
 import { hydrateAccessPage } from './access.js?v=account-access-16';

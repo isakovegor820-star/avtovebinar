@@ -420,14 +420,6 @@ export async function hydrateWebinarRoom(onSuccess) {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       const data = await getRegistrationState('room');
-      const beforeBroadcast = data?.accessStatus === 'waiting' || data?.accessStatus === 'pre_live';
-
-      if (data?.ok && beforeBroadcast) {
-        state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
-        renderWaitingRoom(data);
-        return;
-      }
-
       if (!data.ok || !(data.canViewRoom || data.canEnterRoom)) {
         if (data.accessStatus === 'closed') {
           state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();

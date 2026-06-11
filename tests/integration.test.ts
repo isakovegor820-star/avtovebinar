@@ -51,6 +51,40 @@ async function loginAdmin(role: string, email: string) {
   return { admin, agent, csrfToken };
 }
 
+async function createRegisteredParticipant(email: string, scheduledAt = new Date(Date.now() + 60 * 60 * 1000)) {
+  const webinarSession = await prisma.webinarSession.create({
+    data: {
+      title: 'Passwordless access webinar',
+      scheduledAt,
+      status: scheduledAt <= new Date() ? 'live' : 'scheduled',
+      videoDurationSeconds: 3860,
+    },
+  });
+
+  const lead = await prisma.lead.create({
+    data: {
+      name: 'Passwordless Participant',
+      phone: '+79990000002',
+      email,
+      city: 'Москва',
+      professionalStatus: 'Юрист',
+      consent: true,
+      marketingConsent: true,
+    },
+  });
+
+  const registration = await prisma.registration.create({
+    data: {
+      leadId: lead.id,
+      webinarSessionId: webinarSession.id,
+      accessTokenHash: hashToken(createAccessToken()),
+      status: 'registered',
+    },
+  });
+
+  return { lead, registration, webinarSession };
+}
+
 beforeAll(async () => {
   // Sync prisma schema into 'test' PostgreSQL schema
   execSync('npx prisma db push --skip-generate --accept-data-loss', {
@@ -403,6 +437,131 @@ describe('critical path integration scenarios', () => {
     expect(auditLogs.length).toBe(1);
     expect(auditLogs[0].action).toBe('registration.crm_status.update');
     expect(auditLogs[0].adminUserId).toBe(admin.id);
+  });
+
+  it('restores participant access with a passwordless email magic link', async () => {
+    Object.assign(env, { TELEGRAM_PARTICIPANT_BOT_USERNAME: 'aspb_participant_bot' });
+    const email = `restore-${Date.now()}@aspb.ru`;
+    const { webinarSession } = await createRegisteredParticipant(email);
+
+    const unknownAgent = request.agent(app);
+    const unknownCsrfToken = await getCsrfToken(unknownAgent);
+    const unknownResponse = await unknownAgent
+      .post('/api/participant/login/request')
+      .set('x-csrf-token', unknownCsrfToken)
+      .send({ email: `unknown-${Date.now()}@aspb.ru` });
+
+    expect(unknownResponse.status).toBe(202);
+    expect(unknownResponse.body).toMatchObject({
+      ok: true,
+      message: expect.stringContaining('Если этот email зарегистрирован'),
+    });
+
+    const unknownJobs = await prisma.emailOutboxJob.count({
+      where: { type: 'participant_access_login' },
+    });
+    expect(unknownJobs).toBe(0);
+
+    const requestAgent = request.agent(app);
+    const requestCsrfToken = await getCsrfToken(requestAgent);
+    const requestResponse = await requestAgent
+      .post('/api/participant/login/request')
+      .set('x-csrf-token', requestCsrfToken)
+      .send({ email });
+
+    expect(requestResponse.status).toBe(202);
+    expect(requestResponse.body).toEqual(unknownResponse.body);
+
+    const loginJobs = await prisma.emailOutboxJob.findMany({
+      where: { type: 'participant_access_login' },
+    });
+    expect(loginJobs.length).toBe(1);
+    expect(loginJobs[0].webinarUrl).toContain('/crisis_premium/access.html#token=');
+
+    const magicToken = getExchangeTokenFromUrl(loginJobs[0].webinarUrl);
+    expect(magicToken).toEqual(expect.any(String));
+    if (!magicToken) throw new Error('Expected participant login URL to contain token');
+
+    const restoreAgent = request.agent(app);
+    const consumeCsrfToken = await getCsrfToken(restoreAgent);
+    const consumeResponse = await restoreAgent
+      .post('/api/participant/login/consume')
+      .set('x-csrf-token', consumeCsrfToken)
+      .send({ token: magicToken });
+
+    expect(consumeResponse.status).toBe(200);
+    expect(consumeResponse.body).toMatchObject({
+      ok: true,
+      purpose: 'participant_login',
+      accessUrl: expect.stringContaining('/crisis_premium/access.html'),
+      webinarUrl: expect.stringContaining('/crisis_premium/webinar.html'),
+    });
+    expect(consumeResponse.headers['set-cookie']).toEqual(
+      expect.arrayContaining([expect.stringContaining('aspb_room_token=')]),
+    );
+
+    const repeatConsumeResponse = await restoreAgent
+      .post('/api/participant/login/consume')
+      .set('x-csrf-token', consumeCsrfToken)
+      .send({ token: magicToken });
+    expect(repeatConsumeResponse.status).toBe(404);
+
+    const accessResponse = await restoreAgent.get('/api/participant/access/current');
+    expect(accessResponse.status).toBe(200);
+    expect(accessResponse.body.lead.email).toBe(email);
+    expect(accessResponse.body.webinar.id).toBe(webinarSession.id);
+    expect(accessResponse.body.telegram.subscribed).toBe(false);
+    expect(accessResponse.body.telegram.botUrl).toContain('https://t.me/');
+
+    await prisma.webinarSession.update({
+      where: { id: webinarSession.id },
+      data: {
+        scheduledAt: new Date(Date.now() - 5 * 60 * 1000),
+        status: 'live',
+      },
+    });
+
+    const roomAccessResponse = await restoreAgent.get('/api/registration/session/current?view=room');
+    expect(roomAccessResponse.status).toBe(200);
+    expect(roomAccessResponse.body.lead.email).toBe(email);
+
+    const timelineResponse = await restoreAgent.get('/api/webinar/timeline/session/current');
+    expect(timelineResponse.status).toBe(200);
+    expect(timelineResponse.body.ok).toBe(true);
+
+    const registrations = await prisma.registration.findMany({
+      where: { webinarSessionId: webinarSession.id },
+    });
+    expect(registrations.length).toBe(1);
+  });
+
+  it('rejects expired participant login tokens without creating a room session', async () => {
+    const email = `expired-${Date.now()}@aspb.ru`;
+    const { registration } = await createRegisteredParticipant(email);
+    const expiredToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registration.id,
+        tokenHash: hashToken(expiredToken),
+        purpose: 'participant_login',
+        expiresAt: new Date(Date.now() - 60 * 1000),
+      },
+    });
+
+    const agent = request.agent(app);
+    const csrfToken = await getCsrfToken(agent);
+    const consumeResponse = await agent
+      .post('/api/participant/login/consume')
+      .set('x-csrf-token', csrfToken)
+      .send({ token: expiredToken });
+
+    expect(consumeResponse.status).toBe(404);
+    expect(consumeResponse.headers['set-cookie'] ?? []).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('aspb_room_token=')]),
+    );
+
+    const accessResponse = await agent.get('/api/participant/access/current');
+    expect(accessResponse.status).toBe(401);
   });
 
   it('uses Telegram start tokens once and keeps them isolated from room exchange', async () => {

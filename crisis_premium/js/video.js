@@ -295,8 +295,8 @@ export async function hydrateTimeline() {
     }
   }
   const demoLiveStartedAt = Date.now() + state.serverTimeOffset;
-  window.__ASPB_HIDE_TIMELINE_ACTIONS__ = Boolean(isLiveVisual || isPreLive);
-  if ((isLiveVisual || isPreLive) && active) active.classList.add('hidden');
+  window.__ASPB_HIDE_TIMELINE_ACTIONS__ = Boolean(isPreLive);
+  if (isPreLive && active) active.classList.add('hidden');
   let broadcastStarted = false;
   let manualBehindLive = false;
   let pausedFromLive = false;

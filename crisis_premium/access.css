@@ -1,0 +1,45 @@
+body {
+  background: #f8f9fa;
+  color: #191c1d;
+  font-family: Manrope, system-ui, sans-serif;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+
+.access-mode {
+  display: none;
+}
+
+body[data-access-mode="loading"] #accessLoading,
+body[data-access-mode="login"] #accessLogin,
+body[data-access-mode="ready"] #accessReady {
+  display: block;
+}
+
+.access-panel {
+  background: #fff;
+  border: 1px solid rgba(4, 22, 39, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 12px 34px rgba(4, 22, 39, 0.07);
+}
+
+.access-input {
+  min-height: 48px;
+  border-radius: 8px;
+  border: 1px solid rgba(4, 22, 39, 0.18);
+  background: #fff;
+  color: #041627;
+}
+
+.access-input::placeholder {
+  color: #5e6368;
+}
+
+@media (max-width: 640px) {
+  .access-panel {
+    box-shadow: none;
+  }
+}

@@ -3,9 +3,9 @@
  */
 
 import { state } from './state.js';
-import { formatUtcIcsDate, getJson } from './utils.js?v=account-access-4';
-import { getRegistrationState } from './registration.js?v=account-access-4';
-import { updateTelegramLinks } from './room.js?v=account-access-4';
+import { formatUtcIcsDate, getJson } from './utils.js?v=account-access-8';
+import { getRegistrationState } from './registration.js?v=account-access-8';
+import { updateTelegramLinks } from './room.js?v=account-access-9';
 import { track } from './analytics.js';
 
 function clearLocalAccessHint() {
@@ -32,10 +32,10 @@ function renderSuccessAccessGate() {
         <span class="material-symbols-outlined">lock</span>
       </div>
       <h1>Доступ не найден</h1>
-      <p>Кабинет участника показывается только после успешной регистрации. Если вы уже регистрировались, откройте персональную ссылку из письма или Telegram, чтобы восстановить доступ на этом устройстве.</p>
+      <p>Кабинет участника показывается после регистрации или входа по одноразовой ссылке. Если вы уже регистрировались, восстановите доступ по email без пароля.</p>
       <div class="success-access-actions">
-        <a class="success-access-primary" href="register.html">Зарегистрироваться</a>
-        <a class="success-access-secondary" href="index.html">На главную</a>
+        <a class="success-access-primary" href="access.html">Войти по email</a>
+        <a class="success-access-secondary" href="register.html">Зарегистрироваться</a>
       </div>
     </div>
   `;

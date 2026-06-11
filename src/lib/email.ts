@@ -171,6 +171,24 @@ export async function sendRegistrationEmail(input: BaseEmailInput) {
   return deliverEmail({ ...input, subject, text });
 }
 
+export async function sendParticipantLoginEmail(input: BaseEmailInput) {
+  const subject = 'Ваша ссылка для входа в Мой доступ АСПБ';
+  const scheduled = formatScheduled(input.scheduledAt);
+  const text = [
+    `${input.name}, вы запросили вход в Мой доступ АСПБ.`,
+    '',
+    'Откройте одноразовую ссылку, чтобы восстановить доступ на этом устройстве:',
+    input.webinarUrl,
+    '',
+    `Ближайший вебинар: ${scheduled} МСК`,
+    'Если вы не запрашивали вход, просто проигнорируйте это письмо.',
+    '',
+    'АСПБ — Антикризисная служба помощи бизнесу',
+  ].join('\n');
+
+  return deliverEmail({ ...input, subject, text });
+}
+
 export async function sendReminderEmail(input: BaseEmailInput & { kind: ReminderKind }) {
   const scheduled = new Intl.DateTimeFormat('ru-RU', {
     timeZone: 'Europe/Moscow',

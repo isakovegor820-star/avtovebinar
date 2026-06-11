@@ -22,6 +22,7 @@ import { setContextIdentity } from '../../lib/requestContext.js';
 import {
   buildFrontendUrl,
   getRoomTokenExpiresAt,
+  PARTICIPANT_LOGIN_TOKEN_PURPOSE,
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
   TELEGRAM_START_TOKEN_PURPOSE,
@@ -31,6 +32,7 @@ import { logger } from '../../lib/logger.js';
 export {
   buildFrontendUrl,
   getRoomTokenExpiresAt,
+  PARTICIPANT_LOGIN_TOKEN_PURPOSE,
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
   TELEGRAM_START_TOKEN_PURPOSE,
@@ -77,7 +79,17 @@ export function setRoomTokenCookie(res: Response, token: string, replayExpiresAt
     httpOnly: true,
     sameSite: 'lax',
     secure: env.NODE_ENV === 'production',
+    path: '/',
     maxAge,
+  });
+}
+
+export function clearRoomTokenCookie(res: Response) {
+  res.clearCookie('aspb_room_token', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: env.NODE_ENV === 'production',
+    path: '/',
   });
 }
 

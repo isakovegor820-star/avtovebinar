@@ -43,7 +43,10 @@ export async function post(path, body) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error || 'Ошибка запроса');
+    const error = new Error(payload.error || 'Ошибка запроса');
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
 
   return response.json();

@@ -3,8 +3,8 @@
  */
 
 import { state } from './state.js';
-import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js?v=account-access-4';
-import { getRegistrationState } from './registration.js?v=account-access-4';
+import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js?v=account-access-8';
+import { getRegistrationState, requestParticipantLogin } from './registration.js?v=account-access-8';
 
 let countdownInterval = null;
 let countdownRetries = 0;
@@ -151,19 +151,73 @@ function closeOverlay() {
   if (existing) existing.remove();
 }
 
+function ensureRoomAccessStyles() {
+  const href = 'webinar.css?v=account-access-1';
+  if (document.querySelector(`link[href="${href}"]`)) {
+    return;
+  }
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = href;
+  document.head.appendChild(link);
+}
+
 export function renderLockedRoom(message) {
   const safeMessage = escapeHtml(message);
+  ensureRoomAccessStyles();
   closeOverlay();
   const overlay = document.createElement('div');
   overlay.id = 'aspb-room-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:grid;place-items:center;background:#f8f9fa;color:#041627;font-family:Manrope,Arial,sans-serif;padding:24px';
+  overlay.className = 'room-access-overlay';
   overlay.innerHTML = `
-    <section style="max-width:560px;background:#fff;border:1px solid #d2e4fb;border-radius:24px;padding:36px;text-align:center;box-shadow:0 24px 70px rgba(4,22,39,.08)">
-      <h1 style="font-size:32px;margin:0 0 12px">Вход в комнату по персональной ссылке</h1>
-      <p style="font-size:18px;color:#44474c;line-height:1.55">${safeMessage}</p>
-      <a href="register.html" style="display:inline-flex;margin-top:20px;background:#041627;color:#fff;text-decoration:none;padding:16px 24px;border-radius:14px;font-weight:700">Зарегистрироваться</a>
+    <section class="room-access-panel">
+      <p class="room-access-eyebrow">Мой доступ</p>
+      <h1 class="room-access-title">Войдите по email, чтобы открыть комнату</h1>
+      <p class="room-access-text">${safeMessage}</p>
+      <form id="participantLoginForm" class="room-access-form" novalidate>
+        <label class="room-access-label">
+          Email, указанный при регистрации
+          <input class="room-access-input" name="email" type="email" autocomplete="email" required placeholder="name@example.com">
+        </label>
+        <button class="room-access-submit" type="submit">Получить ссылку для входа</button>
+        <p id="participantLoginStatus" class="room-access-status" aria-live="polite"></p>
+      </form>
+      <div class="room-access-actions">
+        <a class="room-access-secondary" href="register.html">Зарегистрироваться</a>
+        <a class="room-access-link" href="access.html">Открыть “Мой доступ”</a>
+      </div>
     </section>`;
   document.body.appendChild(overlay);
+
+  const form = overlay.querySelector('#participantLoginForm');
+  const status = overlay.querySelector('#participantLoginStatus');
+  const button = form?.querySelector('button[type="submit"]');
+  form?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const email = String(new FormData(form).get('email') || '').trim();
+    if (!email) {
+      if (status) status.textContent = 'Введите email, который использовали при регистрации.';
+      return;
+    }
+    const originalText = button?.textContent || '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Отправляем...';
+    }
+    try {
+      await requestParticipantLogin(email);
+      if (status) {
+        status.textContent = 'Если этот email зарегистрирован, мы отправили одноразовую ссылку для входа.';
+      }
+    } catch {
+      if (status) status.textContent = 'Не удалось отправить ссылку. Проверьте email и попробуйте позже.';
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    }
+  });
 }
 
 function isAccessError(error) {
@@ -253,7 +307,7 @@ export function updateRoomStatus(webinar) {
     if (onlineLabel) onlineLabel.textContent = 'синхронно';
     if (countdownContainer) countdownContainer.classList.add('hidden');
   } else if (webinar.accessStatus === 'replay' || webinar.status === 'finished') {
-    node.textContent = 'Вебинар завершен. Постоянная запись доступна в разделе “Записи”; здесь можно задать вопрос в чате и оставить заявку ниже.';
+    node.textContent = 'Запись доступна. Это не прямой эфир: можно смотреть вебинар, задать вопрос в форме справа и оставить заявку после просмотра.';
     if (chatTitle) chatTitle.textContent = 'Чат после вебинара';
     if (chatActivity) chatActivity.textContent = 'Запись открыта, чат доступен для вопросов';
     if (onlineLabel) onlineLabel.textContent = 'чат открыт';
@@ -271,6 +325,38 @@ export function updateRoomStatus(webinar) {
     if (chatActivity) chatActivity.textContent = 'Чат откроется в момент старта эфира';
     if (onlineLabel) onlineLabel.textContent = 'ожидание';
     if (countdownContainer) countdownContainer.classList.remove('hidden');
+  }
+}
+
+function applyRoomAccessChrome(data) {
+  const accessStatus = data?.accessStatus || data?.webinar?.accessStatus || '';
+  const beforeLive = accessStatus === 'waiting' || accessStatus === 'pre_live';
+  const isReplay = accessStatus === 'replay';
+  const partnerPath = document.getElementById('partnerPath');
+  const primaryAction = document.querySelector('[data-room-primary-action]');
+  const timelinePanel = document.getElementById('timelineActive');
+
+  document.body.dataset.webinarAccessStatus = accessStatus || 'unknown';
+
+  if (partnerPath) {
+    partnerPath.classList.toggle('hidden', beforeLive);
+  }
+
+  if (timelinePanel && beforeLive) {
+    timelinePanel.classList.add('hidden');
+  }
+
+  if (primaryAction) {
+    if (beforeLive) {
+      primaryAction.setAttribute('href', 'access.html');
+      primaryAction.textContent = 'Мой доступ';
+    } else if (isReplay) {
+      primaryAction.setAttribute('href', '#partnerApplication');
+      primaryAction.textContent = 'Задать вопрос';
+    } else {
+      primaryAction.setAttribute('href', '#partnerApplication');
+      primaryAction.textContent = 'Оставить заявку';
+    }
   }
 }
 
@@ -315,6 +401,7 @@ export async function hydrateWebinarRoom(onSuccess) {
       updateTelegramLinks(data);
       startCountdown(data.webinar.scheduledAt);
       updateRoomStatus({ ...data.webinar, accessStatus: data.accessStatus, replayExpiresAt: data.replayExpiresAt, testMode: data.testMode });
+      applyRoomAccessChrome(data);
       window.__ASPB_ROOM_READY__ = true;
       document.dispatchEvent(new CustomEvent('aspb:room-ready', {
         detail: {
@@ -329,7 +416,7 @@ export async function hydrateWebinarRoom(onSuccess) {
     } catch (err) {
       if (isAccessError(err)) {
         renderLockedRoom(
-          'Комната открывается только после регистрации или по персональной ссылке из письма/Telegram. Если вы уже регистрировались, откройте ссылку из сообщения заново.',
+          'Комната открывается для зарегистрированных участников. Если вы уже регистрировались, введите email — мы отправим одноразовую ссылку для входа без пароля.',
         );
         return;
       }

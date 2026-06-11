@@ -3,7 +3,7 @@
  */
 
 import { clearAccessToken, getUrlToken } from './state.js';
-import { post, getJson, utm } from './utils.js?v=account-access-4';
+import { post, getJson, utm } from './utils.js?v=account-access-8';
 import { track } from './analytics.js';
 
 export function registrationStatePath(view) {
@@ -21,6 +21,22 @@ export function chatPath() {
 
 export function getRegistrationState(view) {
   return getJson(registrationStatePath(view));
+}
+
+export function getParticipantAccess() {
+  return getJson('/participant/access/current');
+}
+
+export function requestParticipantLogin(email) {
+  return post('/participant/login/request', { email });
+}
+
+export function consumeParticipantLoginToken(token) {
+  return post('/participant/login/consume', { token });
+}
+
+export function logoutParticipant() {
+  return post('/participant/logout', {});
 }
 
 export async function redirectRegisteredUserFromRegisterPage() {
@@ -52,9 +68,33 @@ export async function exchangeUrlTokenIfPresent() {
   const urlToken = getUrlToken();
   if (!urlToken) return false;
 
-  await post('/registration/exchange', { token: urlToken });
-  clearAccessToken();
+  try {
+    await post('/registration/exchange', { token: urlToken });
+  } catch (error) {
+    if (Number(error?.status) !== 404) {
+      throw error;
+    }
+    try {
+      await consumeParticipantLoginToken(urlToken);
+    } catch (participantError) {
+      try {
+        window.sessionStorage.setItem('aspbAccessTokenError', participantError.message || 'token_failed');
+      } catch {
+        // Session storage is optional.
+      }
+      clearAccessToken();
+      removeTokenFromUrl();
+      return false;
+    }
+  }
 
+  clearAccessToken();
+  removeTokenFromUrl();
+  document.dispatchEvent(new CustomEvent('aspb:room-token-exchanged'));
+  return true;
+}
+
+function removeTokenFromUrl() {
   const cleanUrl = new URL(window.location.href);
   cleanUrl.searchParams.delete('token');
   const hash = cleanUrl.hash.replace(/^#/, '');
@@ -68,8 +108,6 @@ export async function exchangeUrlTokenIfPresent() {
     document.title,
     `${cleanUrl.pathname}${cleanUrl.search}${nextHash ? `#${nextHash}` : ''}`,
   );
-  document.dispatchEvent(new CustomEvent('aspb:room-token-exchanged'));
-  return true;
 }
 
 export async function handleRegistrationSubmit(event, formOverride) {

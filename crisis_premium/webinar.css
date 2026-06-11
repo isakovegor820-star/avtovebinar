@@ -57,6 +57,131 @@
   background: rgba(4, 22, 39, 0.38);
 }
 
+.room-access-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 24px;
+  background: #f8f9fa;
+  color: #041627;
+  font-family: Manrope, Arial, sans-serif;
+}
+
+.room-access-panel {
+  width: min(100%, 640px);
+  padding: 32px;
+  border: 1px solid rgba(4, 22, 39, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 34px rgba(4, 22, 39, 0.08);
+  text-align: left;
+}
+
+.room-access-eyebrow {
+  margin: 0 0 8px;
+  color: #5e6368;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.room-access-title {
+  margin: 0 0 12px;
+  color: #041627;
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+.room-access-text {
+  margin: 0 0 22px;
+  color: #44474c;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.room-access-form {
+  display: grid;
+  gap: 12px;
+}
+
+.room-access-label {
+  display: grid;
+  gap: 7px;
+  color: #041627;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.room-access-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(4, 22, 39, 0.18);
+  border-radius: 8px;
+  background: #fff;
+  color: #041627;
+  font: inherit;
+  font-weight: 500;
+}
+
+.room-access-input::placeholder {
+  color: #5e6368;
+}
+
+.room-access-submit {
+  min-height: 48px;
+  border: 0;
+  border-radius: 8px;
+  background: #041627;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+.room-access-submit:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.room-access-status {
+  min-height: 20px;
+  margin: 0;
+  color: #5e6368;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.room-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(4, 22, 39, 0.1);
+}
+
+.room-access-secondary,
+.room-access-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  color: #041627;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.room-access-secondary {
+  padding: 0 16px;
+  border: 1px solid rgba(4, 22, 39, 0.16);
+  border-radius: 8px;
+  background: #fff;
+}
+
 #customSeekBarContainer {
   background: transparent !important;
   box-shadow: none !important;

@@ -1,11 +1,12 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
-import { sendRegistrationEmail, sendReminderEmail, type ReminderKind } from './email.js';
+import { sendParticipantLoginEmail, sendRegistrationEmail, sendReminderEmail, type ReminderKind } from './email.js';
 import { logger } from './logger.js';
 
 export const EMAIL_JOB_REGISTRATION = 'registration_confirmation';
 export const EMAIL_JOB_REMINDER = 'webinar_reminder';
 export const EMAIL_JOB_REPLAY = 'webinar_replay';
+export const EMAIL_JOB_PARTICIPANT_LOGIN = 'participant_access_login';
 
 const EMAIL_OUTBOX_BATCH_SIZE = 25;
 const EMAIL_OUTBOX_MAX_ATTEMPTS = 10;
@@ -26,6 +27,7 @@ type EnqueueBase = {
 export type EmailOutboxSenders = {
   sendRegistrationEmail?: typeof sendRegistrationEmail;
   sendReminderEmail?: typeof sendReminderEmail;
+  sendParticipantLoginEmail?: typeof sendParticipantLoginEmail;
 };
 
 function normalizeError(error: unknown) {
@@ -50,6 +52,31 @@ export async function enqueueRegistrationEmail(tx: EmailOutboxTx, input: Enqueue
   return tx.emailOutboxJob.create({
     data: {
       type: EMAIL_JOB_REGISTRATION,
+      status: 'pending',
+      registrationId: input.registrationId,
+      webinarSessionId: input.webinarSessionId,
+      toEmail: input.toEmail,
+      toName: input.toName,
+      scheduledAt: input.scheduledAt,
+      webinarUrl: input.webinarUrl,
+      partnerUrl: input.partnerUrl,
+      nextAttemptAt: new Date(),
+    },
+  });
+}
+
+export async function enqueueParticipantLoginEmail(tx: EmailOutboxTx, input: EnqueueBase) {
+  await tx.emailOutboxJob.deleteMany({
+    where: {
+      registrationId: input.registrationId,
+      type: EMAIL_JOB_PARTICIPANT_LOGIN,
+      status: { in: ['pending', 'failed'] },
+    },
+  });
+
+  return tx.emailOutboxJob.create({
+    data: {
+      type: EMAIL_JOB_PARTICIPANT_LOGIN,
       status: 'pending',
       registrationId: input.registrationId,
       webinarSessionId: input.webinarSessionId,
@@ -97,6 +124,17 @@ async function sendEmailJob(
   job: Awaited<ReturnType<typeof prisma.emailOutboxJob.findMany>>[number],
   senders: EmailOutboxSenders,
 ) {
+  if (job.type === EMAIL_JOB_PARTICIPANT_LOGIN) {
+    await (senders.sendParticipantLoginEmail ?? sendParticipantLoginEmail)({
+      to: job.toEmail,
+      name: job.toName,
+      scheduledAt: job.scheduledAt,
+      webinarUrl: job.webinarUrl,
+      partnerUrl: job.partnerUrl ?? undefined,
+    });
+    return;
+  }
+
   if (job.type === EMAIL_JOB_REMINDER) {
     if (!job.reminderKind) {
       throw new Error('Reminder email job is missing reminderKind');

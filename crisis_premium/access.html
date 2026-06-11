@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html class="light" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>Мой доступ | АСПБ</title>
+<link rel="stylesheet" href="css/styles.css"/>
+<link rel="stylesheet" href="access.css?v=account-access-1"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="flow-tabs.css?v=nav-tabs-4" rel="stylesheet"/>
+</head>
+<body class="min-h-screen" data-access-mode="loading">
+<header class="bg-background/90 backdrop-blur-md shadow-sm sticky top-0 z-50">
+<div class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
+<a class="flex flex-col leading-tight shrink-0" href="index.html">
+<span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
+<span class="hidden sm:block text-[11px] leading-4 font-semibold text-on-surface-variant">Антикризисная служба помощи бизнесу</span>
+</a>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors" href="webinar.html">Комната</a>
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors" href="recordings.html">Записи</a>
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors" href="register.html">Регистрация</a>
+</nav>
+</div>
+</header>
+<div data-current="success" data-flow-tabs></div>
+<main class="max-w-container-max-width mx-auto w-full px-gutter py-8 md:py-12">
+<section id="accessLoading" class="access-mode access-panel max-w-2xl mx-auto p-8 md:p-10 text-center" aria-live="polite">
+<div class="w-14 h-14 mx-auto rounded-full bg-primary text-on-primary grid place-items-center mb-5">
+<span class="material-symbols-outlined text-3xl">hourglass_top</span>
+</div>
+<h1 class="text-headline-md font-headline-md text-primary">Проверяем доступ</h1>
+<p class="text-body-md text-on-surface-variant mt-2">Если session cookie уже есть на этом устройстве, данные участника появятся автоматически.</p>
+</section>
+
+<section id="accessLogin" class="access-mode access-panel max-w-2xl mx-auto p-8 md:p-10" aria-live="polite">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-2">Мой доступ</p>
+<h1 class="text-headline-lg font-headline-lg text-primary">Войти по email без пароля</h1>
+<p class="text-body-md text-on-surface-variant leading-relaxed mt-3 max-w-xl">Введите email, который использовали при регистрации. Если регистрация найдена, мы отправим одноразовую ссылку для входа в комнату и кабинет доступа.</p>
+<form id="accessLoginForm" class="mt-7 grid gap-4" novalidate>
+<label class="grid gap-2 text-label-md font-label-md text-primary">
+Email
+<input class="access-input px-4 text-body-md" name="email" type="email" autocomplete="email" required placeholder="name@example.com"/>
+</label>
+<button class="bg-primary text-on-primary min-h-12 rounded-lg font-label-md text-label-md hover:bg-primary/95 active:scale-[0.99] transition-all" type="submit">Получить ссылку для входа</button>
+<p id="accessLoginStatus" class="min-h-5 text-label-sm text-on-surface-variant" aria-live="polite"></p>
+</form>
+<div class="mt-7 pt-6 border-t border-outline-variant/30 flex flex-wrap gap-3">
+<a class="inline-flex items-center justify-center min-h-11 px-4 rounded-lg border border-outline/30 bg-white text-primary font-label-md" href="register.html">Зарегистрироваться</a>
+<a class="inline-flex items-center justify-center min-h-11 px-4 rounded-lg text-primary font-label-md" href="webinar.html">Вернуться в комнату</a>
+</div>
+</section>
+
+<section id="accessReady" class="access-mode">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<aside class="lg:col-span-4 access-panel p-6 md:p-7 h-fit">
+<div class="w-14 h-14 rounded-full bg-primary text-on-primary grid place-items-center mb-5">
+<span class="material-symbols-outlined text-3xl">person</span>
+</div>
+<p class="text-label-sm font-label-sm text-on-surface-variant">Участник</p>
+<h1 id="accessName" class="text-headline-md font-headline-md text-primary mt-1">Участник</h1>
+<p id="accessEmail" class="text-body-md text-on-surface-variant mt-1 break-all"></p>
+<button id="accessLogoutButton" class="mt-6 inline-flex items-center gap-2 text-label-md font-label-md text-on-surface-variant hover:text-primary" type="button">
+<span class="material-symbols-outlined text-[18px]">logout</span>
+Выйти на этом устройстве
+</button>
+</aside>
+
+<div class="lg:col-span-8 space-y-6">
+<section class="access-panel p-6 md:p-7">
+<div class="flex flex-col md:flex-row md:items-start md:justify-between gap-5">
+<div>
+<p id="accessStatusLabel" class="text-label-sm font-label-sm text-on-surface-variant mb-2">Статус</p>
+<h2 id="accessWebinarTitle" class="text-headline-md font-headline-md text-primary">Вебинар АСПБ</h2>
+<p id="accessStatusText" class="text-body-md text-on-surface-variant leading-relaxed mt-3 max-w-2xl"></p>
+</div>
+<a id="accessRoomLink" class="inline-flex shrink-0 items-center justify-center gap-2 bg-primary text-on-primary min-h-12 px-5 rounded-lg font-label-md text-label-md hover:bg-primary/95 active:scale-[0.99] transition-all" href="webinar.html">
+<span class="material-symbols-outlined text-[20px]">meeting_room</span>
+Открыть комнату
+</a>
+</div>
+<div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+<div class="bg-surface-container-low rounded-lg p-4">
+<p class="text-label-sm text-on-surface-variant">Начало</p>
+<p id="accessWebinarDate" class="text-body-md font-bold text-primary mt-1">Дата уточняется</p>
+</div>
+<div class="bg-surface-container-low rounded-lg p-4">
+<p class="text-label-sm text-on-surface-variant">Доступ</p>
+<p class="text-body-md font-bold text-primary mt-1">Session cookie на этом устройстве</p>
+</div>
+</div>
+</section>
+
+<section class="access-panel p-6 md:p-7">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+<div>
+<h2 class="text-headline-sm font-headline-sm text-primary">Telegram-уведомления</h2>
+<p id="accessTelegramStatus" class="text-body-md text-on-surface-variant mt-1">Проверяем статус</p>
+</div>
+<a data-telegram-link="bot" class="inline-flex items-center justify-center gap-2 bg-[#0088cc] text-white min-h-11 px-4 rounded-lg font-label-md opacity-70 pointer-events-none" target="_blank" rel="noreferrer" aria-disabled="true">
+<span class="material-symbols-outlined text-[18px]">send</span>
+Подключить
+</a>
+</div>
+</section>
+
+<section id="accessRecordings" class="access-panel p-6 md:p-7 hidden">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+<div>
+<h2 class="text-headline-sm font-headline-sm text-primary">Записи и материалы</h2>
+<p id="accessRecordingsText" class="text-body-md text-on-surface-variant mt-1">Записи доступны.</p>
+</div>
+<a id="accessRecordingsLink" class="inline-flex items-center justify-center gap-2 border border-outline/30 bg-white text-primary min-h-11 px-4 rounded-lg font-label-md" href="recordings.html">
+<span class="material-symbols-outlined text-[18px]">video_library</span>
+Открыть записи
+</a>
+</div>
+</section>
+
+<section class="access-panel p-6 md:p-7">
+<h2 class="text-headline-sm font-headline-sm text-primary">Обновить доступ</h2>
+<p class="text-body-md text-on-surface-variant mt-1">Если будете входить с нового устройства, откройте эту страницу и запросите одноразовую ссылку по email.</p>
+<a id="accessRecoverLink" class="inline-flex mt-4 items-center justify-center min-h-11 px-4 rounded-lg border border-outline/30 bg-white text-primary font-label-md" href="access.html">Открыть страницу входа</a>
+</section>
+</div>
+</div>
+</section>
+</main>
+<script type="module" src="js/main.js?v=account-access-9"></script>
+<script src="flow-tabs.js?v=nav-tabs-4"></script>
+</body>
+</html>

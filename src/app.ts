@@ -152,6 +152,24 @@ const registrationEmailLimiter = rateLimit({
   message: { ok: false, error: 'Слишком много попыток с этим email. Попробуйте позже.' },
 });
 
+const participantLoginEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (email.includes('@')) {
+      return `participant-email:${email}`;
+    }
+    return `participant-ip:${ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? '0.0.0.0')}`;
+  },
+  message: {
+    ok: true,
+    message: 'Если этот email зарегистрирован, мы отправим одноразовую ссылку для входа.',
+  },
+});
+
 const tokenReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 90,
@@ -185,6 +203,11 @@ const adminBroadcastLimiter = rateLimit({
 app.use('/api/register', registrationLimiter);
 app.use('/api/register', registrationEmailLimiter);
 app.use('/api/register', formLimiter);
+app.use('/api/participant/login/request', participantLoginEmailLimiter);
+app.use('/api/participant/login/request', formLimiter);
+app.use('/api/participant/login/consume', tokenReadLimiter);
+app.use('/api/participant/access', tokenReadLimiter);
+app.use('/api/participant/logout', formLimiter);
 app.use('/api/questions', formLimiter);
 app.use('/api/partner-application', formLimiter);
 app.use('/api/events', eventLimiter);

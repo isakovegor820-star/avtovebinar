@@ -2,9 +2,10 @@
  * main.js — точка входа. Только инициализация.
  */
 
-import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=account-access-4';
+import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=account-access-9';
 import { hydrateTimeline } from './video.js?v=room-countdown-1';
-import { hydrateSuccessPage } from './success.js?v=account-access-5';
+import { hydrateSuccessPage } from './success.js?v=account-access-9';
+import { hydrateAccessPage } from './access.js?v=account-access-9';
 import { hydrateRecordingsPage } from './recordings.js?v=account-access-4';
 import {
   bindRegistrationForm,
@@ -12,7 +13,7 @@ import {
   bindTelegramTracking,
   exchangeUrlTokenIfPresent,
   redirectRegisteredUserFromRegisterPage
-} from './registration.js?v=account-access-4';
+} from './registration.js?v=account-access-8';
 import { bindQuestionForm } from './questions.js?v=webinar-chat-2';
 import { bindPartnerApplicationForm } from './partner.js';
 import { track } from './analytics.js';
@@ -28,6 +29,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const redirectedToAccess = await redirectRegisteredUserFromRegisterPage().catch(() => false);
   if (redirectedToAccess) return;
   hydrateSuccessPage();
+  hydrateAccessPage();
   hydrateRecordingsPage();
 
   // hydrateWebinarRoom may render locked/waiting overlay and return early;

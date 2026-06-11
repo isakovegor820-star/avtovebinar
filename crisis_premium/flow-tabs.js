@@ -75,13 +75,12 @@
     const nav = el("nav", { className: "flow-tabs__list" });
     nav.setAttribute("aria-label", "Навигация вебинара");
 
-    stages.forEach((stage, index) => {
+    stages.forEach((stage) => {
       const tab = el("a", {
         className: "flow-tabs__tab",
         href: stage.href,
         ariaCurrent: stage.id === activeTab ? "page" : ""
       });
-      tab.style.setProperty("--flow-tab-index", String(index));
       const icon = el("span", { className: "flow-tabs__icon material-symbols-outlined", text: stage.icon });
       icon.setAttribute("aria-hidden", "true");
       tab.appendChild(icon);

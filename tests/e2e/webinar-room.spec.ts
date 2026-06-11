@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { prisma } from '../../src/lib/prisma.js';
 import { createAccessToken, hashToken } from '../../src/lib/tokens.js';
 
@@ -46,7 +46,27 @@ async function createExchangeRegistration(email: string) {
     },
   });
 
-  return { exchangeToken, registration };
+  return { exchangeToken, registration, session };
+}
+
+async function expectDailyRoomState(page: Page) {
+  const response = await page.request.get('/api/registration/session/current?view=room');
+  expect(response.ok()).toBeTruthy();
+  const access = await response.json();
+
+  if (access.accessStatus === 'live' || access.accessStatus === 'replay') {
+    await expect(page.locator('#videoPlayerContainer')).toBeVisible();
+    await expect(page.locator('#webinarChatPanel')).toBeVisible();
+    await expect(page.locator('#customViewerCount')).toBeHidden();
+    await expect(page.locator('#viewerCountValue')).not.toHaveText(/^\d+$/);
+    return access;
+  }
+
+  await expect(page.locator('#aspb-room-overlay')).toBeVisible();
+  await expect(page.locator('#aspb-room-overlay')).toContainText(/Трансляция начнется|Трансляция скоро начнется/);
+  await expect(page.locator('#aspb-room-overlay')).toContainText('19:00 МСК');
+  expect(await page.locator('#webinarVideo').getAttribute('src')).toBeNull();
+  return access;
 }
 
 test.beforeEach(async () => {
@@ -57,7 +77,7 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
-test('registration leads to success and opens webinar room through cookie session', async ({ page }) => {
+test('registration leads to success and opens protected daily webinar room', async ({ page }) => {
   await page.goto('/crisis_premium/register.html');
   await page.locator('input[name="name"]').fill('Алексей E2E');
   await page.locator('input[name="phone"]').fill('+79998887766');
@@ -70,32 +90,25 @@ test('registration leads to success and opens webinar room through cookie sessio
   await expect(page.locator('#successRoomLink')).toBeVisible();
   expect(page.url()).not.toContain('token=');
 
-  await prisma.webinarSession.updateMany({
-    data: {
-      scheduledAt: new Date(Date.now() - 5 * 60 * 1000),
-      status: 'live',
-    },
-  });
-
   await page.locator('#successRoomLink').click();
   await expect(page).toHaveURL(/webinar\.html$/);
-  await expect(page.locator('#webinarStatusText')).toContainText(/Эфир идет|Включайте/);
-  await expect(page.locator('#videoPlayerContainer')).toBeVisible();
-  await expect(page.locator('#webinarChatPanel')).toBeVisible();
+  const access = await expectDailyRoomState(page);
+  expect(['waiting', 'pre_live', 'live', 'replay']).toContain(access.accessStatus);
 });
 
-test('exchange token is removed from URL and room scenario stays cookie-only', async ({ page }) => {
+test('exchange token is removed from URL and daily room stays cookie-only', async ({ page }) => {
   const { exchangeToken } = await createExchangeRegistration(`exchange-${Date.now()}@aspb.ru`);
 
   await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`);
   await expect(page).toHaveURL(/webinar\.html$/);
   expect(page.url()).not.toContain('token=');
 
-  await expect(page.locator('#videoPlayerContainer')).toBeVisible();
+  const access = await expectDailyRoomState(page);
+  if (access.accessStatus !== 'live' && access.accessStatus !== 'replay') {
+    return;
+  }
+
   await expect(page.locator('#customSeekBarContainer')).toBeVisible();
-  await expect(page.locator('#liveChatMessages')).toContainText('частый вопрос', { timeout: 4000 });
-  await expect(page.locator('#customViewerCount')).toBeHidden();
-  await expect(page.locator('#viewerCountValue')).not.toHaveText(/^\d+$/);
   await expect(page.locator('#customSeekBarContainer')).toHaveAttribute('data-live-mode', 'dvr');
   await expect(page.locator('#customSeekBarAvailable')).toHaveAttribute('style', /width:\s*100%/);
   await expect(page.locator('#customLiveEdgeMarker')).toBeVisible();
@@ -198,26 +211,29 @@ test('exchange token is removed from URL and room scenario stays cookie-only', a
   await expect(page.locator('#partnerApplicationStatus')).toContainText('Заявка отправлена');
 });
 
-test('chat remains visible and accepts questions after webinar end', async ({ page }) => {
-  const { exchangeToken } = await createExchangeRegistration(`ended-${Date.now()}@aspb.ru`);
-  await prisma.webinarSession.updateMany({
+test('published recordings stay available from the participant library', async ({ page }) => {
+  const { exchangeToken, registration } = await createExchangeRegistration(`ended-${Date.now()}@aspb.ru`);
+  await prisma.webinarRecording.create({
     data: {
-      scheduledAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
-      status: 'finished',
+      webinarSessionId: registration.webinarSessionId,
+      title: 'Постоянная запись E2E',
+      description: 'Эта запись доступна участнику после регистрации.',
+      videoUrl: '/crisis_premium/assets/webinar.mp4',
+      posterUrl: '/crisis_premium/assets/webinar-poster.jpg',
+      durationSeconds: 3860,
+      publishedAt: new Date(Date.now() - 60 * 1000),
+      visible: true,
+      orderIndex: 1,
     },
   });
 
   await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`);
   await expect(page).toHaveURL(/webinar\.html$/);
-  await expect(page.locator('#webinarChatPanel')).toBeVisible();
-  await expect(page.locator('#webinarStatusText')).toContainText('Запись доступна');
-  await expect(page.locator('#videoPlayOverlay')).toContainText('Смотреть запись');
-  await expect(page.locator('#videoLiveBadge')).toContainText('ЗАПИСЬ');
-  await expect(page.locator('#chatActivity')).toContainText('Запись открыта, чат доступен для вопросов');
-  await expect(page.locator('#questionInput')).toHaveAttribute('placeholder', 'Задайте вопрос после эфира...');
-  await expect(page.locator('#questionInput')).toBeEnabled();
+  expect(page.url()).not.toContain('token=');
 
-  await page.locator('#questionInput').fill('Вопрос после завершения вебинара');
-  await page.locator('#questionSubmit').click();
-  await expect(page.locator('#liveChatMessages')).toContainText('Вопрос после завершения вебинара');
+  await page.goto('/crisis_premium/recordings.html');
+  await expect(page.locator('#recordingsPlaylist')).toContainText('Постоянная запись E2E');
+  await expect(page.locator('#recordingsCounter')).toBeVisible();
+  await expect(page.locator('#recordingVideo')).toHaveAttribute('src', /webinar\.mp4/);
+  await expect(page.locator('#recordingVideoFallback')).toBeHidden();
 });

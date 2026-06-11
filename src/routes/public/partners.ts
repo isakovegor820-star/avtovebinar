@@ -6,7 +6,7 @@ import { notifyPartnerApplication, notifyQuestion } from '../../lib/telegram.js'
 import { getWebinarLiveState } from '../../lib/webinarLive.js';
 import { maybeScheduleAiManagerReply } from '../../lib/aiManager.js';
 import {
-  buildAccessPayload,
+  buildDailyRoomAccessPayload,
   buildFrontendUrl,
   clean,
   findRegistrationForRequest,
@@ -39,7 +39,7 @@ partnersRouter.post(
     if (!registration) {
       throw new AppError(401, 'Invalid webinar token');
     }
-    const access = buildAccessPayload(registration, new Date());
+    const access = await buildDailyRoomAccessPayload(registration, new Date());
     if (!access.canEnterRoom) {
       throw roomAccessError(access.accessStatus);
     }
@@ -48,7 +48,7 @@ partnersRouter.post(
       data: {
         leadId: registration.leadId,
         registrationId: registration.id,
-        webinarSessionId: registration.webinarSessionId,
+        webinarSessionId: access.webinarSession.id,
         sphere: clean(data.sphere),
         city: clean(data.city) ?? registration.lead.city,
         clientFlow: clean(data.clientFlow),
@@ -99,7 +99,7 @@ partnersRouter.post(
       throw new AppError(401, 'Invalid webinar token');
     }
     const now = new Date();
-    const access = buildAccessPayload(registration, now);
+    const access = await buildDailyRoomAccessPayload(registration, now);
     if (!access.canEnterRoom) {
       throw roomAccessError(access.accessStatus);
     }
@@ -113,14 +113,14 @@ partnersRouter.post(
         data: {
           leadId: registration.leadId,
           registrationId: registration.id,
-          webinarSessionId: registration.webinarSessionId,
+          webinarSessionId: access.webinarSession.id,
           text: data.text,
         },
       });
 
       const chatMessage = await tx.webinarChatMessage.create({
         data: {
-          webinarSessionId: registration.webinarSessionId,
+          webinarSessionId: access.webinarSession.id,
           registrationId: registration.id,
           questionId: question.id,
           kind: 'user',
@@ -155,7 +155,7 @@ partnersRouter.post(
     notifySafely(
       maybeScheduleAiManagerReply({
         questionId: question.id,
-        webinarSessionId: registration.webinarSessionId,
+        webinarSessionId: access.webinarSession.id,
         registrationId: registration.id,
         text: data.text,
         liveOffsetSeconds: liveState.liveOffsetSeconds,

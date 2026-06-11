@@ -9,6 +9,7 @@ import { hashIp, hashToken } from '../../lib/tokens.js';
 import { getClientIp } from '../../lib/http.js';
 import {
   getCountdown,
+  getDailyBroadcastDate,
   getNextWebinarDate,
   getReplayExpiresAt,
   getWebinarAccess,
@@ -30,6 +31,7 @@ import {
   TELEGRAM_START_TOKEN_PURPOSE,
 } from '../../lib/roomLinks.js';
 import { logger } from '../../lib/logger.js';
+import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 
 export {
   buildFrontendUrl,
@@ -162,8 +164,11 @@ export async function findRegistrationForRequest(req: Request) {
 export function buildAccessPayload(
   registration: NonNullable<Awaited<ReturnType<typeof findRegistrationByToken>>>,
   now: Date,
+  options: {
+    webinarSession?: NonNullable<Awaited<ReturnType<typeof findRegistrationByToken>>>['webinarSession'];
+  } = {},
 ) {
-  const webinarSession = registration.webinarSession;
+  const webinarSession = options.webinarSession ?? registration.webinarSession;
   const access = getWebinarAccess(
     now,
     webinarSession.scheduledAt,
@@ -198,6 +203,15 @@ export function buildAccessPayload(
     webinarSession,
     testMode: false,
   };
+}
+
+export async function buildDailyRoomAccessPayload(
+  registration: NonNullable<Awaited<ReturnType<typeof findRegistrationByToken>>>,
+  now: Date,
+) {
+  const scheduledAt = getDailyBroadcastDate(now);
+  const webinarSession = await findOrCreateWebinarSession(scheduledAt, now);
+  return buildAccessPayload(registration, now, { webinarSession });
 }
 
 export function notifySafely(task: Promise<unknown>) {

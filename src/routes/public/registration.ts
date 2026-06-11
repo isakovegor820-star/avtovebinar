@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { createAccessToken, hashToken } from '../../lib/tokens.js';
-import { getNextWebinarDate, getWebinarAccess, getWebinarRoomState } from '../../lib/time.js';
+import { getDailyBroadcastDate, getWebinarAccess, getWebinarRoomState } from '../../lib/time.js';
 import { getEffectiveVideoDurationMinutes, getWebinarLiveState } from '../../lib/webinarLive.js';
 import { enqueueParticipantLoginEmail, enqueueRegistrationEmail } from '../../lib/emailOutbox.js';
 import { buildTelegramStartUrl, notifyRegistration } from '../../lib/telegram.js';
@@ -12,6 +12,7 @@ import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import { buildTokenizedFrontendUrl, createTelegramStartToken } from '../../lib/roomLinks.js';
 import {
   buildAccessPayload,
+  buildDailyRoomAccessPayload,
   buildFrontendUrl,
   clearRoomTokenCookie,
   clean,
@@ -160,7 +161,7 @@ registrationRouter.post(
     }
 
     const firstSeenAt = getFirstSeen(req, res);
-    const scheduledAt = getNextWebinarDate(firstSeenAt);
+    const scheduledAt = getDailyBroadcastDate(firstSeenAt);
     const session = await findOrCreateWebinarSession(scheduledAt);
     const professionalStatus = clean(data.professionalStatus) ?? clean(data.status);
 
@@ -503,7 +504,8 @@ async function sendRegistrationState(req: Request, res: Response) {
   }
 
   const now = new Date();
-  const access = buildAccessPayload(registration, now);
+  const access =
+    view === 'room' ? await buildDailyRoomAccessPayload(registration, now) : buildAccessPayload(registration, now);
   const liveState = getWebinarLiveState(now, access.webinarSession, { testMode: access.testMode });
   const requestToken = clean(req.cookies?.aspb_room_token);
   if (requestToken) {

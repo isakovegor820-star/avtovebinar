@@ -3,7 +3,7 @@ process.env.EMAIL_MODE = 'log';
 process.env.TELEGRAM_NOTIFY_MODE = 'log';
 process.env.NODE_ENV = 'test';
 
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { execSync } from 'node:child_process';
 import { app } from '../src/app.js';
@@ -15,6 +15,7 @@ import { runEmailOutboxJobOnce } from '../src/lib/emailOutbox.js';
 import { runReplayFollowupJobOnce } from '../src/lib/reminders.js';
 import { handleParticipantTelegramUpdate } from '../src/lib/telegramParticipantBot.js';
 import { runTelegramNewsJobOnce } from '../src/lib/telegramNews.js';
+import { getDailyBroadcastDate } from '../src/lib/time.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -28,6 +29,11 @@ async function getCsrfToken(agent: TestAgent) {
 function getExchangeTokenFromUrl(value: string) {
   const url = new URL(value);
   return url.searchParams.get('token') || new URLSearchParams(url.hash.replace(/^#/, '')).get('token');
+}
+
+function setTestNow(value: Date) {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(value);
 }
 
 async function loginAdmin(role: string, email: string) {
@@ -108,12 +114,16 @@ beforeEach(async () => {
   );
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('critical path integration scenarios', () => {
   it('runs the full critical path integration scenario', async () => {
     const userAgent = request.agent(app);
 
     // 0. Seed a default admin user. Webinar session will be created automatically by /api/register
-    // through findOrCreateWebinarSession(getNextWebinarDate(firstSeenAt)).
+    // through findOrCreateWebinarSession(getDailyBroadcastDate(firstSeenAt)).
     // We must NOT pre-create a webinar session here, otherwise /api/register may create a second
     // one with a different scheduledAt, and later updateMany() will violate the unique constraint
     // on scheduled_at.
@@ -258,21 +268,8 @@ describe('critical path integration scenarios', () => {
     expect(regInDb?.successViewedAt).toBeDefined();
 
     // 3. ENTER WEBINAR ROOM (GET /api/webinar/timeline/session/current)
-    // Move the (unique) webinar session into the past so that the room is "live".
-    // We update the single session created by /api/register by id to avoid touching
-    // scheduledAt across multiple rows (unique constraint).
-    const tenMinutesAgo = new Date();
-    tenMinutesAgo.setMinutes(tenMinutesAgo.getMinutes() - 10);
-
-    const sessions = await prisma.webinarSession.findMany();
-    expect(sessions.length).toBe(1);
-    await prisma.webinarSession.update({
-      where: { id: sessions[0].id },
-      data: {
-        scheduledAt: tenMinutesAgo,
-        status: 'live',
-      },
-    });
+    // The room is bound to the current daily broadcast slot, so move test time into the 19:00 MSK live window.
+    setTestNow(new Date('2026-06-11T16:10:00.000Z'));
 
     const timelineResponse = await userAgent.get('/api/webinar/timeline/session/current');
 
@@ -1380,11 +1377,13 @@ describe('critical path integration scenarios', () => {
     expect(hiddenDetailResponse.status).toBe(404);
   });
 
-  it('does not expose room media URLs before live and exposes them during live and replay', async () => {
-    const session = await prisma.webinarSession.create({
+  it('does not expose room media before the daily broadcast and closes room replay after it ends', async () => {
+    setTestNow(new Date('2026-06-11T12:00:00.000Z'));
+    const dailyScheduledAt = getDailyBroadcastDate(new Date());
+    const registrationSession = await prisma.webinarSession.create({
       data: {
         title: 'Media gated webinar',
-        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+        scheduledAt: new Date('2026-06-01T16:00:00.000Z'),
         status: 'scheduled',
         videoDurationSeconds: 600,
         posterUrl: '/crisis_premium/assets/webinar-poster.jpg',
@@ -1401,7 +1400,7 @@ describe('critical path integration scenarios', () => {
     const registration = await prisma.registration.create({
       data: {
         leadId: lead.id,
-        webinarSessionId: session.id,
+        webinarSessionId: registrationSession.id,
         accessTokenHash: hashToken(createAccessToken()),
       },
     });
@@ -1427,80 +1426,66 @@ describe('critical path integration scenarios', () => {
     expect(waitingResponse.body.timeline).toBeUndefined();
     expect(JSON.stringify(waitingResponse.body)).not.toContain('/crisis_premium/assets/webinar.mp4');
     expect(JSON.stringify(waitingResponse.body)).not.toContain('webinar-poster.jpg');
+    expect(waitingResponse.body.liveState.scheduledAt).toBe(dailyScheduledAt.toISOString());
 
-    await prisma.webinarSession.update({
-      where: { id: session.id },
-      data: {
-        scheduledAt: new Date(Date.now() - 2 * 60 * 1000),
-        status: 'live',
-        videoDurationSeconds: 600,
-      },
-    });
-
+    setTestNow(new Date('2026-06-11T16:02:00.000Z'));
     const liveResponse = await request(app).get('/api/webinar/timeline/session/current').set('Cookie', accountCookie);
     expect(liveResponse.status).toBe(200);
     expect(liveResponse.body.accessStatus).toBe('live');
+    expect(liveResponse.body.liveState.scheduledAt).toBe(dailyScheduledAt.toISOString());
     expect(liveResponse.body.video).toMatchObject({
       src: '/crisis_premium/assets/webinar.mp4',
-      poster: '/crisis_premium/assets/webinar-poster.jpg',
       expected: true,
     });
     expect(liveResponse.body.timeline).toBeDefined();
 
-    await prisma.webinarSession.update({
-      where: { id: session.id },
-      data: {
-        scheduledAt: new Date(Date.now() - 5 * 60 * 1000),
-        status: 'finished',
-        videoDurationSeconds: 60,
-      },
-    });
-
-    const replayResponse = await request(app).get('/api/webinar/timeline/session/current').set('Cookie', accountCookie);
-    expect(replayResponse.status).toBe(200);
-    expect(replayResponse.body.accessStatus).toBe('replay');
-    expect(replayResponse.body.video).toMatchObject({
-      src: '/crisis_premium/assets/webinar.mp4',
-      poster: '/crisis_premium/assets/webinar-poster.jpg',
-      expected: true,
-    });
-    expect(replayResponse.body.timeline).toBeDefined();
+    setTestNow(new Date('2026-06-11T18:00:00.000Z'));
+    const afterBroadcastResponse = await request(app)
+      .get('/api/webinar/timeline/session/current')
+      .set('Cookie', accountCookie);
+    expect(afterBroadcastResponse.status).toBe(200);
+    expect(afterBroadcastResponse.body.accessStatus).toBe('waiting');
+    expect(afterBroadcastResponse.body.liveState.scheduledAt).toBe('2026-06-12T16:00:00.000Z');
+    expect(afterBroadcastResponse.body.video).toBeUndefined();
+    expect(afterBroadcastResponse.body.timeline).toBeUndefined();
   });
 
-  it('keeps timeline and chat bound to the registered webinar session schedule', async () => {
-    const scheduledAt = new Date(Date.now() - 70 * 60 * 1000);
-    const session = await prisma.webinarSession.create({
+  it('keeps room timeline and chat bound to the current daily broadcast, not the old registration session', async () => {
+    setTestNow(new Date('2026-06-11T16:02:00.000Z'));
+    const dailyScheduledAt = getDailyBroadcastDate(new Date());
+    const oldScheduledAt = new Date('2026-06-01T16:00:00.000Z');
+    const oldSession = await prisma.webinarSession.create({
       data: {
-        title: 'Bound scheduled webinar',
-        scheduledAt,
+        title: 'Old registered webinar',
+        scheduledAt: oldScheduledAt,
         status: 'scheduled',
         videoDurationSeconds: 3860,
         replayAvailableHours: 168,
       },
     });
-    const otherSession = await prisma.webinarSession.create({
+    const dailySession = await prisma.webinarSession.create({
       data: {
-        title: 'Other webinar',
-        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+        title: 'Daily webinar',
+        scheduledAt: dailyScheduledAt,
         status: 'scheduled',
         videoDurationSeconds: 3860,
       },
     });
     await prisma.webinarTimelineEvent.create({
       data: {
-        webinarSessionId: session.id,
+        webinarSessionId: oldSession.id,
         offsetSeconds: 0,
-        title: 'Registered session event',
-        text: 'This event belongs to the registered session',
+        title: 'Old registration event',
+        text: 'This event belongs to the old registration session',
         type: 'message',
       },
     });
     await prisma.webinarTimelineEvent.create({
       data: {
-        webinarSessionId: otherSession.id,
+        webinarSessionId: dailySession.id,
         offsetSeconds: 0,
-        title: 'Wrong session event',
-        text: 'This event must not leak',
+        title: 'Daily broadcast event',
+        text: 'This event belongs to the current daily broadcast',
         type: 'message',
       },
     });
@@ -1515,17 +1500,28 @@ describe('critical path integration scenarios', () => {
     const registration = await prisma.registration.create({
       data: {
         leadId: lead.id,
-        webinarSessionId: session.id,
+        webinarSessionId: oldSession.id,
         accessTokenHash: hashToken(createAccessToken()),
       },
     });
     await prisma.webinarChatMessage.create({
       data: {
-        webinarSessionId: session.id,
+        webinarSessionId: oldSession.id,
         registrationId: registration.id,
         kind: 'participant',
         authorName: 'Bound Session',
-        message: 'Persisted message from registered session',
+        message: 'Persisted message from old registration session',
+        isSynthetic: false,
+        visibleAt: new Date(Date.now() - 60 * 1000),
+      },
+    });
+    await prisma.webinarChatMessage.create({
+      data: {
+        webinarSessionId: dailySession.id,
+        registrationId: registration.id,
+        kind: 'participant',
+        authorName: 'Bound Session',
+        message: 'Persisted message from daily broadcast',
         isSynthetic: false,
         visibleAt: new Date(Date.now() - 60 * 1000),
       },
@@ -1545,27 +1541,32 @@ describe('critical path integration scenarios', () => {
       .get('/api/webinar/timeline/session/current')
       .set('Cookie', accountCookie);
     expect(timelineResponse.status).toBe(200);
-    expect(timelineResponse.body.accessStatus).toBe('replay');
-    expect(timelineResponse.body.liveState.scheduledAt).toBe(scheduledAt.toISOString());
-    expect(timelineResponse.body.timeline.map((event: any) => event.title)).toContain('Registered session event');
-    expect(timelineResponse.body.timeline.map((event: any) => event.title)).not.toContain('Wrong session event');
+    expect(timelineResponse.body.accessStatus).toBe('live');
+    expect(timelineResponse.body.liveState.scheduledAt).toBe(dailyScheduledAt.toISOString());
+    expect(timelineResponse.body.timeline.map((event: any) => event.title)).toContain('Daily broadcast event');
+    expect(timelineResponse.body.timeline.map((event: any) => event.title)).not.toContain('Old registration event');
 
     const chatResponse = await request(app).get('/api/webinar/chat/session/current').set('Cookie', accountCookie);
     expect(chatResponse.status).toBe(200);
-    expect(chatResponse.body.accessStatus).toBe('replay');
-    expect(chatResponse.body.liveState.scheduledAt).toBe(scheduledAt.toISOString());
+    expect(chatResponse.body.accessStatus).toBe('live');
+    expect(chatResponse.body.liveState.scheduledAt).toBe(dailyScheduledAt.toISOString());
+    expect(
+      chatResponse.body.messages.some((message: any) => message.message === 'Persisted message from daily broadcast'),
+    ).toBe(true);
     expect(
       chatResponse.body.messages.some(
-        (message: any) => message.message === 'Persisted message from registered session',
+        (message: any) => message.message === 'Persisted message from old registration session',
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('does not expose persisted chat messages before broadcast start', async () => {
+    setTestNow(new Date('2026-06-11T12:00:00.000Z'));
+    const dailyScheduledAt = getDailyBroadcastDate(new Date());
     const session = await prisma.webinarSession.create({
       data: {
         title: 'Pre-live chat gate',
-        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+        scheduledAt: dailyScheduledAt,
         status: 'scheduled',
         videoDurationSeconds: 3860,
       },
@@ -1613,14 +1614,7 @@ describe('critical path integration scenarios', () => {
     expect(waitingResponse.body.liveState.chatStatus).toBe('locked');
     expect(waitingResponse.body.messages).toEqual([]);
 
-    await prisma.webinarSession.update({
-      where: { id: session.id },
-      data: {
-        scheduledAt: new Date(Date.now() - 2 * 60 * 1000),
-        status: 'live',
-      },
-    });
-
+    setTestNow(new Date('2026-06-11T16:02:00.000Z'));
     const liveResponse = await request(app).get('/api/webinar/chat/session/current').set('Cookie', accountCookie);
     expect(liveResponse.status).toBe(200);
     expect(liveResponse.body.accessStatus).toBe('live');
@@ -1778,7 +1772,8 @@ describe('critical path integration scenarios', () => {
   });
 
   it('returns validated scripted chat messages for the current room session', async () => {
-    const scheduledAt = new Date(Date.now() - 2 * 60 * 1000);
+    setTestNow(new Date('2026-06-11T16:02:00.000Z'));
+    const scheduledAt = getDailyBroadcastDate(new Date());
     const session = await prisma.webinarSession.create({
       data: {
         title: 'Scripted chat test webinar',

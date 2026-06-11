@@ -273,33 +273,33 @@ function isAccessError(error) {
 
 export function renderWaitingRoom(data) {
   const title = data.accessStatus === 'closed'
-    ? 'Вебинар завершен'
+    ? 'Эфир на сегодня завершен'
     : data.accessStatus === 'pre_live'
-      ? 'Комната скоро откроется'
-      : 'Эфир еще не начался';
+      ? 'Трансляция скоро начнется'
+      : 'Трансляция начнется в 19:00 МСК';
   const text =
     data.accessStatus === 'closed'
-      ? 'Постоянная запись доступна зарегистрированным участникам в разделе “Записи”.'
+      ? 'Следующий эфир с этой записью пройдет завтра в 19:00 МСК. Постоянная запись доступна зарегистрированным участникам в разделе “Записи”.'
       : data.accessStatus === 'pre_live'
-        ? `Эфир стартует ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК. Страница обновится автоматически.`
-      : `Комната откроется к началу эфира: ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК.`;
+        ? `Эфир стартует ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК. До старта видео и чат закрыты, окно ожидания обновится автоматически.`
+        : `До эфира доступ к трансляции закрыт. Оставайтесь в этом окне: счетчик идет до ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК, затем комната откроется автоматически.`;
 
   const countdownHtml = (data.accessStatus === 'waiting' || data.accessStatus === 'pre_live') ? `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:32px;max-width:420px;margin-left:auto;margin-right:auto">
       <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(210,228,251,0.2);border-radius:16px;padding:20px 10px;text-align:center">
-        <strong data-countdown-days style="font-size:36px;font-weight:800;background:linear-gradient(135deg,#b7d4f7,#7ec8f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">00</strong>
+        <strong data-countdown-days style="font-size:36px;font-weight:800;color:#d2e4fb">00</strong>
         <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:6px;text-transform:uppercase;letter-spacing:0.05em">дней</div>
       </div>
       <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(210,228,251,0.2);border-radius:16px;padding:20px 10px;text-align:center">
-        <strong data-countdown-hours style="font-size:36px;font-weight:800;background:linear-gradient(135deg,#b7d4f7,#7ec8f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">00</strong>
+        <strong data-countdown-hours style="font-size:36px;font-weight:800;color:#d2e4fb">00</strong>
         <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:6px;text-transform:uppercase;letter-spacing:0.05em">часов</div>
       </div>
       <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(210,228,251,0.2);border-radius:16px;padding:20px 10px;text-align:center">
-        <strong data-countdown-minutes style="font-size:36px;font-weight:800;background:linear-gradient(135deg,#b7d4f7,#7ec8f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">00</strong>
+        <strong data-countdown-minutes style="font-size:36px;font-weight:800;color:#d2e4fb">00</strong>
         <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:6px;text-transform:uppercase;letter-spacing:0.05em">минут</div>
       </div>
       <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(210,228,251,0.2);border-radius:16px;padding:20px 10px;text-align:center">
-        <strong data-countdown-seconds style="font-size:36px;font-weight:800;background:linear-gradient(135deg,#b7d4f7,#7ec8f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent">00</strong>
+        <strong data-countdown-seconds style="font-size:36px;font-weight:800;color:#d2e4fb">00</strong>
         <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:6px;text-transform:uppercase;letter-spacing:0.05em">секунд</div>
       </div>
     </div>
@@ -420,9 +420,16 @@ export async function hydrateWebinarRoom(onSuccess) {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       const data = await getRegistrationState('room');
+      const beforeBroadcast = data?.accessStatus === 'waiting' || data?.accessStatus === 'pre_live';
+
+      if (data?.ok && beforeBroadcast) {
+        state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
+        renderWaitingRoom(data);
+        return;
+      }
 
       if (!data.ok || !(data.canViewRoom || data.canEnterRoom)) {
-        if (data.accessStatus === 'waiting' || data.accessStatus === 'closed') {
+        if (data.accessStatus === 'closed') {
           state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
           renderWaitingRoom(data);
           return;

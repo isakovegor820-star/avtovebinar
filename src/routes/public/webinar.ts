@@ -8,7 +8,7 @@ import { getEffectiveVideoDurationMinutes, getWebinarLiveState } from '../../lib
 import { getScriptedChatMessagesUntil } from '../../lib/scriptedChat.js';
 import { buildTelegramStartUrl } from '../../lib/telegram.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
-import { buildAccessPayload, findRegistrationForRequest, getFirstSeen, roomAccessError } from './helpers.js';
+import { buildDailyRoomAccessPayload, findRegistrationForRequest, getFirstSeen, roomAccessError } from './helpers.js';
 import { getCache, setCache } from '../../lib/responseCache.js';
 import { getWebinarVideoConfig } from '../../lib/webinarVideo.js';
 
@@ -80,7 +80,7 @@ async function sendTimeline(req: Request, res: Response) {
   }
 
   const now = new Date();
-  const access = buildAccessPayload(registration, now);
+  const access = await buildDailyRoomAccessPayload(registration, now);
   if (!access.canViewRoom) {
     throw roomAccessError(access.accessStatus);
   }
@@ -163,7 +163,7 @@ async function sendChat(req: Request, res: Response) {
   }
 
   const now = new Date();
-  const access = buildAccessPayload(registration, now);
+  const access = await buildDailyRoomAccessPayload(registration, now);
   if (!access.canViewRoom) {
     throw roomAccessError(access.accessStatus);
   }

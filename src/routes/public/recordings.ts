@@ -6,6 +6,7 @@ import { getWebinarVideoConfig } from '../../lib/webinarVideo.js';
 import { buildFrontendUrl, findRegistrationForRequest, saveEvent } from './helpers.js';
 
 export const recordingsRouter = Router();
+const DEFAULT_RECORDING_POSTER = '/crisis_premium/assets/webinar-poster.jpg';
 
 type RecordingWithSession = Awaited<ReturnType<typeof fetchPublishedRecordings>>[number];
 
@@ -51,13 +52,16 @@ function serializeRecording(recording: RecordingWithSession) {
   const videoSrc = recording.videoUrl ?? (hasRecordingMedia ? null : fallbackVideo.src);
   const hlsSrc = recording.hlsUrl ?? (hasRecordingMedia ? null : fallbackVideo.hlsSrc);
   const externalMp4Allowed = Boolean(recording.videoUrl) || (!hasRecordingMedia && fallbackVideo.externalMp4Allowed);
+  const posterUrl =
+    recording.posterUrl ??
+    (hasRecordingMedia ? DEFAULT_RECORDING_POSTER : (fallbackVideo.poster ?? DEFAULT_RECORDING_POSTER));
 
   return {
     id: recording.id,
     webinarSessionId: recording.webinarSessionId,
     title: recording.title,
     description: recording.description,
-    posterUrl: recording.posterUrl ?? fallbackVideo.poster,
+    posterUrl,
     videoUrl: videoSrc,
     hlsUrl: hlsSrc,
     durationSeconds,
@@ -81,7 +85,7 @@ function serializeRecording(recording: RecordingWithSession) {
       hlsSrc,
       provider: fallbackVideo.provider,
       durationSeconds,
-      poster: recording.posterUrl ?? fallbackVideo.poster,
+      poster: posterUrl,
       fallbackAllowed: fallbackVideo.fallbackAllowed,
       localFallbackAllowed: fallbackVideo.localFallbackAllowed,
       externalMp4Allowed,

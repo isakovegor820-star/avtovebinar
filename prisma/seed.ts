@@ -6,9 +6,9 @@ import {
   WEBINAR_VIDEO_DURATION_SECONDS,
   WEBINAR_VIDEO_PATH,
 } from '../src/lib/webinarTimeline.js';
-import { getWebinarVideoConfig } from '../src/lib/webinarVideo.js';
 
 const prisma = new PrismaClient();
+const RECORDING_POSTER_PATH = '/crisis_premium/assets/webinar-poster.jpg';
 
 async function main() {
   const scheduledAt = getNextWebinarDate(new Date());
@@ -63,14 +63,13 @@ async function main() {
     orderBy: { createdAt: 'asc' },
   });
 
-  const videoConfig = getWebinarVideoConfig(session);
   const recordingData = {
     title: session.title,
     description:
       'Запись вебинара АСПБ о том, как бухгалтеру, юристу или консультанту развиваться на рынке банкротства и передавать клиентов в партнерской модели.',
-    posterUrl: videoConfig.poster ?? session.posterUrl,
+    posterUrl: RECORDING_POSTER_PATH,
     videoUrl: WEBINAR_VIDEO_PATH,
-    hlsUrl: videoConfig.hlsSrc,
+    hlsUrl: null,
     durationSeconds: 568,
     publishedAt: new Date('2026-06-10T17:05:00.000Z'),
     visible: true,

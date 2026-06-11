@@ -6,9 +6,9 @@ import {
   getParticipantAccess,
   logoutParticipant,
   requestParticipantLogin,
-} from './registration.js?v=account-access-8';
-import { formatMoscowDateTime } from './utils.js?v=account-access-8';
-import { updateTelegramLinks } from './room.js?v=account-access-9';
+} from './registration.js?v=account-access-14';
+import { formatMoscowDateTime } from './utils.js?v=account-access-14';
+import { updateTelegramLinks } from './room.js?v=account-access-14';
 
 function statusLabel(data) {
   if (data.accessStatus === 'live') return 'Эфир идет';
@@ -22,7 +22,7 @@ function statusText(data) {
   const date = data.webinar?.scheduledAt ? formatMoscowDateTime(data.webinar.scheduledAt) : '';
   if (data.accessStatus === 'live') return 'Можно открыть комнату и подключиться к трансляции.';
   if (data.accessStatus === 'replay') return 'Это запись вебинара. Чат работает как форма вопроса для команды АСПБ.';
-  if (data.accessStatus === 'closed') return 'Эфир и replay-окно завершены. Проверьте доступные записи или зарегистрируйтесь на ближайший эфир.';
+  if (data.accessStatus === 'closed') return 'Вебинарная комната закрыта. Опубликованные записи остаются в библиотеке участника без повторной регистрации.';
   if (data.accessStatus === 'pre_live') return `Комната открыта для проверки доступа. Эфир стартует ${date} МСК.`;
   return `Эфир стартует ${date} МСК. До начала подключите Telegram-напоминание.`;
 }

@@ -3,7 +3,7 @@
  */
 
 import { clearAccessToken, getUrlToken } from './state.js';
-import { post, getJson, utm } from './utils.js?v=account-access-8';
+import { post, getJson, utm } from './utils.js?v=account-access-14';
 import { track } from './analytics.js';
 
 export function registrationStatePath(view) {
@@ -52,7 +52,7 @@ export async function redirectRegisteredUserFromRegisterPage() {
       // Server session is authoritative.
     }
 
-    window.location.replace(data.successUrl || 'success.html');
+    window.location.replace(data.accessUrl || 'access.html');
     return true;
   } catch {
     try {

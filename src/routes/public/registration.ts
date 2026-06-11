@@ -17,6 +17,7 @@ import {
   clean,
   findRegistrationForRequest,
   getFirstSeen,
+  getParticipantSessionExpiresAt,
   getRoomTokenExpiresAt,
   PARTICIPANT_LOGIN_TOKEN_PURPOSE,
   notifySafely,
@@ -77,7 +78,7 @@ async function exchangeRegistrationToken(
   const exchangeTokenHash = hashToken(token);
   const sessionToken = createAccessToken();
   const sessionTokenHash = hashToken(sessionToken);
-  const { tokenExpiresAt, registrationId, purpose } = await prisma.$transaction(async tx => {
+  const { sessionExpiresAt, registrationId, purpose } = await prisma.$transaction(async tx => {
     const tokenRecord = await tx.registrationToken.findUnique({
       where: { tokenHash: exchangeTokenHash },
       include: {
@@ -109,17 +110,14 @@ async function exchangeRegistrationToken(
       throw new AppError(404, 'Registration not found');
     }
 
-    const tokenExpiresAt =
-      tokenRecord.purpose === PARTICIPANT_LOGIN_TOKEN_PURPOSE
-        ? getRoomTokenExpiresAt(tokenRecord.registration.webinarSession)
-        : (tokenRecord.expiresAt ?? getRoomTokenExpiresAt(tokenRecord.registration.webinarSession));
+    const sessionExpiresAt = getParticipantSessionExpiresAt(now);
 
     await tx.registrationToken.create({
       data: {
         registrationId: tokenRecord.registrationId,
         tokenHash: sessionTokenHash,
         purpose: ROOM_SESSION_TOKEN_PURPOSE,
-        expiresAt: tokenExpiresAt,
+        expiresAt: sessionExpiresAt,
       },
     });
 
@@ -129,13 +127,13 @@ async function exchangeRegistrationToken(
     });
 
     return {
-      tokenExpiresAt,
+      sessionExpiresAt,
       registrationId: tokenRecord.registrationId,
       purpose: tokenRecord.purpose,
     };
   });
 
-  setRoomTokenCookie(res, sessionToken, tokenExpiresAt);
+  setRoomTokenCookie(res, sessionToken, sessionExpiresAt);
   res.json({
     ok: true,
     purpose,
@@ -143,7 +141,7 @@ async function exchangeRegistrationToken(
     accessUrl: buildFrontendUrl('/crisis_premium/access.html'),
     successUrl: buildFrontendUrl('/crisis_premium/success.html'),
     webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
-    expiresAt: tokenExpiresAt.toISOString(),
+    expiresAt: sessionExpiresAt.toISOString(),
   });
 }
 
@@ -175,7 +173,8 @@ registrationRouter.post(
     const partnerExchangeTokenHash = hashToken(partnerExchangeToken);
     const telegramStartTokenHash = hashToken(telegramStartToken);
     const sessionTokenHash = hashToken(sessionToken);
-    const tokenExpiresAt = getRoomTokenExpiresAt(session);
+    const linkTokenExpiresAt = getRoomTokenExpiresAt(session);
+    const sessionExpiresAt = getParticipantSessionExpiresAt();
     const emailWebinarUrl = buildTokenizedFrontendUrl('/crisis_premium/webinar.html', exchangeToken);
     const emailPartnerUrl = buildTokenizedFrontendUrl(
       '/crisis_premium/webinar.html',
@@ -249,7 +248,7 @@ registrationRouter.post(
           registrationId: registration.id,
           tokenHash: exchangeTokenHash,
           purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
-          expiresAt: tokenExpiresAt,
+          expiresAt: linkTokenExpiresAt,
         },
       });
 
@@ -258,7 +257,7 @@ registrationRouter.post(
           registrationId: registration.id,
           tokenHash: partnerExchangeTokenHash,
           purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
-          expiresAt: tokenExpiresAt,
+          expiresAt: linkTokenExpiresAt,
         },
       });
 
@@ -267,7 +266,7 @@ registrationRouter.post(
           registrationId: registration.id,
           tokenHash: telegramStartTokenHash,
           purpose: TELEGRAM_START_TOKEN_PURPOSE,
-          expiresAt: tokenExpiresAt,
+          expiresAt: linkTokenExpiresAt,
         },
       });
 
@@ -276,7 +275,7 @@ registrationRouter.post(
           registrationId: registration.id,
           tokenHash: sessionTokenHash,
           purpose: ROOM_SESSION_TOKEN_PURPOSE,
-          expiresAt: tokenExpiresAt,
+          expiresAt: sessionExpiresAt,
         },
       });
 
@@ -293,7 +292,7 @@ registrationRouter.post(
       return { lead, registration };
     });
 
-    setRoomTokenCookie(res, sessionToken, tokenExpiresAt);
+    setRoomTokenCookie(res, sessionToken, sessionExpiresAt);
 
     await saveEvent({
       eventName: 'registration_submit',
@@ -359,12 +358,10 @@ function pickRestorableRegistration<T extends { webinarSession: WebinarTimingFor
   registrations: T[],
   now: Date,
 ) {
-  const restorable = registrations
-    .map(registration => ({
-      registration,
-      accessStatus: getAccessStatusForTiming(registration.webinarSession, now),
-    }))
-    .filter(item => item.accessStatus !== 'closed');
+  const restorable = registrations.map(registration => ({
+    registration,
+    accessStatus: getAccessStatusForTiming(registration.webinarSession, now),
+  }));
 
   if (!restorable.length) {
     return null;
@@ -379,6 +376,17 @@ function pickRestorableRegistration<T extends { webinarSession: WebinarTimingFor
     );
   if (upcoming[0]) {
     return upcoming[0].registration;
+  }
+
+  const active = restorable
+    .filter(item => item.accessStatus !== 'closed')
+    .sort(
+      (left, right) =>
+        right.registration.webinarSession.scheduledAt.getTime() -
+        left.registration.webinarSession.scheduledAt.getTime(),
+    );
+  if (active[0]) {
+    return active[0].registration;
   }
 
   return restorable.sort(
@@ -499,7 +507,7 @@ async function sendRegistrationState(req: Request, res: Response) {
   const liveState = getWebinarLiveState(now, access.webinarSession, { testMode: access.testMode });
   const requestToken = clean(req.cookies?.aspb_room_token);
   if (requestToken) {
-    setRoomTokenCookie(res, requestToken, access.replayExpiresAt);
+    setRoomTokenCookie(res, requestToken, getParticipantSessionExpiresAt(now));
   }
 
   if (view === 'success' && !registration.successViewedAt) {
@@ -561,6 +569,7 @@ async function sendRegistrationState(req: Request, res: Response) {
     },
     telegramUrl: env.TELEGRAM_GROUP_URL,
     telegramBotUrl,
+    accessUrl: buildFrontendUrl('/crisis_premium/access.html'),
     webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
     lead: {
       name: registration.lead.name,
@@ -615,7 +624,7 @@ registrationRouter.get(
     const liveState = getWebinarLiveState(now, access.webinarSession, { testMode: access.testMode });
     const requestToken = clean(req.cookies?.aspb_room_token);
     if (requestToken) {
-      setRoomTokenCookie(res, requestToken, access.replayExpiresAt);
+      setRoomTokenCookie(res, requestToken, getParticipantSessionExpiresAt(now));
     }
 
     const recordingCount = await getPublishedRecordingsCount(now);

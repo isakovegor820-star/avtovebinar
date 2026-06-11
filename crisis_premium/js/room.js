@@ -3,8 +3,8 @@
  */
 
 import { state } from './state.js';
-import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js?v=account-access-8';
-import { getRegistrationState, requestParticipantLogin } from './registration.js?v=account-access-8';
+import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js?v=account-access-14';
+import { getRegistrationState, requestParticipantLogin } from './registration.js?v=account-access-14';
 
 let countdownInterval = null;
 let countdownRetries = 0;
@@ -152,7 +152,10 @@ function closeOverlay() {
 }
 
 function ensureRoomAccessStyles() {
-  const href = 'webinar.css?v=account-access-1';
+  const href = 'webinar.css?v=account-access-6';
+  document.querySelectorAll('link[href*="webinar.css?v=account-access-"]').forEach(link => {
+    if (link.getAttribute('href') !== href) link.remove();
+  });
   if (document.querySelector(`link[href="${href}"]`)) {
     return;
   }
@@ -170,21 +173,65 @@ export function renderLockedRoom(message) {
   overlay.id = 'aspb-room-overlay';
   overlay.className = 'room-access-overlay';
   overlay.innerHTML = `
-    <section class="room-access-panel">
-      <p class="room-access-eyebrow">Мой доступ</p>
-      <h1 class="room-access-title">Войдите по email, чтобы открыть комнату</h1>
-      <p class="room-access-text">${safeMessage}</p>
-      <form id="participantLoginForm" class="room-access-form" novalidate>
-        <label class="room-access-label">
-          Email, указанный при регистрации
-          <input class="room-access-input" name="email" type="email" autocomplete="email" required placeholder="name@example.com">
-        </label>
-        <button class="room-access-submit" type="submit">Получить ссылку для входа</button>
-        <p id="participantLoginStatus" class="room-access-status" aria-live="polite"></p>
-      </form>
-      <div class="room-access-actions">
-        <a class="room-access-secondary" href="register.html">Зарегистрироваться</a>
-        <a class="room-access-link" href="access.html">Открыть “Мой доступ”</a>
+    <section class="room-access-panel" aria-labelledby="roomAccessTitle">
+      <div class="room-access-visual" aria-hidden="true">
+        <div class="room-access-brand">
+          <span>АСПБ</span>
+          <small>вебинарная комната</small>
+        </div>
+        <div class="room-access-visual-copy">
+          <p>Закрытый раздел</p>
+          <h2>Комната, напоминания и запись привязаны к регистрации участника.</h2>
+        </div>
+        <div class="room-access-visual-list">
+          <span><i class="material-symbols-outlined">event_available</i> доступ к ближайшему эфиру</span>
+          <span><i class="material-symbols-outlined">mark_email_read</i> персональная ссылка без пароля</span>
+          <span><i class="material-symbols-outlined">video_library</i> запись после публикации</span>
+        </div>
+      </div>
+
+      <div class="room-access-entry">
+        <a class="room-access-back" href="index.html">
+          <span class="material-symbols-outlined">arrow_back</span>
+          На главную
+        </a>
+        <p class="room-access-eyebrow">Доступ участника</p>
+        <h1 id="roomAccessTitle" class="room-access-title">Войдите по email, чтобы открыть комнату</h1>
+        <p class="room-access-text">${safeMessage} Если вы уже регистрировались, не заполняйте форму повторно: восстановите доступ по email без пароля.</p>
+
+        <div class="room-access-steps" aria-label="Как открыть доступ">
+          <div>
+            <span>1</span>
+            <p>Введите email, указанный при регистрации</p>
+          </div>
+          <div>
+            <span>2</span>
+            <p>Получите одноразовую ссылку для входа</p>
+          </div>
+          <div>
+            <span>3</span>
+            <p>Комната и записи откроются на этом устройстве</p>
+          </div>
+        </div>
+
+        <div class="room-access-recovery room-access-recovery--open">
+          <form id="participantLoginForm" class="room-access-form" novalidate>
+            <label class="room-access-label">
+              Email из регистрации
+              <input class="room-access-input" name="email" type="email" autocomplete="email" required placeholder="name@example.com">
+            </label>
+            <button class="room-access-submit room-access-submit--primary" type="submit">Я уже зарегистрирован — войти по email</button>
+            <p id="participantLoginStatus" class="room-access-status" aria-live="polite"></p>
+          </form>
+          <div class="room-access-actions">
+            <a class="room-access-link room-access-secondary" href="register.html">
+              <span class="material-symbols-outlined">how_to_reg</span>
+              Зарегистрироваться впервые
+            </a>
+            <a class="room-access-link" href="access.html">Открыть страницу “Мой доступ”</a>
+          </div>
+        </div>
+        <p class="room-access-note">После входа платформа запомнит это устройство. Пароль создавать не нужно.</p>
       </div>
     </section>`;
   document.body.appendChild(overlay);
@@ -261,7 +308,7 @@ export function renderWaitingRoom(data) {
   const action =
     data.accessStatus === 'closed'
       ? '<a href="recordings.html" style="display:inline-flex;margin-top:28px;background:#fff;color:#041627;text-decoration:none;padding:16px 28px;border-radius:14px;font-weight:700;font-size:15px;box-shadow:0 4px 16px rgba(0,0,0,0.1)">Смотреть записи</a>'
-      : '<a href="success.html" style="display:inline-flex;margin-top:28px;background:rgba(255,255,255,0.1);border:1px solid rgba(210,228,251,0.3);color:#d2e4fb;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:600;font-size:14px;backdrop-filter:blur(8px)">Проверить регистрацию</a>';
+      : '<a href="access.html" style="display:inline-flex;margin-top:28px;background:rgba(255,255,255,0.1);border:1px solid rgba(210,228,251,0.3);color:#d2e4fb;text-decoration:none;padding:14px 24px;border-radius:14px;font-weight:600;font-size:14px;backdrop-filter:blur(8px)">Открыть “Мой доступ”</a>';
 
   closeOverlay();
   const overlay = document.createElement('div');
@@ -416,7 +463,7 @@ export async function hydrateWebinarRoom(onSuccess) {
     } catch (err) {
       if (isAccessError(err)) {
         renderLockedRoom(
-          'Комната открывается для зарегистрированных участников. Если вы уже регистрировались, введите email — мы отправим одноразовую ссылку для входа без пароля.',
+          'Главная страница сайта открыта без регистрации. Комната вебинара и записи доступны участникам: после регистрации платформа запомнит это устройство и откроет персональную комнату.',
         );
         return;
       }

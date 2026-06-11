@@ -8,6 +8,7 @@ export const ROOM_SESSION_TOKEN_PURPOSE = 'room_session';
 export const ROOM_EXCHANGE_TOKEN_PURPOSE = 'registration';
 export const PARTICIPANT_LOGIN_TOKEN_PURPOSE = 'participant_login';
 export const TELEGRAM_START_TOKEN_PURPOSE = 'telegram_start';
+export const PARTICIPANT_SESSION_TTL_DAYS = 365;
 
 type RoomTokenTx = Prisma.TransactionClient;
 
@@ -40,6 +41,10 @@ export function getRoomTokenExpiresAt(session: WebinarTiming) {
     getEffectiveVideoDurationMinutes(session),
     session.replayAvailableHours,
   );
+}
+
+export function getParticipantSessionExpiresAt(now = new Date()) {
+  return new Date(now.getTime() + PARTICIPANT_SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
 }
 
 export async function createRoomExchangeToken(

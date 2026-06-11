@@ -3,9 +3,14 @@
  */
 
 import { state } from './state.js';
-import { formatUtcIcsDate, getJson } from './utils.js?v=account-access-8';
-import { getRegistrationState } from './registration.js?v=account-access-8';
-import { updateTelegramLinks } from './room.js?v=account-access-9';
+import {
+  formatMoscowWebinarDay,
+  formatMoscowWebinarTime,
+  formatUtcIcsDate,
+  getJson,
+} from './utils.js?v=account-access-14';
+import { getRegistrationState } from './registration.js?v=account-access-14';
+import { updateTelegramLinks } from './room.js?v=account-access-14';
 import { track } from './analytics.js';
 
 function clearLocalAccessHint() {
@@ -39,6 +44,24 @@ function renderSuccessAccessGate() {
       </div>
     </div>
   `;
+}
+
+function capitalizeFirst(value) {
+  return value ? `${value[0].toUpperCase()}${value.slice(1)}` : '';
+}
+
+function buildSuccessIntro(data) {
+  const scheduledAt = data?.webinar?.scheduledAt;
+  if (!scheduledAt) {
+    return 'Ваш доступ открыт. Комната вебинара и раздел записей привязаны к этой регистрации; пароль создавать не нужно.';
+  }
+  const day = formatMoscowWebinarDay(scheduledAt, data.serverTime);
+  const time = formatMoscowWebinarTime(scheduledAt);
+  const dateLabel = day === 'сегодня' || day === 'завтра'
+    ? `${capitalizeFirst(day)} в ${time} МСК`
+    : `${capitalizeFirst(day)} в ${time} МСК`;
+
+  return `${dateLabel} покажем готовую цепочку АСПБ: вы видите проблему и передаете клиента, команда ведет процедуру, вы получаете партнерское вознаграждение. Подключите Telegram-напоминания, чтобы получить ссылку на эфир и новости перед стартом.`;
 }
 
 function bindSuccessCalendar(data) {
@@ -112,12 +135,13 @@ export async function hydrateSuccessPage() {
     }
     const roomLink = document.getElementById('successRoomLink') || document.querySelector('a[href*="webinar.html"]');
     if (roomLink) roomLink.setAttribute('href', roomHref);
+    const intro = document.getElementById('successIntroText');
+    if (intro) intro.textContent = buildSuccessIntro(data);
     const recordingsLink = document.getElementById('successRecordingsLink');
     if (recordingsLink) {
       recordingsLink.addEventListener('click', () => track('recording_cta_click', { source: 'success' }));
     }
     if (data.testMode || data.webinar?.testMode) {
-      const intro = document.getElementById('successIntroText');
       if (intro) {
         intro.textContent = 'Демо-доступ включен: вебинарная комната уже открыта. Можно сразу зайти, проверить видео, чат, таймлайн и финальную заявку так, как это увидит участник после регистрации.';
       }

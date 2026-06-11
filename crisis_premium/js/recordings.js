@@ -2,7 +2,7 @@
  * recordings.js — cabinet media library and recording playback.
  */
 
-import { getJson, formatTimelineTime } from './utils.js?v=account-access-4';
+import { getJson, formatTimelineTime } from './utils.js?v=account-access-14';
 import { track } from './analytics.js';
 
 let hlsInstance = null;
@@ -76,11 +76,19 @@ function showAccessGate() {
   if (!root) return;
   root.innerHTML = `
     <section class="recordings-access-gate">
-      <div class="recordings-access-copy">
-        <h1>Записи доступны после регистрации</h1>
-        <p>Это раздел кабинета участника. Зарегистрируйтесь один раз или откройте персональную ссылку из письма/Telegram, чтобы восстановить доступ на этом устройстве.</p>
-        <div class="recordings-access-actions">
-          <a href="register.html" class="recordings-primary-link">Зарегистрироваться</a>
+      <div class="recordings-access-panel">
+        <div class="recordings-access-visual" aria-hidden="true">
+          <span>АСПБ</span>
+          <strong>Записи вебинаров открываются через личный доступ участника.</strong>
+        </div>
+        <div class="recordings-access-copy">
+          <p class="recordings-access-kicker">Библиотека участника</p>
+          <h1>Войдите в “Мой доступ”, чтобы смотреть записи</h1>
+          <p>Записи — часть личной библиотеки участника. Если вы уже регистрировались, не заполняйте форму повторно: войдите по email и откройте материалы без пароля.</p>
+          <div class="recordings-access-actions">
+            <a href="access.html" class="recordings-primary-link">Я уже зарегистрирован — войти</a>
+            <a href="register.html" class="recordings-secondary-link">Зарегистрироваться впервые</a>
+          </div>
         </div>
       </div>
     </section>

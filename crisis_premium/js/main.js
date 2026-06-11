@@ -2,18 +2,18 @@
  * main.js — точка входа. Только инициализация.
  */
 
-import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=account-access-9';
+import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=account-access-14';
 import { hydrateTimeline } from './video.js?v=room-countdown-1';
-import { hydrateSuccessPage } from './success.js?v=account-access-9';
-import { hydrateAccessPage } from './access.js?v=account-access-9';
-import { hydrateRecordingsPage } from './recordings.js?v=account-access-4';
+import { hydrateSuccessPage } from './success.js?v=account-access-14';
+import { hydrateAccessPage } from './access.js?v=account-access-14';
+import { hydrateRecordingsPage } from './recordings.js?v=account-access-14';
 import {
   bindRegistrationForm,
   bindRegistrationClicks,
   bindTelegramTracking,
   exchangeUrlTokenIfPresent,
   redirectRegisteredUserFromRegisterPage
-} from './registration.js?v=account-access-8';
+} from './registration.js?v=account-access-14';
 import { bindQuestionForm } from './questions.js?v=webinar-chat-2';
 import { bindPartnerApplicationForm } from './partner.js';
 import { track } from './analytics.js';

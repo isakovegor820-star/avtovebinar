@@ -11,6 +11,7 @@ export const cspStyleElementHashes = [
   "'sha256-VtUjZsOiGzCPfR/p1G6b6QJlVa2+V5St4+xZgQ3TP5o='",
   "'sha256-xaOT4XwOn75COIPam9qTEJz2ppGi6NmxUEoH4pnDISc='",
   "'sha256-bl8aEF3/4PtLHmxIOM05s3EkHEE6aIdZeXn1DFpBSds='",
+  "'sha256-OOjnt1ql9T9cl80v860LtCBhc2bzN4XjZpfDrguV5y0='",
 ] as const;
 
 export const cspStyleAttributeHashes = [

@@ -24,10 +24,10 @@
     const roomHref = data?.webinarUrl || "webinar.html";
     registeredWebinarHref = roomHref;
 
-    document.querySelectorAll('a[href$="register.html"], a[href*="register.html"]').forEach((link) => {
+    document.querySelectorAll("[data-participant-access-link]").forEach((link) => {
       if (link.closest(".recordings-access-gate")) return;
       if (link.closest("#aspb-room-overlay")) return;
-      link.setAttribute("href", "success.html");
+      link.setAttribute("href", "access.html");
       replaceLinkContent(link, "Мой доступ");
     });
 

@@ -535,6 +535,67 @@ describe('critical path integration scenarios', () => {
     expect(registrations.length).toBe(1);
   });
 
+  it('restores closed registrations for the permanent recordings library', async () => {
+    const scheduledAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    const email = `closed-library-${Date.now()}@aspb.ru`;
+    const { webinarSession } = await createRegisteredParticipant(email, scheduledAt);
+
+    await prisma.webinarSession.update({
+      where: { id: webinarSession.id },
+      data: {
+        status: 'finished',
+        durationMinutes: 60,
+        replayAvailableHours: 168,
+      },
+    });
+    const recording = await prisma.webinarRecording.create({
+      data: {
+        webinarSessionId: webinarSession.id,
+        title: 'Постоянная запись',
+        visible: true,
+        publishedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    const requestAgent = request.agent(app);
+    const requestCsrfToken = await getCsrfToken(requestAgent);
+    const requestResponse = await requestAgent
+      .post('/api/participant/login/request')
+      .set('x-csrf-token', requestCsrfToken)
+      .send({ email });
+    expect(requestResponse.status).toBe(202);
+
+    const loginJob = await prisma.emailOutboxJob.findFirstOrThrow({
+      where: { type: 'participant_access_login', toEmail: email },
+      orderBy: { createdAt: 'desc' },
+    });
+    const magicToken = getExchangeTokenFromUrl(loginJob.webinarUrl);
+    expect(magicToken).toEqual(expect.any(String));
+    if (!magicToken) throw new Error('Expected participant login URL to contain token');
+
+    const restoreAgent = request.agent(app);
+    const consumeCsrfToken = await getCsrfToken(restoreAgent);
+    const consumeResponse = await restoreAgent
+      .post('/api/participant/login/consume')
+      .set('x-csrf-token', consumeCsrfToken)
+      .send({ token: magicToken });
+    expect(consumeResponse.status).toBe(200);
+
+    const accessResponse = await restoreAgent.get('/api/participant/access/current');
+    expect(accessResponse.status).toBe(200);
+    expect(accessResponse.body.accessStatus).toBe('closed');
+    expect(accessResponse.body.recordings).toMatchObject({
+      available: true,
+      count: expect.any(Number),
+    });
+
+    const recordingsResponse = await restoreAgent.get('/api/recordings');
+    expect(recordingsResponse.status).toBe(200);
+    expect(recordingsResponse.body.recordings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: recording.id, title: 'Постоянная запись' })]),
+    );
+  });
+
   it('rejects expired participant login tokens without creating a room session', async () => {
     const email = `expired-${Date.now()}@aspb.ru`;
     const { registration } = await createRegisteredParticipant(email);

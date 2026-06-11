@@ -61,49 +61,298 @@
   position: fixed;
   inset: 0;
   z-index: 99999;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: auto;
-  padding: 24px;
-  background: #f8f9fa;
+  padding: 32px;
+  background: linear-gradient(180deg, #f8fafc 0%, #edf3f7 100%);
   color: #041627;
   font-family: Manrope, Arial, sans-serif;
 }
 
 .room-access-panel {
-  width: min(100%, 640px);
-  padding: 32px;
-  border: 1px solid rgba(4, 22, 39, 0.12);
+  display: grid;
+  grid-template-columns: 0.92fr 1fr;
+  width: min(100%, 1120px);
+  min-height: 640px;
+  overflow: hidden;
   border-radius: 8px;
   background: #fff;
-  box-shadow: 0 12px 34px rgba(4, 22, 39, 0.08);
-  text-align: left;
+  box-shadow: 0 24px 48px rgba(4, 22, 39, 0.12);
+}
+
+.room-access-visual {
+  position: relative;
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 36px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(4, 22, 39, 0.16), rgba(4, 22, 39, 0.86)),
+    linear-gradient(90deg, rgba(4, 22, 39, 0.72), rgba(4, 22, 39, 0.1)),
+    url("assets/aspb-hero-consultation.png") center / cover;
+  color: #fff;
+}
+
+.room-access-visual::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.08) 50%, transparent 100%);
+  opacity: 0.64;
+}
+
+.room-access-brand,
+.room-access-visual-copy,
+.room-access-visual-list {
+  position: relative;
+  z-index: 1;
+}
+
+.room-access-brand {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.room-access-brand span {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.room-access-brand small {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.room-access-visual-copy {
+  max-width: 420px;
+}
+
+.room-access-visual-copy p {
+  margin: 0 0 12px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.room-access-visual-copy h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.14;
+  text-wrap: balance;
+}
+
+.room-access-visual-list {
+  display: grid;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.room-access-visual-list span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.room-access-visual-list i {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.13);
+  color: #fff;
+  font-size: 18px;
+  font-style: normal;
+}
+
+.room-access-entry {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 38px 48px;
+}
+
+.room-access-back {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  color: #4d5965;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.room-access-back .material-symbols-outlined {
+  font-size: 18px;
 }
 
 .room-access-eyebrow {
-  margin: 0 0 8px;
-  color: #5e6368;
+  margin: 0 0 10px;
+  color: #2966a3;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .room-access-title {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
   color: #041627;
-  font-size: 30px;
-  line-height: 1.15;
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1.08;
+  text-wrap: balance;
 }
 
 .room-access-text {
-  margin: 0 0 22px;
+  max-width: 600px;
+  margin: 0;
   color: #44474c;
+  font-size: 17px;
+  line-height: 1.58;
+  text-wrap: pretty;
+}
+
+.room-access-steps {
+  display: grid;
+  margin: 22px 0;
+  border-top: 1px solid rgba(4, 22, 39, 0.1);
+  border-bottom: 1px solid rgba(4, 22, 39, 0.1);
+}
+
+.room-access-steps div {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 13px;
+  align-items: center;
+  min-height: 52px;
+  padding: 10px 0;
+}
+
+.room-access-steps div + div {
+  border-top: 1px solid rgba(4, 22, 39, 0.08);
+}
+
+.room-access-steps span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: #e9f3ff;
+  color: #2966a3;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.room-access-steps p {
+  margin: 0;
+  color: #1d2b38;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.42;
+}
+
+.room-access-primary {
+  display: inline-flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 8px;
+  background: #041627;
+  color: #fff;
+  text-decoration: none;
   font-size: 16px;
-  line-height: 1.55;
+  font-weight: 800;
+  transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.room-access-primary:hover {
+  background: #102f4c;
+  box-shadow: 0 10px 18px rgba(4, 22, 39, 0.16);
+  transform: translateY(-1px);
+}
+
+.room-access-primary:active {
+  transform: scale(0.99);
+}
+
+.room-access-primary .material-symbols-outlined {
+  font-size: 21px;
+}
+
+.room-access-note {
+  margin: 12px 0 0;
+  color: #5d6772;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.room-access-recovery {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(4, 22, 39, 0.1);
+}
+
+.room-access-recovery--open {
+  margin-top: 20px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.room-access-recovery summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  color: #041627;
+}
+
+.room-access-recovery summary::-webkit-details-marker {
+  display: none;
+}
+
+.room-access-recovery summary span {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.room-access-recovery summary strong {
+  color: #2966a3;
+  font-size: 14px;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .room-access-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
+  align-items: end;
+  margin-top: 16px;
 }
 
 .room-access-label {
@@ -118,7 +367,7 @@
   width: 100%;
   min-height: 48px;
   padding: 0 14px;
-  border: 1px solid rgba(4, 22, 39, 0.18);
+  border: 1px solid rgba(4, 22, 39, 0.16);
   border-radius: 8px;
   background: #fff;
   color: #041627;
@@ -132,6 +381,7 @@
 
 .room-access-submit {
   min-height: 48px;
+  padding: 0 18px;
   border: 0;
   border-radius: 8px;
   background: #041627;
@@ -139,6 +389,17 @@
   cursor: pointer;
   font: inherit;
   font-weight: 800;
+  white-space: nowrap;
+  transition: background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.room-access-submit:hover {
+  background: #102f4c;
+  box-shadow: 0 10px 18px rgba(4, 22, 39, 0.16);
+}
+
+.room-access-submit:active {
+  transform: scale(0.99);
 }
 
 .room-access-submit:disabled {
@@ -147,6 +408,7 @@
 }
 
 .room-access-status {
+  grid-column: 1 / -1;
   min-height: 20px;
   margin: 0;
   color: #5e6368;
@@ -159,27 +421,125 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin-top: 22px;
-  padding-top: 22px;
-  border-top: 1px solid rgba(4, 22, 39, 0.1);
+  margin-top: 14px;
 }
 
-.room-access-secondary,
 .room-access-link {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
   justify-content: center;
-  color: #041627;
+  gap: 7px;
+  color: #4d5965;
   text-decoration: none;
+  font-size: 13px;
   font-weight: 800;
 }
 
 .room-access-secondary {
+  min-height: 48px;
   padding: 0 16px;
-  border: 1px solid rgba(4, 22, 39, 0.16);
+  border: 1px solid rgba(4, 22, 39, 0.14);
   border-radius: 8px;
-  background: #fff;
+  color: #041627;
+}
+
+.room-access-secondary .material-symbols-outlined {
+  font-size: 18px;
+}
+
+@media (max-width: 980px) {
+  .room-access-overlay {
+    padding: 20px;
+  }
+
+  .room-access-panel {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .room-access-visual {
+    min-height: 280px;
+    padding: 28px;
+  }
+
+  .room-access-entry {
+    padding: 32px;
+  }
+
+  .room-access-title {
+    font-size: 32px;
+  }
+
+  .room-access-form {
+    grid-template-columns: 1fr;
+  }
+
+  .room-access-submit {
+    white-space: normal;
+  }
+}
+
+@media (max-width: 620px) {
+  .room-access-overlay {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .room-access-panel {
+    width: 100%;
+  }
+
+  .room-access-visual {
+    min-height: 220px;
+    padding: 22px;
+  }
+
+  .room-access-brand {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .room-access-brand small {
+    text-align: left;
+  }
+
+  .room-access-visual-copy h2 {
+    font-size: 24px;
+  }
+
+  .room-access-visual-list {
+    display: none;
+  }
+
+  .room-access-entry {
+    padding: 26px 20px 24px;
+  }
+
+  .room-access-back {
+    margin-bottom: 18px;
+  }
+
+  .room-access-title {
+    font-size: 28px;
+  }
+
+  .room-access-text {
+    font-size: 15px;
+  }
+
+  .room-access-recovery summary {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .room-access-primary,
+  .room-access-submit {
+    transition: none;
+  }
 }
 
 #customSeekBarContainer {

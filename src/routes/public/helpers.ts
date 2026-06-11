@@ -21,7 +21,9 @@ import { prisma } from '../../lib/prisma.js';
 import { setContextIdentity } from '../../lib/requestContext.js';
 import {
   buildFrontendUrl,
+  getParticipantSessionExpiresAt,
   getRoomTokenExpiresAt,
+  PARTICIPANT_SESSION_TTL_DAYS,
   PARTICIPANT_LOGIN_TOKEN_PURPOSE,
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
@@ -31,8 +33,10 @@ import { logger } from '../../lib/logger.js';
 
 export {
   buildFrontendUrl,
+  getParticipantSessionExpiresAt,
   getRoomTokenExpiresAt,
   PARTICIPANT_LOGIN_TOKEN_PURPOSE,
+  PARTICIPANT_SESSION_TTL_DAYS,
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
   TELEGRAM_START_TOKEN_PURPOSE,
@@ -73,8 +77,8 @@ export function getFirstSeen(req: Request, res: Response) {
 }
 
 export function setRoomTokenCookie(res: Response, token: string, replayExpiresAt?: Date) {
-  const fallbackMaxAge = 1000 * 60 * 60 * (WEBINAR_REPLAY_HOURS + 48);
-  const maxAge = replayExpiresAt ? Math.max(60 * 1000, replayExpiresAt.getTime() - Date.now()) : fallbackMaxAge;
+  const sessionExpiresAt = replayExpiresAt ?? getParticipantSessionExpiresAt();
+  const maxAge = Math.max(60 * 1000, sessionExpiresAt.getTime() - Date.now());
   res.cookie('aspb_room_token', token, {
     httpOnly: true,
     sameSite: 'lax',

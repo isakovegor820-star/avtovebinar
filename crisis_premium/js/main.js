@@ -12,8 +12,9 @@ import {
   bindRegistrationClicks,
   bindTelegramTracking,
   exchangeUrlTokenIfPresent,
+  hydrateParticipantCtas,
   redirectRegisteredUserFromRegisterPage
-} from './registration.js?v=account-access-14';
+} from './registration.js?v=account-access-18';
 import { bindQuestionForm } from './questions.js?v=webinar-chat-2';
 import { bindPartnerApplicationForm } from './partner.js';
 import { track } from './analytics.js';
@@ -26,6 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // hydrateCurrentWebinar sets serverTimeOffset needed by other modules
   await hydrateCurrentWebinar().catch(() => {});
+  await hydrateParticipantCtas().catch(() => {});
   const redirectedToAccess = await redirectRegisteredUserFromRegisterPage().catch(() => false);
   if (redirectedToAccess) return;
   hydrateSuccessPage();

@@ -214,6 +214,18 @@ test('exchange token is removed from URL and daily room stays cookie-only', asyn
   await expect(page.locator('#partnerApplicationStatus')).toContainText('Заявка отправлена');
 });
 
+test('registered participant does not see registration CTA in landing header', async ({ page }) => {
+  const { exchangeToken } = await createExchangeRegistration(`landing-nav-${Date.now()}@aspb.ru`);
+
+  await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`);
+  await expect(page).toHaveURL(/webinar\.html$/);
+
+  await page.goto('/crisis_premium/index.html');
+  await expect(page.locator('header a[href*="register.html"]')).toHaveCount(0);
+  await expect(page.locator('header a[data-participant-cta="true"]')).toContainText('Открыть комнату');
+  await expect(page.locator('header a[data-participant-cta="true"]')).toHaveAttribute('href', /webinar\.html/);
+});
+
 test('recordings library follows the daily broadcast gate', async ({ page }) => {
   const { exchangeToken, registration } = await createExchangeRegistration(`ended-${Date.now()}@aspb.ru`);
   await prisma.webinarRecording.create({

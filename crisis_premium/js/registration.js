@@ -23,6 +23,55 @@ export function getRegistrationState(view) {
   return getJson(registrationStatePath(view));
 }
 
+function setParticipantCtaLabel(link, label) {
+  if (link.classList.contains('hero-register-btn')) {
+    link.innerHTML = `
+      <span class="leading-none whitespace-nowrap">${label}</span>
+      <span class="hero-register-icon inline-flex items-center justify-center">
+        <span class="material-symbols-outlined text-[19px]">arrow_forward</span>
+      </span>
+    `;
+    return;
+  }
+
+  const icon = link.querySelector('.material-symbols-outlined');
+  if (icon) {
+    const iconName = label === 'Открыть комнату' ? 'meeting_room' : 'person';
+    link.innerHTML = `<span class="material-symbols-outlined text-[18px]">${iconName}</span>${label}`;
+    return;
+  }
+
+  link.textContent = label;
+}
+
+function rewriteRegisterLinksForParticipant(data) {
+  const roomUrl = data?.webinarUrl || 'webinar.html';
+  const accessUrl = data?.accessUrl || 'access.html';
+
+  document.querySelectorAll('a[href*="register.html"]:not([data-keep-register])').forEach(link => {
+    const inAccessRecovery = Boolean(link.closest('#accessLogin, .room-access-recovery, .recordings-access-actions'));
+    const targetUrl = inAccessRecovery ? accessUrl : roomUrl;
+    const label = inAccessRecovery ? 'Мой доступ' : 'Открыть комнату';
+
+    link.setAttribute('href', targetUrl);
+    link.dataset.participantCta = 'true';
+    link.setAttribute('aria-label', label);
+    setParticipantCtaLabel(link, label);
+  });
+}
+
+export async function hydrateParticipantCtas() {
+  if (window.location.pathname.endsWith('register.html')) return;
+
+  try {
+    const data = await getRegistrationState();
+    if (!data?.ok) return;
+    rewriteRegisterLinksForParticipant(data);
+  } catch {
+    // Anonymous visitors should keep registration CTAs.
+  }
+}
+
 export function getParticipantAccess() {
   return getJson('/participant/access/current');
 }

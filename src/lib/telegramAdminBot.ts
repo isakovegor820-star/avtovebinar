@@ -59,7 +59,8 @@ async function handleCallback(update: AdminTelegramUpdate) {
     return;
   }
 
-  const [action, value, registrationId] = callback.data.split(':');
+  const [action, value, explicitRegistrationId] = callback.data.split(':');
+  const registrationId = explicitRegistrationId || (action === 'hot' ? value : undefined);
   if (!registrationId) {
     await answerCallbackQuery(callback.id, 'Не хватает ID регистрации');
     return;

@@ -10,7 +10,7 @@
 - Strict production env guard в backend.
 - Healthchecks `/health/live`, `/health/ready`; dependency status `/health/dependencies`; Prometheus metrics `/metrics`.
 - Cookie-only доступ в вебинарную комнату через `HttpOnly` cookie `aspb_room_token`.
-- Одноразовый exchange-token в письмах/Telegram-ссылках; URL очищается после exchange.
+- Одноразовый room exchange-token в письмах и отдельный одноразовый `telegram_start` token для deep-link бота; URL очищается после exchange.
 - Email outbox: регистрация не падает из-за временной SMTP-ошибки.
 - Durable Telegram broadcast worker с retry/backoff и dead-letter queue.
 - PostgreSQL backup/restore scripts.
@@ -46,7 +46,8 @@ cp .env.production.example .env.production
 - `IP_HASH_SECRET`
 - `METRICS_TOKEN` для `Authorization: Bearer ...` на `/metrics`
 - SMTP-поля
-- Telegram bot tokens и usernames
+- Telegram bot tokens и usernames: `TELEGRAM_ADMIN_BOT_USERNAME`, `TELEGRAM_PARTICIPANT_BOT_USERNAME`, при необходимости `TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME`
+- Видео: `WEBINAR_VIDEO_HLS_URL` для HLS или `WEBINAR_VIDEO_URL` для CDN/MP4; если заданы оба, HLS используется первым
 - `WORKER_ROLE=api` для API container, `WORKER_ROLE=webinar` для worker container
 - `TRUST_PROXY=1`, если API стоит за Nginx/reverse proxy
 
@@ -60,6 +61,8 @@ cp .env.production.example .env.production
 - `DATABASE_URL` содержит pooling параметры `connection_limit` и `pool_timeout`
 - `METRICS_TOKEN` заполнен непубличным значением длиной минимум 16 символов
 - `TRUST_PROXY` включен только за доверенным reverse proxy
+- `/health/dependencies` проходит и Telegram `getMe.username` совпадает с настроенными bot usernames
+- В production нет localhost URL в `WEBINAR_VIDEO_HLS_URL`, `WEBINAR_VIDEO_URL`, `WEBINAR_POSTER_URL`
 
 ## Миграции и seed
 
@@ -112,7 +115,7 @@ curl -H "Authorization: Bearer $METRICS_TOKEN" https://ваш-домен/metrics
 {"service":"aspb-autowebinar","ok":true,"checks":{"database":{"ok":true}}}
 ```
 
-`/health/dependencies` отдельно показывает состояние внешних SMTP/Telegram и не должен использоваться как основной container readiness.
+`/health/dependencies` отдельно показывает состояние внешних SMTP/Telegram, включая mismatch между token и настроенным username бота, и не должен использоваться как основной container readiness.
 
 ## SSL
 
@@ -190,12 +193,14 @@ npm run e2e
 2. Зарегистрировать нового пользователя.
 3. Проверить success page и отсутствие `token` в URL.
 4. Перейти в webinar room.
-5. Проверить, что room/timeline/chat работают через cookie/session.
-6. В live-состоянии проверить DVR: отмотку назад в прошедший буфер, отсутствие доступа к будущему видео и кнопку `К эфиру`.
-7. Отправить вопрос и увидеть его в чате/CRM.
-8. Дождаться/смоделировать завершение эфира и проверить “Вебинар окончен” на видео и открытый чат.
-9. Отправить partner application и увидеть заявку в CRM.
-10. Проверить admin CRM: карточка регистрации, статусы, заметки, заявки, вопросы.
+5. Нажать Telegram-кнопку на success page, выполнить `/start <token>`, повторить ту же ссылку и убедиться, что chatId не перепривязывается.
+6. Проверить, что room/timeline/chat работают через cookie/session.
+7. В live-состоянии проверить DVR: отмотку назад в прошедший буфер, отсутствие доступа к будущему видео и кнопку `К эфиру`.
+8. Проверить видео: HLS играет первым, а при MP4/CDN без HLS браузер получает прямой `WEBINAR_VIDEO_URL`; локальный fallback в production не используется.
+9. Отправить вопрос и увидеть его в чате/CRM.
+10. Дождаться/смоделировать завершение эфира и проверить “Вебинар окончен” на видео и открытый чат.
+11. Отправить partner application и увидеть заявку в CRM.
+12. Проверить admin CRM: карточка регистрации, статусы, заметки, заявки, вопросы.
 
 ## Минимальный production checklist
 
@@ -205,9 +210,14 @@ npm run e2e
 - [ ] `METRICS_TOKEN` задан и сохранен только в secret/env.
 - [ ] `EMAIL_MODE=send`.
 - [ ] SMTP протестирован.
+- [ ] `WEBINAR_VIDEO_HLS_URL` или production `WEBINAR_VIDEO_URL` задан; poster доступен по HTTPS.
 - [ ] Telegram participant bot протестирован.
 - [ ] Telegram admin bot протестирован.
+- [ ] `/health/dependencies` не показывает Telegram username mismatch.
+- [ ] Telegram deep-link `/start` token одноразовый и не работает как room exchange token.
+- [ ] Telegram news scheduler включен только на одном worker role или защищен общей БД; `telegram_news_posts.slot_key` уникален после миграций.
 - [ ] `WEBINAR_TEST_ROOM_MODE=off`.
+- [ ] `npm run prisma:deploy` проходит.
 - [ ] `npm run css:build` проходит.
 - [ ] `npm run lint` проходит.
 - [ ] `npm run build` проходит.

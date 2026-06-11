@@ -100,10 +100,15 @@ export async function hydrateSuccessPage() {
     window.dispatchEvent(new CustomEvent('aspb:registration-state', { detail: data }));
     const roomHref = data.webinarUrl || 'webinar.html';
     state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
-    updateTelegramLinks(data.telegramUrl);
+    updateTelegramLinks(data);
     const telegramLink = document.getElementById('successTelegramLink');
     if (telegramLink) {
-      telegramLink.setAttribute('href', data.telegramBotUrl || data.telegramUrl);
+      const href = data.telegramBotUrl || data.telegramUrl;
+      if (href) {
+        telegramLink.setAttribute('href', href);
+        telegramLink.removeAttribute('aria-disabled');
+        telegramLink.classList.remove('pointer-events-none', 'opacity-70');
+      }
     }
     const roomLink = document.getElementById('successRoomLink') || document.querySelector('a[href*="webinar.html"]');
     if (roomLink) roomLink.setAttribute('href', roomHref);

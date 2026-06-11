@@ -6,6 +6,7 @@ import { createAccessToken, hashToken } from './tokens.js';
 
 export const ROOM_SESSION_TOKEN_PURPOSE = 'room_session';
 export const ROOM_EXCHANGE_TOKEN_PURPOSE = 'registration';
+export const TELEGRAM_START_TOKEN_PURPOSE = 'telegram_start';
 
 type RoomTokenTx = Prisma.TransactionClient;
 
@@ -53,6 +54,25 @@ export async function createRoomExchangeToken(
       registrationId: input.registrationId,
       tokenHash: hashToken(token),
       purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
+      expiresAt: input.expiresAt,
+    },
+  });
+  return token;
+}
+
+export async function createTelegramStartToken(
+  tx: RoomTokenTx,
+  input: {
+    registrationId: string;
+    expiresAt: Date;
+  },
+) {
+  const token = createAccessToken();
+  await tx.registrationToken.create({
+    data: {
+      registrationId: input.registrationId,
+      tokenHash: hashToken(token),
+      purpose: TELEGRAM_START_TOKEN_PURPOSE,
       expiresAt: input.expiresAt,
     },
   });

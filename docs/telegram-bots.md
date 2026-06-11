@@ -8,6 +8,7 @@
 - `src/server.ts` - подключает фоновые задачи: reminders, admin bot, participant bot, consultant bot, news scheduler, broadcast worker.
 - `TELEGRAM_NOTIFY_MODE=log` переводит отправку в лог-режим. Это удобно для dev/test.
 - `TELEGRAM_NOTIFY_MODE=send` реально отправляет сообщения в Telegram.
+- `/health/dependencies` делает `getMe` по каждому настроенному token и падает, если Telegram вернул username, отличный от env username.
 
 ## Бот менеджера
 
@@ -23,6 +24,7 @@
 Env:
 
 - `TELEGRAM_ADMIN_BOT_TOKEN`
+- `TELEGRAM_ADMIN_BOT_USERNAME`
 - `TELEGRAM_ADMIN_CHAT_ID`
 - `TELEGRAM_ADMIN_BOT_POLLING=on`
 
@@ -33,6 +35,8 @@ Env:
 Назначение:
 
 - принимает `/start <token>` после клика по Telegram-кнопке на success-странице;
+- принимает только token с purpose `telegram_start`;
+- атомарно удаляет `telegram_start` token при первой привязке, поэтому пересланная или повторно открытая deep-link ссылка не перепривязывает chatId;
 - привязывает `telegramChatId` к `Lead`;
 - отправляет персональную ссылку в вебинарную комнату;
 - поддерживает `/status`, `/room`, `/help`;
@@ -42,6 +46,7 @@ Env:
 
 - `TELEGRAM_PARTICIPANT_BOT_TOKEN`
 - `TELEGRAM_PARTICIPANT_BOT_USERNAME`
+- `TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME` опционально фиксирует ожидаемый username для конкретного deploy
 - `TELEGRAM_PARTICIPANT_BOT_POLLING=on`
 
 ## Бот-консультант
@@ -63,7 +68,7 @@ Env:
 
 ## Новости и рассылки
 
-- `src/lib/telegramNews.ts` - расписание полезных выпусков по `TELEGRAM_NEWS_TIMES`, выбор RSS/ fallback-темы, отправка всем лидам с `telegramChatId`.
+- `src/lib/telegramNews.ts` - расписание полезных выпусков по `TELEGRAM_NEWS_TIMES`, выбор RSS/ fallback-темы, отправка всем лидам с `telegramChatId`. Scheduler использует in-process single-flight и уникальный `telegram_news_posts.slot_key`, поэтому повторный тик того же slot не делает дубль.
 - `src/lib/telegramBroadcastWorker.ts` - очередь ручных рассылок из админки, retry, dead letter.
 
 ## Как включить нового бота
@@ -72,4 +77,5 @@ Env:
 2. Заполнить env-переменные нужного бота.
 3. Убедиться, что `WORKER_ROLE=webinar` или `WORKER_ROLE=all`.
 4. Поставить polling-флаг нужного бота в `on`.
-5. Проверить `/health/dependencies`: Telegram health-check делает `getMe` для настроенных токенов.
+5. Проверить `/health/dependencies`: Telegram health-check делает `getMe` для настроенных токенов и сверяет `result.username` с env username.
+6. Для participant bot зарегистрировать тестового участника, открыть Telegram deep-link один раз, затем повторить ту же ссылку и убедиться, что привязка не изменилась.

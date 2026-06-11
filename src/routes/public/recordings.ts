@@ -79,6 +79,8 @@ function serializeRecording(recording: RecordingWithSession) {
       durationSeconds,
       poster: recording.posterUrl ?? fallbackVideo.poster,
       fallbackAllowed: fallbackVideo.fallbackAllowed,
+      localFallbackAllowed: fallbackVideo.localFallbackAllowed,
+      externalMp4Allowed: Boolean(recording.videoUrl) || fallbackVideo.externalMp4Allowed,
       expected: Boolean(recording.hlsUrl ?? recording.videoUrl ?? fallbackVideo.hlsSrc ?? fallbackVideo.src),
     },
   };

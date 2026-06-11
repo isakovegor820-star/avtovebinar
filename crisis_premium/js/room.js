@@ -104,11 +104,31 @@ function updatePublicWebinarLabels(scheduledAt, serverTime) {
   });
 }
 
-export function updateTelegramLinks(url) {
-  if (!url) return;
-  document.querySelectorAll('a[href*="t.me"]').forEach(link => {
-    if (link.dataset.telegramBotLink === 'true') return;
-    link.setAttribute('href', url);
+function normalizeTelegramLinks(input) {
+  if (!input) return { group: '', bot: '' };
+  if (typeof input === 'string') return { group: input, bot: '' };
+  return {
+    group: input.telegramUrl || input.group || '',
+    bot: input.telegramBotUrl || input.bot || ''
+  };
+}
+
+export function updateTelegramLinks(input) {
+  const urls = normalizeTelegramLinks(input);
+  document.querySelectorAll('[data-telegram-link], [data-telegram-bot-link="true"], a[href*="t.me"]').forEach(link => {
+    const kind = link.dataset.telegramLink || (link.dataset.telegramBotLink === 'true' ? 'bot' : 'group');
+    const href = kind === 'bot' ? urls.bot || urls.group : urls.group || urls.bot;
+    if (!href) {
+      link.removeAttribute('href');
+      link.setAttribute('aria-disabled', 'true');
+      link.classList.add('pointer-events-none', 'opacity-70');
+      return;
+    }
+    link.setAttribute('href', href);
+    link.setAttribute('target', '_blank');
+    link.setAttribute('rel', 'noreferrer');
+    link.removeAttribute('aria-disabled');
+    link.classList.remove('pointer-events-none', 'opacity-70');
   });
 }
 
@@ -120,7 +140,7 @@ export async function hydrateCurrentWebinar() {
     const scheduledAt = resolveUpcomingWebinarAt(data.scheduledAt || data.webinar?.scheduledAt);
     startCountdown(scheduledAt);
     updatePublicWebinarLabels(scheduledAt, data.serverTime);
-    updateTelegramLinks(data.telegramUrl);
+    updateTelegramLinks(data);
   } catch {
     // Static preview still works without backend.
   }
@@ -292,7 +312,7 @@ export async function hydrateWebinarRoom(onSuccess) {
       };
       document.body.dataset.webinarAccessStatus = data.accessStatus;
 
-      updateTelegramLinks(data.telegramUrl);
+      updateTelegramLinks(data);
       startCountdown(data.webinar.scheduledAt);
       updateRoomStatus({ ...data.webinar, accessStatus: data.accessStatus, replayExpiresAt: data.replayExpiresAt, testMode: data.testMode });
       window.__ASPB_ROOM_READY__ = true;

@@ -258,7 +258,31 @@ function buildNewsMessage(candidate: NewsCandidate, slotLabel: string) {
     .join('\n');
 }
 
+function isUniqueConstraintError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
+
+function normalizeJobError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.length > 500 ? `${message.slice(0, 497)}...` : message;
+}
+
+let telegramNewsJobRunning = false;
+
 export async function runTelegramNewsJobOnce(now = new Date()) {
+  if (telegramNewsJobRunning) {
+    return { skipped: true, reason: 'in_progress' as const };
+  }
+
+  telegramNewsJobRunning = true;
+  try {
+    return await runTelegramNewsJobOnceUnlocked(now);
+  } finally {
+    telegramNewsJobRunning = false;
+  }
+}
+
+async function runTelegramNewsJobOnceUnlocked(now = new Date()) {
   if (env.TELEGRAM_NEWS_BROADCAST !== 'on') {
     return { skipped: true, reason: 'disabled' as const };
   }
@@ -285,9 +309,30 @@ export async function runTelegramNewsJobOnce(now = new Date()) {
   }
 
   const candidate = await pickNewsCandidate(slot.slotKey);
+  let post: { id: string };
+  try {
+    post = await prisma.telegramNewsPost.create({
+      data: {
+        postKey: candidate.postKey,
+        slotKey: slot.slotKey,
+        title: candidate.title,
+        summary: candidate.summary,
+        url: candidate.url,
+        sourceTitle: candidate.sourceTitle,
+        status: 'sending',
+      },
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return { skipped: true, reason: 'already_sent' as const, slotKey: slot.slotKey };
+    }
+    throw error;
+  }
+
   const message = buildNewsMessage(candidate, slot.timeLabel);
   let sent = 0;
   let failed = 0;
+  let lastError: string | null = null;
 
   for (const chatId of chatIds) {
     try {
@@ -295,19 +340,20 @@ export async function runTelegramNewsJobOnce(now = new Date()) {
       sent += 1;
     } catch (error) {
       failed += 1;
+      lastError = normalizeJobError(error);
       logger.error({ err: error }, '[ASPБ telegram news recipient]');
     }
   }
 
-  await prisma.telegramNewsPost.create({
+  const status = failed === 0 ? 'sent' : sent > 0 ? 'partial_failed' : 'failed';
+  await prisma.telegramNewsPost.update({
+    where: { id: post.id },
     data: {
-      postKey: candidate.postKey,
-      slotKey: slot.slotKey,
-      title: candidate.title,
-      summary: candidate.summary,
-      url: candidate.url,
-      sourceTitle: candidate.sourceTitle,
       recipientCount: sent,
+      failedCount: failed,
+      status,
+      lastError,
+      completedAt: new Date(),
     },
   });
 
@@ -321,11 +367,12 @@ export async function runTelegramNewsJobOnce(now = new Date()) {
         postKey: candidate.postKey,
         sent,
         failed,
+        status,
       } as Prisma.InputJsonValue,
     },
   });
 
-  return { skipped: false, slotKey: slot.slotKey, sent, failed };
+  return { skipped: false, slotKey: slot.slotKey, sent, failed, status };
 }
 
 export function startTelegramNewsScheduler() {

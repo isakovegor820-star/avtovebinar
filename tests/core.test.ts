@@ -48,10 +48,12 @@ import {
   getPostWebinarFollowupDueAt,
 } from '../src/lib/reminders.js';
 import { getDueNewsSlot } from '../src/lib/telegramNews.js';
-import { validateProductionSecurity } from '../src/lib/env.js';
+import { env, validateProductionSecurity } from '../src/lib/env.js';
 import { PUBLIC_ANALYTICS_EVENTS } from '../src/lib/events.js';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.js';
 import { eventSchema } from '../src/routes/public/events.js';
+import { getWebinarVideoConfig } from '../src/lib/webinarVideo.js';
+import { checkTelegramConnectivity } from '../src/lib/telegram.js';
 
 describe('webinar time logic', () => {
   it('schedules webinar at 19:00 Moscow on the same Moscow day when the slot has not started', () => {
@@ -247,6 +249,7 @@ describe('security configuration', () => {
       EMAIL_FROM: 'АСПБ <no-reply@example.com>',
       TELEGRAM_GROUP_URL: 'https://t.me/example',
       TELEGRAM_ADMIN_BOT_TOKEN: 'admin-bot-token',
+      TELEGRAM_ADMIN_BOT_USERNAME: 'aspb_admin_bot',
       TELEGRAM_BOT_TOKEN: '',
       TELEGRAM_BOT_USERNAME: '',
       TELEGRAM_ADMIN_CHAT_ID: '123456',
@@ -294,6 +297,7 @@ describe('security configuration', () => {
         EMAIL_FROM: 'АСПБ <no-reply@example.com>',
         TELEGRAM_GROUP_URL: 'https://t.me/example',
         TELEGRAM_ADMIN_BOT_TOKEN: '',
+        TELEGRAM_ADMIN_BOT_USERNAME: '',
         TELEGRAM_BOT_TOKEN: '',
         TELEGRAM_BOT_USERNAME: '',
         TELEGRAM_ADMIN_CHAT_ID: '',
@@ -387,6 +391,18 @@ describe('security configuration', () => {
     expect(validateProductionSecurity(secureProductionConfig()).NODE_ENV).toBe('production');
   });
 
+  it('allows production CDN MP4 without HLS when provider is cdn', () => {
+    expect(
+      validateProductionSecurity(
+        secureProductionConfig({
+          WEBINAR_VIDEO_PROVIDER: 'cdn',
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: 'https://cdn.example.com/webinar/webinar.mp4',
+        }),
+      ).WEBINAR_VIDEO_URL,
+    ).toBe('https://cdn.example.com/webinar/webinar.mp4');
+  });
+
   it('keeps public analytics events on a fixed allowlist', () => {
     expect(PUBLIC_ANALYTICS_EVENTS).toContain('page_view');
     expect(PUBLIC_ANALYTICS_EVENTS).toContain('video_finish');
@@ -421,6 +437,105 @@ describe('security configuration', () => {
         metadata: { error: 'x'.repeat(4097) },
       }),
     ).toThrow(/metadata must be at most/);
+  });
+});
+
+describe('webinar video config', () => {
+  function withVideoEnv<T>(overrides: Partial<typeof env>, task: () => T) {
+    const original = {
+      NODE_ENV: env.NODE_ENV,
+      WEBINAR_VIDEO_URL: env.WEBINAR_VIDEO_URL,
+      WEBINAR_VIDEO_HLS_URL: env.WEBINAR_VIDEO_HLS_URL,
+      WEBINAR_VIDEO_PROVIDER: env.WEBINAR_VIDEO_PROVIDER,
+    };
+    Object.assign(env, overrides);
+    try {
+      return task();
+    } finally {
+      Object.assign(env, original);
+    }
+  }
+
+  it('allows production MP4 URL without HLS when it is explicitly configured', () => {
+    withVideoEnv(
+      {
+        NODE_ENV: 'production',
+        WEBINAR_VIDEO_PROVIDER: 'cdn',
+        WEBINAR_VIDEO_URL: 'https://cdn.example.com/webinar.mp4',
+        WEBINAR_VIDEO_HLS_URL: undefined,
+      },
+      () => {
+        const config = getWebinarVideoConfig();
+        expect(config.src).toBe('https://cdn.example.com/webinar.mp4');
+        expect(config.hlsSrc).toBeNull();
+        expect(config.externalMp4Allowed).toBe(true);
+        expect(config.localFallbackAllowed).toBe(false);
+        expect(config.fallbackAllowed).toBe(false);
+      },
+    );
+  });
+
+  it('keeps the local video fallback disabled in production', () => {
+    withVideoEnv(
+      {
+        NODE_ENV: 'production',
+        WEBINAR_VIDEO_PROVIDER: 'local',
+        WEBINAR_VIDEO_URL: undefined,
+        WEBINAR_VIDEO_HLS_URL: undefined,
+      },
+      () => {
+        const config = getWebinarVideoConfig();
+        expect(config.src).toBeNull();
+        expect(config.externalMp4Allowed).toBe(false);
+        expect(config.localFallbackAllowed).toBe(false);
+      },
+    );
+  });
+});
+
+describe('Telegram health-check', () => {
+  it('fails when the participant token belongs to a different bot username', async () => {
+    const original = {
+      TELEGRAM_NOTIFY_MODE: env.TELEGRAM_NOTIFY_MODE,
+      TELEGRAM_ADMIN_BOT_TOKEN: env.TELEGRAM_ADMIN_BOT_TOKEN,
+      TELEGRAM_ADMIN_BOT_USERNAME: env.TELEGRAM_ADMIN_BOT_USERNAME,
+      TELEGRAM_BOT_TOKEN: env.TELEGRAM_BOT_TOKEN,
+      TELEGRAM_BOT_USERNAME: env.TELEGRAM_BOT_USERNAME,
+      TELEGRAM_PARTICIPANT_BOT_TOKEN: env.TELEGRAM_PARTICIPANT_BOT_TOKEN,
+      TELEGRAM_PARTICIPANT_BOT_USERNAME: env.TELEGRAM_PARTICIPANT_BOT_USERNAME,
+      TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: env.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME,
+      TELEGRAM_CONSULTANT_BOT_TOKEN: env.TELEGRAM_CONSULTANT_BOT_TOKEN,
+    };
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      const username = value.includes('participant-token') ? 'wrong_participant_bot' : 'aspb_admin_bot';
+      return new Response(JSON.stringify({ ok: true, result: { username } }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+    Object.assign(env, {
+      TELEGRAM_NOTIFY_MODE: 'send',
+      TELEGRAM_ADMIN_BOT_TOKEN: 'admin-token',
+      TELEGRAM_ADMIN_BOT_USERNAME: 'aspb_admin_bot',
+      TELEGRAM_BOT_TOKEN: '',
+      TELEGRAM_BOT_USERNAME: '',
+      TELEGRAM_PARTICIPANT_BOT_TOKEN: 'participant-token',
+      TELEGRAM_PARTICIPANT_BOT_USERNAME: 'aspb_participant_bot',
+      TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: undefined,
+      TELEGRAM_CONSULTANT_BOT_TOKEN: '',
+    });
+
+    try {
+      await expect(checkTelegramConnectivity()).rejects.toThrow(
+        /participant bot token returned @wrong_participant_bot, expected @aspb_participant_bot/,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      Object.assign(env, original);
+      vi.unstubAllGlobals();
+    }
   });
 });
 

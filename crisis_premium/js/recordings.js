@@ -255,7 +255,9 @@ async function setVideoSource(video, recording) {
     }
   }
 
-  if (recording.video.src && recording.video.fallbackAllowed) {
+  const localFallbackAllowed = Boolean(recording.video.localFallbackAllowed ?? recording.video.fallbackAllowed);
+  const externalMp4Allowed = Boolean(recording.video.externalMp4Allowed);
+  if (recording.video.src && (externalMp4Allowed || localFallbackAllowed)) {
     video.src = recording.video.src;
     video.load();
     return;

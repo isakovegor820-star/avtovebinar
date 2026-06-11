@@ -7,23 +7,27 @@ export type WebinarVideoConfig = {
   hlsSrc: string | null;
   poster: string | null;
   fallbackAllowed: boolean;
+  localFallbackAllowed: boolean;
+  externalMp4Allowed: boolean;
 };
 
 export function getWebinarVideoConfig(session?: {
   videoUrl?: string | null;
   posterUrl?: string | null;
 }): WebinarVideoConfig {
-  const fallbackAllowed = env.NODE_ENV !== 'production';
+  const localFallbackAllowed = env.NODE_ENV !== 'production';
   const hlsSrc = env.WEBINAR_VIDEO_HLS_URL ?? null;
   const configuredMp4 = env.WEBINAR_VIDEO_URL ?? session?.videoUrl ?? null;
-  const src = hlsSrc ? configuredMp4 : (configuredMp4 ?? (fallbackAllowed ? WEBINAR_VIDEO_PATH : null));
+  const src = configuredMp4 ?? (localFallbackAllowed ? WEBINAR_VIDEO_PATH : null);
 
   return {
     provider: env.WEBINAR_VIDEO_PROVIDER,
-    src: fallbackAllowed ? src : configuredMp4,
+    src,
     hlsSrc,
     poster: env.WEBINAR_POSTER_URL ?? session?.posterUrl ?? null,
-    fallbackAllowed,
+    fallbackAllowed: localFallbackAllowed,
+    localFallbackAllowed,
+    externalMp4Allowed: Boolean(configuredMp4),
   };
 }
 

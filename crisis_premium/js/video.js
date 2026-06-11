@@ -61,7 +61,9 @@ async function initializeVideoSource(video, videoData, fallback) {
   const hlsSrc = videoData && videoData.hlsSrc;
   const mp4Src = videoData && videoData.src;
   const poster = videoData && videoData.poster;
-  const fallbackAllowed = Boolean(videoData && videoData.fallbackAllowed);
+  const localFallbackAllowed = Boolean(videoData && (videoData.localFallbackAllowed ?? videoData.fallbackAllowed));
+  const externalMp4Allowed = Boolean(videoData && videoData.externalMp4Allowed);
+  const mp4Allowed = Boolean(mp4Src && (externalMp4Allowed || localFallbackAllowed));
 
   if (_hlsInstance) {
     _hlsInstance.destroy();
@@ -108,7 +110,7 @@ async function initializeVideoSource(video, videoData, fallback) {
       return;
     } catch (error) {
       console.error('HLS initialization failed:', error);
-      if (!fallbackAllowed || !mp4Src) {
+      if (!mp4Allowed) {
         showVideoFallback(
           fallback,
           'Не удалось запустить HLS-поток вебинара. Проверьте соединение или попробуйте открыть комнату позже.',
@@ -118,7 +120,7 @@ async function initializeVideoSource(video, videoData, fallback) {
     }
   }
 
-  if (mp4Src && fallbackAllowed) {
+  if (mp4Allowed) {
     video.src = mp4Src;
     video.load();
     return;

@@ -9,18 +9,18 @@ import { getWebinarLiveState } from '../../lib/webinarLive.js';
 import { enqueueRegistrationEmail } from '../../lib/emailOutbox.js';
 import { buildTelegramStartUrl, notifyRegistration } from '../../lib/telegram.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
-import { buildTokenizedFrontendUrl, createRoomExchangeToken } from '../../lib/roomLinks.js';
+import { buildTokenizedFrontendUrl, createTelegramStartToken } from '../../lib/roomLinks.js';
 import {
   buildAccessPayload,
   buildFrontendUrl,
   clean,
-  findRegistrationByToken,
   findRegistrationForRequest,
   getFirstSeen,
   getRoomTokenExpiresAt,
   notifySafely,
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
+  TELEGRAM_START_TOKEN_PURPOSE,
   saveEvent,
   setRoomTokenCookie,
 } from './helpers.js';
@@ -55,40 +55,46 @@ const exchangeBodySchema = z.object({
 });
 
 async function exchangeRegistrationToken(token: string, res: Response) {
-  const registration = await findRegistrationByToken(token);
-
-  if (!registration) {
-    throw new AppError(404, 'Registration not found');
-  }
-
   const exchangeTokenHash = hashToken(token);
-  const tokenRecord = await prisma.registrationToken.findUnique({
-    where: { tokenHash: exchangeTokenHash },
-  });
-
-  if (!tokenRecord || tokenRecord.purpose === ROOM_SESSION_TOKEN_PURPOSE) {
-    throw new AppError(404, 'Registration not found');
-  }
-
   const sessionToken = createAccessToken();
   const sessionTokenHash = hashToken(sessionToken);
-  const tokenExpiresAt = tokenRecord.expiresAt ?? getRoomTokenExpiresAt(registration.webinarSession);
+  const { tokenExpiresAt } = await prisma.$transaction(async tx => {
+    const tokenRecord = await tx.registrationToken.findUnique({
+      where: { tokenHash: exchangeTokenHash },
+      include: {
+        registration: {
+          include: {
+            webinarSession: true,
+          },
+        },
+      },
+    });
+    const now = new Date();
+    if (
+      !tokenRecord ||
+      tokenRecord.purpose !== ROOM_EXCHANGE_TOKEN_PURPOSE ||
+      (tokenRecord.expiresAt && tokenRecord.expiresAt <= now)
+    ) {
+      throw new AppError(404, 'Registration not found');
+    }
 
-  await prisma.$transaction(async tx => {
     const claimedToken = await tx.registrationToken.deleteMany({
       where: {
         id: tokenRecord.id,
         tokenHash: exchangeTokenHash,
         purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
       },
     });
     if (claimedToken.count !== 1) {
       throw new AppError(404, 'Registration not found');
     }
 
+    const tokenExpiresAt = tokenRecord.expiresAt ?? getRoomTokenExpiresAt(tokenRecord.registration.webinarSession);
+
     await tx.registrationToken.create({
       data: {
-        registrationId: registration.id,
+        registrationId: tokenRecord.registrationId,
         tokenHash: sessionTokenHash,
         purpose: ROOM_SESSION_TOKEN_PURPOSE,
         expiresAt: tokenExpiresAt,
@@ -96,9 +102,11 @@ async function exchangeRegistrationToken(token: string, res: Response) {
     });
 
     await tx.registration.update({
-      where: { id: registration.id },
+      where: { id: tokenRecord.registrationId },
       data: { accessTokenHash: sessionTokenHash },
     });
+
+    return { tokenExpiresAt };
   });
 
   setRoomTokenCookie(res, sessionToken, tokenExpiresAt);
@@ -132,11 +140,11 @@ registrationRouter.post(
     const email = data.email.toLowerCase();
     const exchangeToken = createAccessToken();
     const partnerExchangeToken = createAccessToken();
-    const telegramExchangeToken = createAccessToken();
+    const telegramStartToken = createAccessToken();
     const sessionToken = createAccessToken();
     const exchangeTokenHash = hashToken(exchangeToken);
     const partnerExchangeTokenHash = hashToken(partnerExchangeToken);
-    const telegramExchangeTokenHash = hashToken(telegramExchangeToken);
+    const telegramStartTokenHash = hashToken(telegramStartToken);
     const sessionTokenHash = hashToken(sessionToken);
     const tokenExpiresAt = getRoomTokenExpiresAt(session);
     const emailWebinarUrl = buildTokenizedFrontendUrl('/crisis_premium/webinar.html', exchangeToken);
@@ -228,8 +236,8 @@ registrationRouter.post(
       await tx.registrationToken.create({
         data: {
           registrationId: registration.id,
-          tokenHash: telegramExchangeTokenHash,
-          purpose: ROOM_EXCHANGE_TOKEN_PURPOSE,
+          tokenHash: telegramStartTokenHash,
+          purpose: TELEGRAM_START_TOKEN_PURPOSE,
           expiresAt: tokenExpiresAt,
         },
       });
@@ -288,7 +296,7 @@ registrationRouter.post(
       successUrl,
       webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
       telegramUrl: env.TELEGRAM_GROUP_URL,
-      telegramBotUrl: buildTelegramStartUrl(telegramExchangeToken),
+      telegramBotUrl: buildTelegramStartUrl(telegramStartToken),
       registration: {
         id: registration.id,
         scheduledAt: session.scheduledAt.toISOString(),
@@ -359,7 +367,7 @@ async function sendRegistrationState(req: Request, res: Response) {
     view === 'success'
       ? buildTelegramStartUrl(
           await prisma.$transaction(tx =>
-            createRoomExchangeToken(tx, {
+            createTelegramStartToken(tx, {
               registrationId: registration.id,
               expiresAt: access.replayExpiresAt,
             }),

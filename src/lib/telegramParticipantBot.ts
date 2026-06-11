@@ -12,7 +12,12 @@ import {
   participantTelegramApiUrl,
   sendTelegramMessageToChat,
 } from './telegram.js';
-import { buildFrontendUrl, createRoomExchangeUrl, getRoomTokenExpiresAt } from './roomLinks.js';
+import {
+  buildFrontendUrl,
+  createRoomExchangeUrl,
+  getRoomTokenExpiresAt,
+  TELEGRAM_START_TOKEN_PURPOSE,
+} from './roomLinks.js';
 import { logger } from './logger.js';
 
 type TelegramUpdate = {
@@ -29,26 +34,68 @@ let nextOffset = 0;
 let polling = false;
 let interval: NodeJS.Timeout | null = null;
 
-async function findRegistrationByToken(token: string) {
+async function consumeTelegramStartToken(
+  token: string,
+  input: {
+    chatId: string;
+    telegramUsername?: string | null;
+    telegramFirstName?: string | null;
+  },
+) {
   const accessTokenHash = hashToken(token);
-  const tokenRecord = await prisma.registrationToken.findUnique({
-    where: { tokenHash: accessTokenHash },
-    include: {
-      registration: {
-        include: { lead: true, webinarSession: true },
+  return prisma.$transaction(async tx => {
+    const tokenRecord = await tx.registrationToken.findUnique({
+      where: { tokenHash: accessTokenHash },
+      include: {
+        registration: {
+          include: { lead: true, webinarSession: true },
+        },
       },
-    },
+    });
+    const now = new Date();
+
+    if (
+      !tokenRecord ||
+      tokenRecord.purpose !== TELEGRAM_START_TOKEN_PURPOSE ||
+      (tokenRecord.expiresAt && tokenRecord.expiresAt <= now)
+    ) {
+      return null;
+    }
+
+    const claimedToken = await tx.registrationToken.deleteMany({
+      where: {
+        id: tokenRecord.id,
+        tokenHash: accessTokenHash,
+        purpose: TELEGRAM_START_TOKEN_PURPOSE,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+    });
+    if (claimedToken.count !== 1) {
+      return null;
+    }
+
+    const previousChatId = tokenRecord.registration.lead.telegramChatId;
+    const updatedLead = await tx.lead.update({
+      where: { id: tokenRecord.registration.leadId },
+      data: {
+        telegramChatId: input.chatId,
+        telegramUsername: input.telegramUsername,
+        telegramFirstName: input.telegramFirstName,
+        telegramSubscribedAt: now,
+      },
+    });
+
+    await tx.registration.update({
+      where: { id: tokenRecord.registration.id },
+      data: { telegramClickedAt: tokenRecord.registration.telegramClickedAt ?? now },
+    });
+
+    return {
+      registration: tokenRecord.registration,
+      updatedLead,
+      isRebind: Boolean(previousChatId && previousChatId !== input.chatId),
+    };
   });
-
-  if (!tokenRecord) {
-    return null;
-  }
-
-  if (tokenRecord.expiresAt && tokenRecord.expiresAt < new Date()) {
-    return null;
-  }
-
-  return tokenRecord.registration;
 }
 
 async function createRoomUrl(registrationId: string, purpose = 'telegram_room') {
@@ -235,8 +282,12 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
     return;
   }
 
-  const registration = await findRegistrationByToken(payload);
-  if (!registration) {
+  const claimedStart = await consumeTelegramStartToken(payload, {
+    chatId,
+    telegramUsername,
+    telegramFirstName,
+  });
+  if (!claimedStart) {
     await sendTelegramMessageToChat(
       chatId,
       [
@@ -248,23 +299,7 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
     return;
   }
 
-  const previousChatId = registration.lead.telegramChatId;
-  const isRebind = Boolean(previousChatId && previousChatId !== chatId);
-
-  const updatedLead = await prisma.lead.update({
-    where: { id: registration.leadId },
-    data: {
-      telegramChatId: chatId,
-      telegramUsername,
-      telegramFirstName,
-      telegramSubscribedAt: new Date(),
-    },
-  });
-
-  await prisma.registration.update({
-    where: { id: registration.id },
-    data: { telegramClickedAt: registration.telegramClickedAt ?? new Date() },
-  });
+  const { registration, updatedLead, isRebind } = claimedStart;
 
   await saveBotEvent({
     eventName: 'telegram_subscribe',
@@ -461,4 +496,4 @@ export function stopParticipantTelegramBot() {
   }
 }
 
-export { buildTelegramStartUrl };
+export { buildTelegramStartUrl, handleUpdate as handleParticipantTelegramUpdate };

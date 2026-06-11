@@ -15,6 +15,12 @@ type TelegramApiPayload = {
   };
 };
 
+type TelegramGetMePayload = TelegramApiPayload & {
+  result?: {
+    username?: string;
+  };
+};
+
 type NotifyRegistrationInput = {
   name: string;
   phone: string;
@@ -88,6 +94,20 @@ function participantBotToken() {
 
 function consultantBotToken() {
   return env.TELEGRAM_CONSULTANT_BOT_TOKEN;
+}
+
+function adminBotUsername() {
+  return env.TELEGRAM_ADMIN_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME;
+}
+
+function participantBotUsername() {
+  return (
+    env.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME || env.TELEGRAM_PARTICIPANT_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME
+  );
+}
+
+function consultantBotUsername() {
+  return env.TELEGRAM_CONSULTANT_BOT_USERNAME;
 }
 
 function shouldLogAdminTelegram() {
@@ -291,9 +311,9 @@ export async function sendConsultantTelegramMessageToChat(chatId: string, text: 
 }
 
 export function buildTelegramStartUrl(token?: string) {
-  const username = (env.TELEGRAM_PARTICIPANT_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME || '').trim();
+  const username = (participantBotUsername() || '').trim();
   if (!username) {
-    return env.TELEGRAM_GROUP_URL;
+    return undefined;
   }
 
   const url = new URL(`https://t.me/${username.replace(/^@/, '')}`);
@@ -459,6 +479,22 @@ export async function getTelegramBotInfo() {
   return response.json();
 }
 
+function normalizeTelegramUsername(value?: string | null) {
+  return value?.trim().replace(/^@/, '').toLowerCase() || '';
+}
+
+function assertTelegramUsernameMatches(kind: string, actual?: string, expected?: string) {
+  const normalizedExpected = normalizeTelegramUsername(expected);
+  if (!normalizedExpected) return;
+
+  const normalizedActual = normalizeTelegramUsername(actual);
+  if (normalizedActual !== normalizedExpected) {
+    throw new Error(
+      `Telegram ${kind} username mismatch: ${kind} token returned @${normalizedActual || 'unknown'}, expected @${normalizedExpected}`,
+    );
+  }
+}
+
 function getTelegramRetryAfterMs(error: unknown) {
   if (!(error instanceof Error)) {
     return null;
@@ -473,24 +509,44 @@ export async function checkTelegramConnectivity() {
     return { ok: true, mode: 'log' as const };
   }
 
-  const checks: Array<Promise<unknown>> = [];
+  const checks: Array<{
+    kind: 'admin bot' | 'participant bot' | 'consultant bot';
+    expectedUsername?: string;
+    request: Promise<Response>;
+  }> = [];
   if (hasAdminTelegramBot()) {
-    checks.push(withCircuitBreaker('telegram.admin', () => fetch(telegramApiUrl('getMe'))));
+    checks.push({
+      kind: 'admin bot',
+      expectedUsername: adminBotUsername(),
+      request: withCircuitBreaker('telegram.admin', () => fetch(telegramApiUrl('getMe'))),
+    });
   }
   if (hasParticipantTelegramBot()) {
-    checks.push(withCircuitBreaker('telegram.participant', () => fetch(participantTelegramApiUrl('getMe'))));
+    checks.push({
+      kind: 'participant bot',
+      expectedUsername: participantBotUsername(),
+      request: withCircuitBreaker('telegram.participant', () => fetch(participantTelegramApiUrl('getMe'))),
+    });
   }
   if (hasConsultantTelegramBot()) {
-    checks.push(withCircuitBreaker('telegram.consultant', () => fetch(consultantTelegramApiUrl('getMe'))));
+    checks.push({
+      kind: 'consultant bot',
+      expectedUsername: consultantBotUsername(),
+      request: withCircuitBreaker('telegram.consultant', () => fetch(consultantTelegramApiUrl('getMe'))),
+    });
   }
 
-  const responses = await Promise.all(checks);
-  for (const response of responses) {
-    const payload = (await (response as Response).json()) as TelegramApiPayload;
+  const responses = await Promise.all(checks.map(check => check.request));
+  const bots: Record<string, { username: string | null }> = {};
+  for (const [index, response] of responses.entries()) {
+    const check = checks[index];
+    const payload = (await response.json()) as TelegramGetMePayload;
     if (!payload.ok) {
       throw new Error(payload.description || 'Telegram getMe failed');
     }
+    assertTelegramUsernameMatches(check.kind, payload.result?.username, check.expectedUsername);
+    bots[check.kind.replace(' bot', '')] = { username: payload.result?.username ?? null };
   }
 
-  return { ok: true, mode: 'send' as const };
+  return { ok: true, mode: 'send' as const, bots };
 }

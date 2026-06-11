@@ -24,10 +24,17 @@ import {
   getRoomTokenExpiresAt,
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
+  TELEGRAM_START_TOKEN_PURPOSE,
 } from '../../lib/roomLinks.js';
 import { logger } from '../../lib/logger.js';
 
-export { buildFrontendUrl, getRoomTokenExpiresAt, ROOM_EXCHANGE_TOKEN_PURPOSE, ROOM_SESSION_TOKEN_PURPOSE };
+export {
+  buildFrontendUrl,
+  getRoomTokenExpiresAt,
+  ROOM_EXCHANGE_TOKEN_PURPOSE,
+  ROOM_SESSION_TOKEN_PURPOSE,
+  TELEGRAM_START_TOKEN_PURPOSE,
+};
 
 export function roomAccessError(accessStatus: string) {
   if (accessStatus === 'waiting' || accessStatus === 'pre_live') {

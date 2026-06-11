@@ -4,6 +4,8 @@
 
 import { API } from './state.js';
 
+let csrfTokenFromApi = '';
+
 function readCookie(name) {
   const prefix = `${name}=`;
   const item = document.cookie
@@ -13,16 +15,29 @@ function readCookie(name) {
   return item ? decodeURIComponent(item.slice(prefix.length)) : '';
 }
 
-export function csrfHeaders() {
-  const token = readCookie('aspb_csrf_token');
+async function getCsrfToken() {
+  const cookieToken = readCookie('aspb_csrf_token');
+  if (cookieToken) return cookieToken;
+  if (csrfTokenFromApi) return csrfTokenFromApi;
+
+  const response = await fetch(`${API}/csrf`, { credentials: 'include' });
+  if (!response.ok) return '';
+
+  const payload = await response.json().catch(() => ({}));
+  csrfTokenFromApi = typeof payload.csrfToken === 'string' ? payload.csrfToken : '';
+  return csrfTokenFromApi;
+}
+
+export async function csrfHeaders() {
+  const token = await getCsrfToken();
   return token ? { 'x-csrf-token': token } : {};
 }
 
 export async function post(path, body) {
   const response = await fetch(`${API}${path}`, {
     method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
     body: JSON.stringify(body)
   });
 

@@ -140,6 +140,8 @@ async function sendTimeline(req: Request, res: Response) {
       durationSeconds: access.webinarSession.videoDurationSeconds,
       poster: videoConfig.poster,
       fallbackAllowed: videoConfig.fallbackAllowed,
+      localFallbackAllowed: videoConfig.localFallbackAllowed,
+      externalMp4Allowed: videoConfig.externalMp4Allowed,
       expected: Boolean(videoConfig.hlsSrc || videoConfig.src),
     },
     timeline,

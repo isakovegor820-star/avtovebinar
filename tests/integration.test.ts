@@ -13,6 +13,8 @@ import { hashPassword } from '../src/lib/passwords.js';
 import { createAccessToken, hashToken } from '../src/lib/tokens.js';
 import { runEmailOutboxJobOnce } from '../src/lib/emailOutbox.js';
 import { runReplayFollowupJobOnce } from '../src/lib/reminders.js';
+import { handleParticipantTelegramUpdate } from '../src/lib/telegramParticipantBot.js';
+import { runTelegramNewsJobOnce } from '../src/lib/telegramNews.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -58,9 +60,17 @@ beforeAll(async () => {
 }, 30_000);
 
 beforeEach(async () => {
+  Object.assign(env, {
+    TELEGRAM_NOTIFY_MODE: 'log',
+    TELEGRAM_ADMIN_BOT_TOKEN: '',
+    TELEGRAM_BOT_TOKEN: '',
+    TELEGRAM_PARTICIPANT_BOT_TOKEN: '',
+    TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: undefined,
+    TELEGRAM_CONSULTANT_BOT_TOKEN: '',
+  });
   // Truncate tables to guarantee absolute test isolation
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, telegram_broadcast_jobs, telegram_broadcast_dead_letters, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, telegram_broadcast_jobs, telegram_broadcast_dead_letters, telegram_news_posts, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages CASCADE;',
   );
 });
 
@@ -153,7 +163,7 @@ describe('critical path integration scenarios', () => {
     const accessTokenCount = await prisma.registrationToken.count({
       where: { registrationId: registrationsAfterRepeat[0].id },
     });
-    expect(accessTokenCount).toBeGreaterThanOrEqual(3);
+    expect(accessTokenCount).toBeGreaterThanOrEqual(4);
 
     const tokenPurposes = await prisma.registrationToken.findMany({
       where: { registrationId: registrationsAfterRepeat[0].id },
@@ -162,6 +172,7 @@ describe('critical path integration scenarios', () => {
     });
     expect(tokenPurposes.filter(item => item.purpose === 'room_session').length).toBe(1);
     expect(tokenPurposes.filter(item => item.purpose === 'registration').length).toBeGreaterThanOrEqual(2);
+    expect(tokenPurposes.filter(item => item.purpose === 'telegram_start').length).toBe(1);
 
     const activeConfirmationJobsAfterRepeat = await prisma.emailOutboxJob.findMany({
       where: {
@@ -392,6 +403,115 @@ describe('critical path integration scenarios', () => {
     expect(auditLogs.length).toBe(1);
     expect(auditLogs[0].action).toBe('registration.crm_status.update');
     expect(auditLogs[0].adminUserId).toBe(admin.id);
+  });
+
+  it('uses Telegram start tokens once and keeps them isolated from room exchange', async () => {
+    const originalTelegramEnv = {
+      TELEGRAM_NOTIFY_MODE: env.TELEGRAM_NOTIFY_MODE,
+      TELEGRAM_PARTICIPANT_BOT_USERNAME: env.TELEGRAM_PARTICIPANT_BOT_USERNAME,
+      TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: env.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME,
+    };
+    Object.assign(env, {
+      TELEGRAM_NOTIFY_MODE: 'log',
+      TELEGRAM_PARTICIPANT_BOT_USERNAME: 'aspb_participant_bot',
+      TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: undefined,
+    });
+
+    try {
+      const agent = request.agent(app);
+      const csrfToken = await getCsrfToken(agent);
+      const registerResponse = await agent.post('/api/register').set('x-csrf-token', csrfToken).send({
+        name: 'Telegram Token',
+        phone: '+79990004455',
+        email: 'telegram-token@aspb.ru',
+        city: 'Москва',
+        professionalStatus: 'Юрист',
+        consent: true,
+      });
+
+      expect(registerResponse.status).toBe(201);
+      expect(registerResponse.body.telegramBotUrl).toContain('https://t.me/aspb_participant_bot?start=');
+      const telegramStartToken = new URL(registerResponse.body.telegramBotUrl).searchParams.get('start');
+      expect(telegramStartToken).toEqual(expect.any(String));
+      if (!telegramStartToken) throw new Error('Expected Telegram start token');
+
+      const registrationId = registerResponse.body.registration.id as string;
+      const telegramTokenRecord = await prisma.registrationToken.findUnique({
+        where: { tokenHash: hashToken(telegramStartToken) },
+      });
+      expect(telegramTokenRecord?.purpose).toBe('telegram_start');
+
+      const exchangeAgent = request.agent(app);
+      const exchangeCsrfToken = await getCsrfToken(exchangeAgent);
+      const exchangeResponse = await exchangeAgent
+        .post('/api/registration/exchange')
+        .set('x-csrf-token', exchangeCsrfToken)
+        .send({ token: telegramStartToken });
+      expect(exchangeResponse.status).toBe(404);
+
+      await handleParticipantTelegramUpdate({
+        update_id: 1,
+        message: {
+          message_id: 1,
+          text: `/start ${telegramStartToken}`,
+          chat: { id: 111, type: 'private' },
+          from: { id: 1001, username: 'first_user', first_name: 'First' },
+        },
+      });
+
+      const leadAfterStart = await prisma.lead.findUniqueOrThrow({ where: { email: 'telegram-token@aspb.ru' } });
+      expect(leadAfterStart.telegramChatId).toBe('111');
+      expect(leadAfterStart.telegramUsername).toBe('first_user');
+      await expect(
+        prisma.registrationToken.findUnique({ where: { tokenHash: hashToken(telegramStartToken) } }),
+      ).resolves.toBeNull();
+
+      await handleParticipantTelegramUpdate({
+        update_id: 2,
+        message: {
+          message_id: 2,
+          text: `/start ${telegramStartToken}`,
+          chat: { id: 222, type: 'private' },
+          from: { id: 1002, username: 'second_user', first_name: 'Second' },
+        },
+      });
+
+      const leadAfterReplay = await prisma.lead.findUniqueOrThrow({ where: { email: 'telegram-token@aspb.ru' } });
+      expect(leadAfterReplay.telegramChatId).toBe('111');
+      expect(leadAfterReplay.telegramUsername).toBe('first_user');
+
+      const wrongPurposeToken = createAccessToken();
+      await prisma.registrationToken.create({
+        data: {
+          registrationId,
+          tokenHash: hashToken(wrongPurposeToken),
+          purpose: 'registration',
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        },
+      });
+
+      await handleParticipantTelegramUpdate({
+        update_id: 3,
+        message: {
+          message_id: 3,
+          text: `/start ${wrongPurposeToken}`,
+          chat: { id: 333, type: 'private' },
+          from: { id: 1003, username: 'wrong_purpose', first_name: 'Wrong' },
+        },
+      });
+
+      const leadAfterWrongPurpose = await prisma.lead.findUniqueOrThrow({
+        where: { email: 'telegram-token@aspb.ru' },
+      });
+      expect(leadAfterWrongPurpose.telegramChatId).toBe('111');
+      expect(leadAfterWrongPurpose.telegramUsername).toBe('first_user');
+      const wrongPurposeRecord = await prisma.registrationToken.findUnique({
+        where: { tokenHash: hashToken(wrongPurposeToken) },
+      });
+      expect(wrongPurposeRecord?.purpose).toBe('registration');
+    } finally {
+      Object.assign(env, originalTelegramEnv);
+    }
   });
 
   it('scopes admin registration PII by role', async () => {
@@ -1335,6 +1455,52 @@ describe('critical path integration scenarios', () => {
     const statusResponse = await adminAgent.get('/api/admin/telegram/broadcast/current');
     expect(statusResponse.status).toBe(200);
     expect(statusResponse.body.job.id).toBe(response.body.jobId);
+  });
+
+  it('does not duplicate Telegram news broadcasts for concurrent or repeated ticks', async () => {
+    const originalNewsEnv = {
+      TELEGRAM_NOTIFY_MODE: env.TELEGRAM_NOTIFY_MODE,
+      TELEGRAM_NEWS_BROADCAST: env.TELEGRAM_NEWS_BROADCAST,
+      TELEGRAM_NEWS_TIMES: env.TELEGRAM_NEWS_TIMES,
+      TELEGRAM_NEWS_RSS_URLS: env.TELEGRAM_NEWS_RSS_URLS,
+    };
+    Object.assign(env, {
+      TELEGRAM_NOTIFY_MODE: 'log',
+      TELEGRAM_NEWS_BROADCAST: 'on',
+      TELEGRAM_NEWS_TIMES: '09:00',
+      TELEGRAM_NEWS_RSS_URLS: '',
+    });
+
+    try {
+      await prisma.lead.create({
+        data: {
+          name: 'News Subscriber',
+          phone: '+79990009988',
+          email: 'news-subscriber@aspb.ru',
+          consent: true,
+          telegramChatId: '555001',
+        },
+      });
+
+      const now = new Date('2026-05-22T06:30:00.000Z');
+      const results = await Promise.all([runTelegramNewsJobOnce(now), runTelegramNewsJobOnce(now)]);
+      expect(results.filter(result => !result.skipped).length).toBe(1);
+      expect(results.filter(result => result.skipped).length).toBe(1);
+
+      const posts = await prisma.telegramNewsPost.findMany({ where: { slotKey: '2026-05-22:09:00' } });
+      expect(posts).toHaveLength(1);
+      expect(posts[0]).toMatchObject({
+        status: 'sent',
+        recipientCount: 1,
+        failedCount: 0,
+      });
+
+      const repeat = await runTelegramNewsJobOnce(now);
+      expect(repeat).toMatchObject({ skipped: true, reason: 'already_sent', slotKey: '2026-05-22:09:00' });
+      await expect(prisma.telegramNewsPost.count({ where: { slotKey: '2026-05-22:09:00' } })).resolves.toBe(1);
+    } finally {
+      Object.assign(env, originalNewsEnv);
+    }
   });
 
   it('exposes operations health, metrics and csrf error codes', async () => {

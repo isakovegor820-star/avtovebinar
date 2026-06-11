@@ -4,6 +4,20 @@ import { z } from 'zod';
 
 const optionalUrl = z.preprocess(value => (value === '' ? undefined : value), z.string().url().optional());
 const optionalEmail = z.preprocess(value => (value === '' ? undefined : value), z.string().email().optional());
+const optionalTelegramUsername = z.preprocess(
+  value => {
+    if (value === '') return undefined;
+    if (typeof value !== 'string') return value;
+    return value.trim().replace(/^@/, '');
+  },
+  z
+    .string()
+    .regex(
+      /^[a-zA-Z0-9_]{5,32}$/,
+      'Telegram username must be 5-32 chars and contain only latin letters, digits, or underscores',
+    )
+    .optional(),
+);
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']),
@@ -24,17 +38,19 @@ const envSchema = z.object({
   EMAIL_REPLY_TO: optionalEmail,
   TELEGRAM_GROUP_URL: z.string().url(),
   TELEGRAM_ADMIN_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_ADMIN_BOT_USERNAME: optionalTelegramUsername,
   TELEGRAM_BOT_TOKEN: z.string().optional(),
-  TELEGRAM_BOT_USERNAME: z.string().optional(),
+  TELEGRAM_BOT_USERNAME: optionalTelegramUsername,
   TELEGRAM_ADMIN_CHAT_ID: z.string().optional(),
   TELEGRAM_ADMIN_BOT_POLLING: z.enum(['on', 'off']),
   TELEGRAM_NOTIFY_MODE: z.enum(['send', 'log']),
   TELEGRAM_BOT_POLLING: z.enum(['on', 'off']),
   TELEGRAM_PARTICIPANT_BOT_TOKEN: z.string().optional(),
-  TELEGRAM_PARTICIPANT_BOT_USERNAME: z.string().optional(),
+  TELEGRAM_PARTICIPANT_BOT_USERNAME: optionalTelegramUsername,
+  TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: optionalTelegramUsername,
   TELEGRAM_PARTICIPANT_BOT_POLLING: z.enum(['on', 'off']),
   TELEGRAM_CONSULTANT_BOT_TOKEN: z.string().optional(),
-  TELEGRAM_CONSULTANT_BOT_USERNAME: z.string().optional(),
+  TELEGRAM_CONSULTANT_BOT_USERNAME: optionalTelegramUsername,
   TELEGRAM_CONSULTANT_BOT_POLLING: z.enum(['on', 'off']),
   TELEGRAM_NEWS_BROADCAST: z.enum(['on', 'off']),
   TELEGRAM_NEWS_TIMES: z.string().min(1),
@@ -123,10 +139,12 @@ export function validateProductionSecurity(config: EnvConfig) {
     config.TELEGRAM_NOTIFY_MODE === 'send' || config.TELEGRAM_PARTICIPANT_BOT_POLLING === 'on';
   if (
     needsTelegramAdmin &&
-    (!(config.TELEGRAM_ADMIN_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) || !config.TELEGRAM_ADMIN_CHAT_ID)
+    (!(config.TELEGRAM_ADMIN_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
+      !(config.TELEGRAM_ADMIN_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME) ||
+      !config.TELEGRAM_ADMIN_CHAT_ID)
   ) {
     errors.push(
-      'TELEGRAM_ADMIN_BOT_TOKEN or TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_CHAT_ID are required when Telegram admin notifications are enabled',
+      'TELEGRAM_ADMIN_BOT_TOKEN or TELEGRAM_BOT_TOKEN, admin bot username and TELEGRAM_ADMIN_CHAT_ID are required when Telegram admin notifications are enabled',
     );
   }
   if (
@@ -136,6 +154,16 @@ export function validateProductionSecurity(config: EnvConfig) {
   ) {
     errors.push(
       'TELEGRAM_PARTICIPANT_BOT_TOKEN or TELEGRAM_BOT_TOKEN and participant bot username are required when participant Telegram features are enabled',
+    );
+  }
+  const participantBotUsername = config.TELEGRAM_PARTICIPANT_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME;
+  if (
+    needsTelegramParticipant &&
+    config.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME &&
+    participantBotUsername !== config.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME
+  ) {
+    errors.push(
+      `TELEGRAM_PARTICIPANT_BOT_USERNAME must be ${config.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME} for this deployment`,
     );
   }
   if (config.WEBINAR_TEST_ROOM_MODE === 'on') {
@@ -198,8 +226,10 @@ function runtimeEnv() {
     EMAIL_REPLY_TO: process.env.EMAIL_REPLY_TO,
     TELEGRAM_GROUP_URL: process.env.TELEGRAM_GROUP_URL ?? 'https://t.me/example',
     TELEGRAM_ADMIN_BOT_POLLING: process.env.TELEGRAM_ADMIN_BOT_POLLING ?? 'off',
+    TELEGRAM_ADMIN_BOT_USERNAME: process.env.TELEGRAM_ADMIN_BOT_USERNAME,
     TELEGRAM_NOTIFY_MODE: process.env.TELEGRAM_NOTIFY_MODE ?? 'log',
     TELEGRAM_BOT_POLLING: process.env.TELEGRAM_BOT_POLLING ?? 'off',
+    TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: process.env.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME,
     TELEGRAM_PARTICIPANT_BOT_POLLING: process.env.TELEGRAM_PARTICIPANT_BOT_POLLING ?? 'off',
     TELEGRAM_CONSULTANT_BOT_POLLING: process.env.TELEGRAM_CONSULTANT_BOT_POLLING ?? 'off',
     TELEGRAM_NEWS_BROADCAST: process.env.TELEGRAM_NEWS_BROADCAST ?? 'off',

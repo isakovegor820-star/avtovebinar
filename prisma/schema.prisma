@@ -383,18 +383,22 @@ model WebinarTimelineEvent {
 }
 
 model TelegramNewsPost {
-  id             String   @id @default(cuid())
-  postKey        String   @unique @map("post_key")
-  slotKey        String   @map("slot_key")
+  id             String    @id @default(cuid())
+  postKey        String    @unique @map("post_key")
+  slotKey        String    @map("slot_key")
   title          String
   summary        String?
   url            String?
-  sourceTitle    String?  @map("source_title")
-  recipientCount Int      @default(0) @map("recipient_count")
-  sentAt         DateTime @default(now()) @map("sent_at")
-  createdAt      DateTime @default(now()) @map("created_at")
+  sourceTitle    String?   @map("source_title")
+  status         String    @default("sending")
+  recipientCount Int       @default(0) @map("recipient_count")
+  failedCount    Int       @default(0) @map("failed_count")
+  lastError      String?   @map("last_error")
+  sentAt         DateTime  @default(now()) @map("sent_at")
+  completedAt    DateTime? @map("completed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
-  @@index([slotKey])
+  @@unique([slotKey])
   @@index([sentAt])
   @@map("telegram_news_posts")
 }

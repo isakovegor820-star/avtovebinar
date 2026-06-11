@@ -16,15 +16,7 @@
   header a.bg-primary{background:#041627!important;color:#fff!important;box-shadow:0 10px 24px rgba(4,22,39,.12)}
   header a.bg-primary:hover{background:#103355!important;color:#fff!important}
   .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 500,'GRAD' 0,'opsz' 24;vertical-align:middle}
-  .recordings-page .flow-tabs{position:relative;top:auto;z-index:2;width:fit-content;max-width:calc(100vw - 56px);margin:0 0 18px;background:rgba(255,255,255,.9);border:1px solid rgba(41,102,163,.12);border-radius:22px;box-shadow:0 16px 42px rgba(41,102,163,.08)}
-  .recordings-page .flow-tabs__inner{width:auto;padding:6px}
-  .recordings-page .flow-tabs__list{background:#fff;border-color:rgba(41,102,163,.16);border-radius:18px}
-  .recordings-page .flow-tabs__label,.recordings-page .flow-tabs__tab{color:#4e5b69}
-  .recordings-page .flow-tabs__tab{border-radius:14px}
-  .recordings-page .flow-tabs__tab:hover:not([aria-current="page"]){background:#eef6ff;color:#041627}
-  .recordings-page .flow-tabs__tab[aria-current="page"]{background:#041627;color:#fff;box-shadow:0 7px 14px rgba(4,22,39,.18)}
-  .recordings-page .flow-tabs__hint{background:#eef6ff;border-color:rgba(41,102,163,.16);color:#2966a3}
-  .recordings-shell{box-sizing:border-box;width:100%;max-width:1840px;margin:0 auto;padding:92px 28px 28px;position:relative}
+  .recordings-shell{box-sizing:border-box;width:100%;max-width:1840px;margin:0 auto;padding:44px 28px 28px;position:relative}
   .recordings-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:22px;align-items:end;margin:0 0 14px}
   .recordings-header h1{font-size:52px;line-height:.98;font-weight:800;color:#041627;margin:0;letter-spacing:0;text-wrap:balance}
   .recordings-header p{margin:12px 0 0;max-width:760px;color:#4e5b69;font-size:17px;line-height:1.5}
@@ -50,7 +42,7 @@
   .recording-controls button:active{transform:scale(.96)}
   .recording-controls input[type=range]{width:100%;min-height:46px;accent-color:#2966a3}
   .recording-time{font-size:13px;font-weight:800;color:#4e5b69;white-space:nowrap}
-  .recordings-playlist-panel{grid-column:2;grid-row:1;padding:18px;position:sticky;top:92px;min-height:0;max-height:calc(100vh - 114px);overflow:hidden;background:rgba(255,255,255,.96)}
+  .recordings-playlist-panel{grid-column:2;grid-row:1;padding:18px;position:sticky;top:132px;min-height:0;max-height:calc(100vh - 154px);overflow:hidden;background:rgba(255,255,255,.96)}
   .playlist-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 14px;padding-bottom:12px;border-bottom:1px solid rgba(41,102,163,.12)}
   .playlist-heading h2{margin:0;color:#041627;font-size:22px;font-weight:800}
   .playlist-heading span{color:#5b6774;font-size:13px;font-weight:800}
@@ -84,7 +76,7 @@
   @keyframes playPulse{0%,100%{box-shadow:0 0 0 10px rgba(255,255,255,.08)}50%{box-shadow:0 0 0 18px rgba(255,255,255,.03)}}
   @media (prefers-reduced-motion: reduce){
     .recordings-access-gate{animation:none}
-    .recordings-access-actions .recordings-primary-link,.recording-overlay-button span,.recording-controls button,.recording-item,.recording-watch-button,.recordings-primary-link,.recordings-page .flow-tabs__tab{transition:none;animation:none}
+    .recordings-access-actions .recordings-primary-link,.recording-overlay-button span,.recording-controls button,.recording-item,.recording-watch-button,.recordings-primary-link{transition:none;animation:none}
   }
   @media (min-width: 1500px){
     .recordings-layout{grid-template-columns:minmax(0,1fr) 420px}
@@ -92,7 +84,7 @@
     .recording-item__poster{width:142px}
   }
   @media (max-width: 980px){
-    .recordings-shell{padding:92px 16px 34px}
+    .recordings-shell{padding:34px 16px 34px}
     .recordings-header{align-items:flex-start;flex-direction:column}
     .recordings-header{display:flex}
     .recordings-header h1{font-size:40px}
@@ -117,7 +109,7 @@
 </style>
 </head>
 <body class="recordings-page">
-<header class="fixed top-0 left-0 w-full z-50 bg-background/90 backdrop-blur-md shadow-sm">
+<header class="sticky top-0 w-full z-50 bg-background/90 backdrop-blur-md shadow-sm">
 <div class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
 <a class="flex flex-col leading-tight shrink-0" href="index.html">
 <span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
@@ -126,8 +118,8 @@
 <a class="bg-primary text-on-primary px-6 py-2.5 rounded-full text-label-md font-label-md hover:opacity-90 active:scale-95 transition-all" href="success.html">Мой доступ</a>
 </div>
 </header>
-<main class="recordings-shell">
 <div data-current="recordings" data-flow-tabs></div>
+<main class="recordings-shell">
 <section class="recordings-header" aria-labelledby="recordingsPageTitle">
 <div>
 <h1 id="recordingsPageTitle">Записи вебинаров</h1>

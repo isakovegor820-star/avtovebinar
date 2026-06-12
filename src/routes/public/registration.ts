@@ -99,6 +99,10 @@ async function exchangeRegistrationToken(
       throw new AppError(404, 'Registration not found');
     }
 
+    // ВАЖНО (защита от double-spend): это compare-and-swap. deleteMany с условием
+    // по tokenHash атомарно «забирает» токен — две параллельные транзакции под
+    // READ COMMITTED не смогут удалить одну строку дважды (вторая получит count=0).
+    // НЕ заменять на update/findUnique+delete: это откроет гонку двойной траты.
     const claimedToken = await tx.registrationToken.deleteMany({
       where: {
         id: tokenRecord.id,

@@ -58,9 +58,8 @@ function buildSuccessIntro(data) {
   }
   const day = formatMoscowWebinarDay(scheduledAt, data.serverTime);
   const time = formatMoscowWebinarTime(scheduledAt);
-  const dateLabel = day === 'сегодня' || day === 'завтра'
-    ? `${capitalizeFirst(day)} в ${time} МСК`
-    : `${capitalizeFirst(day)} в ${time} МСК`;
+  // Обе ветки тернарника были идентичны — схлопнуто без изменения вывода.
+  const dateLabel = `${capitalizeFirst(day)} в ${time} МСК`;
 
   return `${dateLabel} покажем готовую цепочку АСПБ: вы видите проблему и передаете клиента, команда ведет процедуру, вы получаете партнерское вознаграждение. Подключите Telegram-напоминания, чтобы получить ссылку на эфир и новости перед стартом.`;
 }
@@ -78,7 +77,7 @@ function bindSuccessCalendar(data) {
     const description = [
       'Автовебинар АСПБ для юристов и партнеров.',
       `Персональная комната: ${webinarUrl}`
-    ].join('\\n');
+    ].join('\n');
     const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -89,11 +88,11 @@ function bindSuccessCalendar(data) {
       `DTSTART:${formatUtcIcsDate(start)}`,
       `DTEND:${formatUtcIcsDate(end)}`,
       `SUMMARY:${title}`,
-      `DESCRIPTION:${description.replace(/\n/g, '\\\\n')}`,
+      `DESCRIPTION:${description.replace(/\n/g, '\\n')}`,
       `URL:${webinarUrl}`,
       'END:VEVENT',
       'END:VCALENDAR'
-    ].join('\\r\\n');
+    ].join('\r\n');
     const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);

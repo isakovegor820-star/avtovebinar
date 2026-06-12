@@ -8,7 +8,6 @@ import { timelinePath } from './registration.js';
 import { updateWebinarInsights, setChatActivity } from './questions.js';
 
 /* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
-let _viewerInterval = null;
 let _liveControlsInterval = null;
 let _keydownHandler = null;
 let _visibilityHandler = null;
@@ -227,7 +226,6 @@ export async function hydrateTimeline() {
   if (!active || !video) return;
 
   // --- cleanup previous intervals and document-level listeners (prevents leaks on re-init) ---
-  if (_viewerInterval) { clearInterval(_viewerInterval); _viewerInterval = null; }
   if (_liveControlsInterval) { clearInterval(_liveControlsInterval); _liveControlsInterval = null; }
   if (_keydownHandler) { document.removeEventListener('keydown', _keydownHandler); _keydownHandler = null; }
   if (_visibilityHandler) { document.removeEventListener('visibilitychange', _visibilityHandler); _visibilityHandler = null; }

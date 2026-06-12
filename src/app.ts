@@ -117,7 +117,9 @@ app.use(
   }),
 );
 app.use(express.json({ limit: '256kb' }));
-app.use(express.urlencoded({ extended: true }));
+// API работает на JSON; urlencoded — с лимитом и extended:false (без вложенных
+// объектов через qs) — меньше поверхность атаки и не растёт без ограничения.
+app.use(express.urlencoded({ extended: false, limit: '256kb' }));
 app.use(cookieParser());
 app.use(ensureCsrfToken);
 app.use(csrfProtection);
@@ -244,7 +246,15 @@ app.get('/health/ready', async (_req, res, next) => {
     next(error);
   }
 });
-app.get('/health/dependencies', async (_req, res, next) => {
+// /health/dependencies дёргает SMTP и Telegram API — без лимита атакующий может
+// довести внешние сервисы до блокировки нашего IP. 12 запросов/мин достаточно для ops.
+const dependencyHealthLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.get('/health/dependencies', dependencyHealthLimiter, async (_req, res, next) => {
   try {
     const dependencies = await getDependencyStatus();
     res.status(dependencies.ok ? 200 : 503).json({ service: 'aspb-autowebinar', ...dependencies });

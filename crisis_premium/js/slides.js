@@ -97,10 +97,86 @@ function initSlides() {
   });
 
   showSlide(0);
+  makeSpeakerDraggable(video);
 
   // В режиме разметки стартуем с РЕАЛЬНО сохранённых меток (или с нуля),
   // а не с равномерной заглушки — иначе редактор решит, что всё уже размечено.
   if (editMode) initEditMode(video, loadSavedTimecodes());
+}
+
+/**
+ * Делает окно спикера перетаскиваемым (как в исходном плеере): тянем мышью/пальцем,
+ * окно переставляется в любой угол. Координаты задаются через left/top.
+ */
+function makeSpeakerDraggable(video) {
+  const container = video.closest('#videoPlayerContainer') || video.parentElement;
+  let drag = null;
+
+  // Удержать окно в границах плеера, чтобы его нельзя было утащить за край.
+  const clamp = (left, top) => {
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    const vw = video.offsetWidth;
+    const vh = video.offsetHeight;
+    return {
+      left: Math.max(0, Math.min(left, cw - vw)),
+      top: Math.max(0, Math.min(top, ch - vh)),
+    };
+  };
+
+  const start = (clientX, clientY) => {
+    drag = { x: clientX - video.offsetLeft, y: clientY - video.offsetTop };
+  };
+  const move = (clientX, clientY) => {
+    if (!drag) return;
+    const { left, top } = clamp(clientX - drag.x, clientY - drag.y);
+    video.style.left = left + 'px';
+    video.style.top = top + 'px';
+    video.style.right = 'auto';
+    video.style.bottom = 'auto';
+  };
+  const end = () => {
+    drag = null;
+  };
+
+  video.addEventListener('mousedown', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    start(e.clientX, e.clientY);
+  });
+  // Клик по окну спикера не должен всплывать к плееру (иначе ставит эфир на паузу).
+  video.addEventListener('click', e => e.stopPropagation());
+  window.addEventListener('mousemove', e => move(e.clientX, e.clientY));
+  window.addEventListener('mouseup', end);
+
+  video.addEventListener(
+    'touchstart',
+    e => {
+      const t = e.touches[0];
+      start(t.clientX, t.clientY);
+    },
+    { passive: true },
+  );
+  window.addEventListener(
+    'touchmove',
+    e => {
+      if (!drag) return;
+      const t = e.touches[0];
+      move(t.clientX, t.clientY);
+    },
+    { passive: true },
+  );
+  window.addEventListener('touchend', end);
+
+  // При ресайзе/повороте вернуть окно в границы (если стоит на абсолютных px).
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => {
+      if (!video.style.left) return;
+      const { left, top } = clamp(video.offsetLeft, video.offsetTop);
+      video.style.left = left + 'px';
+      video.style.top = top + 'px';
+    }).observe(container);
+  }
 }
 
 /**

@@ -200,20 +200,16 @@ async function sendChat(req: Request, res: Response) {
             validateDuration: false,
           },
         ).map(message => ({
+          // Наружу отдаём только безопасные поля чата. Метаданные сценария
+          // (isSynthetic, agentId, videoBlock, topic, priority, answer/relatedVideoSeconds)
+          // НЕ сериализуем — иначе через DevTools→Network видно, что чат скриптован.
           id: message.id,
           offsetSeconds: message.offsetSeconds,
-          answerStartSeconds: message.answerStartSeconds,
-          relatedVideoSeconds: message.relatedVideoSeconds,
-          agentId: message.agentId,
           visibleAt: new Date(access.webinarSession.scheduledAt.getTime() + message.offsetSeconds * 1000),
           kind: message.kind,
           authorName: message.authorName,
           authorRole: message.authorRole,
           message: message.message,
-          isSynthetic: message.isSynthetic,
-          videoBlock: message.videoBlock,
-          topic: message.topic,
-          priority: message.priority,
         }))
       : [];
 
@@ -229,7 +225,6 @@ async function sendChat(req: Request, res: Response) {
     authorName: message.authorName,
     authorRole: message.authorRole,
     message: message.message,
-    isSynthetic: message.isSynthetic,
   }));
 
   const messages = [...scriptedMessages, ...realMessages]

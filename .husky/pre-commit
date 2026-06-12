@@ -1,3 +1,9 @@
 npx lint-staged
-git ls-files -z | xargs -0 npx --yes -p secretlint -p @secretlint/secretlint-rule-preset-recommend secretlint --secretlintrc .secretlintrc.json
+# Сканируем именно STAGED diff (а не git ls-files): иначе `git add -f .env`
+# с секретами обходит проверку, т.к. файл не tracked. --diff-filter=ACM —
+# только добавленные/изменённые файлы. NUL-разделение через tr для xargs -0.
+STAGED_FILES="$(git diff --cached --name-only --diff-filter=ACM)"
+if [ -n "$STAGED_FILES" ]; then
+  printf '%s\n' "$STAGED_FILES" | tr '\n' '\0' | xargs -0 npx --yes -p secretlint -p @secretlint/secretlint-rule-preset-recommend secretlint --secretlintrc .secretlintrc.json
+fi
 npx --yes dotenv-linter .env.example .env.production.example

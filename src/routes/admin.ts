@@ -64,10 +64,9 @@ async function requireAdmin(req: AdminRequest, _res: any, next: any) {
   }
 
   if (!session.adminId) {
-    if (env.NODE_ENV === 'development' && env.ADMIN_DEV_BYPASS === 'true') {
-      req.admin = { id: 'dev', login: env.ADMIN_LOGIN, email: null, role: 'owner' };
-      return next();
-    }
+    // Сессии без adminId больше не принимаются. Dev-bypass (ADMIN_DEV_BYPASS) удалён:
+    // при ошибочном NODE_ENV=development на проде он давал owner-доступ кому угодно.
+    // Для локальной разработки используйте реального администратора из БД (seed).
     return next(new AppError(401, 'Admin authorization required'));
   }
 

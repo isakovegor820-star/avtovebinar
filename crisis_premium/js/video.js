@@ -697,7 +697,8 @@ export async function hydrateTimeline() {
 
   _keydownHandler = (e) => {
     if (e.code === 'Space') {
-      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+      var activeTag = document.activeElement && document.activeElement.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
       e.preventDefault();
       togglePlayState();
     }

@@ -98,6 +98,9 @@ export function validateProductionSecurity(config: EnvConfig) {
   if (config.ADMIN_LOGIN === 'admin') {
     errors.push('ADMIN_LOGIN must not use the default "admin" in production');
   }
+  if (config.ADMIN_DEV_BYPASS === 'true') {
+    errors.push('ADMIN_DEV_BYPASS must be "false" in production (admin auth bypass is forbidden)');
+  }
   if (!isStrongPassword(config.ADMIN_PASSWORD)) {
     errors.push(
       'ADMIN_PASSWORD must be changed and contain at least 12 characters with letters and numbers in production',

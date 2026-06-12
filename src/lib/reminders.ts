@@ -162,20 +162,21 @@ export async function runReminderJobOnce(now = new Date()) {
     checked += registrations.length;
     cursor = registrations[registrations.length - 1].id;
 
+    // Один batch-запрос вместо N COUNT'ов (устраняет N+1): какие email-напоминания
+    // уже поставлены для регистраций этого батча. Ключ — `registrationId:reminderKind`.
+    const existingJobs = await prisma.emailOutboxJob.findMany({
+      where: { registrationId: { in: registrations.map(item => item.id) }, type: EMAIL_JOB_REMINDER },
+      select: { registrationId: true, reminderKind: true },
+    });
+    const existingReminderKeys = new Set(existingJobs.map(job => `${job.registrationId}:${job.reminderKind}`));
+
     for (const registration of registrations) {
       const kind = getDueReminderKind(registration, now);
       if (!kind) {
         continue;
       }
 
-      const existingEmailJob = await prisma.emailOutboxJob.count({
-        where: {
-          registrationId: registration.id,
-          type: EMAIL_JOB_REMINDER,
-          reminderKind: kind,
-        },
-      });
-      if (existingEmailJob > 0) {
+      if (existingReminderKeys.has(`${registration.id}:${kind}`)) {
         continue;
       }
 

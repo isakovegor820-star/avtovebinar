@@ -1,0 +1,107 @@
+/* cookie-consent.css — стили баннера согласия на cookies (152-ФЗ / РКН).
+   Внешний файл: строгий CSP сайта блокирует инлайновые стили, но разрешает CSS с 'self'.
+   Разметку строит cookie-consent.js (классы отсюда), без инлайн-стилей. */
+
+.cookie-banner {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9000;
+  background: #ffffff;
+  border-top: 1px solid rgba(4, 22, 39, 0.12);
+  box-shadow: 0 -6px 24px rgba(4, 22, 39, 0.08);
+  padding: 16px;
+  font-family: 'Manrope', -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.cookie-banner__inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.cookie-banner__text {
+  flex: 1 1 320px;
+  color: #44474c;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.cookie-banner__text a {
+  color: #041627;
+  text-decoration: underline;
+}
+
+.cookie-banner__actions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.cookie-banner__btn {
+  min-height: 44px;
+  padding: 0 22px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 44px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.2s ease;
+}
+
+.cookie-banner__btn:hover {
+  opacity: 0.9;
+}
+
+/* Равноправные по весу кнопки «Принять» и «Отклонить» (требование РКН). */
+.cookie-banner__btn--accept {
+  background: #041627;
+  color: #ffffff;
+}
+
+.cookie-banner__btn--decline {
+  background: #ffffff;
+  color: #041627;
+  border-color: rgba(4, 22, 39, 0.2);
+}
+
+@media (max-width: 560px) {
+  .cookie-banner__inner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cookie-banner__actions {
+    width: 100%;
+  }
+  .cookie-banner__btn {
+    flex: 1;
+  }
+}
+
+/* Таблица cookies в Политике (privacy.html). */
+.cookies-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 8px;
+  font-size: 14px;
+}
+.cookies-table th,
+.cookies-table td {
+  border: 1px solid #dbe2ea;
+  padding: 9px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.cookies-table th {
+  background: #f1f5f9;
+  font-weight: 700;
+}
+.cookies-note {
+  color: #44474c;
+  font-size: 14px;
+}

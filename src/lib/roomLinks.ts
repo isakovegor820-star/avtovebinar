@@ -8,7 +8,9 @@ export const ROOM_SESSION_TOKEN_PURPOSE = 'room_session';
 export const ROOM_EXCHANGE_TOKEN_PURPOSE = 'registration';
 export const PARTICIPANT_LOGIN_TOKEN_PURPOSE = 'participant_login';
 export const TELEGRAM_START_TOKEN_PURPOSE = 'telegram_start';
-export const PARTICIPANT_SESSION_TTL_DAYS = 365;
+// 90 дней (было 365): сокращаем окно угона session-cookie. Покрывает 7-дневный
+// replay-доступ с большим запасом, на UX зарегистрированного участника не влияет.
+export const PARTICIPANT_SESSION_TTL_DAYS = 90;
 
 type RoomTokenTx = Prisma.TransactionClient;
 

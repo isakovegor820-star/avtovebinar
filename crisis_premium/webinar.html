@@ -126,11 +126,15 @@
 </div>
 </div>
 <!-- Autowebinar Player -->
-<!-- Autowebinar Player -->
+<!-- Стили слоя слайдов и окна спикера вынесены в внешний slides.css:
+     строгий CSP платформы блокирует инлайновый <style>, но разрешает CSS с 'self'. -->
+<link rel="stylesheet" href="slides.css?v=slides-5"/>
 <div id="videoPlayerContainer" class="relative aspect-video bg-primary-container rounded-lg overflow-hidden shadow-lg group">
   <!-- Remove controls to hide native player UI. Use pointer-events-none to prevent browser native overlays. -->
   <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline webkit-playsinline preload="metadata" poster="assets/webinar-poster.jpg"></video>
   <div id="webinarStandbyBackdrop" class="webinar-standby-backdrop absolute inset-0" aria-hidden="true"></div>
+  <!-- Слой презентации: крупный план слайда; при slides-active видео спикера уходит в угол. Управляется js/slides.js -->
+  <img id="webinarSlide" class="absolute inset-0 w-full h-full object-contain bg-white z-[5]" alt="Слайд презентации"/>
 
   <!-- Fallback Screen when video cannot load -->
   <div id="videoFallback" class="hidden absolute inset-0 flex-col items-center justify-center text-center p-8 bg-primary-container z-10">
@@ -438,6 +442,7 @@
 </footer>
 
 <script type="module" src="js/main.js?v=account-access-18"></script>
+<script type="module" src="js/slides.js?v=slides-5"></script>
 <script src="live-chat.js?v=webinar-chat-4"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="card-reveal.js"></script>

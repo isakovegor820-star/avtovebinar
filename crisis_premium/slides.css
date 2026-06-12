@@ -1,0 +1,104 @@
+/* slides.css — стили слоя презентации и окна спикера для вебинарной комнаты.
+   Вынесено из инлайнового <style> в отдельный файл, потому что строгий CSP
+   платформы (style-src-elem 'self') блокирует инлайновые <style>, но разрешает
+   внешний CSS с того же домена. Управляется js/slides.js (класс slides-active). */
+
+/* Слой слайда. Без slides-active плеер выглядит как раньше. */
+#videoPlayerContainer:not(.slides-active) #webinarSlide {
+  display: none;
+}
+#videoPlayerContainer.slides-active #webinarSlide {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #ffffff;
+  z-index: 5;
+}
+
+/* Окно спикера — видео в правом нижнем углу поверх слайда.
+   !important перебивает Tailwind-классы (w-full h-full object-cover) на video. */
+#videoPlayerContainer.slides-active #webinarVideo {
+  position: absolute !important;
+  right: 16px !important;
+  bottom: 88px !important;
+  width: 28% !important;
+  min-width: 150px !important;
+  max-width: 340px !important;
+  height: auto !important;
+  aspect-ratio: 16 / 9 !important;
+  object-fit: cover !important;
+  border-radius: 12px !important;
+  border: 2px solid rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5) !important;
+  background: #000 !important;
+  /* z=25: выше слайда (5) и оверлея паузы (20), но НИЖЕ контролов (30) —
+     спикер всегда виден, а кнопки плеера остаются кликабельными. */
+  z-index: 25 !important;
+  pointer-events: auto !important;
+  cursor: move !important;
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+#videoPlayerContainer.slides-active #webinarVideo:active {
+  cursor: grabbing !important;
+}
+
+/* Панель разметки таймкодов (?slides_edit=1). */
+#slidesEditor {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 10000;
+  width: 360px;
+  background: #161b22;
+  color: #e6edf3;
+  border: 1px solid #c9a227;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 13px;
+  font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+#slidesEditor .se-title {
+  color: #c9a227;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+#slidesEditor .se-status {
+  color: #8b949e;
+  margin-bottom: 8px;
+}
+#slidesEditor .se-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+#slidesEditor button {
+  background: #21262d;
+  border: 1px solid #2d333b;
+  color: #e6edf3;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+#slidesEditor #seMark {
+  background: #e63946;
+  border-color: #e63946;
+  color: #fff;
+  font-weight: 700;
+}
+#slidesEditor textarea {
+  width: 100%;
+  background: #0d1117;
+  color: #8b949e;
+  border: 1px solid #2d333b;
+  border-radius: 8px;
+  font-size: 11px;
+  padding: 6px;
+  font-family: monospace;
+}

@@ -619,7 +619,7 @@ export async function hydrateTimeline() {
           setTimeout(() => playOverlay.classList.add('hidden'), 300);
         }
         if (pauseOverlay) pauseOverlay.classList.add('hidden');
-      });
+      }).catch(() => {});
     });
   }
 
@@ -632,14 +632,10 @@ export async function hydrateTimeline() {
 
   if (pauseOverlay) {
     pauseOverlay.addEventListener('click', () => {
-      if (isLiveVisual) {
-        if (!manualBehindLive || pausedFromLive) {
-          seekToLive();
-        }
-        video.play().then(() => { pauseOverlay.classList.add('hidden'); });
-      } else {
-        video.play().then(() => { pauseOverlay.classList.add('hidden'); });
+      if (isLiveVisual && (!manualBehindLive || pausedFromLive)) {
+        seekToLive();
       }
+      video.play().then(() => { pauseOverlay.classList.add('hidden'); }).catch(() => {});
     });
   }
 
@@ -687,9 +683,8 @@ export async function hydrateTimeline() {
       if (e.target.closest('#customPlayerControls') || e.target.closest('#videoPauseOverlay')) return;
       if (!broadcastStarted || video.paused) {
         startBroadcastFromClick();
-      } else if (isLiveVisual) {
-        togglePlayState();
       } else {
+        // Обе ветки (live/replay) делали одно и то же — схлопнуто без изменения поведения.
         togglePlayState();
       }
     });
@@ -778,7 +773,7 @@ export async function hydrateTimeline() {
       } else {
         document.exitFullscreen().then(() => {
           fullscreenBtn.querySelector('span').textContent = 'fullscreen';
-        });
+        }).catch(err => { console.error('Fullscreen exit failed:', err); });
       }
     });
 

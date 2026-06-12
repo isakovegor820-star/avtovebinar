@@ -27,6 +27,26 @@ const scriptedChatMessageSchema = z
     message: 'Each scripted chat message needs answerStartSeconds or relatedVideoSeconds',
   });
 
+// Блок-лист фамилий публичных лиц: запрещаем выдавать их за «участников» эфира
+// (юридический + репутационный риск фабрикации высказываний под реальными именами).
+const BLOCKED_PUBLIC_FIGURE_SURNAMES = [
+  'путин',
+  'медведев',
+  'мишустин',
+  'лавров',
+  'зеленский',
+  'байден',
+  'трамп',
+  'навальный',
+  'кадыров',
+  'песков',
+];
+
+function containsBlockedPublicName(name: string): string | null {
+  const lower = name.toLowerCase();
+  return BLOCKED_PUBLIC_FIGURE_SURNAMES.find(surname => new RegExp(`(^|\\s)${surname}(\\s|$)`).test(lower)) ?? null;
+}
+
 const scriptedChatScenarioSchema = z
   .object({
     version: z.literal(1),
@@ -45,6 +65,15 @@ const scriptedChatScenarioSchema = z
         });
       }
       ids.add(message.id);
+
+      const blocked = containsBlockedPublicName(message.agentName);
+      if (blocked) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['messages', index, 'agentName'],
+          message: `Scripted chat author "${message.agentName}" matches a public-figure surname ("${blocked}") — use a fictional non-identifying name`,
+        });
+      }
     }
   });
 

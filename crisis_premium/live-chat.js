@@ -184,7 +184,10 @@
         var videoPos = window.__aspbVideoPosition || 0;
         var isTestMode = data.testMode === true;
         data.messages.forEach(function(msg) {
-          if ((isTestMode || data.accessStatus === 'replay') && typeof msg.offsetSeconds === 'number' && msg.isSynthetic) {
+          // Гейт по позиции видео зрителя (не показываем сообщения «из будущего»).
+          // Раньше зависел от msg.isSynthetic — поле больше не отдаётся сервером,
+          // поэтому гейтим по offsetSeconds (есть и у сценарных, и у реальных сообщений).
+          if ((isTestMode || data.accessStatus === 'replay') && typeof msg.offsetSeconds === 'number') {
             if (msg.offsetSeconds > videoPos + 2) return;
           }
           addMessage(msg);

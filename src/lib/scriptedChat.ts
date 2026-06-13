@@ -43,8 +43,8 @@ const BLOCKED_PUBLIC_FIGURE_SURNAMES = [
 ];
 
 function containsBlockedPublicName(name: string): string | null {
-  const lower = name.toLowerCase();
-  return BLOCKED_PUBLIC_FIGURE_SURNAMES.find(surname => new RegExp(`(^|\\s)${surname}(\\s|$)`).test(lower)) ?? null;
+  const tokens = name.toLowerCase().split(/\s+/);
+  return BLOCKED_PUBLIC_FIGURE_SURNAMES.find(surname => tokens.includes(surname)) ?? null;
 }
 
 const scriptedChatScenarioSchema = z

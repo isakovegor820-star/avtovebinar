@@ -231,7 +231,6 @@ registrationRouter.post(
           },
         },
         update: {
-          accessTokenHash: sessionTokenHash,
           status: 'registered',
         },
         create: {
@@ -245,6 +244,17 @@ registrationRouter.post(
       await tx.registrationToken.deleteMany({
         where: {
           registrationId: registration.id,
+          purpose: {
+            in: [ROOM_EXCHANGE_TOKEN_PURPOSE, PARTICIPANT_LOGIN_TOKEN_PURPOSE, TELEGRAM_START_TOKEN_PURPOSE],
+          },
+        },
+      });
+
+      await tx.registrationToken.deleteMany({
+        where: {
+          registrationId: registration.id,
+          purpose: ROOM_SESSION_TOKEN_PURPOSE,
+          expiresAt: { lt: new Date() },
         },
       });
 

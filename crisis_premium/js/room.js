@@ -15,31 +15,16 @@ function escapeHtml(value) {
   return htmlEscapeNode.innerHTML;
 }
 
-function getNextLocalTarget() {
-  const now = new Date();
-  const msk = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).formatToParts(now);
-  const m = {};
-  msk.forEach(function(p) { if (p.type !== 'literal') m[p.type] = Number(p.value); });
-  const todayTarget = Date.UTC(m.year, m.month - 1, m.day, 16, 0, 0);
-  if (todayTarget > Date.now()) return todayTarget;
-  return Date.UTC(m.year, m.month - 1, m.day + 1, 16, 0, 0);
-}
-
 function resolveUpcomingWebinarAt(scheduledAt) {
-  let target = new Date(scheduledAt).getTime();
-  const now = Date.now() + state.serverTimeOffset;
-
-  if (!Number.isFinite(target) || target <= now) {
-    target = getNextLocalTarget();
-  }
-
+  const target = new Date(scheduledAt).getTime();
+  if (!Number.isFinite(target)) return null;
   return new Date(target).toISOString();
 }
 
 export function startCountdown(scheduledAt) {
-  let target = new Date(resolveUpcomingWebinarAt(scheduledAt)).getTime();
+  const resolvedAt = resolveUpcomingWebinarAt(scheduledAt);
+  if (!resolvedAt) return;
+  const target = new Date(resolvedAt).getTime();
 
   const nodes = {
     days: document.querySelector('[data-countdown-days]'),
@@ -81,9 +66,7 @@ export function startCountdown(scheduledAt) {
       clearInterval(countdownInterval);
       countdownInterval = null;
       countdownRetries++;
-      target = getNextLocalTarget();
-      updatePublicWebinarLabels(new Date(target).toISOString(), new Date(Date.now() + state.serverTimeOffset).toISOString());
-      countdownInterval = setInterval(tick, 1000);
+      window.setTimeout(() => window.location.reload(), 1000);
     }
   }
 
@@ -138,6 +121,7 @@ export async function hydrateCurrentWebinar() {
     if (!data.ok) return;
     state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
     const scheduledAt = resolveUpcomingWebinarAt(data.scheduledAt || data.webinar?.scheduledAt);
+    if (!scheduledAt) return;
     startCountdown(scheduledAt);
     updatePublicWebinarLabels(scheduledAt, data.serverTime);
     updateTelegramLinks(data);
@@ -272,17 +256,20 @@ function isAccessError(error) {
 }
 
 export function renderWaitingRoom(data) {
+  const scheduledAtLabel = data.webinar?.scheduledAt
+    ? `${formatMoscowDateTime(data.webinar.scheduledAt)} МСК`
+    : '19:00 МСК';
   const title = data.accessStatus === 'closed'
     ? 'Эфир на сегодня завершен'
     : data.accessStatus === 'pre_live'
       ? 'Трансляция скоро начнется'
-      : 'Трансляция начнется в 19:00 МСК';
+      : `Трансляция начнется ${scheduledAtLabel}`;
   const text =
     data.accessStatus === 'closed'
-      ? 'Следующий эфир с этой записью пройдет завтра в 19:00 МСК. Постоянная запись доступна зарегистрированным участникам в разделе “Записи”.'
+      ? `Следующий эфир с этой записью пройдет ${scheduledAtLabel}. Постоянная запись доступна зарегистрированным участникам в разделе “Записи”.`
       : data.accessStatus === 'pre_live'
-        ? `Эфир стартует ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК. До старта видео и чат закрыты, окно ожидания обновится автоматически.`
-        : `До эфира доступ к трансляции закрыт. Оставайтесь в этом окне: счетчик идет до ${formatMoscowDateTime(data.webinar.scheduledAt)} МСК, затем комната откроется автоматически.`;
+        ? `Эфир стартует ${scheduledAtLabel}. До старта видео и чат закрыты, окно ожидания обновится автоматически.`
+        : `До эфира доступ к трансляции закрыт. Оставайтесь в этом окне: счетчик идет до ${scheduledAtLabel}, затем комната откроется автоматически.`;
 
   const countdownHtml = (data.accessStatus === 'waiting' || data.accessStatus === 'pre_live') ? `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:32px;max-width:420px;margin-left:auto;margin-right:auto">

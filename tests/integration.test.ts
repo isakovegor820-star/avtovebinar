@@ -16,6 +16,7 @@ import { runReplayFollowupJobOnce } from '../src/lib/reminders.js';
 import { handleParticipantTelegramUpdate } from '../src/lib/telegramParticipantBot.js';
 import { runTelegramNewsJobOnce } from '../src/lib/telegramNews.js';
 import { getDailyBroadcastDate } from '../src/lib/time.js';
+import { findOrCreateWebinarSession } from '../src/lib/webinarSessions.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -29,6 +30,13 @@ async function getCsrfToken(agent: TestAgent) {
 function getExchangeTokenFromUrl(value: string) {
   const url = new URL(value);
   return url.searchParams.get('token') || new URLSearchParams(url.hash.replace(/^#/, '')).get('token');
+}
+
+function getCookieValue(response: { headers: Record<string, string | string[] | number | undefined> }, name: string) {
+  const setCookie = response.headers['set-cookie'];
+  const cookies = Array.isArray(setCookie) ? setCookie : typeof setCookie === 'string' ? [setCookie] : [];
+  const cookie = cookies.find(item => item.startsWith(`${name}=`));
+  return cookie?.split(';')[0]?.slice(name.length + 1) ?? null;
 }
 
 function setTestNow(value: Date) {
@@ -160,6 +168,8 @@ describe('critical path integration scenarios', () => {
     expect(registerResponse.headers['set-cookie']).toEqual(
       expect.arrayContaining([expect.stringContaining('aspb_room_token=')]),
     );
+    const firstRoomToken = getCookieValue(registerResponse, 'aspb_room_token');
+    expect(firstRoomToken).toEqual(expect.any(String));
 
     const initialEmailJobs = await prisma.emailOutboxJob.findMany({
       orderBy: { createdAt: 'asc' },
@@ -214,9 +224,16 @@ describe('critical path integration scenarios', () => {
       select: { purpose: true },
       orderBy: { purpose: 'asc' },
     });
-    expect(tokenPurposes.filter(item => item.purpose === 'room_session').length).toBe(1);
+    expect(tokenPurposes.filter(item => item.purpose === 'room_session').length).toBe(2);
     expect(tokenPurposes.filter(item => item.purpose === 'registration').length).toBeGreaterThanOrEqual(2);
     expect(tokenPurposes.filter(item => item.purpose === 'telegram_start').length).toBe(1);
+
+    if (!firstRoomToken) throw new Error('Expected initial room session cookie');
+    const oldSessionAccessResponse = await request(app)
+      .get('/api/participant/access/current')
+      .set('Cookie', [`aspb_room_token=${firstRoomToken}`]);
+    expect(oldSessionAccessResponse.status).toBe(200);
+    expect(oldSessionAccessResponse.body.lead.email).toBe('alex.test@aspb.ru');
 
     const activeConfirmationJobsAfterRepeat = await prisma.emailOutboxJob.findMany({
       where: {
@@ -551,6 +568,8 @@ describe('critical path integration scenarios', () => {
       data: {
         webinarSessionId: webinarSession.id,
         title: 'Постоянная запись',
+        videoUrl: '/crisis_premium/assets/webinar.mp4',
+        durationSeconds: 568,
         visible: true,
         publishedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000),
       },
@@ -1321,6 +1340,14 @@ describe('critical path integration scenarios', () => {
         publishedAt: new Date('2026-05-22T10:10:00.000Z'),
       },
     });
+    const missingMediaRecording = await prisma.webinarRecording.create({
+      data: {
+        webinarSessionId: endedSession.id,
+        title: 'Опубликованная запись без файла',
+        visible: true,
+        publishedAt: new Date('2026-05-22T10:15:00.000Z'),
+      },
+    });
 
     const lead = await prisma.lead.create({
       data: {
@@ -1365,6 +1392,7 @@ describe('critical path integration scenarios', () => {
       durationSeconds: 568,
     });
     expect(JSON.stringify(listResponse.body.recordings[0])).not.toContain('vasiliy-artin-2026-06-10');
+    expect(JSON.stringify(listResponse.body.recordings)).not.toContain('Опубликованная запись без файла');
 
     const detailResponse = await request(app)
       .get(`/api/recordings/${visibleRecording.id}`)
@@ -1387,6 +1415,11 @@ describe('critical path integration scenarios', () => {
       .get(`/api/recordings/${hiddenRecording.id}`)
       .set('Cookie', accountCookie);
     expect(hiddenDetailResponse.status).toBe(404);
+
+    const missingMediaDetailResponse = await request(app)
+      .get(`/api/recordings/${missingMediaRecording.id}`)
+      .set('Cookie', accountCookie);
+    expect(missingMediaDetailResponse.status).toBe(404);
   });
 
   it('does not expose room media before the daily broadcast and closes room replay after it ends', async () => {
@@ -1462,6 +1495,50 @@ describe('critical path integration scenarios', () => {
     expect(afterBroadcastResponse.body.liveState.scheduledAt).toBe('2026-06-12T16:00:00.000Z');
     expect(afterBroadcastResponse.body.video).toBeUndefined();
     expect(afterBroadcastResponse.body.timeline).toBeUndefined();
+  });
+
+  it('repairs legacy daily broadcast media without overwriting custom session media', async () => {
+    setTestNow(new Date('2026-06-11T12:00:00.000Z'));
+    const dailyScheduledAt = getDailyBroadcastDate(new Date());
+    const legacySession = await prisma.webinarSession.create({
+      data: {
+        title: 'Legacy daily media',
+        scheduledAt: dailyScheduledAt,
+        status: 'scheduled',
+        durationMinutes: 65,
+        videoUrl: '/crisis_premium/assets/webinar.mp4',
+        posterUrl: '/crisis_premium/assets/webinar-poster.jpg',
+        videoDurationSeconds: 568,
+      },
+    });
+
+    const repairedSession = await findOrCreateWebinarSession(dailyScheduledAt, new Date());
+    expect(repairedSession.id).toBe(legacySession.id);
+    expect(repairedSession.videoUrl).toContain('vasiliy-artin-2026-06-10/video.mp4');
+    expect(repairedSession.posterUrl).toContain('vasiliy-artin-2026-06-10/poster.jpg');
+    expect(repairedSession.videoDurationSeconds).toBe(3860);
+
+    const customScheduledAt = new Date('2026-06-12T16:00:00.000Z');
+    const customSession = await prisma.webinarSession.create({
+      data: {
+        title: 'Custom daily media',
+        scheduledAt: customScheduledAt,
+        status: 'finished',
+        durationMinutes: 47,
+        videoUrl: 'https://cdn.example.com/custom-daily.mp4',
+        posterUrl: 'https://cdn.example.com/custom-daily.jpg',
+        videoDurationSeconds: 777,
+      },
+    });
+
+    const untouchedSession = await findOrCreateWebinarSession(customScheduledAt, new Date('2026-06-12T12:00:00.000Z'));
+    expect(untouchedSession.id).toBe(customSession.id);
+    expect(untouchedSession.title).toBe('Custom daily media');
+    expect(untouchedSession.durationMinutes).toBe(47);
+    expect(untouchedSession.videoUrl).toBe('https://cdn.example.com/custom-daily.mp4');
+    expect(untouchedSession.posterUrl).toBe('https://cdn.example.com/custom-daily.jpg');
+    expect(untouchedSession.videoDurationSeconds).toBe(777);
+    expect(untouchedSession.status).toBe('scheduled');
   });
 
   it('keeps room timeline and chat bound to the current daily broadcast, not the old registration session', async () => {
@@ -1834,11 +1911,16 @@ describe('critical path integration scenarios', () => {
     expect(response.body.messages.length).toBeGreaterThan(0);
     expect(response.body.messages.some((message: any) => message.kind === 'agent_question')).toBe(true);
     expect(response.body.messages.every((message: any) => message.offsetSeconds <= 3860)).toBe(true);
-    expect(response.body.messages[0]).toMatchObject({
-      agentId: expect.any(String),
-      answerStartSeconds: expect.any(Number),
-      topic: expect.any(String),
-      isSynthetic: true,
+    const scriptedQuestion = response.body.messages.find((message: any) => message.kind === 'agent_question');
+    expect(scriptedQuestion).toMatchObject({
+      id: expect.any(String),
+      authorName: expect.any(String),
+      authorRole: expect.any(String),
+      message: expect.any(String),
     });
+    expect(scriptedQuestion).not.toHaveProperty('agentId');
+    expect(scriptedQuestion).not.toHaveProperty('answerStartSeconds');
+    expect(scriptedQuestion).not.toHaveProperty('topic');
+    expect(scriptedQuestion).not.toHaveProperty('isSynthetic');
   });
 });

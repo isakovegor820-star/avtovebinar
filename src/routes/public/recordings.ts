@@ -2,7 +2,6 @@ import { Router, type Request } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { getWebinarEndAt } from '../../lib/time.js';
-import { getWebinarVideoConfig } from '../../lib/webinarVideo.js';
 import { buildFrontendUrl, findRegistrationForRequest, saveEvent } from './helpers.js';
 
 export const recordingsRouter = Router();
@@ -22,6 +21,10 @@ function isRecordingPublished(
   return recording.publishedAt <= now;
 }
 
+function hasRecordingMedia(recording: { videoUrl: string | null; hlsUrl: string | null }) {
+  return Boolean(recording.videoUrl || recording.hlsUrl);
+}
+
 async function fetchPublishedRecordings(now: Date) {
   const candidates = await prisma.webinarRecording.findMany({
     where: {
@@ -34,7 +37,7 @@ async function fetchPublishedRecordings(now: Date) {
     orderBy: [{ orderIndex: 'asc' }, { publishedAt: 'desc' }, { createdAt: 'desc' }],
   });
 
-  return candidates.filter(recording => isRecordingPublished(recording, now));
+  return candidates.filter(recording => isRecordingPublished(recording, now) && hasRecordingMedia(recording));
 }
 
 async function requireRecordingAccount(req: Request) {
@@ -46,15 +49,11 @@ async function requireRecordingAccount(req: Request) {
 }
 
 function serializeRecording(recording: RecordingWithSession) {
-  const fallbackVideo = getWebinarVideoConfig(recording.webinarSession);
   const durationSeconds = recording.durationSeconds ?? recording.webinarSession.videoDurationSeconds;
-  const hasRecordingMedia = Boolean(recording.videoUrl || recording.hlsUrl);
-  const videoSrc = recording.videoUrl ?? (hasRecordingMedia ? null : fallbackVideo.src);
-  const hlsSrc = recording.hlsUrl ?? (hasRecordingMedia ? null : fallbackVideo.hlsSrc);
-  const externalMp4Allowed = Boolean(recording.videoUrl) || (!hasRecordingMedia && fallbackVideo.externalMp4Allowed);
-  const posterUrl =
-    recording.posterUrl ??
-    (hasRecordingMedia ? DEFAULT_RECORDING_POSTER : (fallbackVideo.poster ?? DEFAULT_RECORDING_POSTER));
+  const videoSrc = recording.videoUrl ?? null;
+  const hlsSrc = recording.hlsUrl ?? null;
+  const externalMp4Allowed = Boolean(recording.videoUrl);
+  const posterUrl = recording.posterUrl ?? DEFAULT_RECORDING_POSTER;
 
   return {
     id: recording.id,
@@ -83,11 +82,11 @@ function serializeRecording(recording: RecordingWithSession) {
     video: {
       src: videoSrc,
       hlsSrc,
-      provider: fallbackVideo.provider,
+      provider: hlsSrc ? 'hls' : 'local',
       durationSeconds,
       poster: posterUrl,
-      fallbackAllowed: fallbackVideo.fallbackAllowed,
-      localFallbackAllowed: fallbackVideo.localFallbackAllowed,
+      fallbackAllowed: false,
+      localFallbackAllowed: false,
       externalMp4Allowed,
       expected: Boolean(hlsSrc ?? videoSrc),
     },

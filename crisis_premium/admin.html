@@ -89,7 +89,7 @@
           </div>
           <button id="hotRefreshBtn" class="ghost">Обновить</button>
         </div>
-        <div id="hotLeads" class="hot-grid"></div>
+        <div id="hotLeadsNode" class="hot-grid"></div>
       </section>
 
       <section class="panel hidden" id="userAdminSection">
@@ -146,8 +146,8 @@
               <button class="ghost" data-queue="contracts">Договоры</button>
             </div>
             <div class="filters">
-              <input id="query" placeholder="Имя, email, телефон" />
-              <input id="date" type="date" />
+              <input id="queryInput" placeholder="Имя, email, телефон" />
+              <input id="dateInput" type="date" />
               <select id="statusFilter"></select>
               <select id="managerFilter"></select>
               <select id="telegramFilter"><option value="">Telegram: все</option><option value="yes">подключен</option><option value="no">не подключен</option></select>
@@ -156,7 +156,7 @@
               <select id="applicationFilter"><option value="">Заявки: все</option><option value="yes">есть заявка</option></select>
               <button id="refreshBtn">Обновить</button>
             </div>
-            <div id="registrations"></div>
+            <div id="registrationsNode"></div>
           </section>
 
           <section class="panel">
@@ -188,6 +188,6 @@
     </section>
   </main>
 
-  <script src="admin.js?v=moderator-1"></script>
+  <script src="admin.js?v=admin-fixes-2"></script>
 </body>
 </html>

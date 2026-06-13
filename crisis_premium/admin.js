@@ -244,29 +244,49 @@ let currentQueue = 'all';
       });
 
       clear(funnelTable);
+      // Числовая ячейка: счётчик + приглушённый процент. Нулевые значения дополнительно гасим,
+      // чтобы взгляд цеплялся за реальные конверсии, а не за частокол «0 / 0%».
+      function numCell(count, rate) {
+        const td = node('td', { class:'num' + (count ? '' : ' zero') }, [
+          node('span', { class:'cnt', text:String(count) })
+        ]);
+        if (rate !== undefined && rate !== null) {
+          td.append(node('span', { class:'pct', text:pct(rate) }));
+        }
+        return td;
+      }
+      // Источник: убираем общий origin-префикс, чтобы видеть отличающийся путь/страницу,
+      // а не одинаковое «https://aspb-partners.ru/...» в каждой строке. Полное значение — в title.
+      function prettySource(key) {
+        if (!key) return '—';
+        return key.replace(/^https?:\/\/[^/]+(?=\/)/, '') || key;
+      }
+
       const tbody = node('tbody');
       data.groups.forEach(row => {
-        tbody.append(node('tr', {}, [
-          node('td', {}, [node('strong', { text:row.key })]),
-          node('td', { text:String(row.visitors) }),
-          node('td', { text:String(row.registrations) + ' / ' + pct(row.registrationRate) }),
-          node('td', { text:String(row.telegramSubscribers) + ' / ' + pct(row.telegramSubscribeRate) }),
-          node('td', { text:String(row.roomEntries) + ' / ' + pct(row.roomEntryRate) }),
-          node('td', { text:String(row.questions) }),
-          node('td', { text:String(row.applications) + ' / ' + pct(row.applicationRate) }),
-          node('td', { text:String(row.contracts) + ' / ' + pct(row.contractRate) })
+        const isEmpty = !row.visitors && !row.registrations && !row.roomEntries && !row.applications && !row.contracts;
+        tbody.append(node('tr', { class:isEmpty ? 'row-empty' : null }, [
+          node('td', { class:'src', title:row.key || '' }, [node('strong', { text:prettySource(row.key) })]),
+          numCell(row.visitors),
+          numCell(row.registrations, row.registrationRate),
+          numCell(row.telegramSubscribers, row.telegramSubscribeRate),
+          numCell(row.roomEntries, row.roomEntryRate),
+          numCell(row.questions),
+          numCell(row.applications, row.applicationRate),
+          numCell(row.contracts, row.contractRate)
         ]));
       });
-      funnelTable.append(node('table', {}, [
+      const numTh = label => node('th', { class:'num', text:label });
+      funnelTable.append(node('table', { class:'funnel-table' }, [
         node('thead', {}, [node('tr', {}, [
           node('th', { text:data.groupBy }),
-          node('th', { text:'Посетители' }),
-          node('th', { text:'Регистрации' }),
-          node('th', { text:'TG' }),
-          node('th', { text:'Комната' }),
-          node('th', { text:'Вопросы' }),
-          node('th', { text:'Заявки' }),
-          node('th', { text:'Договоры' })
+          numTh('Посетители'),
+          numTh('Регистрации'),
+          numTh('TG'),
+          numTh('Комната'),
+          numTh('Вопросы'),
+          numTh('Заявки'),
+          numTh('Договоры')
         ])]),
         tbody
       ]));

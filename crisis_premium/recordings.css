@@ -1,0 +1,593 @@
+/*
+ * recordings.css — комната записей в стиле YouTube.
+ * Вынесено из инлайн-<style> recordings.html: внешний файл грузится по CSP 'self'
+ * и не требует sha256-хэша, поэтому вёрстка больше не пропадает после правок.
+ *
+ * Раскладка: на десктопе грид «плеер (1fr) + плейлист (clamp 320–420px)»,
+ * ниже 1100px всё в одну колонку (плейлист уходит под видео). Никаких жёстких
+ * ширин, ломающих макет: контейнеры используют minmax(0,1fr)/clamp.
+ */
+
+/* ── Фон страницы / шапка ───────────────────────────────────────────── */
+body.recordings-page {
+  background: #f5f9ff;
+  background-image:
+    radial-gradient(circle at 12% 0%, rgba(41, 102, 163, 0.18), transparent 32%),
+    radial-gradient(circle at 88% 12%, rgba(122, 179, 239, 0.16), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #f3f8ff 42%, #eef5fc 100%);
+  background-attachment: fixed;
+  color: #041627;
+  -webkit-font-smoothing: antialiased;
+}
+body.recordings-page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(41, 102, 163, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(41, 102, 163, 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.58), rgba(0, 0, 0, 0.06));
+}
+body.recordings-page header {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-bottom: 1px solid rgba(41, 102, 163, 0.12);
+  box-shadow: 0 10px 30px rgba(4, 22, 39, 0.06) !important;
+}
+body.recordings-page header a,
+body.recordings-page header span { color: #041627 !important; }
+body.recordings-page header a.bg-primary {
+  background: #041627 !important;
+  color: #fff !important;
+  box-shadow: 0 10px 24px rgba(4, 22, 39, 0.12);
+}
+body.recordings-page header a.bg-primary:hover { background: #103355 !important; color: #fff !important; }
+.recordings-page .material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+
+/* ── Контейнер и заголовок ──────────────────────────────────────────── */
+.recordings-shell {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1760px;
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 44px) clamp(14px, 3vw, 32px) 40px;
+  position: relative;
+}
+.recordings-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 22px;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin: 0 0 22px;
+}
+.recordings-header > div { min-width: 0; }
+.recordings-header h1 {
+  font-size: clamp(30px, 4.4vw, 48px);
+  line-height: 1.02;
+  font-weight: 800;
+  color: #041627;
+  margin: 0;
+  text-wrap: balance;
+}
+.recordings-header p {
+  margin: 10px 0 0;
+  max-width: 760px;
+  color: #4e5b69;
+  font-size: clamp(15px, 1.4vw, 17px);
+  line-height: 1.5;
+}
+.recordings-counter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+  color: #041627;
+  font-weight: 800;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(41, 102, 163, 0.14);
+  border-radius: 16px;
+  padding: 10px 14px;
+  box-shadow: 0 14px 34px rgba(41, 102, 163, 0.08);
+}
+.recordings-counter[hidden] { display: none; }
+.recordings-counter #recordingPosition { color: #5b6774; font-size: 13px; }
+
+/* ── Основной грид: плеер + плейлист ────────────────────────────────── */
+.recordings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 27vw, 420px);
+  gap: 20px;
+  align-items: start;
+}
+
+/* ── Левая колонка: плеер ───────────────────────────────────────────── */
+.recording-main { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.recording-player-panel {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(41, 102, 163, 0.14);
+  border-radius: 22px;
+  box-shadow: 0 24px 58px rgba(41, 102, 163, 0.12);
+  overflow: hidden;
+}
+.recording-player-shell {
+  position: relative;
+  background: #041627;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  overflow: hidden;
+}
+.recording-player-shell video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #041627;
+}
+.recording-player-panel:fullscreen {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  background: #041627;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.recording-player-panel:fullscreen .recording-player-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.recording-player-panel:fullscreen .recording-controls { flex: 0 0 auto; border-radius: 0; padding: 16px 18px; }
+.recording-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 3;
+  background: #fff;
+  color: #041627;
+  border: 1px solid rgba(41, 102, 163, 0.12);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  box-shadow: 0 12px 24px rgba(4, 22, 39, 0.12);
+}
+.recording-overlay-button {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, rgba(4, 22, 39, 0.04), rgba(4, 22, 39, 0.42));
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+}
+.recording-overlay-button.hidden { display: none; }
+.recording-overlay-button span {
+  width: clamp(64px, 9vw, 88px);
+  height: clamp(64px, 9vw, 88px);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  display: grid;
+  place-items: center;
+  font-size: clamp(36px, 5vw, 48px);
+  box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.08);
+  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  animation: playPulse 2.4s ease-in-out infinite;
+}
+.recording-overlay-button:hover span {
+  transform: scale(1.05);
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 0 14px rgba(255, 255, 255, 0.1);
+}
+.recording-video-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: #fff;
+  background: #041627;
+  padding: 24px;
+}
+.recording-video-fallback.hidden { display: none; }
+
+/* ── Панель управления плеером ──────────────────────────────────────── */
+.recording-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  background: #fff;
+  color: #041627;
+  border-top: 1px solid rgba(41, 102, 163, 0.12);
+}
+.recording-controls button {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(41, 102, 163, 0.18);
+  background: #eef6ff;
+  color: #041627;
+  border-radius: 14px;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.recording-controls button:hover {
+  transform: translateY(-1px);
+  background: #dceeff;
+  border-color: rgba(41, 102, 163, 0.3);
+  box-shadow: 0 10px 22px rgba(41, 102, 163, 0.12);
+}
+.recording-controls button:active { transform: scale(0.96); }
+.recording-controls input[type=range] { width: 100%; min-height: 46px; accent-color: #2966a3; }
+.recording-time { font-size: 13px; font-weight: 800; color: #4e5b69; white-space: nowrap; }
+
+/* ── Блок информации под видео ──────────────────────────────────────── */
+.recording-info {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(41, 102, 163, 0.14);
+  border-radius: 22px;
+  box-shadow: 0 18px 44px rgba(41, 102, 163, 0.1);
+  padding: clamp(18px, 2.4vw, 26px);
+}
+.recording-eyebrow {
+  display: inline-block;
+  color: #2966a3;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+.recording-title {
+  margin: 0;
+  color: #041627;
+  font-size: clamp(20px, 2.4vw, 28px);
+  line-height: 1.18;
+  font-weight: 800;
+  text-wrap: balance;
+}
+.recording-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 12px 0 0;
+  color: #5b6774;
+  font-size: 14px;
+  font-weight: 700;
+}
+.recording-meta-row .dot { width: 4px; height: 4px; border-radius: 50%; background: #b4c4d6; }
+.recording-description {
+  margin: 14px 0 0;
+  color: #3f4650;
+  font-size: clamp(15px, 1.5vw, 16px);
+  line-height: 1.6;
+  white-space: pre-line;
+}
+.recording-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.recording-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(41, 102, 163, 0.2);
+  background: #eef6ff;
+  color: #103355;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+.recording-action:hover { transform: translateY(-1px); background: #dceeff; box-shadow: 0 10px 22px rgba(41, 102, 163, 0.12); }
+.recording-action:active { transform: scale(0.97); }
+.recording-action .material-symbols-outlined { font-size: 20px; }
+
+/* ── Правая колонка: плейлист ───────────────────────────────────────── */
+.recordings-playlist-panel {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(41, 102, 163, 0.14);
+  border-radius: 22px;
+  box-shadow: 0 24px 58px rgba(41, 102, 163, 0.12);
+  padding: 16px;
+  position: sticky;
+  top: 96px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: calc(100vh - 120px);
+}
+.playlist-heading { display: flex; flex-direction: column; gap: 12px; margin: 0 0 12px; }
+.playlist-heading__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.playlist-heading h2 { margin: 0; color: #041627; font-size: 20px; font-weight: 800; }
+.playlist-heading__count { color: #5b6774; font-size: 13px; font-weight: 800; white-space: nowrap; }
+.recordings-search { position: relative; display: flex; align-items: center; }
+.recordings-search .material-symbols-outlined {
+  position: absolute;
+  left: 12px;
+  font-size: 20px;
+  color: #7c8a99;
+  pointer-events: none;
+}
+.recordings-search input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 14px 0 40px;
+  border: 1px solid rgba(41, 102, 163, 0.18);
+  border-radius: 12px;
+  background: #f6faff;
+  color: #041627;
+  font-size: 14px;
+  font-weight: 600;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+.recordings-search input::placeholder { color: #94a3b3; font-weight: 600; }
+.recordings-search input:focus {
+  outline: none;
+  background: #fff;
+  border-color: #2966a3;
+  box-shadow: 0 0 0 3px rgba(41, 102, 163, 0.16);
+}
+.recordings-search[hidden] { display: none; }
+
+.recordings-playlist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+.recording-item {
+  display: grid;
+  grid-template-columns: clamp(116px, 34%, 148px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid rgba(41, 102, 163, 0.14);
+  border-radius: 18px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+.recording-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(41, 102, 163, 0.32);
+  background: #f8fbff;
+  box-shadow: 0 12px 28px rgba(41, 102, 163, 0.1);
+}
+.recording-item:focus-visible { outline: 2px solid #2966a3; outline-offset: 2px; }
+.recording-item--active {
+  border-color: #2966a3;
+  background: #eef6ff;
+  box-shadow: 0 14px 30px rgba(41, 102, 163, 0.12);
+}
+.recording-item__thumb { position: relative; }
+.recording-item__poster {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: 14px;
+  background: #dceeff;
+  display: block;
+}
+.recording-item__duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  background: rgba(4, 22, 39, 0.82);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.recording-item__nowplaying {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(4, 22, 39, 0.46);
+  color: #fff;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 900;
+}
+.recording-item--active .recording-item__nowplaying { display: flex; }
+.recording-item__body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.recording-item__topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #5b6774;
+  font-size: 12px;
+  font-weight: 800;
+}
+.recording-item__title {
+  margin: 0;
+  color: #041627;
+  font-size: 14px;
+  line-height: 1.28;
+  font-weight: 800;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.recording-item__footer { margin-top: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.recording-status {
+  background: #e8f3ff;
+  color: #2966a3;
+  border: 1px solid rgba(41, 102, 163, 0.12);
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 900;
+}
+.recording-status--watched { background: #e8f7ee; color: #1f8a4c; border-color: rgba(31, 138, 76, 0.18); }
+.recording-status--active { background: #041627; color: #fff; border-color: #041627; }
+
+.playlist-empty {
+  text-align: center;
+  color: #5b6774;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 28px 12px;
+}
+
+/* ── Пустое состояние / закрытый доступ ─────────────────────────────── */
+.recordings-empty {
+  grid-column: 1 / -1;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(41, 102, 163, 0.12);
+  border-radius: 22px;
+  padding: 48px 24px;
+  box-shadow: 0 18px 45px rgba(41, 102, 163, 0.08);
+}
+.recordings-empty .material-symbols-outlined { font-size: 54px; color: #2966a3; }
+.recordings-empty h1 { margin: 18px 0 10px; color: #041627; font-size: clamp(24px, 3vw, 32px); font-weight: 800; }
+.recordings-empty p { margin: 0; color: #44474c; font-size: clamp(15px, 1.6vw, 17px); line-height: 1.55; max-width: 560px; }
+.recordings-primary-link {
+  display: inline-flex;
+  margin-top: 24px;
+  background: #041627;
+  color: #fff;
+  text-decoration: none;
+  padding: 14px 22px;
+  border-radius: 999px;
+  font-weight: 800;
+  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+.recordings-primary-link:hover { transform: translateY(-1px); background: #103355; box-shadow: 0 12px 24px rgba(4, 22, 39, 0.16); }
+
+.recordings-access-gate {
+  position: relative;
+  grid-column: 1 / -1;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  display: grid;
+  place-items: center;
+  padding: 42px 0;
+  animation: gateEnter 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.recordings-access-panel {
+  display: grid;
+  grid-template-columns: 0.82fr 1fr;
+  width: min(100%, 1040px);
+  min-height: 420px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 48px rgba(4, 22, 39, 0.12);
+}
+.recordings-access-visual {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 34px;
+  background:
+    linear-gradient(180deg, rgba(4, 22, 39, 0.18), rgba(4, 22, 39, 0.84)),
+    linear-gradient(90deg, rgba(4, 22, 39, 0.7), rgba(4, 22, 39, 0.08)),
+    url("assets/aspb-hero-consultation.png") center / cover;
+  color: #fff;
+}
+.recordings-access-visual span { font-size: 22px; font-weight: 800; }
+.recordings-access-visual strong { max-width: 380px; font-size: 30px; line-height: 1.14; }
+.recordings-access-copy { display: flex; flex-direction: column; justify-content: center; padding: 42px 46px; text-align: left; }
+.recordings-access-kicker { margin: 0 0 10px !important; color: #2966a3 !important; font-size: 13px !important; font-weight: 800 !important; line-height: 1.3 !important; }
+.recordings-access-copy h1 { margin: 0; color: #041627; font-size: clamp(28px, 4vw, 40px); line-height: 1.08; font-weight: 800; text-wrap: balance; }
+.recordings-access-copy p { max-width: 560px; margin: 16px 0 0; color: #3f4650; font-size: 17px; line-height: 1.58; }
+.recordings-access-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 28px; }
+.recordings-access-actions .recordings-primary-link { margin: 0; padding: 17px 26px; border-radius: 8px; background: #041627; box-shadow: none; }
+.recordings-access-actions .recordings-primary-link:hover { transform: translateY(-1px); background: #102f4c; box-shadow: 0 10px 18px rgba(4, 22, 39, 0.16); }
+.recordings-secondary-link { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 8px; color: #2966a3; text-decoration: none; font-weight: 900; }
+
+@keyframes gateEnter { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes playPulse { 0%, 100% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.08); } 50% { box-shadow: 0 0 0 18px rgba(255, 255, 255, 0.03); } }
+
+/* ── Адаптив ────────────────────────────────────────────────────────── */
+/* Ниже 1100px — одна колонка: видео и инфо сверху, плейлист под ними. */
+@media (max-width: 1100px) {
+  .recordings-layout { grid-template-columns: 1fr; }
+  .recordings-playlist-panel { position: static; max-height: none; }
+  .recordings-playlist { max-height: min(70vh, 620px); }
+}
+
+/* Планшеты: плейлист под видео, карточки в две колонки если влезают. */
+@media (min-width: 641px) and (max-width: 1100px) {
+  .recordings-playlist {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .recording-item { grid-template-columns: 132px minmax(0, 1fr); }
+}
+
+/* Телефоны. */
+@media (max-width: 640px) {
+  .recordings-header { align-items: flex-start; }
+  .recording-controls { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .recording-controls .recording-time,
+  .recording-controls #recordingFullscreenButton { display: none; }
+  .recording-item { grid-template-columns: clamp(104px, 38%, 132px) minmax(0, 1fr); }
+  .recordings-playlist { max-height: none; }
+  .recordings-access-gate { padding: 24px 0; }
+  .recordings-access-panel { grid-template-columns: 1fr; }
+  .recordings-access-visual { min-height: 200px; padding: 24px; }
+  .recordings-access-copy { padding: 28px 22px; }
+}
+
+@media (max-width: 380px) {
+  .recording-item { grid-template-columns: 92px minmax(0, 1fr); gap: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recordings-access-gate,
+  .recording-overlay-button span { animation: none; }
+  .recording-overlay-button span,
+  .recording-controls button,
+  .recording-item,
+  .recording-action,
+  .recordings-primary-link,
+  .recordings-secondary-link { transition: none; }
+}

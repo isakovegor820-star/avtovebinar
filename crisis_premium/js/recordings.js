@@ -12,6 +12,44 @@ let currentRecordingId = null;
 let fullscreenChangeHandler = null;
 const progressMarks = new Set();
 
+let currentPlaylist = [];
+let currentServerTime = null;
+let searchQuery = '';
+let actionsBound = false;
+
+const WATCHED_STORAGE_KEY = 'aspb:watchedRecordings';
+
+function getWatchedIds() {
+  try {
+    const raw = localStorage.getItem(WATCHED_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function markWatched(id) {
+  if (!id) return;
+  try {
+    const watched = getWatchedIds();
+    if (watched.has(id)) return;
+    watched.add(id);
+    localStorage.setItem(WATCHED_STORAGE_KEY, JSON.stringify([...watched]));
+  } catch {
+    return; // localStorage недоступен (приватный режим) — статус просто не сохранится.
+  }
+  renderPlaylist(currentRecordingId);
+}
+
+function pluralRecordings(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'запись';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'записи';
+  return 'записей';
+}
+
 function loadHlsScript() {
   if (window.Hls) return Promise.resolve(window.Hls);
   if (hlsScriptPromise) return hlsScriptPromise;
@@ -118,38 +156,105 @@ function showAccessGate() {
   `;
 }
 
-function renderPlaylist(playlist, activeId, serverTime) {
+function recordingMatchesQuery(recording, query) {
+  if (!query) return true;
+  const haystack = `${recording.title || ''} ${formatAirDate(recording.webinar.scheduledAt)}`.toLowerCase();
+  return haystack.includes(query);
+}
+
+function renderPlaylist(activeId) {
   const list = document.getElementById('recordingsPlaylist');
   if (!list) return;
   list.replaceChildren();
 
-  playlist.forEach((recording, index) => {
-    const item = document.createElement('article');
-    item.className = `recording-item${recording.id === activeId ? ' recording-item--active' : ''}`;
+  const watched = getWatchedIds();
+  const query = searchQuery.trim().toLowerCase();
+  const visible = currentPlaylist.filter(recording => recordingMatchesQuery(recording, query));
+
+  if (!visible.length) {
+    const empty = document.createElement('p');
+    empty.className = 'playlist-empty';
+    empty.textContent = query ? 'Ничего не найдено по запросу.' : 'Записей пока нет.';
+    list.appendChild(empty);
+    return;
+  }
+
+  visible.forEach(recording => {
+    const index = currentPlaylist.indexOf(recording);
+    const isActive = recording.id === activeId;
+    const isWatched = watched.has(recording.id);
+
+    let statusClass = 'recording-status';
+    let statusText = statusLabel(recording, currentServerTime);
+    if (isActive) {
+      statusClass = 'recording-status recording-status--active';
+      statusText = 'Смотрите';
+    } else if (isWatched) {
+      statusClass = 'recording-status recording-status--watched';
+      statusText = 'Просмотрено';
+    }
+
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = `recording-item${isActive ? ' recording-item--active' : ''}`;
     item.dataset.recordingId = recording.id;
+    if (isActive) item.setAttribute('aria-current', 'true');
     item.innerHTML = `
-      <img src="${escapeHtml(recording.posterUrl || 'assets/webinar-poster.jpg')}" alt="" class="recording-item__poster" loading="lazy">
-      <div class="recording-item__body">
-        <div class="recording-item__topline">
-          <span>${formatAirDate(recording.webinar.scheduledAt)}</span>
-          <span>${formatTimelineTime(recording.durationSeconds || 0)}</span>
-        </div>
-        <h3>${escapeHtml(recording.title)}</h3>
-        <div class="recording-item__footer">
-          <span class="recording-status">${statusLabel(recording, serverTime)}</span>
-          <button type="button" class="recording-watch-button">Смотреть</button>
-        </div>
-      </div>
+      <span class="recording-item__thumb">
+        <img src="${escapeHtml(recording.posterUrl || 'assets/webinar-poster.jpg')}" alt="" class="recording-item__poster" loading="lazy">
+        <span class="recording-item__duration">${formatTimelineTime(recording.durationSeconds || 0)}</span>
+        <span class="recording-item__nowplaying"><span class="material-symbols-outlined">graphic_eq</span>Идёт просмотр</span>
+      </span>
+      <span class="recording-item__body">
+        <span class="recording-item__topline"><span>${escapeHtml(formatAirDate(recording.webinar.scheduledAt))}</span></span>
+        <span class="recording-item__title">${escapeHtml(recording.title)}</span>
+        <span class="recording-item__footer"><span class="${statusClass}">${escapeHtml(statusText)}</span></span>
+      </span>
     `;
-    item.querySelector('button')?.addEventListener('click', () => {
+    item.addEventListener('click', () => {
       track('recording_cta_click', { recordingId: recording.id, index });
       loadRecording(recording.id).catch(() => {});
     });
-    item.addEventListener('click', event => {
-      if (event.target.closest('button')) return;
-      loadRecording(recording.id).catch(() => {});
-    });
     list.appendChild(item);
+  });
+}
+
+function toggleSearchVisibility(total) {
+  const wrap = document.getElementById('recordingsSearchWrap');
+  if (!wrap) return;
+  if (total > 4) wrap.removeAttribute('hidden');
+  else wrap.setAttribute('hidden', '');
+}
+
+function bindStaticActions() {
+  if (actionsBound) return;
+  actionsBound = true;
+
+  const search = document.getElementById('recordingsSearch');
+  search?.addEventListener('input', () => {
+    searchQuery = search.value || '';
+    renderPlaylist(currentRecordingId);
+  });
+
+  document.getElementById('recordingFullscreenAction')?.addEventListener('click', () => {
+    document.getElementById('recordingFullscreenButton')?.click();
+  });
+
+  const shareButton = document.getElementById('recordingShareAction');
+  const shareLabel = document.getElementById('recordingShareLabel');
+  shareButton?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      if (shareLabel) {
+        const original = shareLabel.textContent;
+        shareLabel.textContent = 'Ссылка скопирована';
+        window.setTimeout(() => {
+          shareLabel.textContent = original;
+        }, 2000);
+      }
+    } catch {
+      // Clipboard API недоступен (нет https/разрешения) — действие тихо пропускаем.
+    }
   });
 }
 
@@ -265,6 +370,7 @@ function bindControls(video, recording) {
   video.addEventListener('loadedmetadata', updateTime);
   video.addEventListener('ended', () => {
     track('recording_finish', { recordingId: recording.id });
+    markWatched(recording.id);
     updatePlayIcon();
   });
   updateTime();
@@ -281,6 +387,7 @@ function bindControls(video, recording) {
         track(`recording_progress_${mark}`, { recordingId: recording.id });
       }
     });
+    if (percent >= 90) markWatched(recording.id);
   }, 1200);
 }
 
@@ -329,21 +436,23 @@ async function setVideoSource(video, recording) {
   fallback?.classList.remove('hidden');
 }
 
-function applyRecording(recording, playlist, currentIndex, serverTime) {
+function applyRecording(recording, playlist, serverTime) {
   const previousVideo = document.getElementById('recordingVideo');
   if (!previousVideo) return;
   const video = previousVideo.cloneNode(true);
   previousVideo.replaceWith(video);
 
-  document.getElementById('recordingsCounter')?.removeAttribute('hidden');
+  currentPlaylist = playlist;
+  currentServerTime = serverTime;
   resetProgressTracking(recording.id);
+  bindStaticActions();
   setText('recordingEyebrow', 'Запись');
   setText('recordingTitle', recording.title);
   setText('recordingDescription', recording.description || 'Запись вебинара доступна в вашем кабинете.');
   setText('recordingMeta', `${formatAirDate(recording.webinar.scheduledAt)} · ${formatTimelineTime(recording.durationSeconds || 0)}`);
-  setText('recordingsCount', `${playlist.length} ${playlist.length === 1 ? 'запись' : 'записей'}`);
-  setText('recordingPosition', `${currentIndex + 1} из ${playlist.length}`);
-  renderPlaylist(playlist, recording.id, serverTime);
+  setText('recordingsCount', `${playlist.length} ${pluralRecordings(playlist.length)}`);
+  toggleSearchVisibility(playlist.length);
+  renderPlaylist(recording.id);
   setVideoSource(video, recording).catch(() => {
     document.getElementById('recordingVideoFallback')?.classList.remove('hidden');
   });
@@ -357,7 +466,7 @@ async function loadRecording(id) {
   url.searchParams.delete('token');
   url.searchParams.set('id', payload.recording.id);
   window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
-  applyRecording(payload.recording, payload.playlist, payload.currentIndex, payload.serverTime);
+  applyRecording(payload.recording, payload.playlist, payload.serverTime);
 }
 
 export async function hydrateRecordingsPage() {

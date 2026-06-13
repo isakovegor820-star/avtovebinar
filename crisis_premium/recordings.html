@@ -10,119 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css?v=nav-tabs-4" rel="stylesheet"/>
-<style>
-  body{background:#f5f9ff;background-image:radial-gradient(circle at 12% 0%,rgba(41,102,163,.18),transparent 32%),radial-gradient(circle at 88% 12%,rgba(122,179,239,.16),transparent 30%),linear-gradient(180deg,#ffffff 0%,#f3f8ff 42%,#eef5fc 100%);background-attachment:fixed;color:#041627;-webkit-font-smoothing:antialiased}
-  body::before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(rgba(41,102,163,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(41,102,163,.05) 1px,transparent 1px);background-size:44px 44px;mask-image:linear-gradient(180deg,rgba(0,0,0,.58),rgba(0,0,0,.06))}
-  header{background:rgba(255,255,255,.92)!important;border-bottom:1px solid rgba(41,102,163,.12);box-shadow:0 10px 30px rgba(4,22,39,.06)!important}
-  header a,header span{color:#041627!important}
-  header a.bg-primary{background:#041627!important;color:#fff!important;box-shadow:0 10px 24px rgba(4,22,39,.12)}
-  header a.bg-primary:hover{background:#103355!important;color:#fff!important}
-  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 500,'GRAD' 0,'opsz' 24;vertical-align:middle}
-  .recordings-shell{box-sizing:border-box;width:100%;max-width:1840px;margin:0 auto;padding:44px 28px 28px;position:relative}
-  .recordings-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:22px;align-items:end;margin:0 0 14px}
-  .recordings-header h1{font-size:52px;line-height:.98;font-weight:800;color:#041627;margin:0;letter-spacing:0;text-wrap:balance}
-  .recordings-header p{margin:12px 0 0;max-width:760px;color:#4e5b69;font-size:17px;line-height:1.5}
-  .recordings-counter{display:grid;grid-template-columns:1fr;gap:6px;justify-items:end;color:#041627;font-weight:800;white-space:nowrap;background:rgba(255,255,255,.86);border:1px solid rgba(41,102,163,.14);border-radius:16px;padding:12px 14px;box-shadow:0 14px 34px rgba(41,102,163,.08)}
-  .recordings-counter[hidden]{display:none}
-  .recordings-layout{display:grid;grid-template-columns:minmax(0,1fr) 396px;gap:18px;align-items:start;position:relative}
-  .recordings-layout::before{content:"";grid-column:2;grid-row:1;align-self:stretch;min-height:100%;border-radius:28px;background:linear-gradient(180deg,rgba(255,255,255,.58),rgba(232,244,255,.78));border:1px solid rgba(41,102,163,.08);box-shadow:0 22px 60px rgba(41,102,163,.08);z-index:0}
-  .recordings-layout>*{position:relative;z-index:1}
-  .recording-player-panel,.recordings-playlist-panel{background:rgba(255,255,255,.94);border:1px solid rgba(41,102,163,.14);border-radius:22px;box-shadow:0 24px 58px rgba(41,102,163,.12)}
-  .recording-player-panel{grid-column:1;grid-row:1;overflow:hidden}
-  .recording-player-shell{position:relative;background:#041627;aspect-ratio:16/9;border-radius:22px 22px 0 0;overflow:hidden}
-  .recording-player-shell video{width:100%;height:100%;display:block;object-fit:contain;background:#041627}
-  .recording-player-panel:fullscreen{display:flex;flex-direction:column;width:100vw;height:100vh;background:#041627;border:0;border-radius:0;box-shadow:none}
-  .recording-player-panel:fullscreen .recording-player-shell{flex:1 1 auto;min-height:0;aspect-ratio:auto;border-radius:0}
-  .recording-player-panel:fullscreen .recording-controls{flex:0 0 auto;border-radius:0;padding:16px 18px}
-  .recording-player-panel:fullscreen .recording-overlay-button{border-radius:0}
-  .recording-badge{position:absolute;top:18px;right:18px;z-index:3;background:#fff;color:#041627;border:1px solid rgba(41,102,163,.12);border-radius:999px;padding:8px 12px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;box-shadow:0 12px 24px rgba(4,22,39,.12)}
-  .recording-overlay-button{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,rgba(4,22,39,.04),rgba(4,22,39,.42));color:#fff;border:0;cursor:pointer}
-  .recording-overlay-button.hidden{display:none}
-  .recording-overlay-button span{width:88px;height:88px;border-radius:50%;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.38);display:grid;place-items:center;font-size:48px;box-shadow:0 0 0 10px rgba(255,255,255,.08);transition:transform .2s ease,background .2s ease,box-shadow .2s ease;animation:playPulse 2.4s ease-in-out infinite}
-  .recording-overlay-button:hover span{transform:scale(1.05);background:rgba(255,255,255,.28);box-shadow:0 0 0 14px rgba(255,255,255,.1)}
-  .recording-video-fallback{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#fff;background:#041627;padding:24px}
-  .recording-video-fallback.hidden{display:none}
-  .recording-controls{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:13px;align-items:center;padding:14px 16px;background:#fff;color:#041627;border-top:1px solid rgba(41,102,163,.12);border-radius:0 0 22px 22px}
-  .recording-controls button{width:46px;height:46px;display:grid;place-items:center;border:1px solid rgba(41,102,163,.18);background:#eef6ff;color:#041627;border-radius:14px;transition:transform .18s ease,background .18s ease,border-color .18s ease,box-shadow .18s ease}
-  .recording-controls button:hover{transform:translateY(-1px);background:#dceeff;border-color:rgba(41,102,163,.3);box-shadow:0 10px 22px rgba(41,102,163,.12)}
-  .recording-controls button:active{transform:scale(.96)}
-  .recording-controls input[type=range]{width:100%;min-height:46px;accent-color:#2966a3}
-  .recording-time{font-size:13px;font-weight:800;color:#4e5b69;white-space:nowrap}
-  .recordings-playlist-panel{grid-column:2;grid-row:1;padding:18px;position:sticky;top:132px;min-height:0;max-height:calc(100vh - 154px);overflow:hidden;background:rgba(255,255,255,.96)}
-  .playlist-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 14px;padding-bottom:12px;border-bottom:1px solid rgba(41,102,163,.12)}
-  .playlist-heading h2{margin:0;color:#041627;font-size:22px;font-weight:800}
-  .playlist-heading span{color:#5b6774;font-size:13px;font-weight:800}
-  .recordings-playlist{display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - 208px);overflow:auto;padding-right:2px}
-  .recording-item{display:grid;grid-template-columns:130px 1fr;gap:12px;padding:10px;border:1px solid rgba(41,102,163,.14);border-radius:18px;background:#fff;cursor:pointer;transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease}
-  .recording-item:hover{transform:translateY(-1px);border-color:rgba(41,102,163,.32);background:#f8fbff;box-shadow:0 12px 28px rgba(41,102,163,.1)}
-  .recording-item--active{border-color:#2966a3;background:#eef6ff;box-shadow:0 14px 30px rgba(41,102,163,.12)}
-  .recording-item__poster{width:130px;aspect-ratio:16/10;object-fit:cover;border-radius:14px;background:#dceeff}
-  .recording-item__body{min-width:0;display:flex;flex-direction:column;gap:8px}
-  .recording-item__topline{display:flex;justify-content:space-between;gap:8px;color:#5b6774;font-size:12px;font-weight:800}
-  .recording-item h3{margin:0;color:#041627;font-size:14px;line-height:1.28;font-weight:900}
-  .recording-item__footer{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
-  .recording-status{background:#e8f3ff;color:#2966a3;border:1px solid rgba(41,102,163,.12);border-radius:999px;padding:4px 8px;font-size:11px;font-weight:900}
-  .recording-watch-button{min-height:40px;border:0;background:#041627;color:#fff;border-radius:13px;padding:9px 13px;font-size:12px;font-weight:900;transition:transform .18s ease,background .18s ease,box-shadow .18s ease}
-  .recording-watch-button:hover{transform:translateY(-1px);background:#103355;box-shadow:0 10px 20px rgba(4,22,39,.16)}
-  .recording-watch-button:active{transform:scale(.96)}
-  .recordings-empty{min-height:420px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:rgba(255,255,255,.9);border:1px solid rgba(41,102,163,.12);border-radius:22px;padding:48px 24px;box-shadow:0 18px 45px rgba(41,102,163,.08)}
-  .recordings-empty .material-symbols-outlined{font-size:54px;color:#2966a3}
-  .recordings-empty h1{margin:18px 0 10px;color:#041627;font-size:32px;font-weight:800}
-  .recordings-empty p{margin:0;color:#44474c;font-size:17px;line-height:1.55;max-width:560px}
-  .recordings-primary-link{display:inline-flex;margin-top:24px;background:#041627;color:#fff;text-decoration:none;padding:14px 22px;border-radius:999px;font-weight:800;transition:transform .18s ease,background .18s ease,box-shadow .18s ease}
-  .recordings-primary-link:hover{transform:translateY(-1px);background:#103355;box-shadow:0 12px 24px rgba(4,22,39,.16)}
-  .recordings-access-gate{position:relative;grid-column:1/-1;box-sizing:border-box;min-width:0;max-width:100%;display:grid;place-items:center;padding:42px 0;animation:gateEnter .45s cubic-bezier(.2,.8,.2,1) both}
-  .recordings-access-panel{display:grid;grid-template-columns:.82fr 1fr;width:min(100%,1040px);min-height:420px;overflow:hidden;border-radius:8px;background:#fff;box-shadow:0 24px 48px rgba(4,22,39,.12)}
-  .recordings-access-visual{display:flex;min-height:100%;flex-direction:column;justify-content:space-between;padding:34px;background:linear-gradient(180deg,rgba(4,22,39,.18),rgba(4,22,39,.84)),linear-gradient(90deg,rgba(4,22,39,.7),rgba(4,22,39,.08)),url("assets/aspb-hero-consultation.png") center/cover;color:#fff}
-  .recordings-access-visual span{font-size:22px;font-weight:800}
-  .recordings-access-visual strong{max-width:380px;font-size:30px;line-height:1.14}
-  .recordings-access-copy{display:flex;flex-direction:column;justify-content:center;padding:42px 46px;text-align:left}
-  .recordings-access-kicker{margin:0 0 10px!important;color:#2966a3!important;font-size:13px!important;font-weight:800!important;line-height:1.3!important}
-  .recordings-access-copy h1{margin:0;color:#041627;font-size:40px;line-height:1.08;font-weight:800;text-wrap:balance}
-  .recordings-access-copy p{max-width:560px;margin:16px 0 0;color:#3f4650;font-size:17px;line-height:1.58}
-  .recordings-access-actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:28px}
-  .recordings-access-actions .recordings-primary-link{margin:0;padding:17px 26px;border-radius:8px;background:#041627;box-shadow:none;transition:transform .18s ease,box-shadow .18s ease,background .18s ease}
-  .recordings-access-actions .recordings-primary-link:hover{transform:translateY(-1px);background:#102f4c;box-shadow:0 10px 18px rgba(4,22,39,.16)}
-  .recordings-secondary-link{display:inline-flex;align-items:center;justify-content:center;min-height:52px;padding:0 8px;color:#2966a3;text-decoration:none;font-weight:900}
-  @keyframes gateEnter{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
-  @keyframes playPulse{0%,100%{box-shadow:0 0 0 10px rgba(255,255,255,.08)}50%{box-shadow:0 0 0 18px rgba(255,255,255,.03)}}
-  @media (prefers-reduced-motion: reduce){
-    .recordings-access-gate{animation:none}
-    .recordings-access-actions .recordings-primary-link,.recordings-secondary-link,.recording-overlay-button span,.recording-controls button,.recording-item,.recording-watch-button,.recordings-primary-link{transition:none;animation:none}
-  }
-  @media (min-width: 1500px){
-    .recordings-layout{grid-template-columns:minmax(0,1fr) 420px}
-    .recording-item{grid-template-columns:142px 1fr}
-    .recording-item__poster{width:142px}
-  }
-  @media (max-width: 980px){
-    .recordings-shell{padding:34px 16px 34px}
-    .recordings-header{align-items:flex-start;flex-direction:column}
-    .recordings-header{display:flex}
-    .recordings-header h1{font-size:40px}
-    .recordings-counter{align-items:flex-start}
-    .recordings-layout{grid-template-columns:1fr}
-    .recordings-layout::before{display:none}
-    .recording-player-panel,.recordings-playlist-panel{grid-column:auto;grid-row:auto}
-    .recordings-playlist-panel{position:static;min-height:0;max-height:none}
-    .recordings-playlist{max-height:none}
-  }
-  @media (max-width: 640px){
-    .recording-controls{grid-template-columns:auto 1fr auto;gap:10px}
-    .recording-time,.recording-controls button:last-child{display:none}
-    .recording-item{grid-template-columns:104px 1fr}
-    .recording-item__poster{width:104px}
-    .recording-watch-button{width:100%}
-    .recordings-access-gate{padding:24px 0}
-    .recordings-access-panel{grid-template-columns:1fr}
-    .recordings-access-visual{min-height:220px;padding:24px}
-    .recordings-access-visual strong{font-size:24px}
-    .recordings-access-copy{padding:28px 22px}
-    .recordings-access-copy h1{font-size:30px}
-    .recordings-access-copy p{font-size:16px}
-    .recordings-access-actions .recordings-primary-link{justify-content:center}
-  }
-</style>
+<link rel="stylesheet" href="recordings.css?v=recordings-yt-1"/>
 </head>
 <body class="recordings-page">
 <header class="sticky top-0 w-full z-50 bg-background/90 backdrop-blur-md shadow-sm">
@@ -139,14 +27,11 @@
 <section class="recordings-header" aria-labelledby="recordingsPageTitle">
 <div>
 <h1 id="recordingsPageTitle">Записи вебинаров</h1>
-<p>Постоянная библиотека прошедших вебинаров АСПБ. Выберите запись, включите плеер и возвращайтесь к материалам в удобное время.</p>
-</div>
-<div class="recordings-counter" id="recordingsCounter" hidden>
-<span id="recordingsCount">0 записей</span>
-<span id="recordingPosition">0 из 0</span>
+<p>Постоянная библиотека прошедших вебинаров АСПБ. Выберите запись слева, а справа — переключайтесь между всеми доступными материалами.</p>
 </div>
 </section>
 <div id="recordingsApp" class="recordings-layout">
+<div class="recording-main">
 <section class="recording-player-panel">
 <div id="recordingPlayerShell" class="recording-player-shell">
 <video id="recordingVideo" preload="metadata" playsinline></video>
@@ -169,10 +54,29 @@
 <button id="recordingFullscreenButton" type="button" aria-label="Полноэкранный режим"><span class="material-symbols-outlined">fullscreen</span></button>
 </div>
 </section>
+<section class="recording-info" aria-label="О записи">
+<span class="recording-eyebrow" id="recordingEyebrow">Запись</span>
+<h2 class="recording-title" id="recordingTitle">Запись вебинара</h2>
+<div class="recording-meta-row">
+<span id="recordingMeta"></span>
+</div>
+<p class="recording-description" id="recordingDescription"></p>
+<div class="recording-actions">
+<button type="button" class="recording-action" id="recordingFullscreenAction"><span class="material-symbols-outlined">fullscreen</span> На весь экран</button>
+<button type="button" class="recording-action" id="recordingShareAction"><span class="material-symbols-outlined">link</span> <span id="recordingShareLabel">Скопировать ссылку</span></button>
+</div>
+</section>
+</div>
 <aside class="recordings-playlist-panel" aria-label="Список записей">
 <div class="playlist-heading">
-<h2>Плейлист</h2>
-<span>Ваш кабинет</span>
+<div class="playlist-heading__row">
+<h2>Все записи</h2>
+<span class="playlist-heading__count" id="recordingsCount">0 записей</span>
+</div>
+<label class="recordings-search" id="recordingsSearchWrap" hidden>
+<span class="material-symbols-outlined">search</span>
+<input id="recordingsSearch" type="search" placeholder="Поиск по записям" aria-label="Поиск по записям" autocomplete="off">
+</label>
 </div>
 <div id="recordingsPlaylist" class="recordings-playlist"></div>
 </aside>

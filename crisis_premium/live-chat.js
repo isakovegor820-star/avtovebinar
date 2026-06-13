@@ -16,7 +16,9 @@
   var currentLead = null;
   var isHiddenAfterEnd = false;
   var roomReady = false;
-  var COLORS = ['#1e40af', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#4338ca'];
+  // Палитра аватаров участников и агентов. Без фиолетового/индиго (вызывали недоверие)
+  // и без бирюзового #0f766e — он зарезервирован за модераторами.
+  var COLORS = ['#1e40af', '#0369a1', '#b45309', '#be123c', '#15803d', '#475569'];
 
   // --- Полноэкранный чат-оверлей (YouTube-style), синхронный с основным чатом ---
   var recentMsgs = [];            // буфер последних отрендеренных сообщений (для seed при входе в fullscreen)
@@ -93,12 +95,11 @@
   function buildFsMessage(msg) {
     var row = document.createElement('div');
     row.className = 'fs-chat-msg';
-    if (msg.kind === 'agent_question') row.classList.add('fs-chat-msg-q');
     if (msg.kind === 'moderator') row.classList.add('fs-chat-msg-mod');
 
     var avatar = document.createElement('span');
     avatar.className = 'fs-chat-avatar';
-    avatar.style.background = msg.kind === 'moderator' ? '#0f766e' : msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
+    avatar.style.background = msg.kind === 'moderator' ? '#0f766e' : getColor(msg.authorName);
     avatar.textContent = getInitials(msg.authorName);
 
     var body = document.createElement('div');
@@ -157,22 +158,14 @@
     if (!renderKey || renderedMessages.has(renderKey)) return;
     renderedMessages.add(renderKey);
 
-    var isAgentQuestion = msg.kind === 'agent_question';
     var isModerator = msg.kind === 'moderator';
 
     var item = document.createElement('div');
     item.className = 'flex gap-2.5 chat-msg-enter';
     item.style.animation = 'chatMsgIn 0.3s ease forwards';
-    if (isAgentQuestion) {
-      item.style.background = 'rgba(30, 64, 175, 0.055)';
-      item.style.border = '1px solid rgba(30, 64, 175, 0.12)';
-      item.style.paddingLeft = '8px';
-      item.style.paddingRight = '8px';
-      item.style.paddingTop = '4px';
-      item.style.paddingBottom = '4px';
-      item.style.borderRadius = '6px';
-    } else if (isModerator) {
-      // Официальный вид модератора: бирюзовая подложка с левым акцентом.
+    if (isModerator) {
+      // Особый вид — ТОЛЬКО у модераторов: бирюзовая подложка с левым акцентом.
+      // Участники и наши агенты идут единым нейтральным форматом (без подложки).
       item.style.background = 'rgba(15, 118, 110, 0.07)';
       item.style.borderLeft = '3px solid #0f766e';
       item.style.paddingLeft = '9px';
@@ -182,7 +175,7 @@
       item.style.borderRadius = '6px';
     }
 
-    var avatarColor = isModerator ? '#0f766e' : msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
+    var avatarColor = isModerator ? '#0f766e' : getColor(msg.authorName);
     var avatar = document.createElement('div');
     avatar.style.width = '28px';
     avatar.style.height = '28px';
@@ -209,11 +202,11 @@
 
     var text = document.createElement('p');
     text.style.fontSize = '13px';
-    text.style.color = isAgentQuestion ? '#1e40af' : isModerator ? '#0f3d38' : '#44474c';
+    text.style.color = isModerator ? '#0f3d38' : '#44474c';
     text.style.lineHeight = '1.4';
     text.style.margin = '2px 0 0';
     text.style.wordWrap = 'break-word';
-    text.style.fontWeight = isAgentQuestion || isModerator ? '500' : 'normal';
+    text.style.fontWeight = isModerator ? '500' : 'normal';
     text.textContent = msg.message;
 
     body.append(author, text);

@@ -27,7 +27,7 @@ function reportProcessError(error: unknown) {
   return { message: String(error) };
 }
 
-function startBackgroundTask(name: string, start: () => NodeJS.Timeout | null, stop: () => void | Promise<void>) {
+function startBackgroundTask(name: string, start: () => unknown, stop: () => void | Promise<void>) {
   try {
     const handle = start();
     if (handle) {

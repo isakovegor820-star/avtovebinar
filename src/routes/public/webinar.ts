@@ -15,6 +15,10 @@ import { getWebinarVideoConfig } from '../../lib/webinarVideo.js';
 
 export const webinarRouter = Router();
 
+function publicTelegramUrl() {
+  return buildTelegramStartUrl() ?? env.TELEGRAM_GROUP_URL;
+}
+
 webinarRouter.get(
   '/webinar/current',
   asyncHandler(async (req, res) => {
@@ -46,7 +50,7 @@ webinarRouter.get(
         roomOpenBeforeMinutes: session.roomOpenBeforeMinutes,
         replayAvailableHours: session.replayAvailableHours,
       },
-      telegramUrl: env.TELEGRAM_GROUP_URL,
+      telegramUrl: publicTelegramUrl(),
       telegramBotUrl: buildTelegramStartUrl(),
     };
 

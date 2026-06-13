@@ -102,7 +102,7 @@ eventsRouter.post(
 
     res.json({
       ok: true,
-      telegramUrl: env.TELEGRAM_GROUP_URL,
+      telegramUrl: buildTelegramStartUrl() ?? env.TELEGRAM_GROUP_URL,
       telegramBotUrl: buildTelegramStartUrl(),
     });
   }),

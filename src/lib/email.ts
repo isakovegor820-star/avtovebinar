@@ -2,6 +2,7 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import { env } from './env.js';
 import { withCircuitBreaker, withRetries } from './resilience.js';
 import { logger } from './logger.js';
+import { buildTelegramStartUrl } from './telegram.js';
 
 type BaseEmailInput = {
   to: string;
@@ -98,6 +99,7 @@ function formatRelativeScheduled(date: Date, now = new Date()) {
 
 function buildEmailText(input: BaseEmailInput, intro: string) {
   const scheduled = formatScheduled(input.scheduledAt);
+  const telegramUrl = buildTelegramStartUrl() ?? env.TELEGRAM_GROUP_URL;
 
   return [
     `${input.name}, ${intro}`,
@@ -105,7 +107,7 @@ function buildEmailText(input: BaseEmailInput, intro: string) {
     'Тема: Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности',
     `Начало: ${scheduled} МСК`,
     `Ваша персональная ссылка на комнату: ${input.webinarUrl}`,
-    `Telegram-уведомления: ${env.TELEGRAM_GROUP_URL}`,
+    `Telegram-уведомления: ${telegramUrl}`,
     input.partnerUrl ? `Заявка на партнерский договор: ${input.partnerUrl}` : '',
     '',
     'АСПБ — Антикризисная служба помощи бизнесу',

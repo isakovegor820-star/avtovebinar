@@ -71,6 +71,10 @@ function genericParticipantLoginResponse() {
   };
 }
 
+function publicTelegramUrl() {
+  return buildTelegramStartUrl() ?? env.TELEGRAM_GROUP_URL;
+}
+
 async function exchangeRegistrationToken(
   token: string,
   res: Response,
@@ -159,7 +163,7 @@ registrationRouter.post(
         ok: true,
         successUrl: buildFrontendUrl('/crisis_premium/success.html'),
         webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
-        telegramUrl: env.TELEGRAM_GROUP_URL,
+        telegramUrl: publicTelegramUrl(),
       });
       return;
     }
@@ -338,7 +342,7 @@ registrationRouter.post(
       ok: true,
       successUrl,
       webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
-      telegramUrl: env.TELEGRAM_GROUP_URL,
+      telegramUrl: publicTelegramUrl(),
       telegramBotUrl: buildTelegramStartUrl(telegramStartToken),
       registration: {
         id: registration.id,
@@ -583,7 +587,7 @@ async function sendRegistrationState(req: Request, res: Response) {
       status: liveState.status,
       chatStatus: liveState.chatStatus,
     },
-    telegramUrl: env.TELEGRAM_GROUP_URL,
+    telegramUrl: publicTelegramUrl(),
     telegramBotUrl,
     accessUrl: buildFrontendUrl('/crisis_premium/access.html'),
     webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
@@ -703,7 +707,7 @@ registrationRouter.get(
         username: registration.lead.telegramUsername,
         firstName: registration.lead.telegramFirstName,
         subscribedAt: registration.lead.telegramSubscribedAt?.toISOString() ?? null,
-        groupUrl: env.TELEGRAM_GROUP_URL,
+        groupUrl: publicTelegramUrl(),
         botUrl: telegramBotUrl,
       },
       recordings: {

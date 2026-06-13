@@ -65,4 +65,13 @@ describe('scripted chat scenario', () => {
   it('keeps the committed scenario inside the current video duration', () => {
     expect(() => assertScriptedChatFitsDuration(WEBINAR_VIDEO_DURATION_SECONDS, SCRIPTED_CHAT_SCENARIO)).not.toThrow();
   });
+
+  it('keeps visible scripted participants and messages unique', () => {
+    const visibleMessages = SCRIPTED_CHAT_SCENARIO.messages.filter(message => message.visible !== false);
+    const authorNames = visibleMessages.map(message => message.agentName);
+    const messageTexts = visibleMessages.map(message => message.message);
+
+    expect(new Set(authorNames).size).toBe(authorNames.length);
+    expect(new Set(messageTexts).size).toBe(messageTexts.length);
+  });
 });

@@ -3,7 +3,7 @@
  */
 
 import { state } from './state.js';
-import { getJson, formatTimelineTime } from './utils.js';
+import { getJson, formatTimelineTime } from './utils.js?v=ux-fixes-1';
 import { timelinePath } from './registration.js';
 import { updateWebinarInsights, setChatActivity } from './questions.js';
 

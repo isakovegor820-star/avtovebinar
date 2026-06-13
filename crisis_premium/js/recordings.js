@@ -2,13 +2,14 @@
  * recordings.js — cabinet media library and recording playback.
  */
 
-import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=account-access-14';
+import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=ux-fixes-1';
 import { track } from './analytics.js';
 
 let hlsInstance = null;
 let hlsScriptPromise = null;
 let progressTimer = null;
 let currentRecordingId = null;
+let fullscreenChangeHandler = null;
 const progressMarks = new Set();
 
 function loadHlsScript() {
@@ -168,6 +169,7 @@ function bindControls(video, recording) {
   const fullscreenButton = document.getElementById('recordingFullscreenButton');
   const seek = document.getElementById('recordingSeek');
   const shell = document.getElementById('recordingPlayerShell');
+  const panel = shell?.closest('.recording-player-panel');
 
   playButton?.replaceWith(playButton.cloneNode(true));
   overlayButton?.replaceWith(overlayButton.cloneNode(true));
@@ -214,13 +216,44 @@ function bindControls(video, recording) {
     video.muted = !video.muted;
     freshMute.querySelector('.material-symbols-outlined').textContent = video.muted ? 'volume_off' : 'volume_up';
   });
+  function updateFullscreenIcon() {
+    const icon = document.fullscreenElement ? 'fullscreen_exit' : 'fullscreen';
+    freshFullscreen?.querySelector('.material-symbols-outlined')?.replaceChildren(document.createTextNode(icon));
+  }
+
+  function requestPlayerFullscreen() {
+    try {
+      (panel || shell)
+        ?.requestFullscreen?.()
+        ?.catch(() => {});
+    } catch {
+      // Some embedded browsers deny fullscreen synchronously.
+    }
+  }
+
+  function exitPlayerFullscreen() {
+    try {
+      document.exitFullscreen?.()?.catch(() => {});
+    } catch {
+      // Ignore browser-level fullscreen permission denials.
+    }
+  }
+
+  if (fullscreenChangeHandler) {
+    document.removeEventListener('fullscreenchange', fullscreenChangeHandler);
+    fullscreenChangeHandler = null;
+  }
+
   freshFullscreen?.addEventListener('click', () => {
     if (!document.fullscreenElement) {
-      shell?.requestFullscreen?.();
+      requestPlayerFullscreen();
     } else {
-      document.exitFullscreen?.();
+      exitPlayerFullscreen();
     }
+    window.setTimeout(updateFullscreenIcon, 0);
   });
+  fullscreenChangeHandler = updateFullscreenIcon;
+  document.addEventListener('fullscreenchange', fullscreenChangeHandler);
   freshSeek?.addEventListener('input', () => {
     const total = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : recording.durationSeconds || 0;
     if (total) video.currentTime = (Number(freshSeek.value) / 100) * total;

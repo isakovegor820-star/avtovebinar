@@ -31,6 +31,10 @@
   .recording-player-panel{grid-column:1;grid-row:1;overflow:hidden}
   .recording-player-shell{position:relative;background:#041627;aspect-ratio:16/9;border-radius:22px 22px 0 0;overflow:hidden}
   .recording-player-shell video{width:100%;height:100%;display:block;object-fit:contain;background:#041627}
+  .recording-player-panel:fullscreen{display:flex;flex-direction:column;width:100vw;height:100vh;background:#041627;border:0;border-radius:0;box-shadow:none}
+  .recording-player-panel:fullscreen .recording-player-shell{flex:1 1 auto;min-height:0;aspect-ratio:auto;border-radius:0}
+  .recording-player-panel:fullscreen .recording-controls{flex:0 0 auto;border-radius:0;padding:16px 18px}
+  .recording-player-panel:fullscreen .recording-overlay-button{border-radius:0}
   .recording-badge{position:absolute;top:18px;right:18px;z-index:3;background:#fff;color:#041627;border:1px solid rgba(41,102,163,.12);border-radius:999px;padding:8px 12px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;box-shadow:0 12px 24px rgba(4,22,39,.12)}
   .recording-overlay-button{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,rgba(4,22,39,.04),rgba(4,22,39,.42));color:#fff;border:0;cursor:pointer}
   .recording-overlay-button.hidden{display:none}
@@ -174,7 +178,7 @@
 </aside>
 </div>
 </main>
-<script type="module" src="js/main.js?v=account-access-18"></script>
+<script type="module" src="js/main.js?v=ux-fixes-2"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="cookie-consent.js"></script>
 </body></html>

@@ -15,7 +15,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="flow-tabs.css?v=nav-tabs-4" rel="stylesheet"/>
 <link href="buttons.css?v=restore-animations-1" rel="stylesheet"/>
-<link href="app-styles.css?v=restore-animations-1" rel="stylesheet"/>
+<link href="app-styles.css?v=ux-fixes-1" rel="stylesheet"/>
 </head>
 <body class="bg-background text-on-surface font-body-md selection:bg-primary-fixed selection:text-on-primary-fixed">
 <!-- TopNavBar -->
@@ -29,7 +29,7 @@
 <a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="#about">Как работает АСПБ</a>
 <a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="#why-now">Почему сейчас</a>
 <a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="#team">Команда</a>
-<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="#faq">FAQ</a>
+<a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="#faq">Частые вопросы</a>
 </div>
 <a class="bg-primary text-on-primary px-6 py-2.5 rounded-full font-label-md text-label-md scale-95 active:scale-90 transition-transform hover:opacity-90" href="register.html">
                 Зарегистрироваться
@@ -40,7 +40,7 @@
 <a class="shrink-0 text-on-surface-variant hover:text-primary" href="#about">Как работает АСПБ</a>
 <a class="shrink-0 text-on-surface-variant hover:text-primary" href="#why-now">Почему сейчас</a>
 <a class="shrink-0 text-on-surface-variant hover:text-primary" href="#team">Команда</a>
-<a class="shrink-0 text-on-surface-variant hover:text-primary" href="#faq">FAQ</a>
+<a class="shrink-0 text-on-surface-variant hover:text-primary" href="#faq">Частые вопросы</a>
 </nav>
 </div>
 </header>
@@ -68,8 +68,8 @@
 <span class="material-symbols-outlined text-[18px]">radar</span>
 </span>
 <div>
-<div class="text-label-sm font-label-sm text-primary">Клиенты уже рядом</div>
-<p class="text-label-sm text-on-surface-variant mt-1">ФНС, кредиторы, субсидиарка, банкротство</p>
+<div class="text-label-md font-label-md text-primary">Клиенты уже рядом</div>
+<p class="hero-proof-copy text-on-surface-variant mt-1">ФНС, кредиторы, субсидиарка, банкротство</p>
 </div>
 </div>
 </div>
@@ -79,8 +79,8 @@
 <span class="material-symbols-outlined text-[18px]">shield_person</span>
 </span>
 <div>
-<div class="text-label-sm font-label-sm text-primary">АСПБ берет сложное</div>
-<p class="text-label-sm text-on-surface-variant mt-1">диагностику, документы, процедуру</p>
+<div class="text-label-md font-label-md text-primary">АСПБ берет сложное</div>
+<p class="hero-proof-copy text-on-surface-variant mt-1">диагностику, документы, процедуру</p>
 </div>
 </div>
 </div>
@@ -90,8 +90,8 @@
 <span class="material-symbols-outlined text-[18px]">handshake</span>
 </span>
 <div>
-<div class="text-label-sm font-label-sm text-primary">Вы сохраняете доверие</div>
-<p class="text-label-sm text-on-surface-variant mt-1">помогаете клиенту и зарабатываете</p>
+<div class="text-label-md font-label-md text-primary">Вы сохраняете доверие</div>
+<p class="hero-proof-copy text-on-surface-variant mt-1">помогаете клиенту и зарабатываете</p>
 </div>
 </div>
 </div>
@@ -175,17 +175,13 @@
 <div class="absolute -right-12 -bottom-12 w-36 h-36 rounded-full border border-primary-fixed-dim/15"></div>
 <div class="relative z-10 grid lg:grid-cols-[1.1fr_0.9fr] gap-6 items-center">
 <div>
-<p class="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-3 py-1.5 text-label-sm font-label-sm text-primary-fixed-dim mb-4">
-<span class="material-symbols-outlined text-[16px]">bolt</span>
-почему стоит записаться
-</p>
 <h2 class="text-headline-lg font-headline-lg mb-3">Клиент не должен уходить “куда-то по рекламе”</h2>
 <p class="text-body-md text-primary-fixed-dim leading-relaxed">
 Если доверитель пришел к вам с долгами, кредиторами или риском банкротства, вы уже находитесь в точке решения. На вебинаре покажем, как не отпускать такого клиента, а подключать АСПБ как сильную антикризисную команду.
 </p>
 <div class="debt-alert-card mt-6 rounded-xl px-5 py-5 md:px-6 md:py-5">
 <p class="debt-alert-text">Общий долг россиян по кредитам превысил <strong>37 трлн рублей</strong>. Займы выплачивают <strong>47,6 млн человек</strong>. У половины из них больше половины дохода уходит на погашение долгов, а каждый пятый уже просрочил платежи больше чем на месяц.</p>
-<p class="debt-alert-source">— ФЦБГ</p>
+<p class="debt-alert-source">— Федеральный Центр Банкротства Граждан</p>
 </div>
 </div>
 <div class="rounded-xl bg-white/[0.08] border border-white/10 p-5">
@@ -219,8 +215,8 @@
 </div>
 <div class="flip-card-back rounded-xl p-5 flex items-center">
 <div>
-<p class="text-[13px] font-bold text-white mb-2">Пример из практики</p>
-<p class="text-[12px] text-white/80 leading-relaxed">Клиент пришёл с долгом 4.2 млн — юрист передал в АСПБ за 1 день, процедура заняла 8 месяцев без его участия.</p>
+<p class="text-[14px] font-bold text-white mb-2">Пример из практики</p>
+<p class="text-[13px] text-white/80 leading-relaxed">Клиент пришёл с долгом 4.2 млн — юрист передал в АСПБ за 1 день, процедура заняла 8 месяцев без его участия.</p>
 <p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
 </div>
 </div>
@@ -243,8 +239,8 @@
 </div>
 <div class="flip-card-back rounded-xl p-5 flex items-center">
 <div>
-<p class="text-[13px] font-bold text-white mb-2">Пример из практики</p>
-<p class="text-[12px] text-white/80 leading-relaxed">Партнёр направил 3 клиентов за квартал — все получили законное списание, ни одной жалобы.</p>
+<p class="text-[14px] font-bold text-white mb-2">Пример из практики</p>
+<p class="text-[13px] text-white/80 leading-relaxed">Партнёр направил 3 клиентов за квартал — все получили законное списание, ни одной жалобы.</p>
 <p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
 </div>
 </div>
@@ -355,13 +351,6 @@
 <div class="bento-card-tilt bento-card-interactive bento-card-interactive--dark text-on-primary rounded-xl p-8 md:p-10 shadow-xl flex flex-col justify-between overflow-hidden relative" style="transform-style:preserve-3d;perspective:800px">
 <div class="gradient-mesh-bg"></div>
 <div class="relative z-10 space-y-6" style="transform:translateZ(20px)">
-<span class="inline-flex w-fit items-center gap-2 rounded-full bg-white/10 border border-white/10 px-4 py-2 text-label-sm font-label-sm text-primary-fixed-dim">
-<svg class="bento-icon-svg inline-trend-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
-  <polyline points="16 7 22 7 22 13"></polyline>
-</svg>
-                                сигнал рынка
-                            </span>
 <h2 class="text-headline-lg font-headline-lg">Почему эта ниша растет в кризис</h2>
 <p class="text-body-lg text-primary-fixed-dim leading-relaxed">
                             Без паники и без розовых очков: долговая нагрузка растет, а банкротство стало нормальным финансовым инструментом. Для юриста это момент не отпускать клиента после разовой консультации, а дать ему законный антикризисный маршрут вместе с командой АСПБ.
@@ -552,24 +541,13 @@
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-2">роль партнера АСПБ</p>
 <h3 class="text-headline-md font-headline-md text-primary mb-3" id="chainTitle">Вы не теряете клиента — вы становитесь точкой опоры</h3>
 <p class="text-body-md leading-relaxed" id="chainText">
-                            Вы видите проблему и направляете клиента к решению. АСПБ берет на себя диагностику, документы, суд, кредиторов и завершение процедуры. Никакого офиса, лицензий и самостоятельных судов.
+                            Вы видите проблему и направляете клиента к решению. АСПБ берет на себя диагностику, документы, суд, кредиторов и завершение процедуры, а вы сохраняете роль доверенного советника клиента.
                         </p>
-</div>
-</div>
-<div class="mt-6 grid grid-cols-3 gap-2 text-center">
-<div class="rounded-lg bg-surface-container-low px-3 py-3">
-<span class="block text-label-sm font-label-sm text-primary">без суда</span>
-</div>
-<div class="rounded-lg bg-surface-container-low px-3 py-3">
-<span class="block text-label-sm font-label-sm text-primary">без офиса</span>
-</div>
-<div class="rounded-lg bg-surface-container-low px-3 py-3">
-<span class="block text-label-sm font-label-sm text-primary">с АСПБ</span>
 </div>
 </div>
 </div>
 <div class="chain-steps grid sm:grid-cols-3 lg:grid-cols-1 gap-3 w-full lg:max-w-[440px] lg:mx-auto" role="group" aria-label="Роль партнера в цепочке АСПБ">
-<button aria-pressed="true" class="chain-choice relative z-10 text-left rounded-lg border border-white/[0.12] bg-white/10 p-4 transition-all hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-fixed-dim" data-chain-icon="shield_person" data-chain-text="Вы видите проблему и направляете клиента к решению. АСПБ берет на себя диагностику, документы, суд, кредиторов и завершение процедуры. Никакого офиса, лицензий и самостоятельных судов." data-chain-title="Вы не теряете клиента — вы становитесь точкой опоры" type="button">
+<button aria-pressed="true" class="chain-choice relative z-10 text-left rounded-lg border border-white/[0.12] bg-white/10 p-4 transition-all hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-fixed-dim" data-chain-icon="shield_person" data-chain-text="Вы видите проблему и направляете клиента к решению. АСПБ берет на себя диагностику, документы, суд, кредиторов и завершение процедуры, а вы сохраняете роль доверенного советника клиента." data-chain-title="Вы не теряете клиента — вы становитесь точкой опоры" type="button">
 <span class="flex items-start gap-4">
 <span class="chain-dot flex w-8 h-8 rounded-full items-center justify-center text-label-sm font-label-sm shrink-0">1</span>
 <span>
@@ -634,7 +612,7 @@
 <div class="p-5 md:p-6 lg:p-8 flex flex-col justify-center">
 <p class="text-label-md font-label-md uppercase text-secondary mb-2">Лицо команды</p>
 <h4 class="text-[44px] leading-[48px] font-headline-xl text-primary mb-3">Василий Артин</h4>
-<p class="text-body-lg font-semibold text-on-surface-variant mb-4">Основатель АСПБ, арбитражный управляющий</p>
+<p class="text-body-lg font-semibold text-on-surface-variant mb-4">Арбитражный управляющий, стратег сложных дел</p>
 <p class="text-[19px] leading-8 text-on-surface-variant mb-5 team-card-desc">Создал АСПБ и ведет стратегию сложных дел. Самый большой практический стаж в команде помогает выстраивать для клиентов спокойный, законный и понятный маршрут.</p>
 <div class="team-founder-quote mb-4">
 <span class="material-symbols-outlined text-[22px]">format_quote</span>
@@ -642,7 +620,6 @@
 </div>
 <div class="team-card-stats">
 <span class="team-stat">16+ лет практики</span>
-<span class="team-stat">Основатель АСПБ</span>
 <span class="team-stat">Стратегия сложных дел</span>
 </div>
 </div>
@@ -662,8 +639,8 @@
 <p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Помогает клиентам пройти процедуру спокойно: собирает фактуру, держит сроки и снижает стресс на каждом этапе</p>
 <div class="team-card-stats">
 <span class="team-stat">Стаж: 15 лет</span>
-<span class="team-stat">Документы и сроки</span>
-<span class="team-stat">Работа с кредиторами</span>
+<span class="team-stat">Контроль этапов</span>
+<span class="team-stat">Коммуникация с клиентом</span>
 </div>
 </div>
 
@@ -706,7 +683,7 @@
 <!-- Card 5 -->
 <div class="card-reveal team-card group" style="animation-delay:0.36s">
 <div class="team-photo-frame team-member-photo-frame relative overflow-hidden rounded-xl mb-3 aspect-square">
-<img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/sizov-dmitry.jpg" alt="Дмитрий Сизов"/>
+<img class="team-photo team-photo--sizov w-full h-full object-cover object-center pointer-events-none select-none" src="assets/sizov-dmitry.jpg" alt="Дмитрий Сизов"/>
 <div class="team-card-tooltip">
 <p class="text-[12px] text-white/90 leading-relaxed">Сопровождает банкротство граждан и ИП: от анализа ситуации до завершения процедуры и работы с кредиторами</p>
 </div>
@@ -715,9 +692,9 @@
 <p class="text-label-md text-on-surface-variant">Арбитражный управляющий</p>
 <p class="text-[12px] text-on-surface-variant/70 mt-1 mb-2 team-card-desc">Банкротство граждан и ИП, реструктуризация долга, работа с кредиторами</p>
 <div class="team-card-stats">
-<span class="team-stat">Банкротство граждан</span>
-<span class="team-stat">Реструктуризация</span>
-<span class="team-stat">Работа с кредиторами</span>
+<span class="team-stat">Анализ долгов</span>
+<span class="team-stat">План процедуры</span>
+<span class="team-stat">Сопровождение ИП</span>
 </div>
 </div>
 
@@ -1056,7 +1033,7 @@
 </div>
 </footer>
 <script src="landing-interactions.js?v=restore-animations-1"></script>
-<script type="module" src="js/main.js?v=account-access-18"></script>
+<script type="module" src="js/main.js?v=ux-fixes-2"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="buttons.js?v=restore-animations-1"></script>
 <script src="particles-bg.js?v=restore-animations-1"></script>

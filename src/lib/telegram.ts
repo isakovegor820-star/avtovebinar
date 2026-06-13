@@ -15,6 +15,8 @@ type TelegramApiPayload = {
   };
 };
 
+const ASPB_PARTICIPANT_BOT_USERNAME = 'jwjefgwreqfe_bot';
+
 type TelegramGetMePayload = TelegramApiPayload & {
   result?: {
     username?: string;
@@ -102,7 +104,10 @@ function adminBotUsername() {
 
 function participantBotUsername() {
   return (
-    env.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME || env.TELEGRAM_PARTICIPANT_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME
+    env.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME ||
+    env.TELEGRAM_PARTICIPANT_BOT_USERNAME ||
+    env.TELEGRAM_BOT_USERNAME ||
+    ASPB_PARTICIPANT_BOT_USERNAME
   );
 }
 

@@ -5,6 +5,28 @@
 import { API } from './state.js';
 
 let csrfTokenFromApi = '';
+const REQUEST_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error('Сервер не ответил вовремя. Проверьте интернет и попробуйте еще раз.');
+      timeoutError.status = 0;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
 
 function readCookie(name) {
   const prefix = `${name}=`;
@@ -20,7 +42,12 @@ async function getCsrfToken() {
   if (cookieToken) return cookieToken;
   if (csrfTokenFromApi) return csrfTokenFromApi;
 
-  const response = await fetch(`${API}/csrf`, { credentials: 'include' });
+  let response;
+  try {
+    response = await fetchWithTimeout(`${API}/csrf`, { credentials: 'include' });
+  } catch {
+    return '';
+  }
   if (!response.ok) return '';
 
   const payload = await response.json().catch(() => ({}));
@@ -34,7 +61,7 @@ export async function csrfHeaders() {
 }
 
 export async function post(path, body) {
-  const response = await fetch(`${API}${path}`, {
+  const response = await fetchWithTimeout(`${API}${path}`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
@@ -53,7 +80,7 @@ export async function post(path, body) {
 }
 
 export async function getJson(path) {
-  const response = await fetch(`${API}${path}`, { credentials: 'include' });
+  const response = await fetchWithTimeout(`${API}${path}`, { credentials: 'include' });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(payload.error || 'Ошибка запроса');

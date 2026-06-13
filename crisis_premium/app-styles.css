@@ -74,6 +74,10 @@
             background: rgba(255, 255, 255, 0.66);
             transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease, background 260ms ease;
         }
+        .hero-proof-copy {
+            font-size: 13px;
+            line-height: 18px;
+        }
         .hero-proof-card::before {
             content: "";
             position: absolute;
@@ -598,6 +602,10 @@
             transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), filter 0.55s ease;
             will-change: transform;
         }
+        .team-photo--sizov {
+            object-position: center 18%;
+            transform: scale(0.98);
+        }
         .team-card:hover {
             transform: translateY(-4px);
             box-shadow: 0 20px 48px rgba(4, 22, 39, 0.12);
@@ -606,6 +614,10 @@
         .team-card:focus .team-photo {
             transform: scale(1.075);
             filter: saturate(1.06) contrast(1.04);
+        }
+        .team-card:hover .team-photo--sizov,
+        .team-card:focus .team-photo--sizov {
+            transform: scale(1.02);
         }
         .team-card:hover .team-photo-frame::after,
         .team-card:focus .team-photo-frame::after {
@@ -973,6 +985,43 @@
                         background 0.4s ease,
                         border-color 0.3s ease !important;
             cursor: pointer;
+        }
+        button.bento-card-interactive::after,
+        .flip-card .bento-card-interactive::after,
+        .income-card::after,
+        .program-card::after,
+        .chain-choice::after {
+            content: "+";
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            display: grid;
+            place-items: center;
+            background: rgba(4, 22, 39, 0.08);
+            color: #041627;
+            font-size: 15px;
+            line-height: 1;
+            font-weight: 800;
+            opacity: 0.72;
+            transition: transform 220ms ease, opacity 220ms ease, background 220ms ease, color 220ms ease;
+            pointer-events: none;
+        }
+        .chain-choice::after {
+            background: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+        }
+        button.bento-card-interactive:hover::after,
+        .flip-card .bento-card-interactive:hover::after,
+        .income-card:hover::after,
+        .program-card:hover::after,
+        .chain-choice:hover::after {
+            transform: rotate(90deg) scale(1.05);
+            opacity: 1;
+            background: #041627;
+            color: #ffffff;
         }
         .bento-card-interactive:hover,
         .bento-card-interactive:focus-within {

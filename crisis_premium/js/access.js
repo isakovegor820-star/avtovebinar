@@ -6,9 +6,9 @@ import {
   getParticipantAccess,
   logoutParticipant,
   requestParticipantLogin,
-} from './registration.js?v=account-access-14';
-import { formatMoscowDateTime } from './utils.js?v=account-access-14';
-import { updateTelegramLinks } from './room.js?v=account-access-14';
+} from './registration.js?v=ux-fixes-1';
+import { formatMoscowDateTime } from './utils.js?v=ux-fixes-1';
+import { updateTelegramLinks } from './room.js?v=ux-fixes-1';
 
 function statusLabel(data) {
   if (data.accessStatus === 'live') return 'Эфир идет';

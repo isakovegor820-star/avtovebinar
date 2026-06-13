@@ -3,7 +3,7 @@
  */
 
 import { clearAccessToken, getUrlToken } from './state.js';
-import { post, getJson, utm } from './utils.js?v=account-access-14';
+import { post, getJson, utm } from './utils.js?v=ux-fixes-1';
 import { track } from './analytics.js';
 
 export function registrationStatePath(view) {

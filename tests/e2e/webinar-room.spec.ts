@@ -259,7 +259,7 @@ test('published recording stays available before the daily broadcast', async ({ 
   expect(recordingsPayload.recordings[0].durationSeconds).toBe(568);
 
   await expect(page.locator('#recordingsPlaylist')).toContainText('Постоянная запись E2E');
-  await expect(page.locator('#recordingsCounter')).toBeVisible();
+  await expect(page.locator('#recordingsCount')).toContainText('запис');
   await expect(page.locator('#recordingVideo')).toHaveAttribute('src', /webinar\.mp4/);
   await expect(page.locator('#recordingVideoFallback')).toBeHidden();
 });

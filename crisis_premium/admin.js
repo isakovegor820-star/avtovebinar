@@ -496,18 +496,25 @@ let currentQueue = 'all';
       });
     }
 
+    // Левая панель: модераторский чат вопросов. На каждом сообщении 3 действия —
+    // ответить (публикует ответ модератора в эфир), переслать (в Telegram менеджеру),
+    // забанить/разбанить (блокирует участника в чате и скрывает его сообщения из эфира).
     async function loadQuestions() {
       const data = await api('/api/admin/questions');
-      clear(questionsNode);
+      clear(modChatNode);
       if (!data.questions.length) {
-        questionsNode.append(node('p', { class:'sub', text:'Вопросов пока нет.' }));
+        modChatNode.append(node('div', { class:'chat-empty', text:'Вопросов пока нет.' }));
         return;
       }
       data.questions.forEach(q => {
-        const replyInput = node('textarea', { rows:'2', placeholder:'Ответ модератора в чат…' });
-        replyInput.style.cssText = 'width:260px;max-width:100%;resize:vertical;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;';
+        const meta = node('div', { class:'meta' }, [ node('span', { text:fmtDate(q.createdAt) }) ]);
+        if (q.isAnswered) meta.append(node('span', { class:'badge ans', text:'отвечено' }));
+        if (q.forwardedAt) meta.append(node('span', { class:'badge fwd', text:'переслано' }));
+        if (q.chatBanned) meta.append(node('span', { class:'badge ban', text:'забанен' }));
 
-        const replyBtn = node('button', { text:'Ответить в чат', onclick:async () => {
+        const replyInput = node('textarea', { class:'mod-reply', placeholder:'Ответ модератора в чат…' });
+
+        const replyBtn = node('button', { text:'Ответить', onclick:async () => {
           const text = replyInput.value.trim();
           if (text.length < 2) { showToast('Введите текст ответа', true); return; }
           replyBtn.disabled = true;
@@ -518,7 +525,7 @@ let currentQueue = 'all';
             });
             showToast('Ответ модератора опубликован в чате');
             replyInput.value = '';
-            await loadQuestions();
+            await Promise.allSettled([loadQuestions(), loadLiveMirror()]);
           } catch (err) {
             showToast(err.message || 'Не удалось отправить ответ', true);
           } finally {
@@ -526,27 +533,78 @@ let currentQueue = 'all';
           }
         }});
 
-        const markBtn = node('button', { class:q.isAnswered ? 'secondary' : '', text:q.isAnswered ? 'Обработан' : 'Отметить', onclick:async () => {
-          await api('/api/admin/questions/' + q.id, {
-            method: 'PATCH',
-            body: JSON.stringify({ isAnswered: true })
-          });
-          await loadQuestions();
+        const forwardBtn = node('button', { class:'secondary', text:q.forwardedAt ? 'Переслать снова' : 'Переслать', onclick:async () => {
+          forwardBtn.disabled = true;
+          try {
+            const res = await api('/api/admin/questions/' + q.id + '/forward', { method:'POST', body:'{}' });
+            showToast(res.telegramSent ? 'Вопрос переслан менеджеру в Telegram' : 'Вопрос отмечен пересланным (Telegram отключён)');
+            await loadQuestions();
+          } catch (err) {
+            showToast(err.message || 'Не удалось переслать', true);
+          } finally {
+            forwardBtn.disabled = false;
+          }
         }});
 
-        const actions = node('div', {}, [ replyInput, replyBtn, markBtn ]);
-        actions.style.cssText = 'display:flex;flex-direction:column;gap:8px;align-items:stretch;';
+        const banBtn = node('button', { class:'ghost', text:q.chatBanned ? 'Разбанить' : 'Забанить', onclick:async () => {
+          if (!q.chatBanned && !confirm('Забанить участника ' + q.lead.name + ' в чате? Его сообщения скроются из эфира, новые он отправить не сможет.')) return;
+          banBtn.disabled = true;
+          try {
+            await api('/api/admin/registrations/' + q.registrationId + '/chat-ban', {
+              method: 'POST',
+              body: JSON.stringify({ banned: !q.chatBanned })
+            });
+            showToast(q.chatBanned ? 'Участник разбанен' : 'Участник забанен в чате');
+            await Promise.allSettled([loadQuestions(), loadLiveMirror()]);
+          } catch (err) {
+            showToast(err.message || 'Не удалось изменить бан', true);
+          } finally {
+            banBtn.disabled = false;
+          }
+        }});
 
-        questionsNode.append(node('div', { class:'question' }, [
-          node('div', {}, [
-            node('strong', { text:q.lead.name }),
-            node('span', { class:'sub', text:' ' + q.lead.email }),
-            node('p', { text:q.text }),
-            node('div', { class:'sub', text:fmtDate(q.createdAt) + (q.isAnswered ? ' · отвечено' : '') })
+        modChatNode.append(node('div', { class:'mod-msg' + (q.chatBanned ? ' banned' : '') }, [
+          node('div', { class:'who' }, [
+            document.createTextNode(q.lead.name + ' '),
+            node('span', { text:q.lead.email })
           ]),
-          actions
+          meta,
+          node('div', { class:'body', text:q.text }),
+          replyInput,
+          node('div', { class:'mod-actions' }, [ replyBtn, forwardBtn, banBtn ])
         ]));
       });
+    }
+
+    // Правая панель: read-only зеркало публичного чата эфира (как видит участник).
+    async function loadLiveMirror() {
+      let data;
+      try {
+        data = await api('/api/admin/webinar/chat/live');
+      } catch (err) {
+        clear(liveChatNode);
+        liveChatNode.append(node('div', { class:'chat-empty', text:err.message || 'Не удалось загрузить эфир.' }));
+        return;
+      }
+      const statusLabel = data.webinarStatus === 'live' ? '· идёт эфир'
+        : data.webinarStatus === 'finished' ? '· эфир завершён'
+        : '· вне эфира';
+      if (liveChatStatus) liveChatStatus.textContent = statusLabel;
+
+      const atBottom = liveChatNode.scrollHeight - liveChatNode.scrollTop - liveChatNode.clientHeight < 60;
+      clear(liveChatNode);
+      if (!data.messages.length) {
+        liveChatNode.append(node('div', { class:'chat-empty', text:'Сообщений в чате эфира пока нет.' }));
+        return;
+      }
+      data.messages.forEach(m => {
+        liveChatNode.append(node('div', { class:'live-msg ' + (m.kind || '') }, [
+          node('span', { class:'who', text:(m.authorName || 'Участник') + ': ' }),
+          node('span', { class:'body', text:m.message })
+        ]));
+      });
+      // Автоскролл к низу, только если пользователь уже был внизу (не дёргаем при чтении истории).
+      if (atBottom) liveChatNode.scrollTop = liveChatNode.scrollHeight;
     }
 
     async function sendBroadcast() {
@@ -600,6 +658,7 @@ let currentQueue = 'all';
       const sections = [
         ['сводка', loadSummary], ['воронка', loadFunnel], ['горячие лиды', loadHotLeads],
         ['регистрации', loadRegistrations], ['заявки', loadApplications], ['вопросы', loadQuestions],
+        ['эфир', loadLiveMirror],
         ['пользователи', loadUsers], ['статус рассылки', loadBroadcastStatus],
       ];
       const results = await Promise.allSettled(sections.map(([, fn]) => fn()));
@@ -620,6 +679,7 @@ let currentQueue = 'all';
         loginPanel.classList.add('hidden');
         appPanel.classList.remove('hidden');
         logoutBtn.classList.remove('hidden');
+        startLiveMirrorPoll();
         await loadAll();
       } catch (error) {
         loginError.textContent = error.message;
@@ -632,6 +692,15 @@ let currentQueue = 'all';
     });
 
     refreshBtn.addEventListener('click', loadAll);
+    chatRefreshBtn.addEventListener('click', () => Promise.allSettled([loadQuestions(), loadLiveMirror()]));
+    // Авто-обновление правой панели (эфир), как у участника. Только когда админка видна.
+    let liveMirrorTimer = null;
+    function startLiveMirrorPoll() {
+      if (liveMirrorTimer) return;
+      liveMirrorTimer = setInterval(() => {
+        if (!appPanel.classList.contains('hidden')) loadLiveMirror().catch(() => {});
+      }, 5000);
+    }
     hotRefreshBtn.addEventListener('click', loadHotLeads);
     usersRefreshBtn.addEventListener('click', loadUsers);
     createUserBtn.addEventListener('click', createUser);
@@ -661,6 +730,7 @@ let currentQueue = 'all';
         loginPanel.classList.add('hidden');
         appPanel.classList.remove('hidden');
         logoutBtn.classList.remove('hidden');
+        startLiveMirrorPoll();
         const registrationFromUrl = new URLSearchParams(location.search).get('registration');
         return loadAll().then(() => {
           if (registrationFromUrl) loadRegistrationCard(registrationFromUrl).catch(() => {});

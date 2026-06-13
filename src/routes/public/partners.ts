@@ -98,6 +98,10 @@ partnersRouter.post(
     if (!registration) {
       throw new AppError(401, 'Invalid webinar token');
     }
+    // Забаненный модератором участник не может отправлять вопросы в чат.
+    if (registration.chatBannedAt) {
+      throw new AppError(403, 'Chat is blocked for this participant');
+    }
     const now = new Date();
     const access = await buildDailyRoomAccessPayload(registration, now);
     if (!access.canEnterRoom) {

@@ -153,6 +153,7 @@ model Registration {
   status                    String               @default("registered")
   crmStatus                 String               @default("new") @map("crm_status")
   isHot                     Boolean              @default(false) @map("is_hot")
+  chatBannedAt              DateTime?            @map("chat_banned_at")
   assignedManagerId         String?              @map("assigned_manager_id")
   nextContactAt             DateTime?            @map("next_contact_at")
   managerNote               String?              @map("manager_note")
@@ -261,6 +262,7 @@ model Question {
   webinarSessionId String         @map("webinar_session_id")
   text             String
   isAnswered       Boolean        @default(false) @map("is_answered")
+  forwardedAt      DateTime?      @map("forwarded_at")
   adminNote        String?        @map("admin_note")
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")

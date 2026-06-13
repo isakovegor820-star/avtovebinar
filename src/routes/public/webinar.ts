@@ -183,6 +183,9 @@ async function sendChat(req: Request, res: Response) {
         where: {
           webinarSessionId: access.webinarSession.id,
           visibleAt: { lte: now },
+          // Сообщения забаненных модератором участников скрыты из публичной ленты.
+          // Системные сообщения (модератор/сценарий) имеют registrationId=null — их оставляем.
+          OR: [{ registrationId: null }, { registration: { is: { chatBannedAt: null } } }],
         },
         orderBy: [{ visibleAt: 'asc' }, { createdAt: 'asc' }],
       });

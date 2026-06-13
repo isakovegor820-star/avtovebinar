@@ -637,6 +637,7 @@
   will-change: transform, opacity;
 }
 .fs-chat-msg-q { background: rgba(30, 64, 175, 0.5); }
+.fs-chat-msg-mod { background: rgba(15, 118, 110, 0.5); border-left: 3px solid #2dd4bf; }
 
 .fs-chat-avatar {
   width: 24px;

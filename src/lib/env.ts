@@ -65,6 +65,10 @@ const envSchema = z.object({
   WORKER_ROLE: z.enum(['api', 'webinar', 'all']).optional(),
   TRUST_PROXY: z.enum(['false', 'true', '1', 'loopback']).default('false'),
   ADMIN_DEV_BYPASS: z.enum(['false', 'true']).default('false'),
+  // Имя и роль модератора эфира: показываются участникам в чате (приветствие +
+  // ручные ответы из админки). Настраиваются без правки кода — поменять в .env.
+  MODERATOR_NAME: z.string().trim().min(2).max(80).default('Юлия, модератор АСПБ'),
+  MODERATOR_ROLE: z.string().trim().min(2).max(80).default('модератор эфира'),
 });
 
 type EnvConfig = z.infer<typeof envSchema>;

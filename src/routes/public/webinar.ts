@@ -6,6 +6,7 @@ import { getCountdown, getCurrentOrNextWebinarDate, getSessionStatus, getWebinar
 import { DEFAULT_TIMELINE_EVENTS } from '../../lib/webinarTimeline.js';
 import { getEffectiveVideoDurationMinutes, getWebinarLiveState } from '../../lib/webinarLive.js';
 import { getScriptedChatMessagesUntil } from '../../lib/scriptedChat.js';
+import { buildModeratorIntroMessage } from '../../lib/moderator.js';
 import { buildTelegramStartUrl } from '../../lib/telegram.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import { buildDailyRoomAccessPayload, findRegistrationForRequest, getFirstSeen, roomAccessError } from './helpers.js';
@@ -227,7 +228,11 @@ async function sendChat(req: Request, res: Response) {
     message: message.message,
   }));
 
-  const messages = [...scriptedMessages, ...realMessages]
+  // Закреплённое приветствие модератора: всегда первым, когда чат открыт. offsetSeconds=0
+  // и visibleAt чуть раньше старта гарантируют, что оно не отсекается гейтом и сортируется вверх.
+  const moderatorIntro = canExposeChatMessages ? [buildModeratorIntroMessage(access.webinarSession)] : [];
+
+  const messages = [...moderatorIntro, ...scriptedMessages, ...realMessages]
     .sort((left, right) => left.visibleAt.getTime() - right.visibleAt.getTime())
     .map(message => ({
       ...message,

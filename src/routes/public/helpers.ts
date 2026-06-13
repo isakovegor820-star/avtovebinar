@@ -178,7 +178,9 @@ export function buildAccessPayload(
     webinarSession.replayEnabled,
   );
 
-  if (env.NODE_ENV !== 'production' && env.WEBINAR_TEST_ROOM_MODE === 'on' && access.accessStatus !== 'replay') {
+  const previewLive =
+    (env.NODE_ENV !== 'production' && env.WEBINAR_TEST_ROOM_MODE === 'on') || env.WEBINAR_PREVIEW_MODE === 'on';
+  if (previewLive && access.accessStatus !== 'replay') {
     return {
       accessStatus: 'live' as const,
       webinarStatus: 'test',

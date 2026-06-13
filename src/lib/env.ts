@@ -61,6 +61,10 @@ const envSchema = z.object({
   WEBINAR_VIDEO_PROVIDER: z.enum(['local', 'cdn', 'hls', 'streaming']).default('local'),
   WEBINAR_VIDEO_DURATION_SECONDS: z.coerce.number().int().positive().default(3860),
   WEBINAR_TEST_ROOM_MODE: z.enum(['on', 'off']),
+  // Превью комнаты для владельца: открывает комнату как «живую» для держателей токена
+  // регистрации, НЕ затрагивая публичный лендинг (его отсчёт идёт через getSessionStatus).
+  // В отличие от WEBINAR_TEST_ROOM_MODE работает и на проде. По умолчанию выключено.
+  WEBINAR_PREVIEW_MODE: z.enum(['on', 'off']).default('off'),
   CORS_ORIGIN: z.string().min(1),
   WORKER_ROLE: z.enum(['api', 'webinar', 'all']).optional(),
   TRUST_PROXY: z.enum(['false', 'true', '1', 'loopback']).default('false'),

@@ -608,8 +608,10 @@ adminRouter.get(
     }
     const leadWhere: Prisma.LeadWhereInput | undefined = leadFilters.length ? { AND: leadFilters } : undefined;
 
-    const where: Prisma.RegistrationWhereInput = {
-      ...queueWhere,
+    // Явные фильтры держим отдельно и склеиваем с queueWhere через AND. Иначе spread
+    // одноимённых ключей (crmStatus/questions/partnerApplications) затирал условие вкладки
+    // значением `undefined` → вкладки «Новые»/«Вопросы»/«Заявки»/«Договоры» не фильтровали.
+    const explicitWhere: Prisma.RegistrationWhereInput = {
       crmStatus: query.status || undefined,
       assignedManagerId: query.managerId || undefined,
       roomEnteredAt: query.room === 'yes' ? { not: null } : query.room === 'no' ? null : undefined,
@@ -618,6 +620,7 @@ adminRouter.get(
       webinarSession: dateFilter ? { scheduledAt: dateFilter } : undefined,
       lead: leadWhere,
     };
+    const where: Prisma.RegistrationWhereInput = { AND: [queueWhere, explicitWhere] };
 
     const adminReq = req as AdminRequest;
     const maskPii = shouldMaskRegistrationPii(adminReq);
@@ -1358,7 +1361,10 @@ adminRouter.get(
       summary.applications += group.applications;
       summary.contracts += group.contracts;
     }
-    const rate = (part: number, total: number) => (total ? Number((part / total).toFixed(3)) : 0);
+    // Clamp к [0,1]: стадии воронки агрегируются по разным временным окнам/событиям
+    // (напр. questions по created_at, roomEntries по room_entered_at), поэтому без зажима
+    // конверсия могла превышать 100% (на дашборде «Вопросы 120%»).
+    const rate = (part: number, total: number) => (total > 0 ? Math.min(1, Number((part / total).toFixed(3))) : 0);
     const rows = [...groups.entries()]
       .map(([key, value]) => ({
         key,

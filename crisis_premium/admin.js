@@ -1,4 +1,8 @@
 let CRM_STATUSES = [];
+// Объявлены явно: иначе fillManagerFilter() на старте читает activeManagers ДО loadManagers()
+// → ReferenceError → инициализация падает, не навешиваются обработчики табов/фильтров.
+let activeManagers = [];
+let currentQueue = 'all';
 
     function showToast(message, isError) {
       var t = document.createElement('div');
@@ -134,12 +138,17 @@ let CRM_STATUSES = [];
             node('div', { class:'action-row' }, [
               roleSelect,
               node('button', { class:'ghost', text:user.isActive ? 'Отключить' : 'Включить', onclick:async () => {
-                await api('/api/admin/users/' + user.id, { method:'PATCH', body:JSON.stringify({ isActive:!user.isActive }) });
-                await loadUsers();
+                try {
+                  await api('/api/admin/users/' + user.id, { method:'PATCH', body:JSON.stringify({ isActive:!user.isActive }) });
+                  await loadUsers();
+                } catch (err) { showToast(err.message || 'Не удалось изменить статус', true); }
               }}),
               node('button', { text:'Сохранить роль', onclick:async () => {
-                await api('/api/admin/users/' + user.id, { method:'PATCH', body:JSON.stringify({ role:roleSelect.value }) });
-                await loadUsers();
+                try {
+                  await api('/api/admin/users/' + user.id, { method:'PATCH', body:JSON.stringify({ role:roleSelect.value }) });
+                  showToast('Роль сохранена');
+                  await loadUsers();
+                } catch (err) { showToast(err.message || 'Не удалось сохранить роль', true); }
               }})
             ])
           ]));
@@ -158,14 +167,20 @@ let CRM_STATUSES = [];
         return;
       }
 
-      await api('/api/admin/users', {
-        method:'POST',
-        body:JSON.stringify({ name, email, password, role:newUserRole.value || 'manager' })
-      });
-      document.getElementById('newUserName').value = '';
-      document.getElementById('newUserEmail').value = '';
-      document.getElementById('newUserPassword').value = '';
-      await loadUsers();
+      try {
+        await api('/api/admin/users', {
+          method:'POST',
+          body:JSON.stringify({ name, email, password, role:newUserRole.value || 'manager' })
+        });
+        showToast('Менеджер добавлен');
+        document.getElementById('newUserName').value = '';
+        document.getElementById('newUserEmail').value = '';
+        document.getElementById('newUserPassword').value = '';
+        await loadUsers();
+      } catch (err) {
+        // Частая причина — слабый пароль (нужно ≥12 символов, буквы и цифры) или дубликат email.
+        showToast(err.message || 'Не удалось создать пользователя', true);
+      }
     }
 
     async function loadSummary() {
@@ -383,11 +398,14 @@ let CRM_STATUSES = [];
           node('label', { class:'stack' }, [node('span', { text:'Ответственный менеджер' }), managerSelect]),
           node('label', { class:'stack' }, [node('span', { text:'Следующий контакт' }), nextContact]),
           node('button', { class:'secondary', text:'Сохранить менеджера/контакт', onclick:async () => {
-            await api('/api/admin/registrations/' + id + '/manager', {
-              method:'PATCH',
-              body:JSON.stringify({ assignedManagerId:managerSelect.value || null, nextContactAt:nextContact.value || null })
-            });
-            await Promise.all([loadRegistrations(), loadHotLeads(), loadRegistrationCard(id)]);
+            try {
+              await api('/api/admin/registrations/' + id + '/manager', {
+                method:'PATCH',
+                body:JSON.stringify({ assignedManagerId:managerSelect.value || null, nextContactAt:nextContact.value ? new Date(nextContact.value).toISOString() : null })
+              });
+              showToast('Сохранено');
+              await Promise.all([loadRegistrations(), loadHotLeads(), loadRegistrationCard(id)]);
+            } catch (err) { showToast(err.message || 'Не удалось сохранить', true); }
           }}),
           node('div', { class:registration.lead.telegramChatId ? 'telegram-box connected' : 'telegram-box' }, [
             node('h3', { text:registration.lead.telegramChatId ? 'Telegram подключен' : 'Telegram не подключен' }),
@@ -397,24 +415,34 @@ let CRM_STATUSES = [];
             node('div', { class:'action-row' }, [
               tgUrl ? node('a', { href:tgUrl, target:'_blank', text:'Написать' }) : node('span', { class:'sub', text:'Нет username' }),
               node('button', { class:'ghost', text:'Отправить напоминание', onclick:async () => {
-                await api('/api/admin/registrations/' + id + '/telegram-reminder', { method:'POST', body:JSON.stringify({ text:manualReminderText }) });
-                showToast('Напоминание отправлено');
+                try {
+                  await api('/api/admin/registrations/' + id + '/telegram-reminder', { method:'POST', body:JSON.stringify({ text:manualReminderText }) });
+                  showToast('Напоминание отправлено');
+                } catch (err) { showToast(err.message || 'Не удалось отправить напоминание', true); }
               }}),
               node('button', { class:registration.isHot ? 'secondary' : '', text:registration.isHot ? 'Горячий' : 'Пометить горячим', onclick:async () => {
-                await api('/api/admin/registrations/' + id + '/hot', { method:'PATCH', body:JSON.stringify({ isHot:!registration.isHot }) });
-                await Promise.all([loadHotLeads(), loadRegistrations(), loadSummary(), loadRegistrationCard(id)]);
+                try {
+                  await api('/api/admin/registrations/' + id + '/hot', { method:'PATCH', body:JSON.stringify({ isHot:!registration.isHot }) });
+                  await Promise.all([loadHotLeads(), loadRegistrations(), loadSummary(), loadRegistrationCard(id)]);
+                } catch (err) { showToast(err.message || 'Не удалось обновить статус', true); }
               }})
             ])
           ]),
           node('label', { class:'stack' }, [node('span', { text:'CRM-статус' }), statusSelect]),
           node('button', { text:'Сохранить статус', onclick:async () => {
-            await api('/api/admin/registrations/' + id + '/status', { method:'PATCH', body:JSON.stringify({ crmStatus: statusSelect.value }) });
-            await Promise.all([loadRegistrations(), loadSummary(), loadRegistrationCard(id)]);
+            try {
+              await api('/api/admin/registrations/' + id + '/status', { method:'PATCH', body:JSON.stringify({ crmStatus: statusSelect.value }) });
+              showToast('Статус сохранён');
+              await Promise.all([loadRegistrations(), loadSummary(), loadRegistrationCard(id)]);
+            } catch (err) { showToast(err.message || 'Не удалось сохранить статус', true); }
           }}),
           node('label', { class:'stack' }, [node('span', { text:'Заметка менеджера' }), note]),
           node('button', { class:'secondary', text:'Сохранить заметку', onclick:async () => {
-            await api('/api/admin/registrations/' + id + '/note', { method:'PATCH', body:JSON.stringify({ managerNote: note.value }) });
-            await loadRegistrationCard(id);
+            try {
+              await api('/api/admin/registrations/' + id + '/note', { method:'PATCH', body:JSON.stringify({ managerNote: note.value }) });
+              showToast('Заметка сохранена');
+              await loadRegistrationCard(id);
+            } catch (err) { showToast(err.message || 'Не удалось сохранить заметку', true); }
           }}),
           renderCardList('Заявки на договор', registration.partnerApplications, item => [
             item.sphere || 'Сфера не указана',
@@ -566,8 +594,21 @@ let CRM_STATUSES = [];
     }
 
     async function loadAll() {
-      await Promise.all([loadManagers(), loadCrmStatuses()]);
-      await Promise.all([loadSummary(), loadFunnel(), loadHotLeads(), loadRegistrations(), loadApplications(), loadQuestions(), loadUsers(), loadBroadcastStatus()]);
+      // allSettled: сбой одного раздела (например, прав не хватает) не должен гасить
+      // остальные. Справочники грузим первыми — от них зависят рендеры менеджеров/статусов.
+      await Promise.allSettled([loadManagers(), loadCrmStatuses()]);
+      const sections = [
+        ['сводка', loadSummary], ['воронка', loadFunnel], ['горячие лиды', loadHotLeads],
+        ['регистрации', loadRegistrations], ['заявки', loadApplications], ['вопросы', loadQuestions],
+        ['пользователи', loadUsers], ['статус рассылки', loadBroadcastStatus],
+      ];
+      const results = await Promise.allSettled(sections.map(([, fn]) => fn()));
+      const failed = results
+        .map((r, i) => (r.status === 'rejected' ? sections[i][0] : null))
+        .filter(Boolean);
+      if (failed.length) {
+        showToast('Не загрузились разделы: ' + failed.join(', '), true);
+      }
     }
 
     loginBtn.addEventListener('click', async () => {
@@ -613,12 +654,18 @@ let CRM_STATUSES = [];
       input.addEventListener('change', loadRegistrations);
     });
 
-    loadAll()
+    // Авторизационный гейт: loadAll() теперь устойчив (allSettled) и не реджектит при сбоях
+    // разделов, поэтому решение «показать панель или форму логина» принимаем по /api/admin/me.
+    api('/api/admin/me')
       .then(() => {
         loginPanel.classList.add('hidden');
         appPanel.classList.remove('hidden');
         logoutBtn.classList.remove('hidden');
         const registrationFromUrl = new URLSearchParams(location.search).get('registration');
-        if (registrationFromUrl) loadRegistrationCard(registrationFromUrl).catch(() => {});
+        return loadAll().then(() => {
+          if (registrationFromUrl) loadRegistrationCard(registrationFromUrl).catch(() => {});
+        });
       })
-      .catch(() => {});
+      .catch(() => {
+        // Не авторизованы — остаёмся на форме логина.
+      });

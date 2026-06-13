@@ -18,6 +18,14 @@
   var roomReady = false;
   var COLORS = ['#1e40af', '#7c3aed', '#0f766e', '#b45309', '#be123c', '#4338ca'];
 
+  // --- Полноэкранный чат-оверлей (YouTube-style), синхронный с основным чатом ---
+  var recentMsgs = [];            // буфер последних отрендеренных сообщений (для seed при входе в fullscreen)
+  var RECENT_CAP = 40;
+  var FS_VISIBLE_CAP = 9;         // сколько сообщений держим в оверлее одновременно
+  var fsActive = false;
+  var fsOverlay = null;
+  var fsList = null;
+
   function chatUrl() {
     return API + '/webinar/chat/session/current';
   }
@@ -65,6 +73,80 @@
       return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
     }
     return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
+  }
+
+  function ensureFsOverlay() {
+    if (fsOverlay) return fsOverlay;
+    var container = document.getElementById('videoPlayerContainer');
+    if (!container) return null;
+    fsOverlay = document.createElement('div');
+    fsOverlay.id = 'fsChatOverlay';
+    fsOverlay.setAttribute('aria-hidden', 'true');
+    fsList = document.createElement('div');
+    fsList.id = 'fsChatOverlayList';
+    fsOverlay.appendChild(fsList);
+    container.appendChild(fsOverlay);
+    return fsOverlay;
+  }
+
+  function buildFsMessage(msg) {
+    var row = document.createElement('div');
+    row.className = 'fs-chat-msg';
+    if (msg.kind === 'agent_question') row.classList.add('fs-chat-msg-q');
+
+    var avatar = document.createElement('span');
+    avatar.className = 'fs-chat-avatar';
+    avatar.style.background = msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
+    avatar.textContent = getInitials(msg.authorName);
+
+    var body = document.createElement('div');
+    body.className = 'fs-chat-body';
+    var author = document.createElement('span');
+    author.className = 'fs-chat-author';
+    author.textContent = authorLabel(msg);
+    var text = document.createElement('span');
+    text.className = 'fs-chat-text';
+    text.textContent = msg.message;
+    body.append(author, document.createTextNode(' '), text);
+
+    row.append(avatar, body);
+    return row;
+  }
+
+  // prepend=true → новое сообщение сверху (старые сдвигаются вниз и затухают по mask-градиенту)
+  function renderFsMessage(msg, prepend) {
+    if (!fsList) return;
+    var row = buildFsMessage(msg);
+    if (prepend && fsList.firstChild) {
+      fsList.insertBefore(row, fsList.firstChild);
+    } else {
+      fsList.appendChild(row);
+    }
+    while (fsList.children.length > FS_VISIBLE_CAP) {
+      fsList.removeChild(fsList.lastChild);
+    }
+  }
+
+  function seedFsOverlay() {
+    if (!fsList) return;
+    fsList.textContent = '';
+    var slice = recentMsgs.slice(-FS_VISIBLE_CAP); // oldest..newest
+    // самое новое сверху: идём от новых к старым и добавляем в конец
+    for (var i = slice.length - 1; i >= 0; i--) {
+      renderFsMessage(slice[i], false);
+    }
+  }
+
+  function enterFsChat() {
+    if (!ensureFsOverlay()) return;
+    fsActive = true;
+    seedFsOverlay();
+    fsOverlay.classList.add('fs-chat-visible');
+  }
+
+  function exitFsChat() {
+    fsActive = false;
+    if (fsOverlay) fsOverlay.classList.remove('fs-chat-visible');
   }
 
   function addMessage(msg) {
@@ -126,6 +208,11 @@
     item.append(avatar, body);
     chatContainer.appendChild(item);
     chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    // Синхронизация с полноэкранным оверлеем
+    recentMsgs.push(msg);
+    if (recentMsgs.length > RECENT_CAP) recentMsgs.shift();
+    if (fsActive) renderFsMessage(msg, true);
   }
 
   function renderChatState(data) {
@@ -264,6 +351,19 @@
     });
     window.setTimeout(refreshChat, 800);
   });
+
+  function handleFsChange() {
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement || null;
+    var container = document.getElementById('videoPlayerContainer');
+    var insidePlayer = !!(fsEl && container && (fsEl === container || fsEl.contains(container) || container.contains(fsEl)));
+    if (insidePlayer) {
+      enterFsChat();
+    } else {
+      exitFsChat();
+    }
+  }
+  document.addEventListener('fullscreenchange', handleFsChange);
+  document.addEventListener('webkitfullscreenchange', handleFsChange);
 
   if (window.__ASPB_ROOM_READY__ === true) {
     roomReady = true;

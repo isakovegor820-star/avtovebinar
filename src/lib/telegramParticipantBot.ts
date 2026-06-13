@@ -19,6 +19,7 @@ import {
   TELEGRAM_START_TOKEN_PURPOSE,
 } from './roomLinks.js';
 import { logger } from './logger.js';
+import { createTelegramPoller, type TelegramPoller } from './telegramPoller.js';
 
 type TelegramUpdate = {
   update_id: number;
@@ -30,9 +31,11 @@ type TelegramUpdate = {
   };
 };
 
-let nextOffset = 0;
-let polling = false;
-let interval: NodeJS.Timeout | null = null;
+let poller: TelegramPoller | null = null;
+
+function isParticipantBotReady() {
+  return isParticipantBotPollingEnabled() && hasParticipantTelegramBot();
+}
 
 async function consumeTelegramStartToken(
   token: string,
@@ -444,56 +447,25 @@ async function handleUpdate(update: TelegramUpdate) {
   );
 }
 
-async function pollOnce() {
-  if (polling || !isParticipantBotPollingEnabled() || !hasParticipantTelegramBot()) return;
-  polling = true;
-
-  try {
-    const url = new URL(participantTelegramApiUrl('getUpdates'));
-    if (nextOffset) url.searchParams.set('offset', String(nextOffset));
-    url.searchParams.set('limit', '20');
-    url.searchParams.set('timeout', '0');
-    url.searchParams.set('allowed_updates', JSON.stringify(['message']));
-
-    const response = await fetch(url);
-    const payload = (await response.json()) as { ok: boolean; result?: TelegramUpdate[]; description?: string };
-    if (!payload.ok) {
-      throw new Error(payload.description || 'Telegram getUpdates failed');
-    }
-
-    for (const update of payload.result || []) {
-      try {
-        await handleUpdate(update);
-      } catch (error) {
-        logger.error({ err: error, updateId: update.update_id }, '[ASPБ telegram bot update]');
-      } finally {
-        nextOffset = Math.max(nextOffset, update.update_id + 1);
-      }
-    }
-  } finally {
-    polling = false;
-  }
-}
-
 export function startParticipantTelegramBot() {
-  if (env.NODE_ENV === 'test' || !isParticipantBotPollingEnabled() || !hasParticipantTelegramBot()) {
+  if (env.NODE_ENV === 'test' || !isParticipantBotReady()) {
     return null;
   }
 
-  pollOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram bot]'));
-  interval = setInterval(() => {
-    pollOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram bot]'));
-  }, 3500);
-
-  logger.info('[ASPБ telegram bot] participant polling enabled');
-  return interval;
+  poller = createTelegramPoller<TelegramUpdate>({
+    name: 'ASPБ participant telegram bot',
+    apiUrl: participantTelegramApiUrl,
+    allowedUpdates: ['message'],
+    isEnabled: isParticipantBotReady,
+    handleUpdate,
+  });
+  poller.start();
+  return poller;
 }
 
 export function stopParticipantTelegramBot() {
-  if (interval) {
-    clearInterval(interval);
-    interval = null;
-  }
+  poller?.stop();
+  poller = null;
 }
 
 export { buildTelegramStartUrl, handleUpdate as handleParticipantTelegramUpdate };

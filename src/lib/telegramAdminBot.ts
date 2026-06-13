@@ -9,7 +9,7 @@ import {
   sendTelegramMessage,
   telegramApiUrl,
 } from './telegram.js';
-import { logger } from './logger.js';
+import { createTelegramPoller, type TelegramPoller } from './telegramPoller.js';
 
 type AdminTelegramUpdate = {
   update_id: number;
@@ -23,9 +23,11 @@ type AdminTelegramUpdate = {
   };
 };
 
-let nextOffset = 0;
-let polling = false;
-let interval: NodeJS.Timeout | null = null;
+let poller: TelegramPoller | null = null;
+
+function isAdminBotReady() {
+  return isAdminBotPollingEnabled() && hasAdminTelegramBot() && hasConfiguredAdminChatId();
+}
 
 async function answerCallbackQuery(callbackQueryId: string, text: string) {
   const response = await fetch(telegramApiUrl('answerCallbackQuery'), {
@@ -119,54 +121,23 @@ async function handleCallback(update: AdminTelegramUpdate) {
   await answerCallbackQuery(callback.id, 'Неизвестное действие');
 }
 
-async function pollOnce() {
-  if (polling || !isAdminBotPollingEnabled() || !hasAdminTelegramBot() || !hasConfiguredAdminChatId()) return;
-  polling = true;
-
-  try {
-    const url = new URL(telegramApiUrl('getUpdates'));
-    if (nextOffset) url.searchParams.set('offset', String(nextOffset));
-    url.searchParams.set('limit', '20');
-    url.searchParams.set('timeout', '0');
-    url.searchParams.set('allowed_updates', JSON.stringify(['callback_query']));
-
-    const response = await fetch(url);
-    const payload = (await response.json()) as { ok: boolean; result?: AdminTelegramUpdate[]; description?: string };
-    if (!payload.ok) {
-      throw new Error(payload.description || 'Telegram admin getUpdates failed');
-    }
-
-    for (const update of payload.result || []) {
-      try {
-        await handleCallback(update);
-      } catch (error) {
-        logger.error({ err: error, updateId: update.update_id }, '[ASPБ admin telegram bot update]');
-      } finally {
-        nextOffset = Math.max(nextOffset, update.update_id + 1);
-      }
-    }
-  } finally {
-    polling = false;
-  }
-}
-
 export function startAdminTelegramBot() {
-  if (env.NODE_ENV === 'test' || !isAdminBotPollingEnabled() || !hasAdminTelegramBot() || !hasConfiguredAdminChatId()) {
+  if (env.NODE_ENV === 'test' || !isAdminBotReady()) {
     return null;
   }
 
-  pollOnce().catch(error => logger.error({ err: error }, '[ASPБ admin telegram bot]'));
-  interval = setInterval(() => {
-    pollOnce().catch(error => logger.error({ err: error }, '[ASPБ admin telegram bot]'));
-  }, 3500);
-
-  logger.info('[ASPБ admin telegram bot] callback polling enabled');
-  return interval;
+  poller = createTelegramPoller<AdminTelegramUpdate>({
+    name: 'ASPБ admin telegram bot',
+    apiUrl: telegramApiUrl,
+    allowedUpdates: ['callback_query'],
+    isEnabled: isAdminBotReady,
+    handleUpdate: handleCallback,
+  });
+  poller.start();
+  return poller;
 }
 
 export function stopAdminTelegramBot() {
-  if (interval) {
-    clearInterval(interval);
-    interval = null;
-  }
+  poller?.stop();
+  poller = null;
 }

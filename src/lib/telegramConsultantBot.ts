@@ -9,6 +9,7 @@ import {
   sendTelegramMessage,
 } from './telegram.js';
 import { env } from './env.js';
+import { createTelegramPoller, type TelegramPoller } from './telegramPoller.js';
 
 type ConsultantTelegramUpdate = {
   update_id: number;
@@ -20,9 +21,11 @@ type ConsultantTelegramUpdate = {
   };
 };
 
-let nextOffset = 0;
-let polling = false;
-let interval: NodeJS.Timeout | null = null;
+let poller: TelegramPoller | null = null;
+
+function isConsultantBotReady() {
+  return isConsultantBotPollingEnabled() && hasConsultantTelegramBot();
+}
 
 function getTelegramProfile(update: ConsultantTelegramUpdate) {
   return {
@@ -203,58 +206,23 @@ async function handleUpdate(update: ConsultantTelegramUpdate) {
   await handleFreeText(chatId, text, update);
 }
 
-async function pollOnce() {
-  if (polling || !isConsultantBotPollingEnabled() || !hasConsultantTelegramBot()) return;
-  polling = true;
-
-  try {
-    const url = new URL(consultantTelegramApiUrl('getUpdates'));
-    if (nextOffset) url.searchParams.set('offset', String(nextOffset));
-    url.searchParams.set('limit', '20');
-    url.searchParams.set('timeout', '0');
-    url.searchParams.set('allowed_updates', JSON.stringify(['message']));
-
-    const response = await fetch(url);
-    const payload = (await response.json()) as {
-      ok: boolean;
-      result?: ConsultantTelegramUpdate[];
-      description?: string;
-    };
-    if (!payload.ok) {
-      throw new Error(payload.description || 'Telegram consultant getUpdates failed');
-    }
-
-    for (const update of payload.result || []) {
-      try {
-        await handleUpdate(update);
-      } catch (error) {
-        console.error('[ASPБ consultant telegram bot update]', { updateId: update.update_id, error });
-      } finally {
-        nextOffset = Math.max(nextOffset, update.update_id + 1);
-      }
-    }
-  } finally {
-    polling = false;
-  }
-}
-
 export function startConsultantTelegramBot() {
-  if (env.NODE_ENV === 'test' || !isConsultantBotPollingEnabled() || !hasConsultantTelegramBot()) {
+  if (env.NODE_ENV === 'test' || !isConsultantBotReady()) {
     return null;
   }
 
-  pollOnce().catch(error => console.error('[ASPБ consultant telegram bot]', error));
-  interval = setInterval(() => {
-    pollOnce().catch(error => console.error('[ASPБ consultant telegram bot]', error));
-  }, 3500);
-
-  console.log('[ASPБ consultant telegram bot] polling enabled');
-  return interval;
+  poller = createTelegramPoller<ConsultantTelegramUpdate>({
+    name: 'ASPБ consultant telegram bot',
+    apiUrl: consultantTelegramApiUrl,
+    allowedUpdates: ['message'],
+    isEnabled: isConsultantBotReady,
+    handleUpdate,
+  });
+  poller.start();
+  return poller;
 }
 
 export function stopConsultantTelegramBot() {
-  if (interval) {
-    clearInterval(interval);
-    interval = null;
-  }
+  poller?.stop();
+  poller = null;
 }

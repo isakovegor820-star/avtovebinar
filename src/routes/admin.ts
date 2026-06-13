@@ -8,7 +8,7 @@ import { createAdminSession, hashIp, parseAdminSession } from '../lib/tokens.js'
 import { env, isStrongPassword } from '../lib/env.js';
 import { CRM_STATUS_LABELS, CRM_STATUSES, isCrmStatus } from '../lib/crm.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
-import { formatMoscowDate, sendTelegramMessageToChat } from '../lib/telegram.js';
+import { formatMoscowDate, sendTelegramMessage, sendTelegramMessageToChat } from '../lib/telegram.js';
 import {
   createTelegramBroadcastJob,
   getActiveTelegramBroadcastJob,
@@ -16,8 +16,12 @@ import {
 } from '../lib/telegramBroadcastWorker.js';
 import { setContextIdentity } from '../lib/requestContext.js';
 import { getAdminHtml } from '../responses/adminPage.js';
-import { createRoomExchangeUrl, getRoomTokenExpiresAt } from '../lib/roomLinks.js';
-import { MODERATOR_NAME, MODERATOR_ROLE, MODERATOR_CHAT_KIND } from '../lib/moderator.js';
+import { buildFrontendUrl, createRoomExchangeUrl, getRoomTokenExpiresAt } from '../lib/roomLinks.js';
+import { MODERATOR_NAME, MODERATOR_ROLE, MODERATOR_CHAT_KIND, buildModeratorIntroMessage } from '../lib/moderator.js';
+import { findOrCreateWebinarSession } from '../lib/webinarSessions.js';
+import { getDailyBroadcastDate } from '../lib/time.js';
+import { getWebinarLiveState } from '../lib/webinarLive.js';
+import { getScriptedChatMessagesUntil } from '../lib/scriptedChat.js';
 
 export const adminRouter = Router();
 
@@ -315,6 +319,8 @@ function serializeQuestionForAdmin(question: any, maskPii: boolean) {
     registrationId: question.registrationId,
     text: maskPii && question.text ? '[hidden]' : question.text,
     isAnswered: question.isAnswered,
+    forwardedAt: question.forwardedAt ?? null,
+    chatBanned: Boolean(question.registration?.chatBannedAt),
     adminNote: maskPii && question.adminNote ? '[hidden]' : question.adminNote,
     createdAt: question.createdAt,
     lead: serializeLeadForAdmin(question.lead, maskPii, false),
@@ -1169,6 +1175,166 @@ adminRouter.post(
     });
 
     res.status(201).json({ ok: true, chatMessageId: result.chatMessage.id, question: result.updated });
+  }),
+);
+
+// Переслать вопрос ответственному менеджеру: уходит в Telegram админ-бота (тот же чат,
+// что и авто-уведомления о новых вопросах), вопрос помечается forwardedAt. В эфир НЕ публикуется.
+adminRouter.post(
+  '/api/admin/questions/:id/forward',
+  requireAdmin,
+  requireRole(['owner', 'admin', 'manager']),
+  asyncHandler(async (req, res) => {
+    const id = z.string().parse(req.params.id);
+    const adminReq = req as AdminRequest;
+
+    const question = await prisma.question.findFirst({
+      where: getQuestionAccessWhere(adminReq, { id }),
+      include: { lead: true },
+    });
+    if (!question) {
+      throw new AppError(404, 'Question not found');
+    }
+
+    const moderatorName = adminReq.admin?.login ?? adminReq.admin?.email ?? 'модератор';
+    const result = await sendTelegramMessage({
+      text: [
+        '🔁 Вопрос переслан менеджеру (из модераторского чата)',
+        `Кто переслал: ${moderatorName}`,
+        '',
+        'Данные участника:',
+        `Участник: ${question.lead.name}`,
+        `Телефон: ${question.lead.phone}`,
+        `Email: ${question.lead.email}`,
+        '',
+        `Вопрос: ${question.text.trim()}`,
+        '',
+        `Админка: ${buildFrontendUrl('/admin')}`,
+      ].join('\n'),
+    });
+
+    const updated = await prisma.question.update({
+      where: { id: question.id },
+      data: { forwardedAt: new Date() },
+    });
+
+    await audit(adminReq, {
+      action: 'question.forward',
+      entityType: 'question',
+      entityId: id,
+      before: { forwardedAt: question.forwardedAt },
+      after: { forwardedAt: updated.forwardedAt, telegramSent: result.sent },
+    });
+
+    res.json({ ok: true, forwardedAt: updated.forwardedAt, telegramSent: result.sent });
+  }),
+);
+
+// Бан/разбан участника в чате эфира. chatBannedAt != null блокирует отправку новых вопросов
+// (POST /questions → 403) и скрывает его сообщения из публичной ленты. Обратимо: разбан снимает метку.
+adminRouter.post(
+  '/api/admin/registrations/:id/chat-ban',
+  requireAdmin,
+  requireRole(['owner', 'admin', 'manager']),
+  asyncHandler(async (req, res) => {
+    const id = z.string().parse(req.params.id);
+    const adminReq = req as AdminRequest;
+    const { banned } = z.object({ banned: z.boolean() }).parse(req.body);
+
+    const registration = await prisma.registration.findFirst({
+      where: getRegistrationAccessWhere(adminReq, { id }),
+      select: { id: true, chatBannedAt: true },
+    });
+    if (!registration) {
+      throw new AppError(404, 'Registration not found');
+    }
+
+    const updated = await prisma.registration.update({
+      where: { id: registration.id },
+      data: { chatBannedAt: banned ? new Date() : null },
+    });
+
+    await audit(adminReq, {
+      action: banned ? 'registration.chat_ban' : 'registration.chat_unban',
+      entityType: 'registration',
+      entityId: id,
+      before: { chatBannedAt: registration.chatBannedAt },
+      after: { chatBannedAt: updated.chatBannedAt },
+    });
+
+    res.json({ ok: true, chatBannedAt: updated.chatBannedAt });
+  }),
+);
+
+// Зеркало публичного чата эфира для правой панели админки: показывает ленту ровно так,
+// как её видит участник (приветствие модератора + сценарный чат + реальные сообщения),
+// с тем же гейтом по статусу эфира. Сообщения забаненных участников отфильтрованы.
+adminRouter.get(
+  '/api/admin/webinar/chat/live',
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    const now = new Date();
+    const scheduledAt = getDailyBroadcastDate(now);
+    const session = await findOrCreateWebinarSession(scheduledAt, now);
+    const liveState = getWebinarLiveState(now, session);
+    const canExpose = liveState.status === 'live' || liveState.status === 'finished';
+
+    const persistedMessages = canExpose
+      ? await prisma.webinarChatMessage.findMany({
+          where: {
+            webinarSessionId: session.id,
+            visibleAt: { lte: now },
+            OR: [{ registrationId: null }, { registration: { is: { chatBannedAt: null } } }],
+          },
+          orderBy: [{ visibleAt: 'asc' }, { createdAt: 'asc' }],
+        })
+      : [];
+
+    const scriptedMessages =
+      canExpose && liveState.chatStatus === 'live'
+        ? getScriptedChatMessagesUntil(liveState.liveOffsetSeconds, {
+            durationSeconds: session.videoDurationSeconds,
+            validateDuration: false,
+          }).map(message => ({
+            id: message.id,
+            visibleAt: new Date(session.scheduledAt.getTime() + message.offsetSeconds * 1000),
+            kind: message.kind,
+            authorName: message.authorName,
+            authorRole: message.authorRole,
+            message: message.message,
+          }))
+        : [];
+
+    const realMessages = persistedMessages.map(message => ({
+      id: message.id,
+      visibleAt: message.visibleAt,
+      kind: message.kind,
+      authorName: message.authorName,
+      authorRole: message.authorRole,
+      message: message.message,
+    }));
+
+    const moderatorIntro = canExpose ? [buildModeratorIntroMessage(session)] : [];
+
+    const messages = [...moderatorIntro, ...scriptedMessages, ...realMessages]
+      .sort((left, right) => left.visibleAt.getTime() - right.visibleAt.getTime())
+      .map(message => ({
+        id: message.id,
+        kind: message.kind,
+        authorName: message.authorName,
+        authorRole: message.authorRole,
+        message: message.message,
+        visibleAt: message.visibleAt.toISOString(),
+      }));
+
+    res.setHeader('Cache-Control', 'private, max-age=4');
+    res.json({
+      ok: true,
+      serverTime: now.toISOString(),
+      chatStatus: liveState.chatStatus,
+      webinarStatus: liveState.status,
+      messages,
+    });
   }),
 );
 

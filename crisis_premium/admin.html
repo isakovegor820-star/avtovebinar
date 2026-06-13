@@ -53,6 +53,30 @@
     .action-row a, .mini-link { display:inline-flex; align-items:center; justify-content:center; text-decoration:none; border-radius:10px; padding:9px 11px; font-weight:800; font-size:13px; border:1px solid var(--line); color:var(--blue); background:#fff; }
     .telegram-box { border:1px solid #b9d5f5; background:#f2f8ff; border-radius:16px; padding:14px; display:grid; gap:10px; }
     .telegram-box.connected { background:linear-gradient(135deg,#eef7ff,#fff); }
+    .chat-cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .chat-pane { display:flex; flex-direction:column; min-width:0; }
+    .chat-pane h3 { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .chat-scroll { border:1px solid var(--line); border-radius:14px; background:var(--bg); padding:12px; height:540px; overflow-y:auto; display:flex; flex-direction:column; gap:12px; }
+    .chat-empty { color:var(--muted); font-size:14px; margin:auto; }
+    .mod-msg { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; }
+    .mod-msg.banned { opacity:.62; }
+    .mod-msg .who { font-weight:800; }
+    .mod-msg .who span { font-weight:400; color:var(--muted); font-size:13px; }
+    .mod-msg .meta { color:var(--muted); font-size:12px; margin-top:3px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+    .mod-msg .body { margin:10px 0; color:#28313b; white-space:pre-wrap; }
+    .mod-reply { width:100%; min-height:60px; resize:vertical; margin-bottom:8px; }
+    .mod-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .mod-actions button { padding:9px 14px; font-size:13px; border-radius:10px; }
+    .badge { display:inline-flex; padding:3px 8px; border-radius:999px; font-size:11px; font-weight:700; }
+    .badge.ans { background:#dcefe0; color:#1d6b39; }
+    .badge.fwd { background:#e3ecfb; color:#2a4a85; }
+    .badge.ban { background:#fbe0e0; color:#9a2b2b; }
+    .live-msg { font-size:14px; line-height:1.45; }
+    .live-msg .who { font-weight:800; }
+    .live-msg.moderator .who { color:#1f6feb; }
+    .live-msg .body { color:#28313b; }
+    .live-status { color:var(--muted); font-size:12px; font-weight:600; }
+    @media (max-width: 760px) { .chat-cols { grid-template-columns:1fr; } }
     @media (max-width: 1050px) { .layout { grid-template-columns:1fr; } .side { position:static; } }
     @media (max-width: 900px) { .grid, .hot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } table { display:block; overflow:auto; } }
     @media (max-width: 620px) { .hot-grid { grid-template-columns:1fr; } }
@@ -175,8 +199,23 @@
           </section>
 
           <section class="panel">
-            <h2>Вопросы</h2>
-            <div id="questionsNode"></div>
+            <div class="top">
+              <div>
+                <h2>Чат вебинара</h2>
+                <div class="sub">Слева — модерация вопросов (ответить · переслать · забанить). Справа — эфир, как его видит участник.</div>
+              </div>
+              <button id="chatRefreshBtn" class="ghost">Обновить</button>
+            </div>
+            <div class="chat-cols">
+              <div class="chat-pane">
+                <h3>Модерация</h3>
+                <div id="modChatNode" class="chat-scroll"></div>
+              </div>
+              <div class="chat-pane">
+                <h3>Эфир <span id="liveChatStatus" class="live-status"></span></h3>
+                <div id="liveChatNode" class="chat-scroll"></div>
+              </div>
+            </div>
           </section>
         </div>
 
@@ -188,6 +227,6 @@
     </section>
   </main>
 
-  <script src="admin.js?v=admin-fixes-2"></script>
+  <script src="admin.js?v=moderation-chat-1"></script>
 </body>
 </html>

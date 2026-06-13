@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { env } from '../lib/env.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, '..', '..');
+// Берём crisis_premium из process.cwd() — так же, как app.ts резолвит frontendDir.
+// Прежний path.resolve(__dirname, '..', '..') ломался в проде: compiled-файл лежит в
+// dist/src/responses/, поэтому путь указывал на /app/dist/crisis_premium (нет файла) → 500.
+const rootDir = process.cwd();
 const adminHtmlPath = path.join(rootDir, 'crisis_premium', 'admin.html');
 
 let adminHtmlCache: string | null = null;

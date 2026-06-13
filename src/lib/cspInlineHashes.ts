@@ -1,4 +1,6 @@
 export const cspStyleElementHashes = [
+  // admin.html (двухпанельный чат модерации, 2026-06-13)
+  "'sha256-H5jwAcVfBw7LpgwczhFta5dv7iguRfqg29tRwNI9r+Q='",
   "'sha256-IqfW4U3+OPPiRwpZ5bIFeOCC8B0HpFMdawJa0BWZ8CQ='",
   "'sha256-CwNNyA/RBoyb9DF6vZK4oy2xFquqJJa3f+mAexqG48Y='",
   "'sha256-LABFIL9dUK/529IduVqNeZ8HBjBmhlALiIkkxfjEEyM='",

@@ -68,7 +68,8 @@
   }
 
   function authorLabel(msg) {
-    if (msg.kind === 'ai_manager') return msg.authorName;
+    // Имя модератора уже содержит роль (напр. «Юлия, модератор АСПБ») — не дублируем authorRole.
+    if (msg.kind === 'ai_manager' || msg.kind === 'moderator') return msg.authorName;
     if (msg.kind === 'agent_question') {
       return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
     }
@@ -93,10 +94,11 @@
     var row = document.createElement('div');
     row.className = 'fs-chat-msg';
     if (msg.kind === 'agent_question') row.classList.add('fs-chat-msg-q');
+    if (msg.kind === 'moderator') row.classList.add('fs-chat-msg-mod');
 
     var avatar = document.createElement('span');
     avatar.className = 'fs-chat-avatar';
-    avatar.style.background = msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
+    avatar.style.background = msg.kind === 'moderator' ? '#0f766e' : msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
     avatar.textContent = getInitials(msg.authorName);
 
     var body = document.createElement('div');
@@ -156,6 +158,7 @@
     renderedMessages.add(renderKey);
 
     var isAgentQuestion = msg.kind === 'agent_question';
+    var isModerator = msg.kind === 'moderator';
 
     var item = document.createElement('div');
     item.className = 'flex gap-2.5 chat-msg-enter';
@@ -168,9 +171,18 @@
       item.style.paddingTop = '4px';
       item.style.paddingBottom = '4px';
       item.style.borderRadius = '6px';
+    } else if (isModerator) {
+      // Официальный вид модератора: бирюзовая подложка с левым акцентом.
+      item.style.background = 'rgba(15, 118, 110, 0.07)';
+      item.style.borderLeft = '3px solid #0f766e';
+      item.style.paddingLeft = '9px';
+      item.style.paddingRight = '8px';
+      item.style.paddingTop = '6px';
+      item.style.paddingBottom = '6px';
+      item.style.borderRadius = '6px';
     }
 
-    var avatarColor = msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
+    var avatarColor = isModerator ? '#0f766e' : msg.kind === 'ai_manager' ? '#041627' : getColor(msg.authorName);
     var avatar = document.createElement('div');
     avatar.style.width = '28px';
     avatar.style.height = '28px';
@@ -197,11 +209,11 @@
 
     var text = document.createElement('p');
     text.style.fontSize = '13px';
-    text.style.color = isAgentQuestion ? '#1e40af' : '#44474c';
+    text.style.color = isAgentQuestion ? '#1e40af' : isModerator ? '#0f3d38' : '#44474c';
     text.style.lineHeight = '1.4';
     text.style.margin = '2px 0 0';
     text.style.wordWrap = 'break-word';
-    text.style.fontWeight = isAgentQuestion ? '500' : 'normal';
+    text.style.fontWeight = isAgentQuestion || isModerator ? '500' : 'normal';
     text.textContent = msg.message;
 
     body.append(author, text);

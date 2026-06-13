@@ -17,6 +17,7 @@ import {
 import { setContextIdentity } from '../lib/requestContext.js';
 import { getAdminHtml } from '../responses/adminPage.js';
 import { createRoomExchangeUrl, getRoomTokenExpiresAt } from '../lib/roomLinks.js';
+import { MODERATOR_NAME, MODERATOR_ROLE, MODERATOR_CHAT_KIND } from '../lib/moderator.js';
 
 export const adminRouter = Router();
 
@@ -1111,6 +1112,60 @@ adminRouter.patch(
     });
 
     res.json({ ok: true, question });
+  }),
+);
+
+// Ответ модератора в чат эфира: создаёт видимое сообщение kind='moderator' и помечает
+// вопрос обработанным. questionId оставляем null (это поле занято исходным сообщением
+// участника, оно @unique), связь с вопросом — через metadataJson.replyToQuestionId,
+// по тому же образцу, что и авто-ответ ИИ-менеджера.
+adminRouter.post(
+  '/api/admin/questions/:id/reply',
+  requireAdmin,
+  requireRole(['owner', 'admin', 'manager']),
+  asyncHandler(async (req, res) => {
+    const id = z.string().parse(req.params.id);
+    const adminReq = req as AdminRequest;
+    const { text } = z.object({ text: z.string().trim().min(2).max(700) }).parse(req.body);
+
+    const question = await prisma.question.findFirst({
+      where: getQuestionAccessWhere(adminReq, { id }),
+      select: { id: true, webinarSessionId: true, registrationId: true, isAnswered: true },
+    });
+    if (!question) {
+      throw new AppError(404, 'Question not found');
+    }
+
+    const result = await prisma.$transaction(async tx => {
+      const chatMessage = await tx.webinarChatMessage.create({
+        data: {
+          webinarSessionId: question.webinarSessionId,
+          registrationId: question.registrationId,
+          kind: MODERATOR_CHAT_KIND,
+          authorName: MODERATOR_NAME,
+          authorRole: MODERATOR_ROLE,
+          message: text,
+          isSynthetic: false,
+          visibleAt: new Date(),
+          metadataJson: { replyToQuestionId: question.id, viaAdmin: true },
+        },
+      });
+      const updated = await tx.question.update({
+        where: { id: question.id },
+        data: { isAnswered: true },
+      });
+      return { chatMessage, updated };
+    });
+
+    await audit(adminReq, {
+      action: 'question.reply',
+      entityType: 'question',
+      entityId: id,
+      before: { isAnswered: question.isAnswered },
+      after: { isAnswered: true, chatMessageId: result.chatMessage.id, length: text.length },
+    });
+
+    res.status(201).json({ ok: true, chatMessageId: result.chatMessage.id, question: result.updated });
   }),
 );
 

@@ -273,6 +273,8 @@ describe('security configuration', () => {
       WEBINAR_TEST_ROOM_MODE: 'off',
       CORS_ORIGIN: 'https://aspb.example.com',
       TRUST_PROXY: 'false',
+      MODERATOR_NAME: 'Юлия, модератор АСПБ',
+      MODERATOR_ROLE: 'модератор эфира',
       ...overrides,
     } as const;
   }
@@ -321,6 +323,8 @@ describe('security configuration', () => {
         WEBINAR_TEST_ROOM_MODE: 'off',
         CORS_ORIGIN: 'https://example.com',
         TRUST_PROXY: 'false',
+        MODERATOR_NAME: 'Юлия, модератор АСПБ',
+        MODERATOR_ROLE: 'модератор эфира',
       }),
     ).toThrow(/Production security configuration/);
   });

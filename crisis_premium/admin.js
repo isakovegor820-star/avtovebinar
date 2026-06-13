@@ -476,20 +476,47 @@ let CRM_STATUSES = [];
         return;
       }
       data.questions.forEach(q => {
+        const replyInput = node('textarea', { rows:'2', placeholder:'Ответ модератора в чат…' });
+        replyInput.style.cssText = 'width:260px;max-width:100%;resize:vertical;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;';
+
+        const replyBtn = node('button', { text:'Ответить в чат', onclick:async () => {
+          const text = replyInput.value.trim();
+          if (text.length < 2) { showToast('Введите текст ответа', true); return; }
+          replyBtn.disabled = true;
+          try {
+            await api('/api/admin/questions/' + q.id + '/reply', {
+              method: 'POST',
+              body: JSON.stringify({ text })
+            });
+            showToast('Ответ модератора опубликован в чате');
+            replyInput.value = '';
+            await loadQuestions();
+          } catch (err) {
+            showToast(err.message || 'Не удалось отправить ответ', true);
+          } finally {
+            replyBtn.disabled = false;
+          }
+        }});
+
+        const markBtn = node('button', { class:q.isAnswered ? 'secondary' : '', text:q.isAnswered ? 'Обработан' : 'Отметить', onclick:async () => {
+          await api('/api/admin/questions/' + q.id, {
+            method: 'PATCH',
+            body: JSON.stringify({ isAnswered: true })
+          });
+          await loadQuestions();
+        }});
+
+        const actions = node('div', {}, [ replyInput, replyBtn, markBtn ]);
+        actions.style.cssText = 'display:flex;flex-direction:column;gap:8px;align-items:stretch;';
+
         questionsNode.append(node('div', { class:'question' }, [
           node('div', {}, [
             node('strong', { text:q.lead.name }),
             node('span', { class:'sub', text:' ' + q.lead.email }),
             node('p', { text:q.text }),
-            node('div', { class:'sub', text:fmtDate(q.createdAt) })
+            node('div', { class:'sub', text:fmtDate(q.createdAt) + (q.isAnswered ? ' · отвечено' : '') })
           ]),
-          node('button', { class:q.isAnswered ? 'secondary' : '', text:q.isAnswered ? 'Обработан' : 'Отметить', onclick:async () => {
-            await api('/api/admin/questions/' + q.id, {
-            method: 'PATCH',
-            body: JSON.stringify({ isAnswered: true })
-          });
-            await loadQuestions();
-          }})
+          actions
         ]));
       });
     }

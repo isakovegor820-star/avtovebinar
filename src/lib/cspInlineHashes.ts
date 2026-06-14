@@ -20,6 +20,9 @@ export const cspStyleAttributeHashes = [
   // animation-delay:0.36s — карточка команды «Дмитрий Сизов» (добавлена позже остальных,
   // её хэш забыли внести → CSP блокировал стаггер появления). Хэш сообщил сам браузер.
   "'sha256-vRkq+sE4vEDdRoee+at/TqCh9xN5djznwRtn8RNlpS0='",
+  // seekbar плеера: customSeekBarAvailable/Progress (width:0%;top:50%;height:5px;transform:...).
+  // Без хэша CSP блокировал высоту/позицию полос. Хэш сообщил сам браузер. (webinar.html:192/196)
+  "'sha256-io8gnMNWarvppm/dmRc1jWFUVhkzxPqkZqBqyo2c94o='",
   "'sha256-+2ZYSDT4cfcOpSqKEROT1aOeseB1zEgIqGSisJx/LCY='",
   "'sha256-+IEheqqy8pz0kp4hgBcN5pYmvWvuTH7X9wrSA/g0EIg='",
   "'sha256-+Sz7UVbGpHDb3n1JfZ44f1Kf3VLPIWNPMnKoc0Ne9wk='",

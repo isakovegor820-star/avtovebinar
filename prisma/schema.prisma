@@ -219,6 +219,10 @@ model EmailOutboxJob {
   @@index([registrationId])
   @@index([webinarSessionId])
   @@index([type])
+  // Идемпотентность напоминаний: не больше одной email-джобы на (регистрация, тип, вид
+  // напоминания). NULL reminder_kind (не-reminder джобы) в Postgres считаются различными,
+  // поэтому ограничение реально дедупит только напоминания (24h/3h/30m).
+  @@unique([registrationId, type, reminderKind])
   @@map("email_outbox_jobs")
 }
 

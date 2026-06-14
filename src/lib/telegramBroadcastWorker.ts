@@ -37,6 +37,23 @@ function getTelegramRetryAfterMs(error: unknown) {
   return retryAfter && retryAfter > 0 ? retryAfter * 1000 : null;
 }
 
+// Ошибки Telegram, означающие, что КОНКРЕТНЫЙ получатель недоставляем навсегда: заблокировал
+// бота, удалён, чат не найден/невалиден, бот выгнан из группы и т.п. Такого получателя нужно
+// пропустить и продолжить рассылку остальным, а не топить всю джобу. Текст берётся из
+// `payload.description` Telegram API (см. telegram.ts).
+const PERMANENT_RECIPIENT_ERROR =
+  /blocked|deactivated|kicked|chat not found|user not found|peer_id_invalid|chat_id is empty|initiate conversation|not a member|have no rights|chat was upgraded|group chat was deleted/i;
+
+function isPermanentRecipientError(error: unknown): boolean {
+  // 429 (Too Many Requests, retry_after) — временная общая ошибка: ретраим всю джобу, получателя
+  // НЕ пропускаем, иначе при троттлинге растеряли бы реальных адресатов.
+  if (getTelegramRetryAfterMs(error) !== null) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return PERMANENT_RECIPIENT_ERROR.test(message);
+}
+
 function nextBroadcastRetryAt(now: Date, attempts: number, error: unknown) {
   return new Date(
     now.getTime() +
@@ -180,6 +197,7 @@ export async function runTelegramBroadcastJobOnce(now = new Date()) {
   return runWithCorrelation(correlationId, async () => {
     const chatIds = parseBroadcastChatIds(job.chatIds);
     let sent = 0;
+    let failedSkipped = 0;
 
     for (let index = job.nextIndex; index < chatIds.length; index += 1) {
       const chatId = chatIds[index];
@@ -195,6 +213,26 @@ export async function runTelegramBroadcastJobOnce(now = new Date()) {
         });
         sent += 1;
       } catch (error) {
+        if (isPermanentRecipientError(error)) {
+          // Получатель недоставляем навсегда (заблокировал бота, удалён, чат не найден).
+          // Пропускаем именно его и идём дальше: один «мёртвый» chatId не должен топить всю
+          // рассылку. Двигаем nextIndex, чтобы при будущем ретрае не упереться в него снова.
+          await prisma.telegramBroadcastJob.update({
+            where: { id: job.id },
+            data: {
+              failed: { increment: 1 },
+              nextIndex: index + 1,
+              lastError: normalizeError(error).slice(0, 2000),
+            },
+          });
+          failedSkipped += 1;
+          logger.warn({ jobId: job.id, chatId, err: error }, 'Telegram broadcast recipient skipped (permanent)');
+          if (index < chatIds.length - 1) {
+            await wait(TELEGRAM_BROADCAST_DELAY_MS);
+          }
+          continue;
+        }
+
         const retryAt = nextBroadcastRetryAt(new Date(), job.attempts + 1, error);
         const attempts = job.attempts + 1;
         const shouldDeadLetter = attempts >= TELEGRAM_BROADCAST_MAX_ATTEMPTS;
@@ -244,7 +282,7 @@ export async function runTelegramBroadcastJobOnce(now = new Date()) {
       },
     });
 
-    return { checked: 1, sent, failed: 0, deadLettered: 0 };
+    return { checked: 1, sent, failed: failedSkipped, deadLettered: 0 };
   });
 }
 

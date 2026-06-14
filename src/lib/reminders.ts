@@ -180,7 +180,7 @@ export async function runReminderJobOnce(now = new Date()) {
         continue;
       }
 
-      await prisma.$transaction(async tx => {
+      const created = await prisma.$transaction(async tx => {
         const webinarUrl = await createRoomExchangeUrl(tx, {
           registrationId: registration.id,
           expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
@@ -190,7 +190,7 @@ export async function runReminderJobOnce(now = new Date()) {
           expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
           hash: 'partnerApplication',
         });
-        await enqueueReminderEmail(tx, {
+        return enqueueReminderEmail(tx, {
           kind,
           registrationId: registration.id,
           webinarSessionId: registration.webinarSessionId,
@@ -201,7 +201,11 @@ export async function runReminderJobOnce(now = new Date()) {
           partnerUrl,
         });
       });
-      sent += 1;
+      // createMany(skipDuplicates) вернёт 0, если напоминание уже было поставлено гонкой —
+      // тогда не считаем его отправленным (точная метрика).
+      if (created > 0) {
+        sent += 1;
+      }
     }
 
     if (registrations.length < REMINDER_BATCH_SIZE) {
@@ -325,30 +329,6 @@ let reminderCyclePromise: Promise<void> | null = null;
 let reminderInterval: NodeJS.Timeout | null = null;
 let reminderStartupTimer: NodeJS.Timeout | null = null;
 
-// Уникальный ключ для Postgres advisory lock (защита от дублей при multi-instance).
-const REMINDER_ADVISORY_LOCK_KEY = 4815162342;
-
-async function tryAcquireAdvisoryLock(): Promise<boolean> {
-  try {
-    const rows = await prisma.$queryRaw<Array<{ locked: boolean }>>`
-      SELECT pg_try_advisory_lock(${REMINDER_ADVISORY_LOCK_KEY}) AS locked
-    `;
-    return rows[0]?.locked === true;
-  } catch (error) {
-    logger.error({ err: error }, '[ASPБ reminder lock] advisory lock acquire failed');
-    // Если лок недоступен (например, не Postgres) — не блокируем работу одиночного инстанса.
-    return true;
-  }
-}
-
-async function releaseAdvisoryLock() {
-  try {
-    await prisma.$queryRaw`SELECT pg_advisory_unlock(${REMINDER_ADVISORY_LOCK_KEY})`;
-  } catch (error) {
-    logger.error({ err: error }, '[ASPБ reminder lock] advisory unlock failed');
-  }
-}
-
 async function runReminderCycle() {
   // Локальный guard — защита от наложения тиков в одном процессе.
   if (reminderCycleRunning) {
@@ -356,20 +336,18 @@ async function runReminderCycle() {
   }
   reminderCycleRunning = true;
 
-  // Распределённый lock — защита от дублей при нескольких репликах.
-  const acquired = await tryAcquireAdvisoryLock();
-  if (!acquired) {
-    reminderCycleRunning = false;
-    return;
-  }
-
+  // Распределённый lock убран намеренно: прежний pg_try_advisory_lock был session-level, а при
+  // пуле соединений acquire и release попадали на РАЗНЫЕ коннекты — лок утекал и со временем
+  // намертво блокировал прогон напоминаний (боты «переставали работать»). Идемпотентность теперь
+  // гарантируется на уровне БД: уникальный индекс (registrationId, type, reminderKind) на
+  // email-джобах + CAS-claim (updateMany … count === 1) в outbox/broadcast — дублей не будет
+  // даже при нескольких репликах, и при этом ничто не может «залипнуть».
   try {
     await runReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ reminders]'));
     await runEmailOutboxJobOnce().catch(error => logger.error({ err: error }, '[ASPБ email outbox]'));
     await runTelegramReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram reminders]'));
     await cleanupExpiredRegistrationTokens().catch(error => logger.error({ err: error }, '[ASPБ token cleanup]'));
   } finally {
-    await releaseAdvisoryLock();
     reminderCycleRunning = false;
   }
 }

@@ -119,7 +119,7 @@ export async function hydrateCurrentWebinar() {
   try {
     const data = await getJson('/webinar/current');
     if (!data.ok) return;
-    state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
+    state.serverTimeOffset = ((d) => (Number.isFinite(d) ? d - Date.now() : 0))(new Date(data.serverTime).getTime());
     const scheduledAt = resolveUpcomingWebinarAt(data.scheduledAt || data.webinar?.scheduledAt);
     if (!scheduledAt) return;
     startCountdown(scheduledAt);
@@ -409,7 +409,7 @@ export async function hydrateWebinarRoom(onSuccess) {
       const data = await getRegistrationState('room');
       if (!data.ok || !(data.canViewRoom || data.canEnterRoom)) {
         if (data.accessStatus === 'closed') {
-          state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
+          state.serverTimeOffset = ((d) => (Number.isFinite(d) ? d - Date.now() : 0))(new Date(data.serverTime).getTime());
           renderWaitingRoom(data);
           return;
         }

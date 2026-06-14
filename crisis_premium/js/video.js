@@ -5,7 +5,7 @@
 import { state } from './state.js';
 import { getJson, formatTimelineTime } from './utils.js?v=ux-fixes-1';
 import { timelinePath } from './registration.js';
-import { updateWebinarInsights, setChatActivity } from './questions.js';
+import { setChatActivity } from './questions.js';
 
 /* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
 let _liveControlsInterval = null;
@@ -232,8 +232,22 @@ export async function hydrateTimeline() {
   if (_fullscreenHandler) { document.removeEventListener('fullscreenchange', _fullscreenHandler); _fullscreenHandler = null; }
   if (_hlsInstance) { _hlsInstance.destroy(); _hlsInstance = null; }
 
-  const data = await getJson(timelinePath());
-  if (!data.ok) return;
+  // Загрузка состояния эфира с ретраями: один сетевой сбой/429/5xx больше не оставляет
+  // «пустой» плеер без объяснения — повторяем, а при окончательной неудаче показываем фолбэк.
+  let data = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      data = await getJson(timelinePath());
+      if (data && data.ok) break;
+    } catch {
+      data = null;
+    }
+    if (attempt < 2) await new Promise(resolve => window.setTimeout(resolve, 800 * (attempt + 1)));
+  }
+  if (!data || !data.ok) {
+    showVideoFallback(fallback, 'Не удалось загрузить эфир. Обновите страницу или попробуйте позже.');
+    return;
+  }
 
   const webinarConfig = state.webinarConfig;
   const serverLiveState = data.liveState || webinarConfig?.liveState || null;
@@ -270,13 +284,15 @@ export async function hydrateTimeline() {
       fallback.classList.remove('flex');
     }
   } else {
-    await initializeVideoSource(video, data.video || {}, fallback);
+    // Слушатель ошибок вешаем ДО назначения src/load(), иначе быстрая ошибка загрузки
+    // (битый src, блок CSP) может прилететь раньше подписки и потеряться.
     video.addEventListener('error', () => {
       showVideoFallback(
         fallback,
         'Не удалось загрузить видео вебинара. Обновите страницу или попробуйте позже.',
       );
     });
+    await initializeVideoSource(video, data.video || {}, fallback);
   }
 
   const liveBadge = document.getElementById('videoLiveBadge');
@@ -320,6 +336,20 @@ export async function hydrateTimeline() {
   if (muteBtn) muteBtn.querySelector('span').textContent = 'volume_off';
 
   if (isPreLive) {
+    // Защита от тайт-лупа на границе 19:00: первый reload — сразу, повторные не чаще раза в 6с.
+    // Страница всё равно перезагрузится и уйдёт в эфир, просто без «шторма» перезагрузок,
+    // если серверные часы на доли секунды не дошли до старта.
+    const schedulePreliveReload = () => {
+      try {
+        const KEY = 'aspb:preliveReloadAt';
+        const sinceLast = Date.now() - Number(window.sessionStorage.getItem(KEY) || 0);
+        if (sinceLast >= 0 && sinceLast < 6000) return;
+        window.sessionStorage.setItem(KEY, String(Date.now()));
+      } catch {
+        // sessionStorage недоступен — перезагружаемся без флора
+      }
+      window.location.reload();
+    };
     video.pause();
     if (customControls) customControls.classList.add('hidden');
     if (standbyBackdrop) standbyBackdrop.classList.remove('hidden');
@@ -344,7 +374,7 @@ export async function hydrateTimeline() {
         if (countdownSeconds) countdownSeconds.textContent = String(s).padStart(2, '0');
         if (remaining <= 0) {
           if (countdownInterval) clearInterval(countdownInterval);
-          window.location.reload();
+          schedulePreliveReload();
         }
       }
 
@@ -353,7 +383,7 @@ export async function hydrateTimeline() {
     }
     // Fallback: force reload if countdown somehow misses the transition
     const reloadDelay = Math.max(1000, Math.min(30000, (webinarConfig.scheduledAt - (Date.now() + state.serverTimeOffset)) + 1000));
-    window.setTimeout(() => window.location.reload(), reloadDelay);
+    window.setTimeout(schedulePreliveReload, reloadDelay);
   } else if (isReplay) {
     video.pause();
     video.currentTime = 0;
@@ -556,7 +586,6 @@ export async function hydrateTimeline() {
     const current = video.currentTime;
     window.__aspbVideoPosition = current;
     activateTimelineEvent(current, data.timeline || []);
-    updateWebinarInsights(current);
 
     if (isLiveVisual) {
       updateLiveControls();
@@ -573,7 +602,6 @@ export async function hydrateTimeline() {
   });
 
   activateTimelineEvent(video.currentTime, data.timeline || []);
-  updateWebinarInsights(video.currentTime, true);
 
   function startBroadcastFromClick() {
     if (isPreLive || isEnded) return;

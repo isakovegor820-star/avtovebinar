@@ -11,7 +11,7 @@ import { env } from '../src/lib/env.js';
 import { prisma } from '../src/lib/prisma.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import { createAccessToken, hashToken } from '../src/lib/tokens.js';
-import { runEmailOutboxJobOnce } from '../src/lib/emailOutbox.js';
+import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from '../src/lib/emailOutbox.js';
 import { runReplayFollowupJobOnce } from '../src/lib/reminders.js';
 import { handleParticipantTelegramUpdate } from '../src/lib/telegramParticipantBot.js';
 import { runTelegramNewsJobOnce } from '../src/lib/telegramNews.js';
@@ -1271,6 +1271,53 @@ describe('critical path integration scenarios', () => {
       where: { registrationId: registration.id, type: 'webinar_replay' },
     });
     expect(replayJobCount).toBe(0);
+  });
+
+  it('queues a reminder email at most once per kind even when enqueued twice (idempotent)', async () => {
+    const { registration, webinarSession } = await createRegisteredParticipant('reminder-idempotent@aspb.ru');
+
+    const enqueue24h = () =>
+      prisma.$transaction(tx =>
+        enqueueReminderEmail(tx, {
+          kind: '24h',
+          registrationId: registration.id,
+          webinarSessionId: webinarSession.id,
+          toEmail: 'reminder-idempotent@aspb.ru',
+          toName: 'Reminder Participant',
+          scheduledAt: webinarSession.scheduledAt,
+          webinarUrl: 'https://aspb.example/room',
+          partnerUrl: null,
+        }),
+      );
+
+    // Повторная постановка того же напоминания не создаёт дубль: уникальный индекс
+    // (registrationId, type, reminderKind) + skipDuplicates → createMany возвращает 0.
+    expect(await enqueue24h()).toBe(1);
+    expect(await enqueue24h()).toBe(0);
+
+    const jobs = await prisma.emailOutboxJob.findMany({
+      where: { registrationId: registration.id, type: EMAIL_JOB_REMINDER },
+    });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].reminderKind).toBe('24h');
+
+    // Другой вид напоминания (3h) — отдельная джоба, ограничение его не блокирует.
+    const otherKindCount = await prisma.$transaction(tx =>
+      enqueueReminderEmail(tx, {
+        kind: '3h',
+        registrationId: registration.id,
+        webinarSessionId: webinarSession.id,
+        toEmail: 'reminder-idempotent@aspb.ru',
+        toName: 'Reminder Participant',
+        scheduledAt: webinarSession.scheduledAt,
+        webinarUrl: 'https://aspb.example/room',
+        partnerUrl: null,
+      }),
+    );
+    expect(otherKindCount).toBe(1);
+    await expect(
+      prisma.emailOutboxJob.count({ where: { registrationId: registration.id, type: EMAIL_JOB_REMINDER } }),
+    ).resolves.toBe(2);
   });
 
   it('serves published recordings to registered account sessions only', async () => {

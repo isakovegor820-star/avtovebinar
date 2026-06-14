@@ -91,21 +91,28 @@ export async function enqueueParticipantLoginEmail(tx: EmailOutboxTx, input: Enq
 }
 
 export async function enqueueReminderEmail(tx: EmailOutboxTx, input: EnqueueBase & { kind: ReminderKind }) {
-  return tx.emailOutboxJob.create({
-    data: {
-      type: EMAIL_JOB_REMINDER,
-      status: 'pending',
-      registrationId: input.registrationId,
-      webinarSessionId: input.webinarSessionId,
-      toEmail: input.toEmail,
-      toName: input.toName,
-      scheduledAt: input.scheduledAt,
-      webinarUrl: input.webinarUrl,
-      partnerUrl: input.partnerUrl,
-      reminderKind: input.kind,
-      nextAttemptAt: new Date(),
-    },
+  // Идемпотентно: уникальный индекс (registrationId, type, reminderKind) + skipDuplicates
+  // гарантируют ровно одну джобу на вид напоминания, даже при гонке нескольких тиков/реплик.
+  // Возвращаем число реально созданных строк (0 — если такое напоминание уже было поставлено).
+  const result = await tx.emailOutboxJob.createMany({
+    data: [
+      {
+        type: EMAIL_JOB_REMINDER,
+        status: 'pending',
+        registrationId: input.registrationId,
+        webinarSessionId: input.webinarSessionId,
+        toEmail: input.toEmail,
+        toName: input.toName,
+        scheduledAt: input.scheduledAt,
+        webinarUrl: input.webinarUrl,
+        partnerUrl: input.partnerUrl,
+        reminderKind: input.kind,
+        nextAttemptAt: new Date(),
+      },
+    ],
+    skipDuplicates: true,
   });
+  return result.count;
 }
 
 export async function enqueueReplayEmail(tx: EmailOutboxTx, input: EnqueueBase) {

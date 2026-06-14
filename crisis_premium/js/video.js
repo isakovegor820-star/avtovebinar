@@ -783,7 +783,12 @@ export async function hydrateTimeline() {
     seekContainer.setAttribute('tabindex', '0');
     seekContainer.setAttribute('role', 'slider');
     seekContainer.setAttribute('aria-label', 'Перемотка эфира');
+    seekContainer.setAttribute('aria-valuemin', '0');
+    seekContainer.setAttribute('aria-valuemax', '100');
     let scrubResumePlay = false;
+    let scrubPointerId = null; // активный указатель — чтобы второй палец не вмешивался
+    let scrubMoveRaf = 0; // rAF-коалесинг перемоток во время драга
+    let scrubMoveX = 0;
 
     function seekTargetFromClientX(clientX) {
       const rect = seekContainer.getBoundingClientRect();
@@ -792,7 +797,8 @@ export async function hydrateTimeline() {
         const livePosition = getLivePosition();
         return Math.min(ratio * Math.max(1, livePosition), livePosition); // не дальше live-edge
       }
-      return ratio * videoDuration;
+      // В replay — единый масштаб с paintScrub (реальная длина видео), а не конфиг-фолбэк.
+      return ratio * (video.duration || videoDuration);
     }
 
     function paintScrub(targetTime) {
@@ -800,6 +806,7 @@ export async function hydrateTimeline() {
       const pct = clamp((targetTime / scale) * 100, 0, 100);
       if (seekProgress) seekProgress.style.width = pct + '%';
       if (seekThumb) seekThumb.style.left = pct + '%';
+      seekContainer.setAttribute('aria-valuenow', String(Math.round(pct)));
     }
 
     function applyScrub(clientX, commit) {
@@ -815,10 +822,23 @@ export async function hydrateTimeline() {
       }
     }
 
+    // Единая точка сброса состояния скраба (из pointerup/cancel/lostpointercapture).
+    function endScrub() {
+      if (scrubMoveRaf) {
+        cancelAnimationFrame(scrubMoveRaf);
+        scrubMoveRaf = 0;
+      }
+      isScrubbing = false;
+      scrubPointerId = null;
+    }
+
     function onScrubStart(e) {
       if (isPreLive || isEnded || !videoDuration) return;
+      if (isScrubbing) return; // уже тащим — игнорируем второй палец/повтор
+      if (e.button != null && e.button > 0) return; // только основная (левая) кнопка, не правый/средний клик
       e.preventDefault();
       isScrubbing = true;
+      scrubPointerId = e.pointerId;
       scrubResumePlay = !video.paused;
       showControlsBriefly();
       try {
@@ -830,20 +850,28 @@ export async function hydrateTimeline() {
     }
 
     function onScrubMove(e) {
-      if (!isScrubbing) return;
+      if (!isScrubbing || e.pointerId !== scrubPointerId) return;
       e.preventDefault();
-      applyScrub(e.clientX, false);
+      // rAF-коалесинг: не дёргаем video.currentTime чаще кадра (меньше seek-thrash, особенно на HLS)
+      scrubMoveX = e.clientX;
+      if (!scrubMoveRaf) {
+        scrubMoveRaf = requestAnimationFrame(() => {
+          scrubMoveRaf = 0;
+          if (isScrubbing) applyScrub(scrubMoveX, false);
+        });
+      }
     }
 
     function onScrubEnd(e) {
-      if (!isScrubbing) return;
-      isScrubbing = false;
+      if (!isScrubbing || e.pointerId !== scrubPointerId) return;
+      const clientX = e.clientX;
+      endScrub();
       try {
         seekContainer.releasePointerCapture(e.pointerId);
       } catch {
         /* ignore */
       }
-      applyScrub(e.clientX, true);
+      applyScrub(clientX, true);
       if (scrubResumePlay) video.play().catch(() => {});
     }
 
@@ -851,10 +879,16 @@ export async function hydrateTimeline() {
     seekContainer.addEventListener('pointermove', onScrubMove);
     seekContainer.addEventListener('pointerup', onScrubEnd);
     seekContainer.addEventListener('pointercancel', onScrubEnd);
+    // Защита от «залипания»: если захват указателя потерян (контекстное меню, системный
+    // жест, long-press) и pointerup не пришёл — снимаем флаг, чтобы полоса не застыла.
+    seekContainer.addEventListener('lostpointercapture', () => {
+      if (isScrubbing) endScrub();
+    });
 
     // Клавиатура (доступность): стрелки ←/→ мотают на 5 секунд.
     seekContainer.addEventListener('keydown', (e) => {
-      if (!videoDuration || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      if (isPreLive || isEnded || !videoDuration) return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       e.preventDefault();
       const ceiling = isLiveVisual ? getLivePosition() : video.duration || videoDuration;
       const target = clamp(video.currentTime + (e.key === 'ArrowLeft' ? -5 : 5), 0, ceiling);

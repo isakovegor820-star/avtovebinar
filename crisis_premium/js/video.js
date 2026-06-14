@@ -237,6 +237,9 @@ export async function hydrateTimeline() {
 
   const webinarConfig = state.webinarConfig;
   const serverLiveState = data.liveState || webinarConfig?.liveState || null;
+  // Всегда конечное положительное число (фолбэк 568). На это опирается скраббер:
+  // выражения вида (video.duration || videoDuration) никогда не дают NaN/Infinity,
+  // поэтому video.currentTime не получит NaN до загрузки метаданных.
   const videoDuration = data.video && data.video.durationSeconds
     ? Number(data.video.durationSeconds)
     : Number(serverLiveState?.durationSeconds || webinarConfig?.videoDurationSeconds || 568);
@@ -544,6 +547,7 @@ export async function hydrateTimeline() {
       // во время перетаскивания ползунок ведёт сам скраббер — reconciler его не трогает
       if (seekProgress) seekProgress.style.width = watchPercent + '%';
       if (seekThumb) seekThumb.style.left = watchPercent + '%';
+      if (seekContainer) seekContainer.setAttribute('aria-valuenow', String(Math.round(watchPercent)));
     }
     if (liveEdgeMarker) liveEdgeMarker.style.left = '100%';
   }
@@ -884,6 +888,12 @@ export async function hydrateTimeline() {
     seekContainer.addEventListener('lostpointercapture', () => {
       if (isScrubbing) endScrub();
     });
+    // Двойная страховка от «залипания»: если setPointerCapture не сработал и палец/мышь
+    // отпустили мимо полосы, pointerup/cancel прилетят в window, а не в seekContainer —
+    // завершаем скраб и тут. onScrubEnd идемпотентен (проверяет isScrubbing + pointerId),
+    // поэтому в обычном пути это просто no-op и happy-path не ломается.
+    window.addEventListener('pointerup', onScrubEnd);
+    window.addEventListener('pointercancel', onScrubEnd);
 
     // Клавиатура (доступность): стрелки ←/→ мотают на 5 секунд.
     seekContainer.addEventListener('keydown', (e) => {

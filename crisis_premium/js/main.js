@@ -3,7 +3,7 @@
  */
 
 import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=ux-fixes-1';
-import { hydrateTimeline } from './video.js?v=dvr-scrubber-1';
+import { hydrateTimeline } from './video.js?v=dvr-scrubber-2';
 import { hydrateSuccessPage } from './success.js?v=ux-fixes-1';
 import { hydrateAccessPage } from './access.js?v=ux-fixes-1';
 import { hydrateRecordingsPage } from './recordings.js?v=ux-fixes-2';

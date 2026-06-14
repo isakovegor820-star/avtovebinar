@@ -298,6 +298,7 @@ export async function hydrateTimeline() {
   let broadcastStarted = false;
   let manualBehindLive = false;
   let pausedFromLive = false;
+  let isScrubbing = false;
   const liveToleranceSeconds = 2.5;
 
   function getLivePosition() {
@@ -539,8 +540,11 @@ export async function hydrateTimeline() {
     const liveScaleSeconds = Math.max(1, livePosition);
     const watchPercent = clamp((video.currentTime / liveScaleSeconds) * 100, 0, 100);
     if (seekAvailable) seekAvailable.style.width = '100%';
-    if (seekProgress) seekProgress.style.width = watchPercent + '%';
-    if (seekThumb) seekThumb.style.left = watchPercent + '%';
+    if (!isScrubbing) {
+      // во время перетаскивания ползунок ведёт сам скраббер — reconciler его не трогает
+      if (seekProgress) seekProgress.style.width = watchPercent + '%';
+      if (seekThumb) seekThumb.style.left = watchPercent + '%';
+    }
     if (liveEdgeMarker) liveEdgeMarker.style.left = '100%';
   }
 
@@ -773,26 +777,94 @@ export async function hydrateTimeline() {
   }
 
   if (seekContainer) {
-    seekContainer.addEventListener('click', (e) => {
+    // Скраббер: клик в любой точке полосы + плавное перетаскивание.
+    // Pointer-события покрывают мышь, тач (телефон) и стилус одним кодом.
+    seekContainer.style.touchAction = 'none'; // на телефоне драг по полосе не скроллит страницу
+    seekContainer.setAttribute('tabindex', '0');
+    seekContainer.setAttribute('role', 'slider');
+    seekContainer.setAttribute('aria-label', 'Перемотка эфира');
+    let scrubResumePlay = false;
+
+    function seekTargetFromClientX(clientX) {
       const rect = seekContainer.getBoundingClientRect();
-      const pos = clamp((e.clientX - rect.left) / rect.width, 0, 1);
-      if (videoDuration) {
-        const wasPlaying = !video.paused;
+      const ratio = rect.width ? clamp((clientX - rect.left) / rect.width, 0, 1) : 0;
+      if (isLiveVisual) {
         const livePosition = getLivePosition();
-        const requestedTime = isLiveVisual ? pos * Math.max(1, livePosition) : pos * videoDuration;
-        const targetTime = isLiveVisual ? Math.min(requestedTime, livePosition) : requestedTime;
-        video.currentTime = targetTime;
-        if (isLiveVisual) {
-          manualBehindLive = getLivePosition() - targetTime > liveToleranceSeconds;
-          pausedFromLive = false;
-          updateLiveControls();
-          if (wasPlaying) {
-            video.play().catch(err => console.log('Seek resume failed:', err));
-          }
-        } else {
-          if (seekProgress) seekProgress.style.width = (targetTime / videoDuration * 100) + '%';
-          if (seekThumb) seekThumb.style.left = (targetTime / videoDuration * 100) + '%';
-        }
+        return Math.min(ratio * Math.max(1, livePosition), livePosition); // не дальше live-edge
+      }
+      return ratio * videoDuration;
+    }
+
+    function paintScrub(targetTime) {
+      const scale = isLiveVisual ? Math.max(1, getLivePosition()) : video.duration || videoDuration || 1;
+      const pct = clamp((targetTime / scale) * 100, 0, 100);
+      if (seekProgress) seekProgress.style.width = pct + '%';
+      if (seekThumb) seekThumb.style.left = pct + '%';
+    }
+
+    function applyScrub(clientX, commit) {
+      if (!videoDuration) return;
+      const targetTime = seekTargetFromClientX(clientX);
+      video.currentTime = targetTime;
+      paintScrub(targetTime);
+      if (commit && isLiveVisual) {
+        // Отмотал назад → смотрит позади, эфир идёт дальше; обратно не выкидываем.
+        manualBehindLive = getLivePosition() - targetTime > liveToleranceSeconds;
+        pausedFromLive = false;
+        updateLiveControls();
+      }
+    }
+
+    function onScrubStart(e) {
+      if (isPreLive || isEnded || !videoDuration) return;
+      e.preventDefault();
+      isScrubbing = true;
+      scrubResumePlay = !video.paused;
+      showControlsBriefly();
+      try {
+        seekContainer.setPointerCapture(e.pointerId);
+      } catch {
+        /* setPointerCapture не поддержан — драг работает, пока указатель над полосой */
+      }
+      applyScrub(e.clientX, false);
+    }
+
+    function onScrubMove(e) {
+      if (!isScrubbing) return;
+      e.preventDefault();
+      applyScrub(e.clientX, false);
+    }
+
+    function onScrubEnd(e) {
+      if (!isScrubbing) return;
+      isScrubbing = false;
+      try {
+        seekContainer.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      applyScrub(e.clientX, true);
+      if (scrubResumePlay) video.play().catch(() => {});
+    }
+
+    seekContainer.addEventListener('pointerdown', onScrubStart);
+    seekContainer.addEventListener('pointermove', onScrubMove);
+    seekContainer.addEventListener('pointerup', onScrubEnd);
+    seekContainer.addEventListener('pointercancel', onScrubEnd);
+
+    // Клавиатура (доступность): стрелки ←/→ мотают на 5 секунд.
+    seekContainer.addEventListener('keydown', (e) => {
+      if (!videoDuration || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      e.preventDefault();
+      const ceiling = isLiveVisual ? getLivePosition() : video.duration || videoDuration;
+      const target = clamp(video.currentTime + (e.key === 'ArrowLeft' ? -5 : 5), 0, ceiling);
+      video.currentTime = target;
+      if (isLiveVisual) {
+        manualBehindLive = getLivePosition() - target > liveToleranceSeconds;
+        pausedFromLive = false;
+        updateLiveControls();
+      } else {
+        paintScrub(target);
       }
     });
   }

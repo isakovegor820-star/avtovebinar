@@ -122,7 +122,7 @@ export async function hydrateSuccessPage() {
     revealSuccessContent();
     window.dispatchEvent(new CustomEvent('aspb:registration-state', { detail: data }));
     const roomHref = data.webinarUrl || 'webinar.html';
-    state.serverTimeOffset = new Date(data.serverTime).getTime() - Date.now();
+    state.serverTimeOffset = ((d) => (Number.isFinite(d) ? d - Date.now() : 0))(new Date(data.serverTime).getTime());
     updateTelegramLinks(data);
     const telegramLink = document.getElementById('successTelegramLink');
     if (telegramLink) {

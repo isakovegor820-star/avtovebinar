@@ -424,20 +424,12 @@ export async function hydrateTimeline() {
       seekContainer.style.background = 'transparent';
       seekContainer.style.boxShadow = 'none';
     }
-    if (isTestMode && seekContainer) {
-      seekContainer.classList.remove('hidden');
+    // DVR-перемотка доступна и в test/preview, и в реальном live: getLivePosition()
+    // в test-режиме тоже прогрессирует от загрузки страницы, поэтому используем тот же
+    // интерактивный seekbar, что и в live (раньше тут была статичная полоса без перемотки).
+    if (seekContainer) {
       seekContainer.style.cursor = 'pointer';
       seekContainer.style.pointerEvents = 'auto';
-      seekContainer.style.background = 'transparent';
-      seekContainer.style.boxShadow = 'none';
-      if (seekAvailable) seekAvailable.classList.add('hidden');
-      if (seekProgress) {
-        seekProgress.classList.remove('hidden');
-        seekProgress.style.width = '100%';
-        seekProgress.style.background = 'linear-gradient(90deg, #dc2626 0%, #ef4444 52%, #fb7185 100%)';
-      }
-      if (seekThumb) seekThumb.classList.add('hidden');
-      if (liveEdgeMarker) liveEdgeMarker.classList.add('hidden');
     }
     setChatActivity('Вопросы и чат синхронизированы с эфиром');
   } else {
@@ -546,13 +538,6 @@ export async function hydrateTimeline() {
     }
     const liveScaleSeconds = Math.max(1, livePosition);
     const watchPercent = clamp((video.currentTime / liveScaleSeconds) * 100, 0, 100);
-    if (isTestMode) {
-      if (seekAvailable) seekAvailable.classList.add('hidden');
-      if (seekProgress) seekProgress.style.width = '100%';
-      if (seekThumb) seekThumb.classList.add('hidden');
-      if (liveEdgeMarker) liveEdgeMarker.classList.add('hidden');
-      return;
-    }
     if (seekAvailable) seekAvailable.style.width = '100%';
     if (seekProgress) seekProgress.style.width = watchPercent + '%';
     if (seekThumb) seekThumb.style.left = watchPercent + '%';
@@ -789,17 +774,15 @@ export async function hydrateTimeline() {
 
   if (seekContainer) {
     seekContainer.addEventListener('click', (e) => {
-      // Guard: no-op in test mode (seekbar is visual-only)
-      if (isTestMode) return;
       const rect = seekContainer.getBoundingClientRect();
       const pos = clamp((e.clientX - rect.left) / rect.width, 0, 1);
       if (videoDuration) {
         const wasPlaying = !video.paused;
         const livePosition = getLivePosition();
-        const requestedTime = isLive ? pos * Math.max(1, livePosition) : pos * videoDuration;
-        const targetTime = isLive ? Math.min(requestedTime, livePosition) : requestedTime;
+        const requestedTime = isLiveVisual ? pos * Math.max(1, livePosition) : pos * videoDuration;
+        const targetTime = isLiveVisual ? Math.min(requestedTime, livePosition) : requestedTime;
         video.currentTime = targetTime;
-        if (isLive) {
+        if (isLiveVisual) {
           manualBehindLive = getLivePosition() - targetTime > liveToleranceSeconds;
           pausedFromLive = false;
           updateLiveControls();

@@ -77,14 +77,20 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
     }, delayMs);
   }
 
-  async function clearWebhook() {
-    // getUpdates и webhook взаимоисключающи: если на боте остался webhook,
-    // getUpdates будет вечно отдавать 409. Снимаем его перед поллингом.
+  /**
+   * Снимает webhook перед поллингом (getUpdates и webhook взаимоисключающи:
+   * если на боте остался webhook, getUpdates вечно отдаёт 409).
+   * Возвращает true ТОЛЬКО при подтверждённом успехе — иначе вызывающий не
+   * латчит флаг и повторит снятие на следующем тике.
+   */
+  async function clearWebhook(): Promise<boolean> {
     try {
       const response = await fetch(options.apiUrl('deleteWebhook'), { method: 'POST' });
-      await response.json().catch(() => null);
+      const body = (await response.json().catch(() => null)) as { ok?: boolean } | null;
+      return body?.ok === true;
     } catch (error) {
-      logger.warn({ err: error }, `[${options.name}] deleteWebhook failed (continuing to poll)`);
+      logger.warn({ err: error }, `[${options.name}] deleteWebhook failed (повторим на следующем тике)`);
+      return false;
     }
   }
 
@@ -115,6 +121,8 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
           { description },
           `[${options.name}] getUpdates conflict — другой поллер или webhook активен на этом токене; backing off`,
         );
+        // 409 может означать недоснятый webhook — повторим deleteWebhook на след. тике.
+        webhookCleared = false;
         return jitter(CONFLICT_BACKOFF_MS);
       }
       if (retryAfter && retryAfter > 0) {
@@ -151,8 +159,10 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
     let delay = IDLE_DELAY_MS;
     try {
       if (!webhookCleared) {
-        await clearWebhook();
-        webhookCleared = true;
+        // Латчим только при подтверждённом снятии. Если deleteWebhook упал —
+        // флаг остаётся false и следующий тик повторит попытку (иначе бот мог
+        // навсегда залипнуть на 409 при недоснятом webhook).
+        webhookCleared = await clearWebhook();
       }
       delay = await pollOnce();
     } catch (error) {

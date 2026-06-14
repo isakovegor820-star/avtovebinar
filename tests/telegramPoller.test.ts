@@ -133,4 +133,26 @@ describe('createTelegramPoller', () => {
     const getUpdatesCalls = fetchMock.mock.calls.filter(c => String(c[0]).includes('getUpdates')).length;
     expect(getUpdatesCalls).toBeGreaterThanOrEqual(3); // цикл пережил 2 падения и продолжил
   });
+
+  it('повторяет deleteWebhook, если первая попытка не удалась (не латчит флаг при сбое)', async () => {
+    let deleteCalls = 0;
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String((input as URL)?.toString?.() ?? input);
+      if (url.includes('deleteWebhook')) {
+        deleteCalls += 1;
+        // первая попытка снять webhook — провал (ok:false), последующие — успех
+        return { json: async () => ({ ok: deleteCalls > 1 }) };
+      }
+      return { json: async () => ({ ok: true, result: [] }) };
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    const poller = makePoller(async () => {});
+    poller.start();
+    await vi.advanceTimersByTimeAsync(0); // тик 1: deleteWebhook → ok:false → флаг не латчится
+    await vi.advanceTimersByTimeAsync(1000); // тик 2: deleteWebhook повторяется → ok:true → латчится
+    poller.stop();
+
+    expect(deleteCalls).toBeGreaterThanOrEqual(2); // снятие webhook повторили после сбоя
+  });
 });

@@ -3,7 +3,7 @@ import { env } from './env.js';
 import type { ReminderKind } from './email.js';
 import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
 import { sendTelegramMessageToChat, telegramUrlButton } from './telegram.js';
-import { createRoomExchangeUrl, getRoomTokenExpiresAt } from './roomLinks.js';
+import { createRoomExchangeUrl, getRoomTokenExpiresAt, buildFrontendUrl } from './roomLinks.js';
 import { logger } from './logger.js';
 
 type ReminderCandidate = {
@@ -316,9 +316,117 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
   return { checked, sent };
 }
 
+const TELEGRAM_LIVE_WINDOW_MS = 20 * 60 * 1000; // «эфир начался» — в первые 20 минут после старта
+const TELEGRAM_FOLLOWUP_GRACE_MS = 10 * 60 * 1000; // «после эфира» — спустя 10 минут после конца
+const TELEGRAM_FOLLOWUP_WINDOW_MS = 12 * 60 * 60 * 1000; // не догоняем эфиры старше 12 часов
+const TELEGRAM_LIVE_FOLLOWUP_BATCH = 500;
+
+// «🔴 Эфир начался» участникам с привязанным Telegram. Идемпотентно через CAS-claim
+// telegramLiveSentAt: ровно один раз на регистрацию, без дублей при рестарте/репликах.
+export async function runTelegramLiveJobOnce(now = new Date()) {
+  let sent = 0;
+  const registrations = await prisma.registration.findMany({
+    where: {
+      status: 'registered',
+      telegramLiveSentAt: null,
+      lead: { telegramChatId: { not: null } },
+      webinarSession: { scheduledAt: { lte: now, gt: new Date(now.getTime() - TELEGRAM_LIVE_WINDOW_MS) } },
+    },
+    include: { lead: true, webinarSession: true },
+    take: TELEGRAM_LIVE_FOLLOWUP_BATCH,
+  });
+
+  for (const registration of registrations) {
+    if (!registration.lead.telegramChatId) continue;
+    const claimed = await prisma.registration.updateMany({
+      where: { id: registration.id, telegramLiveSentAt: null },
+      data: { telegramLiveSentAt: now },
+    });
+    if (claimed.count !== 1) continue;
+
+    try {
+      const roomUrl = await prisma.$transaction(tx =>
+        createRoomExchangeUrl(tx, {
+          registrationId: registration.id,
+          expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+        }),
+      );
+      await sendTelegramMessageToChat(
+        registration.lead.telegramChatId,
+        '🔴 Эфир начался — подключайтесь, мы уже в комнате.',
+        { replyMarkup: telegramUrlButton('▶ Войти в эфир', roomUrl) },
+      );
+      sent += 1;
+    } catch (error) {
+      await prisma.registration
+        .update({ where: { id: registration.id }, data: { telegramLiveSentAt: null } })
+        .catch(() => {});
+      logger.error(
+        { err: error, registrationId: registration.id },
+        '[ASPБ telegram live] отправка не удалась, метка снята',
+      );
+    }
+  }
+
+  return { sent };
+}
+
+// «После эфира»: благодарность + запись + призыв к партнёрской заявке. Шлётся один раз
+// (CAS-claim telegramFollowupSentAt) спустя время после фактического конца эфира.
 export async function runTelegramFollowupJobOnce(now = new Date()) {
-  void now;
-  return { checked: 0, sent: 0, disabled: true };
+  let sent = 0;
+  const registrations = await prisma.registration.findMany({
+    where: {
+      status: 'registered',
+      telegramFollowupSentAt: null,
+      lead: { telegramChatId: { not: null } },
+      webinarSession: {
+        scheduledAt: { lt: now, gt: new Date(now.getTime() - TELEGRAM_FOLLOWUP_WINDOW_MS - 6 * 60 * 60 * 1000) },
+      },
+    },
+    include: { lead: true, webinarSession: true },
+    take: TELEGRAM_LIVE_FOLLOWUP_BATCH,
+  });
+
+  const recordingsUrl = buildFrontendUrl('/crisis_premium/recordings.html');
+
+  for (const registration of registrations) {
+    if (!registration.lead.telegramChatId) continue;
+    const durationMs = (registration.webinarSession.durationMinutes ?? 65) * 60 * 1000;
+    const endAt = registration.webinarSession.scheduledAt.getTime() + durationMs;
+    if (now.getTime() < endAt + TELEGRAM_FOLLOWUP_GRACE_MS || now.getTime() > endAt + TELEGRAM_FOLLOWUP_WINDOW_MS) {
+      continue;
+    }
+
+    const claimed = await prisma.registration.updateMany({
+      where: { id: registration.id, telegramFollowupSentAt: null },
+      data: { telegramFollowupSentAt: now },
+    });
+    if (claimed.count !== 1) continue;
+
+    try {
+      await sendTelegramMessageToChat(
+        registration.lead.telegramChatId,
+        [
+          'Спасибо, что были на вебинаре АСПБ.',
+          '',
+          'Запись и материалы — в разделе «Записи». Если есть клиент с долгами, налогами или риском банкротства — оставьте партнёрскую заявку, поможем довести.',
+        ].join('\n'),
+        { replyMarkup: telegramUrlButton('Смотреть запись', recordingsUrl) },
+      );
+      sent += 1;
+    } catch (error) {
+      await prisma.registration
+        .update({ where: { id: registration.id }, data: { telegramFollowupSentAt: null } })
+        .catch(() => {});
+      logger.error(
+        { err: error, registrationId: registration.id },
+        '[ASPБ telegram followup] отправка не удалась, метка снята',
+      );
+    }
+  }
+
+  return { sent };
 }
 
 export async function runReplayFollowupJobOnce(now = new Date()) {
@@ -361,7 +469,9 @@ async function runReminderCycle() {
   try {
     await runReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ reminders]'));
     await runEmailOutboxJobOnce().catch(error => logger.error({ err: error }, '[ASPБ email outbox]'));
+    await runTelegramLiveJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram live]'));
     await runTelegramReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram reminders]'));
+    await runTelegramFollowupJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram followup]'));
     await cleanupExpiredRegistrationTokens().catch(error => logger.error({ err: error }, '[ASPБ token cleanup]'));
   } finally {
     reminderCycleRunning = false;

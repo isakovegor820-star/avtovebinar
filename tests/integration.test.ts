@@ -12,7 +12,7 @@ import { prisma } from '../src/lib/prisma.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import { createAccessToken, hashToken } from '../src/lib/tokens.js';
 import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from '../src/lib/emailOutbox.js';
-import { runReplayFollowupJobOnce } from '../src/lib/reminders.js';
+import { runReplayFollowupJobOnce, runTelegramLiveJobOnce } from '../src/lib/reminders.js';
 import { handleParticipantTelegramUpdate } from '../src/lib/telegramParticipantBot.js';
 import { runTelegramNewsJobOnce } from '../src/lib/telegramNews.js';
 import { getDailyBroadcastDate } from '../src/lib/time.js';
@@ -1318,6 +1318,19 @@ describe('critical path integration scenarios', () => {
     await expect(
       prisma.emailOutboxJob.count({ where: { registrationId: registration.id, type: EMAIL_JOB_REMINDER } }),
     ).resolves.toBe(2);
+  });
+
+  it('sends the live "эфир начался" telegram message once per registration (idempotent)', async () => {
+    const startedAt = new Date(Date.now() - 5 * 60 * 1000); // эфир начался 5 минут назад
+    const { registration, lead } = await createRegisteredParticipant('live-notify@aspb.ru', startedAt);
+    await prisma.lead.update({ where: { id: lead.id }, data: { telegramChatId: '900900900' } });
+
+    // NOTIFY_MODE=log в тестах → отправка не уходит в сеть, но CAS-claim метки отрабатывает.
+    expect((await runTelegramLiveJobOnce(new Date())).sent).toBe(1);
+    expect((await runTelegramLiveJobOnce(new Date())).sent).toBe(0);
+
+    const updated = await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } });
+    expect(updated.telegramLiveSentAt).not.toBeNull();
   });
 
   it('serves published recordings to registered account sessions only', async () => {

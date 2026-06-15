@@ -241,7 +241,21 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
   return { sent: true, mode: 'send' as const };
 }
 
-export async function sendTelegramMessageToChat(chatId: string, text: string) {
+// Экранирование пользовательских значений (имя и т.п.) для parse_mode: HTML.
+export function escapeTelegramHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Inline-клавиатура из одной кнопки-ссылки (например «Войти в комнату»).
+export function telegramUrlButton(text: string, url: string) {
+  return { inline_keyboard: [[{ text, url }]] };
+}
+
+export async function sendTelegramMessageToChat(
+  chatId: string,
+  text: string,
+  options: { replyMarkup?: Record<string, unknown>; parseMode?: 'HTML' } = {},
+) {
   const message = text.slice(0, 3900);
 
   if (shouldLogParticipantTelegram()) {
@@ -262,6 +276,9 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
               chat_id: chatId,
               text: message,
               disable_web_page_preview: true,
+              // undefined-поля JSON.stringify выкидывает → обратная совместимость со старыми вызовами.
+              parse_mode: options.parseMode,
+              reply_markup: options.replyMarkup,
             }),
           });
           return readTelegramPayload(response);

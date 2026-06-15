@@ -2,7 +2,7 @@ import { prisma } from './prisma.js';
 import { env } from './env.js';
 import type { ReminderKind } from './email.js';
 import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
-import { sendTelegramMessageToChat, telegramUrlButton } from './telegram.js';
+import { isPermanentTelegramError, sendTelegramMessageToChat, telegramUrlButton } from './telegram.js';
 import { createRoomExchangeUrl, getRoomTokenExpiresAt, buildFrontendUrl } from './roomLinks.js';
 import { logger } from './logger.js';
 
@@ -298,12 +298,26 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
         );
         sent += 1;
       } catch (error) {
-        // Отправка/подготовка не удалась — снимаем метку, чтобы напоминание повторилось
-        // на следующем тике. Один сбойный получатель не должен ронять весь прогон.
-        await prisma.registration.update({ where: { id: registration.id }, data: { [field]: null } }).catch(() => {});
+        // Постоянная ошибка получателя (заблокировал бота, удалён, chat not found) — повтор
+        // бессмыслен. Метку НЕ откатываем, иначе каждый тик до старта эфира будем долбить
+        // безнадёжный chatId и спамить логами/Telegram-API. Временные ошибки откатываем,
+        // чтобы напоминание повторилось на следующем тике.
+        const permanent = isPermanentTelegramError(error);
+        if (!permanent) {
+          await prisma.registration
+            .update({ where: { id: registration.id }, data: { [field]: null } })
+            .catch(rollbackError =>
+              logger.error(
+                { err: rollbackError, registrationId: registration.id, kind },
+                '[ASPБ telegram reminder] откат метки не удался — сообщение может быть потеряно',
+              ),
+            );
+        }
         logger.error(
-          { err: error, registrationId: registration.id, kind },
-          '[ASPБ telegram reminder] отправка не удалась, метка снята для повтора',
+          { err: error, registrationId: registration.id, kind, permanent },
+          permanent
+            ? '[ASPБ telegram reminder] постоянная ошибка получателя — больше не повторяем'
+            : '[ASPБ telegram reminder] временная ошибка — метка снята для повтора',
         );
       }
     }
@@ -358,12 +372,22 @@ export async function runTelegramLiveJobOnce(now = new Date()) {
       );
       sent += 1;
     } catch (error) {
-      await prisma.registration
-        .update({ where: { id: registration.id }, data: { telegramLiveSentAt: null } })
-        .catch(() => {});
+      const permanent = isPermanentTelegramError(error);
+      if (!permanent) {
+        await prisma.registration
+          .update({ where: { id: registration.id }, data: { telegramLiveSentAt: null } })
+          .catch(rollbackError =>
+            logger.error(
+              { err: rollbackError, registrationId: registration.id },
+              '[ASPБ telegram live] откат метки не удался — «эфир начался» может быть потерян',
+            ),
+          );
+      }
       logger.error(
-        { err: error, registrationId: registration.id },
-        '[ASPБ telegram live] отправка не удалась, метка снята',
+        { err: error, registrationId: registration.id, permanent },
+        permanent
+          ? '[ASPБ telegram live] постоянная ошибка получателя — больше не повторяем'
+          : '[ASPБ telegram live] временная ошибка — метка снята для повтора',
       );
     }
   }
@@ -416,12 +440,22 @@ export async function runTelegramFollowupJobOnce(now = new Date()) {
       );
       sent += 1;
     } catch (error) {
-      await prisma.registration
-        .update({ where: { id: registration.id }, data: { telegramFollowupSentAt: null } })
-        .catch(() => {});
+      const permanent = isPermanentTelegramError(error);
+      if (!permanent) {
+        await prisma.registration
+          .update({ where: { id: registration.id }, data: { telegramFollowupSentAt: null } })
+          .catch(rollbackError =>
+            logger.error(
+              { err: rollbackError, registrationId: registration.id },
+              '[ASPБ telegram followup] откат метки не удался — followup может быть потерян',
+            ),
+          );
+      }
       logger.error(
-        { err: error, registrationId: registration.id },
-        '[ASPБ telegram followup] отправка не удалась, метка снята',
+        { err: error, registrationId: registration.id, permanent },
+        permanent
+          ? '[ASPБ telegram followup] постоянная ошибка получателя — больше не повторяем'
+          : '[ASPБ telegram followup] временная ошибка — метка снята для повтора',
       );
     }
   }

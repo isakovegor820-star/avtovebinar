@@ -1,4 +1,4 @@
-import { ProxyAgent } from 'undici';
+import { ProxyAgent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici';
 import { env } from './env.js';
 import { logger } from './logger.js';
 
@@ -24,6 +24,11 @@ export function telegramFetch(input: string | URL, init: RequestInit = {}): Prom
   if (!telegramProxyAgent) {
     return fetch(input, init);
   }
-  // dispatcher — расширение undici для глобального fetch (в типе RequestInit его нет).
-  return fetch(input, { ...init, dispatcher: telegramProxyAgent } as RequestInit);
+  // Через прокси берём fetch ИЗ пакета undici (тот же, что и ProxyAgent): смешивать
+  // встроенный в Node undici с ProxyAgent из внешнего пакета нельзя — несовместимый
+  // dispatcher (ошибка "invalid onRequestStart method").
+  return undiciFetch(input, {
+    ...(init as UndiciRequestInit),
+    dispatcher: telegramProxyAgent,
+  }) as unknown as Promise<Response>;
 }

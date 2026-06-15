@@ -209,13 +209,13 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
     return { sent: false, mode: 'send' as const, reason: 'missing_chat_id' as const };
   }
 
-  const response = await withCircuitBreaker(
+  await withCircuitBreaker(
     'telegram.admin',
     () =>
       withRetries(
         'telegram.admin.sendMessage',
-        () =>
-          telegramFetch(telegramApiUrl('sendMessage'), {
+        async () => {
+          const response = await telegramFetch(telegramApiUrl('sendMessage'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -224,18 +224,19 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
               reply_markup: input.replyMarkup,
               disable_web_page_preview: true,
             }),
-          }),
-        { attempts: 3, baseMs: 1000, maxMs: 15_000, retryAfterMs: getTelegramRetryAfterMs },
+          });
+          return readTelegramPayload(response);
+        },
+        {
+          attempts: 3,
+          baseMs: 1000,
+          maxMs: 15_000,
+          retryAfterMs: getTelegramRetryAfterMs,
+          isRetryable: isTransientTelegramError,
+        },
       ),
-    { failureThreshold: 3, cooldownMs: 60_000 },
+    { failureThreshold: 3, cooldownMs: 60_000, isFailure: isTransientTelegramError },
   );
-
-  const payload = (await response.json()) as TelegramApiPayload;
-  if (!payload.ok) {
-    throw Object.assign(new Error(payload.description || 'Telegram sendMessage failed'), {
-      retryAfterSeconds: payload.parameters?.retry_after,
-    });
-  }
 
   return { sent: true, mode: 'send' as const };
 }
@@ -248,13 +249,13 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
     return { sent: false, mode: 'log' as const };
   }
 
-  const response = await withCircuitBreaker(
+  await withCircuitBreaker(
     'telegram.participant',
     () =>
       withRetries(
         'telegram.participant.sendMessage',
-        () =>
-          telegramFetch(participantTelegramApiUrl('sendMessage'), {
+        async () => {
+          const response = await telegramFetch(participantTelegramApiUrl('sendMessage'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -262,18 +263,19 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
               text: message,
               disable_web_page_preview: true,
             }),
-          }),
-        { attempts: 3, baseMs: 1000, maxMs: 15_000, retryAfterMs: getTelegramRetryAfterMs },
+          });
+          return readTelegramPayload(response);
+        },
+        {
+          attempts: 3,
+          baseMs: 1000,
+          maxMs: 15_000,
+          retryAfterMs: getTelegramRetryAfterMs,
+          isRetryable: isTransientTelegramError,
+        },
       ),
-    { failureThreshold: 3, cooldownMs: 60_000 },
+    { failureThreshold: 3, cooldownMs: 60_000, isFailure: isTransientTelegramError },
   );
-
-  const payload = (await response.json()) as TelegramApiPayload;
-  if (!payload.ok) {
-    throw Object.assign(new Error(payload.description || 'Telegram sendMessage failed'), {
-      retryAfterSeconds: payload.parameters?.retry_after,
-    });
-  }
 
   return { sent: true, mode: 'send' as const };
 }
@@ -286,13 +288,13 @@ export async function sendConsultantTelegramMessageToChat(chatId: string, text: 
     return { sent: false, mode: 'log' as const };
   }
 
-  const response = await withCircuitBreaker(
+  await withCircuitBreaker(
     'telegram.consultant',
     () =>
       withRetries(
         'telegram.consultant.sendMessage',
-        () =>
-          telegramFetch(consultantTelegramApiUrl('sendMessage'), {
+        async () => {
+          const response = await telegramFetch(consultantTelegramApiUrl('sendMessage'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -300,18 +302,19 @@ export async function sendConsultantTelegramMessageToChat(chatId: string, text: 
               text: message,
               disable_web_page_preview: true,
             }),
-          }),
-        { attempts: 3, baseMs: 1000, maxMs: 15_000, retryAfterMs: getTelegramRetryAfterMs },
+          });
+          return readTelegramPayload(response);
+        },
+        {
+          attempts: 3,
+          baseMs: 1000,
+          maxMs: 15_000,
+          retryAfterMs: getTelegramRetryAfterMs,
+          isRetryable: isTransientTelegramError,
+        },
       ),
-    { failureThreshold: 3, cooldownMs: 60_000 },
+    { failureThreshold: 3, cooldownMs: 60_000, isFailure: isTransientTelegramError },
   );
-
-  const payload = (await response.json()) as TelegramApiPayload;
-  if (!payload.ok) {
-    throw Object.assign(new Error(payload.description || 'Telegram sendMessage failed'), {
-      retryAfterSeconds: payload.parameters?.retry_after,
-    });
-  }
 
   return { sent: true, mode: 'send' as const };
 }
@@ -508,6 +511,60 @@ function getTelegramRetryAfterMs(error: unknown) {
 
   const retryAfter = (error as Error & { retryAfterSeconds?: number }).retryAfterSeconds;
   return retryAfter && retryAfter > 0 ? retryAfter * 1000 : null;
+}
+
+type TelegramErrorMeta = Error & {
+  retryAfterSeconds?: number;
+  telegramStatus?: number;
+  telegramErrorCode?: number;
+};
+
+// Постоянные ошибки конкретного получателя/запроса (повтор бессмыслен): заблокировал бота,
+// удалён, чат не найден, невалидный chat_id и т.п. 429/5xx/сеть/таймаут — временные.
+const PERMANENT_TELEGRAM_ERROR =
+  /blocked|deactivated|kicked|chat not found|user not found|peer_id_invalid|chat_id is empty|initiate conversation|not a member|have no rights|chat was upgraded|group chat was deleted/i;
+
+function isPermanentTelegramError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const meta = error as TelegramErrorMeta;
+  if (meta.retryAfterSeconds && meta.retryAfterSeconds > 0) {
+    return false; // 429 — временная
+  }
+  if (typeof meta.telegramStatus === 'number') {
+    if (meta.telegramStatus >= 500 || meta.telegramStatus === 429) {
+      return false; // серверные/лимит — временные
+    }
+    if (meta.telegramStatus >= 400) {
+      return true; // прочие 4xx — постоянные
+    }
+  }
+  return PERMANENT_TELEGRAM_ERROR.test(meta.message);
+}
+
+// Для retry/circuit-breaker: повторяем и считаем сбоем только временные ошибки.
+function isTransientTelegramError(error: unknown): boolean {
+  return !isPermanentTelegramError(error);
+}
+
+// Безопасное чтение ответа Telegram: не-JSON тело (например HTML 5xx от прокси/WARP) не валит
+// процесс SyntaxError'ом, а превращается в осмысленную ошибку с HTTP-статусом.
+async function readTelegramPayload(response: Response): Promise<TelegramApiPayload> {
+  let payload: (TelegramApiPayload & { error_code?: number }) | null = null;
+  try {
+    payload = (await response.json()) as TelegramApiPayload & { error_code?: number };
+  } catch {
+    payload = null;
+  }
+  if (payload?.ok) {
+    return payload;
+  }
+  throw Object.assign(new Error(payload?.description || `Telegram HTTP ${response.status}`), {
+    retryAfterSeconds: payload?.parameters?.retry_after,
+    telegramStatus: response.status,
+    telegramErrorCode: payload?.error_code,
+  });
 }
 
 export async function checkTelegramConnectivity() {

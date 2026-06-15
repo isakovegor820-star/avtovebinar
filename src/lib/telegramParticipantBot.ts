@@ -420,6 +420,9 @@ async function handleUpdate(update: TelegramUpdate) {
   const chatId = message?.chat?.id ? String(message.chat.id) : '';
   const text = message?.text?.trim() || '';
   if (!chatId || !text) return;
+  // Только личные диалоги: в группе/канале chat.id — это id чата, а не пользователя, и
+  // привязка регистрации/персональные ссылки ушли бы всей группе.
+  if (message?.chat?.type && message.chat.type !== 'private') return;
 
   if (text.startsWith('/start')) {
     await handleStart(chatId, text, update);

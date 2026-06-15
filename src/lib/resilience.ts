@@ -43,7 +43,7 @@ export function isCircuitOpen(name: string) {
 export async function withCircuitBreaker<T>(
   name: string,
   task: () => Promise<T>,
-  options: { failureThreshold?: number; cooldownMs?: number } = {},
+  options: { failureThreshold?: number; cooldownMs?: number; isFailure?: (error: unknown) => boolean } = {},
 ) {
   const state = circuits.get(name) ?? { failures: 0, openedUntil: 0 };
   const now = Date.now();
@@ -56,6 +56,12 @@ export async function withCircuitBreaker<T>(
     circuits.set(name, { failures: 0, openedUntil: 0 });
     return result;
   } catch (error) {
+    // Некоторые ошибки не отражают здоровье контура (например, конкретный получатель
+    // заблокировал бота): их не считаем сбоем, чтобы серия таких ошибок не «открыла»
+    // брейкер и не заблокировала отправку остальным.
+    if (options.isFailure?.(error) === false) {
+      throw error;
+    }
     const failures = state.failures + 1;
     const threshold = options.failureThreshold ?? 3;
     const cooldownMs = options.cooldownMs ?? 60_000;
@@ -79,6 +85,7 @@ export async function withRetries<T>(
     baseMs?: number;
     maxMs?: number;
     retryAfterMs?: (error: unknown) => number | null;
+    isRetryable?: (error: unknown) => boolean;
   } = {},
 ) {
   const attempts = options.attempts ?? 3;
@@ -89,7 +96,9 @@ export async function withRetries<T>(
       return await task();
     } catch (error) {
       lastError = error;
-      if (attempt >= attempts) {
+      // Не повторяем заведомо неретраябельные ошибки (например, 4xx «chat not found» /
+      // «bot blocked») — повтор бессмыслен и только жжёт время и счётчик брейкера.
+      if (attempt >= attempts || options.isRetryable?.(error) === false) {
         break;
       }
 

@@ -108,6 +108,12 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
     let payload: GetUpdatesResponse<TUpdate>;
     try {
       const response = await telegramFetch(url, { signal: controller.signal });
+      // Telegram отдаёт свои 409/429 как JSON-тело (ниже их разбираем); но прокси/WARP при
+      // сбое апстрима может вернуть НЕ-JSON (HTML 5xx) — тогда чёткая ошибка вместо SyntaxError.
+      if (response.ok === false && response.status !== 409 && response.status !== 429) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`getUpdates HTTP ${response.status}: ${body.slice(0, 200)}`);
+      }
       payload = (await response.json()) as GetUpdatesResponse<TUpdate>;
     } finally {
       clearTimeout(abortTimer);

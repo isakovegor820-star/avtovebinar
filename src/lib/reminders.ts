@@ -257,39 +257,53 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
         continue;
       }
 
-      const label = formatWebinarReminderLabel(registration.webinarSession.scheduledAt, now);
-      const roomUrl = await prisma.$transaction(tx =>
-        createRoomExchangeUrl(tx, {
-          registrationId: registration.id,
-          expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
-        }),
-      );
-
-      await sendTelegramMessageToChat(
-        registration.lead.telegramChatId,
-        [
-          `Напоминание АСПБ: вебинар ${label}.`,
-          '',
-          kind === '24h'
-            ? buildSegmentTip(registration.lead.professionalStatus)
-            : kind === '3h'
-              ? 'Подготовьте один вопрос по клиенту с долгами — его можно будет задать в вебинарной комнате.'
-              : 'Эфир скоро. Переходите по персональной ссылке и подключайтесь к комнате.',
-          '',
-          `Тема: ${registration.webinarSession.title}`,
-          `Начало: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
-          '',
-          `Ваша персональная комната: ${roomUrl}`,
-        ].join('\n'),
-      );
-
-      await prisma.registration.update({
-        where: { id: registration.id },
-        data: {
-          [telegramReminderField(kind)]: now,
-        },
+      const field = telegramReminderField(kind);
+      // Атомарно «застолбить» отправку ДО неё: ставим метку только если она ещё пуста.
+      // Если другой тик/реплика уже застолбил (count !== 1) — пропускаем без дубля.
+      const claimed = await prisma.registration.updateMany({
+        where: { id: registration.id, [field]: null },
+        data: { [field]: now },
       });
-      sent += 1;
+      if (claimed.count !== 1) {
+        continue;
+      }
+
+      const label = formatWebinarReminderLabel(registration.webinarSession.scheduledAt, now);
+      try {
+        const roomUrl = await prisma.$transaction(tx =>
+          createRoomExchangeUrl(tx, {
+            registrationId: registration.id,
+            expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+          }),
+        );
+
+        await sendTelegramMessageToChat(
+          registration.lead.telegramChatId,
+          [
+            `Напоминание АСПБ: вебинар ${label}.`,
+            '',
+            kind === '24h'
+              ? buildSegmentTip(registration.lead.professionalStatus)
+              : kind === '3h'
+                ? 'Подготовьте один вопрос по клиенту с долгами — его можно будет задать в вебинарной комнате.'
+                : 'Эфир скоро. Переходите по персональной ссылке и подключайтесь к комнате.',
+            '',
+            `Тема: ${registration.webinarSession.title}`,
+            `Начало: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
+            '',
+            `Ваша персональная комната: ${roomUrl}`,
+          ].join('\n'),
+        );
+        sent += 1;
+      } catch (error) {
+        // Отправка/подготовка не удалась — снимаем метку, чтобы напоминание повторилось
+        // на следующем тике. Один сбойный получатель не должен ронять весь прогон.
+        await prisma.registration.update({ where: { id: registration.id }, data: { [field]: null } }).catch(() => {});
+        logger.error(
+          { err: error, registrationId: registration.id, kind },
+          '[ASPБ telegram reminder] отправка не удалась, метка снята для повтора',
+        );
+      }
     }
 
     if (registrations.length < REMINDER_BATCH_SIZE) {

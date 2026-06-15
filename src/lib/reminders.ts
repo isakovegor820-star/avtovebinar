@@ -2,7 +2,7 @@ import { prisma } from './prisma.js';
 import { env } from './env.js';
 import type { ReminderKind } from './email.js';
 import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
-import { sendTelegramMessageToChat, formatMoscowDate } from './telegram.js';
+import { sendTelegramMessageToChat, telegramUrlButton } from './telegram.js';
 import { createRoomExchangeUrl, getRoomTokenExpiresAt } from './roomLinks.js';
 import { logger } from './logger.js';
 
@@ -280,19 +280,21 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
         await sendTelegramMessageToChat(
           registration.lead.telegramChatId,
           [
-            `Напоминание АСПБ: вебинар ${label}.`,
+            kind === '24h'
+              ? `Напоминание: вебинар АСПБ ${label}.`
+              : kind === '3h'
+                ? `Вебинар АСПБ уже ${label}.`
+                : `Скоро начинаем: вебинар АСПБ ${label}.`,
             '',
             kind === '24h'
               ? buildSegmentTip(registration.lead.professionalStatus)
               : kind === '3h'
-                ? 'Подготовьте один вопрос по клиенту с долгами — его можно будет задать в вебинарной комнате.'
-                : 'Эфир скоро. Переходите по персональной ссылке и подключайтесь к комнате.',
+                ? 'Подготовьте один вопрос по клиенту с долгами — зададите его прямо в комнате.'
+                : 'Заходите заранее, чтобы не пропустить старт.',
             '',
             `Тема: ${registration.webinarSession.title}`,
-            `Начало: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
-            '',
-            `Ваша персональная комната: ${roomUrl}`,
           ].join('\n'),
+          { replyMarkup: telegramUrlButton(kind === '30m' ? '▶ Войти в комнату' : '▶ Открыть комнату', roomUrl) },
         );
         sent += 1;
       } catch (error) {

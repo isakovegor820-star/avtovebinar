@@ -11,6 +11,7 @@ import {
   notifyTelegramSubscription,
   participantTelegramApiUrl,
   sendTelegramMessageToChat,
+  telegramUrlButton,
 } from './telegram.js';
 import {
   buildFrontendUrl,
@@ -237,18 +238,14 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
       await sendTelegramMessageToChat(
         chatId,
         [
-          `${existingRegistration.lead.name}, вы уже подключили уведомления АСПБ.`,
+          `${existingRegistration.lead.name}, напоминания уже подключены.`,
           '',
           `Вебинар: ${existingRegistration.webinarSession.title}`,
           `Начало: ${formatMoscowDate(existingRegistration.webinarSession.scheduledAt)} МСК`,
           '',
-          'Ваш доступ сохранен. Вот свежая персональная ссылка в вебинарную комнату:',
-          roomUrl,
-          '',
-          'Команды:',
-          '/status — проверить регистрацию',
-          '/room — получить ссылку в комнату',
+          'Команды: /status — регистрация, /room — ссылка в комнату.',
         ].join('\n'),
+        { replyMarkup: telegramUrlButton('▶ Войти в комнату', roomUrl) },
       );
       return;
     }
@@ -345,19 +342,17 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
   await sendTelegramMessageToChat(
     chatId,
     [
-      `${registration.lead.name}, Telegram-напоминания подключены.`,
-      '',
-      'До вебинара подготовьте 1-2 клиента, у которых есть долги, блокировки, кредиты или налоговые проблемы.',
-      buildSegmentTip(registration.lead.professionalStatus),
-      'На эфире покажем, как понять, когда такого клиента стоит передать на диагностику в АСПБ.',
+      `${registration.lead.name}, готово — напоминания подключены.`,
       '',
       `Вебинар: ${registration.webinarSession.title}`,
       `Начало: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
       '',
-      `Ваша персональная комната: ${roomUrl}`,
+      'До эфира подготовьте 1–2 клиентов с долгами, налогами или риском банкротства.',
+      buildSegmentTip(registration.lead.professionalStatus),
       '',
-      'Я напомню о вебинаре заранее и пришлю важные новости АСПБ.',
+      'Напомню за 24 часа, за 3 часа и за 30 минут до старта.',
     ].join('\n'),
+    { replyMarkup: telegramUrlButton('▶ Войти в комнату', roomUrl) },
   );
 }
 
@@ -379,10 +374,8 @@ async function handleStatus(chatId: string) {
       '',
       `Участник: ${registration.lead.name}`,
       `Эфир: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
-      `Статус: ${registration.status}`,
-      '',
-      `Комната: ${roomUrl}`,
     ].join('\n'),
+    { replyMarkup: telegramUrlButton('▶ Войти в комнату', roomUrl) },
   );
 }
 
@@ -397,7 +390,9 @@ async function handleRoom(chatId: string) {
   }
 
   const roomUrl = await createRoomUrl(registration.id, 'telegram_room_command');
-  await sendTelegramMessageToChat(chatId, `Ваша вебинарная комната:\n${roomUrl}`);
+  await sendTelegramMessageToChat(chatId, 'Ваша персональная вебинарная комната:', {
+    replyMarkup: telegramUrlButton('▶ Войти в комнату', roomUrl),
+  });
 }
 
 async function handleHelp(chatId: string) {

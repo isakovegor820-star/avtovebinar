@@ -2,8 +2,8 @@
  * recordings.js — cabinet media library and recording playback.
  */
 
-import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=ux-fixes-1';
-import { track } from './analytics.js';
+import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=site-review-1';
+import { track } from './analytics.js?v=site-review-1';
 
 let hlsInstance = null;
 let hlsScriptPromise = null;
@@ -481,7 +481,7 @@ export async function hydrateRecordingsPage() {
       return;
     }
 
-    if (!payload.recordings.length) {
+    if (!payload.recordings?.length) {
       showEmpty();
       return;
     }

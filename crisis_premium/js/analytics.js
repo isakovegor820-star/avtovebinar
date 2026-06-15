@@ -2,7 +2,7 @@
  * analytics.js — трекинг событий и данные для инсайтов.
  */
 
-import { post, utm } from './utils.js?v=ux-fixes-1';
+import { post, utm } from './utils.js?v=site-review-1';
 
 export function track(eventName, metadata) {
   post('/events', {

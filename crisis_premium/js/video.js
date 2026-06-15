@@ -3,9 +3,9 @@
  */
 
 import { state } from './state.js';
-import { getJson, formatTimelineTime } from './utils.js?v=ux-fixes-1';
-import { timelinePath } from './registration.js';
-import { setChatActivity } from './questions.js';
+import { getJson, formatTimelineTime } from './utils.js?v=site-review-1';
+import { timelinePath } from './registration.js?v=site-review-1';
+import { setChatActivity } from './questions.js?v=site-review-1';
 
 /* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
 let _liveControlsInterval = null;

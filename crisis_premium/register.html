@@ -92,27 +92,27 @@
 </div>
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 <div class="space-y-1.5">
-<label class="text-label-md font-label-md text-on-surface-variant">Имя</label>
-<input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="name" placeholder="Александр" required="" type="text"/>
+<label for="reg-name" class="text-label-md font-label-md text-on-surface-variant">Имя</label>
+<input id="reg-name" class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="name" placeholder="Александр" required="" type="text"/>
 </div>
 <div class="space-y-1.5">
-<label class="text-label-md font-label-md text-on-surface-variant">Телефон</label>
-<input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="phone" placeholder="+7 (900) 000-00-00" required="" type="tel"/>
+<label for="reg-phone" class="text-label-md font-label-md text-on-surface-variant">Телефон</label>
+<input id="reg-phone" class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="phone" placeholder="+7 (900) 000-00-00" required="" type="tel"/>
 </div>
 </div>
 <div class="grid grid-cols-1 gap-6">
 <div class="space-y-1.5">
-<label class="text-label-md font-label-md text-on-surface-variant">Email</label>
-<input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="email" placeholder="example@mail.com" required="" type="email"/>
+<label for="reg-email" class="text-label-md font-label-md text-on-surface-variant">Email</label>
+<input id="reg-email" class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="email" placeholder="example@mail.com" required="" type="email"/>
 </div>
 <div class="space-y-1.5">
-<label class="text-label-md font-label-md text-on-surface-variant">Город</label>
-<input class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="city" placeholder="Москва" type="text"/>
+<label for="reg-city" class="text-label-md font-label-md text-on-surface-variant">Город</label>
+<input id="reg-city" class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none" name="city" placeholder="Москва" type="text"/>
 </div>
 </div>
 <div class="space-y-1.5">
-<label class="text-label-md font-label-md text-on-surface-variant">Статус</label>
-<select class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none cursor-pointer" name="professionalStatus">
+<label for="reg-status" class="text-label-md font-label-md text-on-surface-variant">Статус</label>
+<select id="reg-status" class="w-full px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-all text-body-md outline-none cursor-pointer" name="professionalStatus">
 <option>Юрист частной практики</option>
 <option>Сотрудник юридической фирмы</option>
 <option>Руководитель юридической практики</option>
@@ -141,9 +141,9 @@
 <input class="mt-1 w-5 h-5 border-outline-variant text-primary focus:ring-primary" name="consent" required="" type="checkbox" value="true"/>
 <span class="text-label-sm font-label-sm text-on-surface-variant leading-relaxed">
 Я согласен на обработку персональных данных и принимаю условия
-<a class="text-primary underline" href="consent.html" target="_blank">согласия</a>,
-<a class="text-primary underline" href="privacy.html" target="_blank">политики конфиденциальности</a> и
-<a class="text-primary underline" href="terms.html" target="_blank">пользовательского соглашения</a>.
+<a class="text-primary underline" href="consent.html" target="_blank" rel="noopener noreferrer">согласия</a>,
+<a class="text-primary underline" href="privacy.html" target="_blank" rel="noopener noreferrer">политики конфиденциальности</a> и
+<a class="text-primary underline" href="terms.html" target="_blank" rel="noopener noreferrer">пользовательского соглашения</a>.
 </span>
 </label>
 <label class="flex items-start gap-3 rounded-lg bg-surface-container-low border border-outline-variant/30 p-4 cursor-pointer">
@@ -186,7 +186,7 @@
 </div>
 </footer>
 <script src="register-parallax.js"></script>
-<script type="module" src="js/main.js?v=room-fixes-1"></script>
+<script type="module" src="js/main.js?v=site-review-1"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="cookie-consent.js"></script>
 </body></html>

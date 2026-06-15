@@ -3,8 +3,8 @@
  */
 
 import { clearAccessToken, getUrlToken } from './state.js';
-import { post, getJson, utm } from './utils.js?v=ux-fixes-1';
-import { track } from './analytics.js';
+import { post, getJson, utm } from './utils.js?v=site-review-1';
+import { track } from './analytics.js?v=site-review-1';
 
 export function registrationStatePath(view) {
   const query = view ? `?view=${encodeURIComponent(view)}` : '';
@@ -216,7 +216,7 @@ export async function handleRegistrationSubmit(event, formOverride) {
     } catch {
       // Cookie/session access is enough when localStorage is unavailable.
     }
-    window.location.href = result.successUrl;
+    window.location.href = result.successUrl || 'success.html';
   } catch (error) {
     showFormError(error.message || 'Не удалось отправить регистрацию. Проверьте поля и попробуйте снова.');
     if (button) {

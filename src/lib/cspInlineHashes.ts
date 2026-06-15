@@ -63,4 +63,6 @@ export const cspStyleAttributeHashes = [
   "'sha256-vkA2c+L+fLUDP2OVT9JU9qnjxjclTWE3tgx3hnNoVVA='",
   "'sha256-xIEo5ULW6zf6ZCBJ1kriQISHHyg7CPrDKvasEdNb1ak='",
   "'sha256-zdnHLjpGZjeUrXXWa5rwhOQl3uvlNK4KUheQ1n30hpI='",
+  // Цифры обратного отсчёта в «комнате ожидания» (room.js): font-size:36px;font-weight:800;color:#d2e4fb
+  "'sha256-/n7sbsJQ/tspjHH8FXnWbsTebzz66w7E0+QfB0QyeWE='",
 ] as const;

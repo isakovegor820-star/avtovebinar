@@ -52,6 +52,9 @@ const envSchema = z.object({
   TELEGRAM_CONSULTANT_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CONSULTANT_BOT_USERNAME: optionalTelegramUsername,
   TELEGRAM_CONSULTANT_BOT_POLLING: z.enum(['on', 'off']),
+  // HTTP-прокси ТОЛЬКО для запросов к api.telegram.org (обход блокировки из РФ-ДЦ).
+  // Пусто → прямое соединение. На проде указывает на локальный privoxy → WARP.
+  TELEGRAM_HTTPS_PROXY: z.string().optional(),
   TELEGRAM_NEWS_BROADCAST: z.enum(['on', 'off']),
   TELEGRAM_NEWS_TIMES: z.string().min(1),
   TELEGRAM_NEWS_RSS_URLS: z.string().min(1),
@@ -243,6 +246,7 @@ function runtimeEnv() {
     TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: process.env.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME,
     TELEGRAM_PARTICIPANT_BOT_POLLING: process.env.TELEGRAM_PARTICIPANT_BOT_POLLING ?? 'off',
     TELEGRAM_CONSULTANT_BOT_POLLING: process.env.TELEGRAM_CONSULTANT_BOT_POLLING ?? 'off',
+    TELEGRAM_HTTPS_PROXY: process.env.TELEGRAM_HTTPS_PROXY,
     TELEGRAM_NEWS_BROADCAST: process.env.TELEGRAM_NEWS_BROADCAST ?? 'off',
     TELEGRAM_NEWS_TIMES: process.env.TELEGRAM_NEWS_TIMES ?? '09:00,11:30,14:00,16:30,19:00',
     TELEGRAM_NEWS_RSS_URLS:

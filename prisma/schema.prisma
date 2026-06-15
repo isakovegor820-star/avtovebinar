@@ -149,6 +149,7 @@ model Registration {
   telegramReminder24hSentAt DateTime?            @map("telegram_reminder_24h_sent_at")
   telegramReminder3hSentAt  DateTime?            @map("telegram_reminder_3h_sent_at")
   telegramReminder30mSentAt DateTime?            @map("telegram_reminder_30m_sent_at")
+  telegramLiveSentAt        DateTime?            @map("telegram_live_sent_at")
   telegramFollowupSentAt    DateTime?            @map("telegram_followup_sent_at")
   status                    String               @default("registered")
   crmStatus                 String               @default("new") @map("crm_status")

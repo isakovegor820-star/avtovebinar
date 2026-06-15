@@ -3,8 +3,8 @@
  */
 
 import { state } from './state.js';
-import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js?v=ux-fixes-1';
-import { getRegistrationState, requestParticipantLogin } from './registration.js?v=ux-fixes-1';
+import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js?v=site-review-1';
+import { getRegistrationState, requestParticipantLogin } from './registration.js?v=site-review-1';
 
 let countdownInterval = null;
 let countdownRetries = 0;
@@ -77,7 +77,7 @@ export function startCountdown(scheduledAt) {
 function updatePublicWebinarLabels(scheduledAt, serverTime) {
   const day = formatMoscowWebinarDay(scheduledAt, serverTime);
   const time = formatMoscowWebinarTime(scheduledAt);
-  const dayText = day === 'сегодня' || day === 'завтра' ? day : day;
+  const dayText = day;
   document.querySelectorAll('[data-webinar-relative-label]').forEach(node => {
     const prefix = node.dataset.webinarLabelPrefix || 'Ближайший эфир —';
     node.textContent = `${prefix} ${dayText}`;

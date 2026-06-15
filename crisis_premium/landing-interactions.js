@@ -4,8 +4,12 @@
                 if (this.getAttribute('href') === '#') {
                     return;
                 }
+                const target = document.querySelector(this.getAttribute('href'));
+                if (!target) {
+                    return;
+                }
                 e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                target.scrollIntoView({
                     behavior: 'smooth'
                 });
             });

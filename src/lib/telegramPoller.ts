@@ -1,4 +1,5 @@
 import { logger } from './logger.js';
+import { telegramFetch } from './telegramProxy.js';
 
 /**
  * Единый надёжный long-polling драйвер для всех Telegram-ботов АСПБ.
@@ -85,7 +86,7 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
    */
   async function clearWebhook(): Promise<boolean> {
     try {
-      const response = await fetch(options.apiUrl('deleteWebhook'), { method: 'POST' });
+      const response = await telegramFetch(options.apiUrl('deleteWebhook'), { method: 'POST' });
       const body = (await response.json().catch(() => null)) as { ok?: boolean } | null;
       return body?.ok === true;
     } catch (error) {
@@ -106,7 +107,7 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
     const abortTimer = setTimeout(() => controller?.abort(), REQUEST_TIMEOUT_MS);
     let payload: GetUpdatesResponse<TUpdate>;
     try {
-      const response = await fetch(url, { signal: controller.signal });
+      const response = await telegramFetch(url, { signal: controller.signal });
       payload = (await response.json()) as GetUpdatesResponse<TUpdate>;
     } finally {
       clearTimeout(abortTimer);

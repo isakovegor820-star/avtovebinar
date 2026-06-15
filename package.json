@@ -44,6 +44,7 @@
     "nodemailer": "^8.0.7",
     "pino": "9.6.0",
     "prisma": "^6.19.0",
+    "undici": "^8.4.1",
     "zod": "^4.1.13"
   },
   "devDependencies": {

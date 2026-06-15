@@ -1,6 +1,7 @@
 import { env } from './env.js';
 import { withCircuitBreaker, withRetries } from './resilience.js';
 import { logger } from './logger.js';
+import { telegramFetch } from './telegramProxy.js';
 
 type TelegramMessageInput = {
   text: string;
@@ -214,7 +215,7 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
       withRetries(
         'telegram.admin.sendMessage',
         () =>
-          fetch(telegramApiUrl('sendMessage'), {
+          telegramFetch(telegramApiUrl('sendMessage'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -253,7 +254,7 @@ export async function sendTelegramMessageToChat(chatId: string, text: string) {
       withRetries(
         'telegram.participant.sendMessage',
         () =>
-          fetch(participantTelegramApiUrl('sendMessage'), {
+          telegramFetch(participantTelegramApiUrl('sendMessage'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -291,7 +292,7 @@ export async function sendConsultantTelegramMessageToChat(chatId: string, text: 
       withRetries(
         'telegram.consultant.sendMessage',
         () =>
-          fetch(consultantTelegramApiUrl('sendMessage'), {
+          telegramFetch(consultantTelegramApiUrl('sendMessage'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -480,7 +481,7 @@ export async function getTelegramBotInfo() {
     return null;
   }
 
-  const response = await fetch(telegramApiUrl('getMe'));
+  const response = await telegramFetch(telegramApiUrl('getMe'));
   return response.json();
 }
 
@@ -523,21 +524,21 @@ export async function checkTelegramConnectivity() {
     checks.push({
       kind: 'admin bot',
       expectedUsername: adminBotUsername(),
-      request: withCircuitBreaker('telegram.admin', () => fetch(telegramApiUrl('getMe'))),
+      request: withCircuitBreaker('telegram.admin', () => telegramFetch(telegramApiUrl('getMe'))),
     });
   }
   if (hasParticipantTelegramBot()) {
     checks.push({
       kind: 'participant bot',
       expectedUsername: participantBotUsername(),
-      request: withCircuitBreaker('telegram.participant', () => fetch(participantTelegramApiUrl('getMe'))),
+      request: withCircuitBreaker('telegram.participant', () => telegramFetch(participantTelegramApiUrl('getMe'))),
     });
   }
   if (hasConsultantTelegramBot()) {
     checks.push({
       kind: 'consultant bot',
       expectedUsername: consultantBotUsername(),
-      request: withCircuitBreaker('telegram.consultant', () => fetch(consultantTelegramApiUrl('getMe'))),
+      request: withCircuitBreaker('telegram.consultant', () => telegramFetch(consultantTelegramApiUrl('getMe'))),
     });
   }
 

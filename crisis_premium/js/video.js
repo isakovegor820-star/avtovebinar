@@ -3,9 +3,9 @@
  */
 
 import { state } from './state.js';
-import { getJson, formatTimelineTime } from './utils.js?v=site-review-1';
-import { timelinePath } from './registration.js?v=site-review-1';
-import { setChatActivity } from './questions.js?v=site-review-1';
+import { getJson, formatTimelineTime } from './utils.js?v=site-review-2';
+import { timelinePath } from './registration.js?v=site-review-2';
+import { setChatActivity } from './questions.js?v=site-review-2';
 
 /* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
 let _liveControlsInterval = null;
@@ -381,8 +381,11 @@ export async function hydrateTimeline() {
       updateCountdown();
       countdownInterval = window.setInterval(updateCountdown, 1000);
     }
-    // Fallback: force reload if countdown somehow misses the transition
-    const reloadDelay = Math.max(1000, Math.min(30000, (webinarConfig.scheduledAt - (Date.now() + state.serverTimeOffset)) + 1000));
+    // Подстраховка: ОДНА перезагрузка к моменту старта (точный переход делает посекундный
+    // отсчёт при достижении 0). Раньше тут стоял Math.min(30000, …) → комната ожидания
+    // перезагружалась КАЖДЫЕ 30 секунд за часы до эфира (дёрганье/«лаги»). Теперь — один раз.
+    const msUntilStart = webinarConfig.scheduledAt - (Date.now() + state.serverTimeOffset);
+    const reloadDelay = Math.max(1000, msUntilStart + 1000);
     window.setTimeout(schedulePreliveReload, reloadDelay);
   } else if (isReplay) {
     video.pause();

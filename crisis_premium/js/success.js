@@ -9,10 +9,10 @@ import {
   formatMoscowWebinarTime,
   formatUtcIcsDate,
   getJson,
-} from './utils.js?v=site-review-2';
-import { getRegistrationState } from './registration.js?v=site-review-2';
-import { updateTelegramLinks } from './room.js?v=site-review-2';
-import { track } from './analytics.js?v=site-review-2';
+} from './utils.js?v=site-review-3';
+import { getRegistrationState } from './registration.js?v=site-review-3';
+import { updateTelegramLinks } from './room.js?v=site-review-3';
+import { track } from './analytics.js?v=site-review-3';
 
 function clearLocalAccessHint() {
   try {

@@ -2,8 +2,8 @@
  * partner.js — форма партнёрской заявки.
  */
 
-import { post } from './utils.js?v=site-review-2';
-import { track } from './analytics.js?v=site-review-2';
+import { post } from './utils.js?v=site-review-3';
+import { track } from './analytics.js?v=site-review-3';
 
 export function bindPartnerApplicationForm() {
   const form = document.getElementById('partnerApplicationForm');

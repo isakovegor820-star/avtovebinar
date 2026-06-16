@@ -3,9 +3,9 @@
  */
 
 import { state } from './state.js';
-import { getJson, formatTimelineTime } from './utils.js?v=site-review-2';
-import { timelinePath } from './registration.js?v=site-review-2';
-import { setChatActivity } from './questions.js?v=site-review-2';
+import { getJson, formatTimelineTime } from './utils.js?v=site-review-3';
+import { timelinePath } from './registration.js?v=site-review-3';
+import { setChatActivity } from './questions.js?v=site-review-3';
 
 /* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
 let _liveControlsInterval = null;
@@ -267,10 +267,16 @@ export async function hydrateTimeline() {
   const isLive = webinarConfig && webinarConfig.status === 'live' && !isReplay;
   const isTestMode = webinarConfig && webinarConfig.status === 'test';
   const isLiveVisual = isLive || isTestMode;
+  const nowServerMs = Date.now() + state.serverTimeOffset;
   const isPreLive = webinarConfig && (
     webinarConfig.accessStatus === 'waiting' ||
     webinarConfig.accessStatus === 'pre_live' ||
-    webinarConfig.status === 'scheduled'
+    webinarConfig.status === 'scheduled' ||
+    // Жёсткая страховка «чисто закрытое окно до эфира»: пока не наступило время старта
+    // (19:00 МСК) и НЕ идёт реальный прямой эфир/тест — окно ВСЕГДА закрыто. Без этого до
+    // старта мог мелькнуть постер/кадр прошлой трансляции (replay), затем переключиться на
+    // отсчёт. Replay прошедших вебинаров не задеваем: у них scheduledAt в прошлом.
+    (nowServerMs < webinarConfig.scheduledAt && !isLive && !isTestMode)
   );
   const isEnded = webinarConfig && !isTestMode && !isReplay && (webinarConfig.status === 'finished' || serverLiveState?.isEnded);
 

@@ -42,11 +42,14 @@ function loadSavedTimecodes() {
   return null;
 }
 
+let slidesInitialized = false;
 function initSlides() {
   const video = document.getElementById('webinarVideo');
   const slide = document.getElementById('webinarSlide');
   const container = document.getElementById('videoPlayerContainer');
   if (!video || !slide || !container) return; // комната без слайд-слоя — выходим тихо
+  if (slidesInitialized) return; // защита от повторной инициализации (событие + race-проверка)
+  slidesInitialized = true;
 
   const params = new URLSearchParams(location.search);
   const editMode = params.get('slides_edit') === '1';
@@ -266,8 +269,29 @@ function initEditMode(video, initialTimecodes) {
   render();
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initSlides);
+// Слайды — часть ЭФИРА, а не комнаты ожидания. Активируем их ТОЛЬКО когда сервер подтвердил
+// live/replay/test (через событие aspb:room-ready). До эфира (waiting/pre_live/closed) слой
+// слайдов не трогаем — иначе слайд из колоды мелькает в «чисто закрытом» окне ожидания.
+function maybeInitSlidesForBroadcast(detail) {
+  const access = detail && detail.accessStatus ? detail.accessStatus : document.body.dataset.webinarAccessStatus;
+  const roomState = detail && detail.roomState;
+  const testMode = detail && detail.testMode === true;
+  if (access === 'live' || access === 'replay' || roomState === 'live' || testMode) {
+    initSlides();
+  }
+}
+
+const slidesEditMode = new URLSearchParams(location.search).get('slides_edit') === '1';
+if (slidesEditMode) {
+  // Редактор разметки таймкодов: нужен сразу, без состояния комнаты.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSlides);
+  } else {
+    initSlides();
+  }
 } else {
-  initSlides();
+  // Обычный просмотр: ждём готовности комнаты и активируем слайды только во время эфира/записи.
+  document.addEventListener('aspb:room-ready', event => maybeInitSlidesForBroadcast(event.detail || {}));
+  // Если комната успела стать готовой до подписки (редкий race) — проверим текущий статус.
+  if (document.body.dataset.webinarAccessStatus) maybeInitSlidesForBroadcast();
 }

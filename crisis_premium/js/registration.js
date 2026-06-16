@@ -3,8 +3,8 @@
  */
 
 import { clearAccessToken, getUrlToken } from './state.js';
-import { post, getJson, utm } from './utils.js?v=site-review-2';
-import { track } from './analytics.js?v=site-review-2';
+import { post, getJson, utm } from './utils.js?v=site-review-3';
+import { track } from './analytics.js?v=site-review-3';
 
 export function registrationStatePath(view) {
   const query = view ? `?view=${encodeURIComponent(view)}` : '';

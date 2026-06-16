@@ -133,7 +133,10 @@
 <link rel="stylesheet" href="slides.css?v=slides-5"/>
 <div id="videoPlayerContainer" class="relative aspect-video bg-primary-container rounded-lg overflow-hidden shadow-lg group">
   <!-- Remove controls to hide native player UI. Use pointer-events-none to prevent browser native overlays. -->
-  <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline webkit-playsinline preload="metadata" poster="assets/webinar-poster.jpg"></video>
+  <!-- Постер НЕ задаём в HTML: до эфира окно должно быть чисто закрытым (тёмный bg-primary + бэкдроп ожидания),
+       иначе лицо с постера/кадр прошлой трансляции мелькает до того, как JS определит состояние.
+       Для live/replay постер ставит initializeVideoSource() из данных сервера. -->
+  <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline webkit-playsinline preload="metadata"></video>
   <div id="webinarStandbyBackdrop" class="webinar-standby-backdrop absolute inset-0" aria-hidden="true"></div>
   <!-- Слой презентации: крупный план слайда; при slides-active видео спикера уходит в угол. Управляется js/slides.js -->
   <img id="webinarSlide" class="absolute inset-0 w-full h-full object-contain bg-white z-[5]" alt="Слайд презентации"/>
@@ -443,8 +446,8 @@
 </div>
 </footer>
 
-<script type="module" src="js/main.js?v=site-review-2"></script>
-<script type="module" src="js/slides.js?v=slides-5"></script>
+<script type="module" src="js/main.js?v=site-review-3"></script>
+<script type="module" src="js/slides.js?v=slides-6"></script>
 <script src="live-chat.js?v=webinar-chat-6"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="card-reveal.js"></script>

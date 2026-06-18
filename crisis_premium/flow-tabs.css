@@ -225,11 +225,14 @@
     padding: 4px;
     border-radius: 10px;
     justify-content: flex-start;
+    overflow-x: visible;
   }
 
   .flow-tabs__tab {
     min-height: 40px;
     padding: 8px 12px;
+    flex: 1 1 0;
+    justify-content: center;
   }
 }
 

@@ -2,8 +2,8 @@
  * recordings.js — cabinet media library and recording playback.
  */
 
-import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=site-review-3';
-import { track } from './analytics.js?v=site-review-3';
+import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=site-review-4';
+import { track } from './analytics.js?v=site-review-4';
 
 let hlsInstance = null;
 let hlsScriptPromise = null;
@@ -328,9 +328,22 @@ function bindControls(video, recording) {
 
   function requestPlayerFullscreen() {
     try {
-      (panel || shell)
-        ?.requestFullscreen?.()
-        ?.catch(() => {});
+      const target = panel || shell;
+      if (target?.requestFullscreen) {
+        target.requestFullscreen().catch(() => {});
+      } else if (target?.webkitRequestFullscreen) {
+        target.webkitRequestFullscreen();
+      } else if (video?.webkitEnterFullscreen) {
+        // iOS Safari (iPhone) не поддерживает Fullscreen API для произвольных
+        // элементов — фуллскрин умеет только сам <video> через нативный метод.
+        // Для входа нужны метаданные: если ещё не загружены — входим по их готовности.
+        if (video.readyState >= 1) {
+          video.webkitEnterFullscreen();
+        } else {
+          video.addEventListener('loadedmetadata', () => video.webkitEnterFullscreen?.(), { once: true });
+          video.load();
+        }
+      }
     } catch {
       // Some embedded browsers deny fullscreen synchronously.
     }
@@ -338,7 +351,12 @@ function bindControls(video, recording) {
 
   function exitPlayerFullscreen() {
     try {
-      document.exitFullscreen?.()?.catch(() => {});
+      if (document.exitFullscreen) {
+        document.exitFullscreen()?.catch(() => {});
+      } else if (video?.webkitExitFullscreen) {
+        // iOS: выход из нативного фуллскрина видео (а также кнопкой «Готово» самого плеера).
+        video.webkitExitFullscreen();
+      }
     } catch {
       // Ignore browser-level fullscreen permission denials.
     }

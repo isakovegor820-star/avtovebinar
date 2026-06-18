@@ -566,9 +566,8 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
 /* Телефоны. */
 @media (max-width: 640px) {
   .recordings-header { align-items: flex-start; }
-  .recording-controls { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .recording-controls .recording-time,
-  .recording-controls #recordingFullscreenButton { display: none; }
+  .recording-controls { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+  .recording-controls .recording-time { display: none; }
   .recording-item { grid-template-columns: clamp(104px, 38%, 132px) minmax(0, 1fr); }
   .recordings-playlist { max-height: none; }
   .recordings-access-gate { padding: 24px 0; }

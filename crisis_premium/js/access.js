@@ -6,9 +6,9 @@ import {
   getParticipantAccess,
   logoutParticipant,
   requestParticipantLogin,
-} from './registration.js?v=site-review-4';
-import { formatMoscowDateTime } from './utils.js?v=site-review-4';
-import { updateTelegramLinks } from './room.js?v=site-review-4';
+} from './registration.js?v=site-review-5';
+import { formatMoscowDateTime } from './utils.js?v=site-review-5';
+import { updateTelegramLinks } from './room.js?v=site-review-5';
 
 function statusLabel(data) {
   if (data.accessStatus === 'live') return 'Эфир идет';

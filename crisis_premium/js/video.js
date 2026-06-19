@@ -3,9 +3,9 @@
  */
 
 import { state } from './state.js';
-import { getJson, formatTimelineTime } from './utils.js?v=site-review-4';
-import { timelinePath } from './registration.js?v=site-review-4';
-import { setChatActivity } from './questions.js?v=site-review-4';
+import { getJson, formatTimelineTime } from './utils.js?v=site-review-5';
+import { timelinePath } from './registration.js?v=site-review-5';
+import { setChatActivity } from './questions.js?v=site-review-5';
 
 /* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
 let _liveControlsInterval = null;
@@ -795,9 +795,21 @@ export async function hydrateTimeline() {
   if (fullscreenBtn && container) {
     fullscreenBtn.addEventListener('click', () => {
       if (!document.fullscreenElement) {
-        container.requestFullscreen().then(() => {
-          fullscreenBtn.querySelector('span').textContent = 'fullscreen_exit';
-        }).catch(err => { console.error('Fullscreen entering failed:', err); });
+        if (container.requestFullscreen) {
+          container.requestFullscreen().then(() => {
+            fullscreenBtn.querySelector('span').textContent = 'fullscreen_exit';
+          }).catch(err => { console.error('Fullscreen entering failed:', err); });
+        } else if (container.webkitRequestFullscreen) {
+          container.webkitRequestFullscreen();
+        } else if (video && video.webkitEnterFullscreen) {
+          // iOS Safari (iPhone): Fullscreen API для <div> не поддерживается —
+          // полноэкранным может стать только сам <video> через нативный метод.
+          if (video.readyState >= 1) {
+            video.webkitEnterFullscreen();
+          } else {
+            video.addEventListener('loadedmetadata', () => { if (video.webkitEnterFullscreen) video.webkitEnterFullscreen(); }, { once: true });
+          }
+        }
       } else {
         document.exitFullscreen().then(() => {
           fullscreenBtn.querySelector('span').textContent = 'fullscreen';

@@ -343,7 +343,7 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
   border-radius: 12px;
   background: #f6faff;
   color: #041627;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }

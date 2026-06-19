@@ -47,6 +47,20 @@
   cursor: grabbing !important;
 }
 
+/* Мобильный: плеер всего ~200px высотой, а окно спикера min-width:150px/bottom:88px
+   наезжало почти на весь слайд. Делаем компактный PiP в нижнем углу над контролами. */
+@media (max-width: 640px) {
+  #videoPlayerContainer.slides-active #webinarVideo {
+    right: 8px !important;
+    bottom: 54px !important;
+    width: 32% !important;
+    min-width: 92px !important;
+    max-width: 132px !important;
+    border-width: 1.5px !important;
+    border-radius: 8px !important;
+  }
+}
+
 /* Панель разметки таймкодов (?slides_edit=1). */
 #slidesEditor {
   position: fixed;

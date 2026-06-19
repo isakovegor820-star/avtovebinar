@@ -1,4 +1,18 @@
 (function() {
+  // Тяжёлый фон (3150 частиц в бесконечном rAF) НЕ запускаем на тач-устройствах и при
+  // reduced-motion: на телефоне это давало джанк, нагрев и расход батареи, а привязка
+  // height=innerHeight вызывала «прыжки» фона при появлении/скрытии адресной строки iOS.
+  // На десктопе с мышью — работает как прежде.
+  try {
+    if (window.matchMedia && (
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+      window.matchMedia('(hover: none)').matches ||
+      window.matchMedia('(pointer: coarse)').matches
+    )) {
+      return;
+    }
+  } catch (e) { /* matchMedia недоступен — продолжаем как обычно */ }
+
   var canvas = document.createElement('canvas');
   canvas.id = 'particlesBg';
   canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:-1;pointer-events:none;';

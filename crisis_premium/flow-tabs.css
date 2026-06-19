@@ -264,6 +264,13 @@
   box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.12);
 }
 
+/* Страница регистрации: шапка двухрядная на мобильном (лого+кнопка ~72px + ряд
+   под-навигации ~32px). Без этого вкладки прилипали на top:60px и наезжали под шапку. */
+.register-flow-tabs { top: 76px; }
+@media (max-width: 767px) {
+  .register-flow-tabs { top: 104px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .flow-tabs__tab,
   .flow-tabs__tab::before,

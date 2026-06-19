@@ -3,8 +3,8 @@
  */
 
 import { clearAccessToken, getUrlToken } from './state.js';
-import { post, getJson, utm } from './utils.js?v=site-review-5';
-import { track } from './analytics.js?v=site-review-5';
+import { post, getJson, utm } from './utils.js?v=site-review-6';
+import { track } from './analytics.js?v=site-review-6';
 
 export function registrationStatePath(view) {
   const query = view ? `?view=${encodeURIComponent(view)}` : '';
@@ -182,8 +182,15 @@ export async function handleRegistrationSubmit(event, formOverride) {
     node.dataset.registrationError = 'true';
     node.className = 'text-label-sm text-error bg-error-container/40 border border-error/20 rounded-lg px-4 py-3';
     node.textContent = message;
-    form.appendChild(node);
-    node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // Ошибку показываем НАД кнопкой отправки (а не в конце формы) и центрируем — иначе на
+    // мобильном она появлялась под кнопкой, ниже видимой области, и причина отказа не видна.
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn && submitBtn.parentNode) {
+      submitBtn.parentNode.insertBefore(node, submitBtn);
+    } else {
+      form.appendChild(node);
+    }
+    node.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
 
   if (consent && !consent.checked) {

@@ -46,25 +46,36 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
     getEffectiveVideoDurationMinutes({ videoDurationSeconds: WEBINAR_VIDEO_DURATION_SECONDS }),
   );
 
-  const session = await prisma.webinarSession.upsert({
-    where: { scheduledAt },
-    update: {
-      status,
-    },
-    create: {
-      title: WEBINAR_TITLE,
-      scheduledAt,
-      durationMinutes: WEBINAR_DURATION_MINUTES,
-      videoUrl: WEBINAR_BROADCAST_VIDEO_URL,
-      posterUrl: WEBINAR_BROADCAST_POSTER_URL,
-      videoDurationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
-      roomOpenBeforeMinutes: WEBINAR_ROOM_OPEN_BEFORE_MINUTES,
-      replayAvailableHours: WEBINAR_REPLAY_HOURS,
-      replayEnabled: true,
-      liveMode: 'simulated',
-      status,
-    },
-  });
+  const session = await prisma.webinarSession
+    .upsert({
+      where: { scheduledAt },
+      update: {
+        status,
+      },
+      create: {
+        title: WEBINAR_TITLE,
+        scheduledAt,
+        durationMinutes: WEBINAR_DURATION_MINUTES,
+        videoUrl: WEBINAR_BROADCAST_VIDEO_URL,
+        posterUrl: WEBINAR_BROADCAST_POSTER_URL,
+        videoDurationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
+        roomOpenBeforeMinutes: WEBINAR_ROOM_OPEN_BEFORE_MINUTES,
+        replayAvailableHours: WEBINAR_REPLAY_HOURS,
+        replayEnabled: true,
+        liveMode: 'simulated',
+        status,
+      },
+    })
+    .catch(async (error: unknown) => {
+      // Гонка при первом обращении к новой дате эфира: два параллельных INSERT в upsert →
+      // P2002 (@@unique([scheduledAt])). Строку уже создал конкурент — читаем её, чтобы
+      // регистрация не падала с 500 и лид не терялся.
+      if ((error as { code?: string })?.code === 'P2002') {
+        const existing = await prisma.webinarSession.findUnique({ where: { scheduledAt } });
+        if (existing) return existing;
+      }
+      throw error;
+    });
 
   const repairData = getDailySessionRepairData(session);
   if (Object.keys(repairData).length === 0) {

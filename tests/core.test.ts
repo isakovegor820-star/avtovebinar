@@ -331,15 +331,27 @@ describe('security configuration', () => {
     ).toThrow(/Production security configuration/);
   });
 
-  it('rejects production email log mode and local dev webinar mode', () => {
+  it('rejects local dev webinar test mode in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          WEBINAR_TEST_ROOM_MODE: 'on',
+        }),
+      ),
+    ).toThrow(/WEBINAR_TEST_ROOM_MODE/);
+  });
+
+  it('allows EMAIL_MODE=log without SMTP in production (Telegram-only channel)', () => {
     expect(() =>
       validateProductionSecurity(
         secureProductionConfig({
           EMAIL_MODE: 'log',
-          WEBINAR_TEST_ROOM_MODE: 'on',
+          SMTP_HOST: '',
+          SMTP_USER: '',
+          SMTP_PASS: '',
         }),
       ),
-    ).toThrow(/EMAIL_MODE.*WEBINAR_TEST_ROOM_MODE/s);
+    ).not.toThrow();
   });
 
   it('requires a production metrics token', () => {

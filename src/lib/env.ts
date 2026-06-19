@@ -139,11 +139,10 @@ export function validateProductionSecurity(config: EnvConfig) {
   if (isLocalhostUrl(config.PUBLIC_SITE_URL)) {
     errors.push('PUBLIC_SITE_URL must not use localhost in production');
   }
-  if (config.EMAIL_MODE !== 'send') {
-    errors.push('EMAIL_MODE must be "send" in production');
-  }
-  if (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS) {
-    errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required in production');
+  // Telegram-only — легитимная боевая конфигурация: EMAIL_MODE='log' (письма пишутся в лог,
+  // канал уведомлений — Telegram). SMTP-креды требуем только когда реально шлём почту.
+  if (config.EMAIL_MODE === 'send' && (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS)) {
+    errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required when EMAIL_MODE="send" in production');
   }
   const needsTelegramAdmin =
     config.TELEGRAM_NOTIFY_MODE === 'send' ||

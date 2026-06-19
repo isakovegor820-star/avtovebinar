@@ -606,6 +606,15 @@
             object-position: center 18%;
             transform: scale(0.98);
         }
+        /* Фото основателя — квадрат 640×640. На мобильном/планшете (до 2-колоночной
+           раскладки на lg) показываем его ЦЕЛИКОМ в квадратной рамке: короткая рамка
+           h-[260px] резала макушку. На десктопе (lg) действует lg:h-auto. */
+        @media (max-width: 1023px) {
+            .team-founder-card .team-photo-frame {
+                aspect-ratio: 1 / 1;
+                height: auto;
+            }
+        }
         .team-card:hover {
             transform: translateY(-4px);
             box-shadow: 0 20px 48px rgba(4, 22, 39, 0.12);

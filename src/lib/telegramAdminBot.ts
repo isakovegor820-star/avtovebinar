@@ -9,6 +9,7 @@ import {
   sendTelegramMessage,
   telegramApiUrl,
 } from './telegram.js';
+import { telegramFetch } from './telegramProxy.js';
 import { createTelegramPoller, type TelegramPoller } from './telegramPoller.js';
 
 type AdminTelegramUpdate = {
@@ -30,7 +31,7 @@ function isAdminBotReady() {
 }
 
 async function answerCallbackQuery(callbackQueryId: string, text: string) {
-  const response = await fetch(telegramApiUrl('answerCallbackQuery'), {
+  const response = await telegramFetch(telegramApiUrl('answerCallbackQuery'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

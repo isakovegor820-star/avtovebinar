@@ -947,12 +947,14 @@
             .hero-fan-card--3 { right: -165px; }
             .hero-fan-card { width: 155px; padding: 12px; }
         }
-        @media (max-width: 1024px) {
-            .hero-fan-card--1 { top: auto; bottom: -50px; right: auto; left: 5%; transform: translateY(-10px); }
-            .hero-fan-card--2 { top: auto; bottom: -50px; right: auto; left: 37%; transform: translateY(-10px); }
-            .hero-fan-card--3 { bottom: -50px; right: auto; left: 69%; transform: translateY(-10px); }
-            .hero-image-hover:hover .hero-fan-card { transform: translateY(0); }
-            .hero-fan-card { width: 140px; }
+        /* hero-fan-cards — это ДЕКОРАЦИЯ для десктопа: карточки выезжают «веером» по наведению.
+           На тач-устройствах настоящего hover нет (iOS делает «липкий» hover по тапу), а в узкой
+           раскладке три карточки по 140px не помещаются и текст обрезается. Поэтому на тач-экранах
+           и узких вьюпортах прячем их полностью — фото героя самодостаточно, а шаги
+           «диагностика → процедура → партнёрство» раскрыты ниже в секции «Как работает АСПБ».
+           Принцип: hover-анимации должны быть только там, где hover реально есть. */
+        @media (max-width: 1024px), (hover: none), (pointer: coarse) {
+            .hero-fan-cards { display: none; }
         }
 
         /* Card reveal animation on scroll */

@@ -16,7 +16,7 @@ import {
 import {
   buildFrontendUrl,
   createRoomExchangeUrl,
-  getRoomTokenExpiresAt,
+  getParticipantSessionExpiresAt,
   TELEGRAM_START_TOKEN_PURPOSE,
 } from './roomLinks.js';
 import { logger } from './logger.js';
@@ -105,17 +105,20 @@ async function consumeTelegramStartToken(
 async function createRoomUrl(registrationId: string, purpose = 'telegram_room') {
   const registration = await prisma.registration.findUnique({
     where: { id: registrationId },
-    include: { webinarSession: true },
   });
 
   if (!registration) {
     throw new Error(`Registration not found for Telegram room link purpose ${purpose}`);
   }
 
+  // Ежедневная модель: ссылка из бота должна открывать СЕГОДНЯШНюю комнату в любой день,
+  // а не протухать по сессии дня регистрации. Обменный токен одноразовый; срок = срок
+  // участницкой сессии (90 дней). После клика создаётся session-cookie, а доступ к комнате
+  // на каждый день решает buildDailyRoomAccessPayload (берёт сессию на now).
   return prisma.$transaction(tx =>
     createRoomExchangeUrl(tx, {
       registrationId,
-      expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+      expiresAt: getParticipantSessionExpiresAt(),
     }),
   );
 }

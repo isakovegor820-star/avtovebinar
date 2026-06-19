@@ -654,6 +654,15 @@
             opacity: 1;
             transform: translateY(0);
         }
+        /* Тач-устройства: настоящего :hover нет (iOS делает «липкий» hover по тапу),
+           поэтому контент тултипа (кейсы команды) был недоступен. Показываем его сразу
+           как постоянную подпись внизу фото. */
+        @media (hover: none), (pointer: coarse) {
+            .team-card-tooltip {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
         .team-card-stats {
             display: flex;
             flex-wrap: wrap;

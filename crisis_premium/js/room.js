@@ -3,8 +3,8 @@
  */
 
 import { state } from './state.js';
-import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js?v=site-review-6';
-import { getRegistrationState, requestParticipantLogin } from './registration.js?v=site-review-6';
+import { getJson, pad, formatMoscowDateTime, formatMoscowWebinarDay, formatMoscowWebinarTime } from './utils.js?v=site-review-7';
+import { getRegistrationState, requestParticipantLogin } from './registration.js?v=site-review-7';
 
 let countdownInterval = null;
 let countdownRetries = 0;

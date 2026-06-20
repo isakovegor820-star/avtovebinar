@@ -2,11 +2,11 @@
  * main.js — точка входа. Только инициализация.
  */
 
-import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=site-review-6';
-import { hydrateTimeline } from './video.js?v=site-review-6';
-import { hydrateSuccessPage } from './success.js?v=site-review-6';
-import { hydrateAccessPage } from './access.js?v=site-review-6';
-import { hydrateRecordingsPage } from './recordings.js?v=site-review-6';
+import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=site-review-7';
+import { hydrateTimeline } from './video.js?v=site-review-7';
+import { hydrateSuccessPage } from './success.js?v=site-review-7';
+import { hydrateAccessPage } from './access.js?v=site-review-7';
+import { hydrateRecordingsPage } from './recordings.js?v=site-review-7';
 import {
   bindRegistrationForm,
   bindRegistrationClicks,
@@ -14,10 +14,10 @@ import {
   exchangeUrlTokenIfPresent,
   hydrateParticipantCtas,
   redirectRegisteredUserFromRegisterPage
-} from './registration.js?v=site-review-6';
-import { bindQuestionForm } from './questions.js?v=site-review-6';
-import { bindPartnerApplicationForm } from './partner.js?v=site-review-6';
-import { track } from './analytics.js?v=site-review-6';
+} from './registration.js?v=site-review-7';
+import { bindQuestionForm } from './questions.js?v=site-review-7';
+import { bindPartnerApplicationForm } from './partner.js?v=site-review-7';
+import { track } from './analytics.js?v=site-review-7';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const exchangedRoomToken = await exchangeUrlTokenIfPresent().catch(() => false);

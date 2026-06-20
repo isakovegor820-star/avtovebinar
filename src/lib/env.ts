@@ -144,6 +144,14 @@ export function validateProductionSecurity(config: EnvConfig) {
   if (config.EMAIL_MODE === 'send' && (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS)) {
     errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required when EMAIL_MODE="send" in production');
   }
+  // Хотя бы один рабочий канал уведомлений в проде: если почта в лог-режиме (EMAIL_MODE!=='send'),
+  // то Telegram обязан реально слать (TELEGRAM_NOTIFY_MODE==='send'). Иначе подтверждения, ссылки
+  // в комнату и напоминания только пишутся в лог — лиды молча ничего не получают.
+  if (config.EMAIL_MODE !== 'send' && config.TELEGRAM_NOTIFY_MODE !== 'send') {
+    errors.push(
+      'No notification channel in production: when EMAIL_MODE is not "send", TELEGRAM_NOTIFY_MODE must be "send"',
+    );
+  }
   const needsTelegramAdmin =
     config.TELEGRAM_NOTIFY_MODE === 'send' ||
     config.TELEGRAM_ADMIN_BOT_POLLING === 'on' ||

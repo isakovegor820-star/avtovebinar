@@ -995,6 +995,11 @@
                 transform: translateY(0);
                 animation: none;
             }
+            /* Глушим ВСЕ бесконечные анимации (meshShift/hue-rotate, imageFloat, sheen, shimmer,
+               авто-flip и пр.) для пользователей с reduced-motion — экономит батарею/GPU. */
+            *, *::before, *::after {
+                animation: none !important;
+            }
         }
 
         /* Bento card interactive — gradient shift + icon animate */

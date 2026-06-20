@@ -91,6 +91,9 @@
                 top: 104px;
             }
         }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation: none !important; }
+        }
     </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
@@ -105,7 +108,7 @@
 <nav class="hidden md:flex gap-8">
 <!-- FIX 1: nav и кнопка регистрации удалены — пользователь уже в комнате -->
 </nav>
-<a data-room-primary-action class="bg-primary text-on-primary px-6 py-2.5 rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="access.html">Мой доступ</a>
+<a data-room-primary-action class="bg-primary text-on-primary px-6 py-2.5 min-h-[44px] inline-flex items-center justify-center rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="access.html">Мой доступ</a>
 </div>
 </header>
 <div data-current="webinar" data-flow-tabs data-extra-class="webinar-flow-tabs" data-sticky-top="80px"></div>
@@ -159,17 +162,17 @@
     <div id="broadcastCountdown" class="flex gap-3 mb-4">
       <div class="bg-white/10 backdrop-blur-md rounded-xl px-4 py-3 min-w-[72px] border border-white/15">
         <span id="countdownHours" class="text-3xl font-bold text-white tabular-nums">00</span>
-        <p class="text-[10px] text-white/50 uppercase tracking-wider mt-1">часов</p>
+        <p class="text-[12px] text-white/50 uppercase tracking-wider mt-1">часов</p>
       </div>
       <div class="text-3xl font-bold text-white/40 self-start mt-3">:</div>
       <div class="bg-white/10 backdrop-blur-md rounded-xl px-4 py-3 min-w-[72px] border border-white/15">
         <span id="countdownMinutes" class="text-3xl font-bold text-white tabular-nums">00</span>
-        <p class="text-[10px] text-white/50 uppercase tracking-wider mt-1">минут</p>
+        <p class="text-[12px] text-white/50 uppercase tracking-wider mt-1">минут</p>
       </div>
       <div class="text-3xl font-bold text-white/40 self-start mt-3">:</div>
       <div class="bg-white/10 backdrop-blur-md rounded-xl px-4 py-3 min-w-[72px] border border-white/15">
         <span id="countdownSeconds" class="text-3xl font-bold text-white tabular-nums">00</span>
-        <p class="text-[10px] text-white/50 uppercase tracking-wider mt-1">секунд</p>
+        <p class="text-[12px] text-white/50 uppercase tracking-wider mt-1">секунд</p>
       </div>
     </div>
     <p class="text-body-md text-white/60 max-w-md">Страница обновится автоматически в момент начала эфира</p>

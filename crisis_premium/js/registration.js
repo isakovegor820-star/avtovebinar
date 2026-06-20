@@ -198,6 +198,16 @@ export async function handleRegistrationSubmit(event, formOverride) {
     return false;
   }
 
+  // «Другое — напишу сам»: если выбран этот вариант, статус берём из текстового поля.
+  let professionalStatus = data.get('professionalStatus');
+  if (professionalStatus === 'Другое') {
+    professionalStatus = (form.querySelector('#reg-status-other')?.value || '').trim();
+    if (!professionalStatus) {
+      showFormError('Укажите ваш статус или выберите вариант из списка.');
+      return false;
+    }
+  }
+
   if (button) {
     button.textContent = 'Отправляем...';
     button.disabled = true;
@@ -211,7 +221,7 @@ export async function handleRegistrationSubmit(event, formOverride) {
       email: data.get('email'),
       companyWebsite: data.get('companyWebsite') || '',
       city: data.get('city') || '',
-      professionalStatus: data.get('professionalStatus'),
+      professionalStatus,
       clientsProblem: clients ? clients.value : '',
       consent: consent ? consent.checked : false,
       marketingConsent: marketingConsent ? marketingConsent.checked : false,
@@ -245,6 +255,18 @@ export function bindRegistrationForm() {
   form.addEventListener('submit', event => {
     handleRegistrationSubmit(event, form);
   });
+
+  // «Другое — напишу сам»: поле своего статуса показываем только при выборе этого варианта.
+  const statusSelect = form.querySelector('#reg-status');
+  const statusOther = form.querySelector('#reg-status-other');
+  if (statusSelect && statusOther) {
+    statusSelect.addEventListener('change', () => {
+      const isOther = statusSelect.value === 'Другое';
+      statusOther.classList.toggle('hidden', !isOther);
+      if (isOther) statusOther.focus();
+      else statusOther.value = '';
+    });
+  }
 }
 
 export function bindTelegramTracking() {

@@ -2,8 +2,8 @@
  * recordings.js — cabinet media library and recording playback.
  */
 
-import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=site-review-6';
-import { track } from './analytics.js?v=site-review-6';
+import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=site-review-7';
+import { track } from './analytics.js?v=site-review-7';
 
 let hlsInstance = null;
 let hlsScriptPromise = null;
@@ -340,8 +340,9 @@ function bindControls(video, recording) {
         if (video.readyState >= 1) {
           video.webkitEnterFullscreen();
         } else {
+          // НЕ зовём video.load() — оно ре-инициализирует элемент (currentTime→0, прерывает play).
+          // Источник уже задан в openRecording(); ждём метаданные и входим в фуллскрин (как в video.js).
           video.addEventListener('loadedmetadata', () => video.webkitEnterFullscreen?.(), { once: true });
-          video.load();
         }
       }
     } catch {

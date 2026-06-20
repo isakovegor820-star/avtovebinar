@@ -3,9 +3,9 @@
  */
 
 import { state } from './state.js';
-import { getJson, formatTimelineTime } from './utils.js?v=site-review-6';
-import { timelinePath } from './registration.js?v=site-review-6';
-import { setChatActivity } from './questions.js?v=site-review-6';
+import { getJson, formatTimelineTime } from './utils.js?v=site-review-7';
+import { timelinePath } from './registration.js?v=site-review-7';
+import { setChatActivity } from './questions.js?v=site-review-7';
 
 /* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
 let _liveControlsInterval = null;
@@ -276,7 +276,7 @@ export async function hydrateTimeline() {
     // (19:00 МСК) и НЕ идёт реальный прямой эфир/тест — окно ВСЕГДА закрыто. Без этого до
     // старта мог мелькнуть постер/кадр прошлой трансляции (replay), затем переключиться на
     // отсчёт. Replay прошедших вебинаров не задеваем: у них scheduledAt в прошлом.
-    (nowServerMs < webinarConfig.scheduledAt && !isLive && !isTestMode)
+    (nowServerMs < webinarConfig.scheduledAt && !isLive && !isTestMode && !isReplay)
   );
   const isEnded = webinarConfig && !isTestMode && !isReplay && (webinarConfig.status === 'finished' || serverLiveState?.isEnded);
 

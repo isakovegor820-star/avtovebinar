@@ -14,7 +14,7 @@ import {
   exchangeUrlTokenIfPresent,
   hydrateParticipantCtas,
   redirectRegisteredUserFromRegisterPage
-} from './registration.js?v=site-review-7';
+} from './registration.js?v=feedback-1';
 import { bindQuestionForm } from './questions.js?v=site-review-7';
 import { bindPartnerApplicationForm } from './partner.js?v=site-review-7';
 import { track } from './analytics.js?v=site-review-7';

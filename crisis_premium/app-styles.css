@@ -623,6 +623,19 @@
         .team-card:focus .team-photo-frame::after {
             opacity: 1;
         }
+        /* Фото основателя («Лицо команды») крупное и в широкой карточке: кадрируем
+           от ВЕРХА (object-position: center top), чтобы макушка и волосы не срезались —
+           обрезка уходит вниз. transform-origin: center top якорит голову, поэтому
+           базовый и hover-зум растут ВНИЗ, а не в голову; hover-увеличение уменьшаем
+           до 1.03. Маленькие карточки команды это не затрагивает. */
+        .team-founder-card .team-photo {
+            object-position: center top;
+            transform-origin: center top;
+        }
+        .team-founder-card:hover .team-photo,
+        .team-founder-card:focus .team-photo {
+            transform: scale(1.03);
+        }
         .team-card-tooltip {
             position: absolute;
             bottom: 12px;

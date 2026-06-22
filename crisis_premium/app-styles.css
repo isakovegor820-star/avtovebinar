@@ -9,7 +9,7 @@
             position: relative;
             margin-top: 0.12em;
             padding: 0 0.12em 0.03em;
-            color: #0f3a5a;
+            color: #0A1530;
             font-size: 0.92em;
             font-weight: 700;
             line-height: 1.04;
@@ -36,11 +36,11 @@
             line-height: 1.72;
         }
         .hero-lead-strong {
-            color: #0f3a5a;
+            color: #0A1530;
             font-weight: 700;
         }
         .hero-lead-em {
-            color: #0f3a5a;
+            color: #0A1530;
             font-weight: 700;
         }
         .hero-register-btn {
@@ -1282,3 +1282,11 @@
 #incomeDetail p[id="incomeDetailText"] {
     min-height: 72px;
 }
+
+/* ===== Свод палитры к ролям: тёмный #041627 / серый #44474C / акцент #0A1530 / амбер = деньги / белый ===== */
+/* 2-й «чёрный» (text-on-surface #191C1D) → единый тёмный */
+.text-on-surface { color: #041627 !important; }
+/* золотые ярлыки (text-secondary #775A19): амбер оставляем только для денег, метки → нейтральный серый */
+.text-secondary { color: #64748B !important; }
+/* единственное использование — текст на ТЁМНОЙ карточке #041627; сводим к on-dark цвету тела #B7C8DE (тёмно-серый был бы невидим) */
+.text-on-primary-container { color: #B7C8DE !important; }

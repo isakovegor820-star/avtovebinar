@@ -1245,17 +1245,7 @@
 .income-step:hover::before {
     opacity: 1;
 }
-.income-step-arrow {
-    opacity: 0.4;
-}
-.income-steps .income-arrow-path {
-    stroke-dasharray: 40;
-    stroke-dashoffset: 40;
-    transition: stroke-dashoffset 1s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.income-steps.is-visible .income-arrow-path {
-    stroke-dashoffset: 0;
-}
+/* SVG-стрелки между шагами заменены на «+» в разметке (формула 01 + 02 + 03 = …) — их CSS удалён */
 .income-steps.is-visible .income-step {
     animation: stepGlow 0.6s ease forwards;
 }

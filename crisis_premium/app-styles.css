@@ -6,7 +6,6 @@
         }
         .hero-title-accent {
             display: inline-block;
-            position: relative;
             margin-top: 0.14em;
             padding: 0.02em 0.06em 0.1em;
             color: #0A1530;
@@ -14,10 +13,6 @@
             font-size: 1.26em;
             font-weight: 400;
             line-height: 1.06;
-            isolation: isolate;
-        }
-        .hero-title-accent::before {
-            content: none; /* подчёркивание убрано — акцент держит шрифт Marck Script */
         }
         .hero-title-accent::after {
             content: none;
@@ -1229,15 +1224,15 @@
 }
 .income-step:hover {
     transform: translateY(-4px);
-    box-shadow: 0 8px 24px rgba(4, 22, 39, 0.06), 0 0 16px rgba(66, 133, 244, 0.15);
-    border-color: rgba(66, 133, 244, 0.3);
+    box-shadow: 0 8px 24px rgba(4, 22, 39, 0.10), 0 0 16px rgba(4, 22, 39, 0.05);
+    border-color: rgba(4, 22, 39, 0.18);
 }
 .income-step::before {
     content: "";
     position: absolute;
     inset: -1px;
     border-radius: inherit;
-    background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), rgba(139, 92, 246, 0.15), transparent);
+    background: linear-gradient(135deg, rgba(4, 22, 39, 0.07), rgba(10, 21, 48, 0.04), transparent);
     opacity: 0;
     transition: opacity 0.4s ease;
     z-index: -1;
@@ -1252,8 +1247,8 @@
 .income-steps.is-visible .income-step:nth-child(3) { animation-delay: 0.15s; }
 .income-steps.is-visible .income-step:nth-child(5) { animation-delay: 0.3s; }
 @keyframes stepGlow {
-    0% { box-shadow: 0 0 0 rgba(66, 133, 244, 0); }
-    50% { box-shadow: 0 0 20px rgba(66, 133, 244, 0.2), 0 4px 12px rgba(4, 22, 39, 0.06); }
+    0% { box-shadow: 0 0 0 rgba(4, 22, 39, 0); }
+    50% { box-shadow: 0 0 20px rgba(4, 22, 39, 0.12), 0 4px 12px rgba(4, 22, 39, 0.06); }
     100% { box-shadow: 0 2px 8px rgba(4, 22, 39, 0.04); }
 }
 

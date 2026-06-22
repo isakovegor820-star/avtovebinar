@@ -631,10 +631,11 @@
         .team-founder-card .team-photo {
             object-position: center top;
             transform-origin: center top;
+            transition: transform 0.4s ease;
         }
         .team-founder-card:hover .team-photo,
         .team-founder-card:focus .team-photo {
-            transform: scale(1.03);
+            transform: scale(1.04);
         }
         .team-card-tooltip {
             position: absolute;

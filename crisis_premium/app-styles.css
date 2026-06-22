@@ -7,24 +7,17 @@
         .hero-title-accent {
             display: inline-block;
             position: relative;
-            margin-top: 0.12em;
-            padding: 0 0.12em 0.03em;
+            margin-top: 0.14em;
+            padding: 0.02em 0.06em 0.1em;
             color: #0A1530;
-            font-size: 0.92em;
-            font-weight: 700;
-            line-height: 1.04;
+            font-family: 'Marck Script', cursive;
+            font-size: 1.26em;
+            font-weight: 400;
+            line-height: 1.06;
             isolation: isolate;
         }
         .hero-title-accent::before {
-            content: "";
-            position: absolute;
-            left: 0.08em;
-            right: 0.08em;
-            bottom: 0.02em;
-            height: 2px;
-            z-index: -1;
-            border-radius: 999px;
-            background: rgba(4, 22, 39, 0.24);
+            content: none; /* подчёркивание убрано — акцент держит шрифт Marck Script */
         }
         .hero-title-accent::after {
             content: none;

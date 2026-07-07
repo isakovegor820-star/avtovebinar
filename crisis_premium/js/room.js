@@ -66,7 +66,20 @@ export function startCountdown(scheduledAt) {
       clearInterval(countdownInterval);
       countdownInterval = null;
       countdownRetries++;
-      window.setTimeout(() => window.location.reload(), 1000);
+      // Перезагрузка для входа в эфир — ТОЛЬКО в комнате (webinar.html) и не чаще
+      // раза в 30 с. Иначе на лендинге отсчёт достигал 0 и страница уходила
+      // в бесконечный цикл перезагрузок (~каждые 2 с) — сайт было не открыть.
+      if (window.location.pathname.endsWith('webinar.html')) {
+        try {
+          const KEY = 'aspb:countdownReloadAt';
+          const since = Date.now() - Number(window.sessionStorage.getItem(KEY) || 0);
+          if (since >= 0 && since < 30000) return;
+          window.sessionStorage.setItem(KEY, String(Date.now()));
+        } catch {
+          /* sessionStorage недоступен — перезагрузимся один раз без флора */
+        }
+        window.setTimeout(() => window.location.reload(), 1000);
+      }
     }
   }
 

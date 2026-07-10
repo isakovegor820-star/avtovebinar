@@ -273,7 +273,7 @@ export async function hydrateTimeline() {
     webinarConfig.accessStatus === 'pre_live' ||
     webinarConfig.status === 'scheduled' ||
     // Жёсткая страховка «чисто закрытое окно до эфира»: пока не наступило время старта
-    // (19:00 МСК) и НЕ идёт реальный прямой эфир/тест — окно ВСЕГДА закрыто. Без этого до
+    // (20:30 МСК) и НЕ идёт реальный прямой эфир/тест — окно ВСЕГДА закрыто. Без этого до
     // старта мог мелькнуть постер/кадр прошлой трансляции (replay), затем переключиться на
     // отсчёт. Replay прошедших вебинаров не задеваем: у них scheduledAt в прошлом.
     (nowServerMs < webinarConfig.scheduledAt && !isLive && !isTestMode && !isReplay)
@@ -342,7 +342,7 @@ export async function hydrateTimeline() {
   if (muteBtn) muteBtn.querySelector('span').textContent = 'volume_off';
 
   if (isPreLive) {
-    // Защита от тайт-лупа на границе 19:00: первый reload — сразу, повторные не чаще раза в 6с.
+    // Защита от тайт-лупа на границе 20:30: первый reload — сразу, повторные не чаще раза в 6с.
     // Страница всё равно перезагрузится и уйдёт в эфир, просто без «шторма» перезагрузок,
     // если серверные часы на доли секунды не дошли до старта.
     const schedulePreliveReload = () => {

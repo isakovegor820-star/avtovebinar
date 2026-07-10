@@ -588,7 +588,12 @@ export async function hydrateTimeline() {
       if (seekThumb) seekThumb.style.left = watchPercent + '%';
       if (seekContainer) seekContainer.setAttribute('aria-valuenow', String(Math.round(watchPercent)));
     }
-    if (liveEdgeMarker) liveEdgeMarker.style.left = '100%';
+    if (liveEdgeMarker) {
+      liveEdgeMarker.style.left = '100%';
+      // у самого live-edge ползунок (thumb) совпадает с точкой прямого эфира →
+      // прячем маркер, чтобы не было «двойного кружка»; при отмотке назад (DVR) он снова виден
+      liveEdgeMarker.style.visibility = watchPercent >= 98 ? 'hidden' : 'visible';
+    }
   }
 
   video.addEventListener('timeupdate', () => {

@@ -2,7 +2,8 @@ export const WEBINAR_TITLE = 'Экономика кризиса: как бухг
 export const WEBINAR_DURATION_MINUTES = 65;
 export const WEBINAR_REPLAY_HOURS = 24 * 7;
 export const WEBINAR_ROOM_OPEN_BEFORE_MINUTES = 15;
-export const WEBINAR_START_HOUR_MSK = 19;
+export const WEBINAR_START_HOUR_MSK = 20;
+export const WEBINAR_START_MINUTE_MSK = 30;
 export type WebinarAccessStatus = 'waiting' | 'pre_live' | 'live' | 'replay' | 'closed';
 export type WebinarRoomState = WebinarAccessStatus | 'test';
 
@@ -32,24 +33,32 @@ function getMoscowParts(date: Date): MoscowParts {
 
 export function getNextWebinarDate(firstSeenAt: Date): Date {
   const parts = getMoscowParts(firstSeenAt);
-  const todayStart = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, WEBINAR_START_HOUR_MSK - 3, 0, 0));
+  const todayStart = new Date(
+    Date.UTC(parts.year, parts.month - 1, parts.day, WEBINAR_START_HOUR_MSK - 3, WEBINAR_START_MINUTE_MSK, 0),
+  );
   if (firstSeenAt.getTime() <= todayStart.getTime()) {
     return todayStart;
   }
 
-  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1, WEBINAR_START_HOUR_MSK - 3, 0, 0));
+  return new Date(
+    Date.UTC(parts.year, parts.month - 1, parts.day + 1, WEBINAR_START_HOUR_MSK - 3, WEBINAR_START_MINUTE_MSK, 0),
+  );
 }
 
 export function getCurrentOrNextWebinarDate(now: Date, durationMinutes = WEBINAR_DURATION_MINUTES): Date {
   const parts = getMoscowParts(now);
-  const todayStart = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, WEBINAR_START_HOUR_MSK - 3, 0, 0));
+  const todayStart = new Date(
+    Date.UTC(parts.year, parts.month - 1, parts.day, WEBINAR_START_HOUR_MSK - 3, WEBINAR_START_MINUTE_MSK, 0),
+  );
   const todayEnd = new Date(todayStart.getTime() + durationMinutes * 60 * 1000);
 
   if (now.getTime() <= todayEnd.getTime()) {
     return todayStart;
   }
 
-  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1, WEBINAR_START_HOUR_MSK - 3, 0, 0));
+  return new Date(
+    Date.UTC(parts.year, parts.month - 1, parts.day + 1, WEBINAR_START_HOUR_MSK - 3, WEBINAR_START_MINUTE_MSK, 0),
+  );
 }
 
 export const getDailyBroadcastDate = getCurrentOrNextWebinarDate;

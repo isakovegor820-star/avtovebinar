@@ -56,32 +56,32 @@ import { getWebinarVideoConfig } from '../src/lib/webinarVideo.js';
 import { checkTelegramConnectivity } from '../src/lib/telegram.js';
 
 describe('webinar time logic', () => {
-  it('schedules webinar at 19:00 Moscow on the same Moscow day when the slot has not started', () => {
+  it('schedules webinar at 19:30 Moscow on the same Moscow day when the slot has not started', () => {
     const firstSeen = new Date('2026-05-21T09:15:00.000Z');
     const scheduledAt = getNextWebinarDate(firstSeen);
     expect(WEBINAR_START_HOUR_MSK).toBe(19);
-    expect(scheduledAt.toISOString()).toBe('2026-05-21T16:00:00.000Z');
+    expect(scheduledAt.toISOString()).toBe('2026-05-21T16:30:00.000Z');
   });
 
-  it('schedules the next daily 19:00 Moscow slot after today slot has started', () => {
-    const firstSeen = new Date('2026-05-21T16:15:00.000Z');
+  it('schedules the next daily 19:30 Moscow slot after today slot has started', () => {
+    const firstSeen = new Date('2026-05-21T19:00:00.000Z');
     const scheduledAt = getNextWebinarDate(firstSeen);
-    expect(scheduledAt.toISOString()).toBe('2026-05-22T16:00:00.000Z');
+    expect(scheduledAt.toISOString()).toBe('2026-05-22T16:30:00.000Z');
   });
 
   it('schedules across the end of a month', () => {
-    const scheduledAt = getNextWebinarDate(new Date('2026-05-31T16:15:00.000Z'));
-    expect(scheduledAt.toISOString()).toBe('2026-06-01T16:00:00.000Z');
+    const scheduledAt = getNextWebinarDate(new Date('2026-05-31T19:00:00.000Z'));
+    expect(scheduledAt.toISOString()).toBe('2026-06-01T16:30:00.000Z');
   });
 
   it('keeps the current daily slot during the scheduled webinar window', () => {
-    const scheduledAt = getCurrentOrNextWebinarDate(new Date('2026-05-21T16:30:00.000Z'), 120);
-    expect(scheduledAt.toISOString()).toBe('2026-05-21T16:00:00.000Z');
+    const scheduledAt = getCurrentOrNextWebinarDate(new Date('2026-05-21T17:00:00.000Z'), 120);
+    expect(scheduledAt.toISOString()).toBe('2026-05-21T16:30:00.000Z');
   });
 
   it('switches the room schedule to tomorrow after the daily webinar ends', () => {
-    const scheduledAt = getCurrentOrNextWebinarDate(new Date('2026-05-21T18:01:00.000Z'), 120);
-    expect(scheduledAt.toISOString()).toBe('2026-05-22T16:00:00.000Z');
+    const scheduledAt = getCurrentOrNextWebinarDate(new Date('2026-05-21T20:31:00.000Z'), 120);
+    expect(scheduledAt.toISOString()).toBe('2026-05-22T16:30:00.000Z');
   });
 
   it('returns scheduled, live and finished statuses', () => {

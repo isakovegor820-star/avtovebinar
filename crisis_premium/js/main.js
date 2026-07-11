@@ -2,11 +2,11 @@
  * main.js — точка входа. Только инициализация.
  */
 
-import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=webinar-2030';
-import { hydrateTimeline } from './video.js?v=webinar-2030';
+import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=webinar-1930';
+import { hydrateTimeline } from './video.js?v=webinar-1930';
 import { hydrateSuccessPage } from './success.js?v=site-review-7';
 import { hydrateAccessPage } from './access.js?v=site-review-7';
-import { hydrateRecordingsPage } from './recordings.js?v=webinar-2030';
+import { hydrateRecordingsPage } from './recordings.js?v=webinar-1930';
 import {
   bindRegistrationForm,
   bindRegistrationClicks,

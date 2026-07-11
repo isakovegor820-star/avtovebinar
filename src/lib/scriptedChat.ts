@@ -15,7 +15,9 @@ const scriptedChatMessageSchema = z
     agentId: z.string().min(1),
     agentName: z.string().min(1),
     agentRole: z.string().min(1),
-    message: z.string().trim().min(3).max(700),
+    // min(1): короткие реакции-«флуд» в чат — «+», «1», «10» — это 1–2 символа.
+    // Пустые строки по-прежнему отсекаются, длинные вопросы не затрагиваются.
+    message: z.string().trim().min(1).max(700),
     kind: z.enum(['scripted_user', 'agent_question']),
     topic: z.string().trim().min(1).optional(),
     visible: z.boolean().default(true),

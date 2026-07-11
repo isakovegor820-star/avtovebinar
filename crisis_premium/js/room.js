@@ -271,7 +271,7 @@ function isAccessError(error) {
 export function renderWaitingRoom(data) {
   const scheduledAtLabel = data.webinar?.scheduledAt
     ? `${formatMoscowDateTime(data.webinar.scheduledAt)} МСК`
-    : '20:30 МСК';
+    : '19:30 МСК';
   const title = data.accessStatus === 'closed'
     ? 'Эфир на сегодня завершен'
     : data.accessStatus === 'pre_live'

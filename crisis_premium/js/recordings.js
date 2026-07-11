@@ -111,7 +111,7 @@ function showLocked(payload) {
   const root = document.getElementById('recordingsApp');
   if (!root) return;
   document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
-  const scheduledAt = payload.webinar?.scheduledAt ? formatMoscowDateTime(payload.webinar.scheduledAt) : '20:30';
+  const scheduledAt = payload.webinar?.scheduledAt ? formatMoscowDateTime(payload.webinar.scheduledAt) : '19:30';
   const availableAt = payload.webinar?.recordingAvailableAt ? formatMoscowDateTime(payload.webinar.recordingAvailableAt) : '';
   const isLive = payload.accessStatus === 'live';
   root.innerHTML = `

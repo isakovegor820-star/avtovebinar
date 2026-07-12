@@ -214,7 +214,9 @@ async function sendChat(req: Request, res: Response) {
           id: message.id,
           offsetSeconds: message.offsetSeconds,
           visibleAt: new Date(access.webinarSession.scheduledAt.getTime() + message.offsetSeconds * 1000),
-          kind: message.kind,
+          // Не раскрываем наружу, что чат скриптован: scripted_user/agent_question → нейтральный 'user'.
+          // live-chat.js для этих kind рендерит автора идентично обычному участнику (проверено).
+          kind: message.kind === 'agent_question' || message.kind === 'scripted_user' ? 'user' : message.kind,
           authorName: message.authorName,
           authorRole: message.authorRole,
           message: message.message,

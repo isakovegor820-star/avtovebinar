@@ -3,6 +3,7 @@ import { env } from './env.js';
 import { withCircuitBreaker, withRetries } from './resilience.js';
 import { logger } from './logger.js';
 import { buildTelegramStartUrl } from './telegram.js';
+import { buildUnsubscribeUrl } from './unsubscribe.js';
 
 type BaseEmailInput = {
   to: string;
@@ -111,6 +112,7 @@ function buildEmailText(input: BaseEmailInput, intro: string) {
     input.partnerUrl ? `Заявка на партнерский договор: ${input.partnerUrl}` : '',
     '',
     'АСПБ — Антикризисная служба помощи бизнесу',
+    `Отписаться от рассылок: ${buildUnsubscribeUrl(input.to)}`,
   ]
     .filter(Boolean)
     .join('\n');
@@ -148,6 +150,12 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
             to: input.to,
             subject: input.subject,
             text: input.text,
+            headers: {
+              // 152-ФЗ/38-ФЗ: возможность отписки в каждом письме (почтовый клиент покажет «Отписаться»).
+              'List-Unsubscribe': `<${buildUnsubscribeUrl(input.to)}>, <mailto:${
+                env.EMAIL_REPLY_TO ?? env.EMAIL_FROM
+              }?subject=unsubscribe>`,
+            },
           }),
         { attempts: 3, baseMs: 1000, maxMs: 10_000 },
       ),

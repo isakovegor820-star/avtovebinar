@@ -13,7 +13,12 @@ type RouteStats = {
 const requestStats = new Map<string, RouteStats>();
 
 function routeKey(req: Request) {
-  return `${req.method} ${req.route?.path ? req.baseUrl + req.route.path : req.path}`;
+  // Низкую кардинальность дают только сматченные маршруты. Для 404/несматченных НЕ берём
+  // req.path (произвольный ввод) — иначе неограниченный рост памяти/кардинальности и инъекция лейбла.
+  if (!req.route?.path) {
+    return `${req.method} <unmatched>`;
+  }
+  return `${req.method} ${req.baseUrl + req.route.path}`;
 }
 
 function getStats(key: string) {
@@ -48,7 +53,11 @@ export function metricsMiddleware(req: Request, res: Response, next: NextFunctio
 
 function metricLine(name: string, labels: Record<string, string>, value: number) {
   const labelText = Object.entries(labels)
-    .map(([key, labelValue]) => `${key}="${String(labelValue).replace(/"/g, '\\"')}"`)
+    .map(([key, labelValue]) => {
+      // Экранирование по правилам Prometheus: сначала \, затем ", затем перевод строки.
+      const escaped = String(labelValue).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+      return `${key}="${escaped}"`;
+    })
     .join(',');
   return `${name}{${labelText}} ${value}`;
 }

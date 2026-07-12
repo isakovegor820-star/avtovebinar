@@ -1,9 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
-import { AppError, asyncHandler } from '../../lib/http.js';
+import { AppError, asyncHandler, getClientIp } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
-import { createAccessToken, hashToken } from '../../lib/tokens.js';
+import { createAccessToken, hashIp, hashToken } from '../../lib/tokens.js';
+import { verifyUnsubscribeToken } from '../../lib/unsubscribe.js';
 import { getDailyBroadcastDate, getWebinarAccess, getWebinarRoomState } from '../../lib/time.js';
 import { getEffectiveVideoDurationMinutes, getWebinarLiveState } from '../../lib/webinarLive.js';
 import { enqueueParticipantLoginEmail, enqueueRegistrationEmail } from '../../lib/emailOutbox.js';
@@ -28,6 +29,9 @@ import {
   saveEvent,
   setRoomTokenCookie,
 } from './helpers.js';
+
+// Версия политики конфиденциальности на момент фиксации согласия (152-ФЗ: доказуемость согласия).
+const CONSENT_POLICY_VERSION = '2026-07-12';
 
 export const registrationRouter = Router();
 
@@ -192,6 +196,10 @@ registrationRouter.post(
     );
     const successUrl = buildFrontendUrl('/crisis_premium/success.html');
 
+    // Доказуемость согласия (152-ФЗ): фиксируем момент, версию политики и хэш IP при согласии.
+    const consentGivenAt = new Date();
+    const consentIpHash = data.consent ? hashIp(getClientIp(req)) : null;
+
     const { lead, registration } = await prisma.$transaction(async tx => {
       const lead = await tx.lead.upsert({
         where: { email },
@@ -202,6 +210,11 @@ registrationRouter.post(
           professionalStatus: professionalStatus ?? undefined,
           consent: data.consent,
           marketingConsent: data.marketingConsent ? true : undefined,
+          consentAt: data.consent ? consentGivenAt : undefined,
+          marketingConsentAt: data.marketingConsent ? consentGivenAt : undefined,
+          consentPolicyVersion: data.consent ? CONSENT_POLICY_VERSION : undefined,
+          consentIpHash: data.consent ? consentIpHash : undefined,
+          consentRevokedAt: data.consent ? null : undefined,
           source: clean(data.source) ?? undefined,
           utmSource: clean(data.utmSource) ?? undefined,
           utmMedium: clean(data.utmMedium) ?? undefined,
@@ -217,6 +230,10 @@ registrationRouter.post(
           professionalStatus,
           consent: data.consent,
           marketingConsent: data.marketingConsent,
+          consentAt: data.consent ? consentGivenAt : null,
+          marketingConsentAt: data.marketingConsent ? consentGivenAt : null,
+          consentPolicyVersion: data.consent ? CONSENT_POLICY_VERSION : null,
+          consentIpHash,
           source: clean(data.source),
           utmSource: clean(data.utmSource),
           utmMedium: clean(data.utmMedium),
@@ -750,3 +767,48 @@ registrationRouter.get(
     await sendRegistrationState(req, res);
   }),
 );
+
+// #10 (152-ФЗ/38-ФЗ): отписка от маркетинговых рассылок по подписанному токену.
+// Двухшаговый GET: переход показывает подтверждение (устойчиво к префетчу писем),
+// отписка выполняется только при ?confirm=1. CSRF не нужен — меняет состояние только подтверждённый HMAC-токен.
+registrationRouter.get(
+  '/unsubscribe',
+  asyncHandler(async (req: Request, res: Response) => {
+    const token = typeof req.query.token === 'string' ? req.query.token : undefined;
+    const email = verifyUnsubscribeToken(token);
+    if (!email) {
+      res.status(400).type('html').send(renderUnsubscribePage('invalid'));
+      return;
+    }
+    if (req.query.confirm === '1') {
+      await prisma.lead.updateMany({
+        where: { email },
+        data: { marketingConsent: false, consentRevokedAt: new Date() },
+      });
+      res.type('html').send(renderUnsubscribePage('done'));
+      return;
+    }
+    res.type('html').send(renderUnsubscribePage('confirm', token));
+  }),
+);
+
+function renderUnsubscribePage(state: 'invalid' | 'confirm' | 'done', token?: string) {
+  const title =
+    state === 'done' ? 'Вы отписаны' : state === 'invalid' ? 'Ссылка недействительна' : 'Отписка от рассылок АСПБ';
+  const body =
+    state === 'done'
+      ? '<p>Вы отписаны от маркетинговых рассылок АСПБ. Организационные письма о вашем вебинаре это не затрагивает.</p>'
+      : state === 'invalid'
+        ? '<p>Ссылка недействительна или устарела. Чтобы отписаться, напишите на <a href="mailto:partners@aspb.ru">partners@aspb.ru</a>.</p>'
+        : `<p>Нажмите кнопку, чтобы отписаться от маркетинговых рассылок АСПБ.</p>
+           <p><a class="btn" href="/api/unsubscribe?token=${encodeURIComponent(token ?? '')}&amp;confirm=1">Отписаться</a></p>`;
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${title} | АСПБ</title>
+<style>body{margin:0;font-family:Arial,sans-serif;background:#f8f9fa;color:#041627;line-height:1.6}
+main{max-width:520px;margin:0 auto;padding:64px 24px}
+.card{background:#fff;border:1px solid #dbe2ea;border-radius:18px;padding:32px}
+h1{font-size:24px;margin-top:0}a{color:#041627}
+.btn{display:inline-block;background:#041627;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700}
+</style></head><body><main><div class="card"><h1>${title}</h1>${body}</div></main></body></html>`;
+}

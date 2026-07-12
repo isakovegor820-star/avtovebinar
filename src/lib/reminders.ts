@@ -5,6 +5,7 @@ import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from 
 import { isPermanentTelegramError, sendTelegramMessageToChat, telegramUrlButton } from './telegram.js';
 import { createRoomExchangeUrl, getRoomTokenExpiresAt, buildFrontendUrl } from './roomLinks.js';
 import { logger } from './logger.js';
+import { runRetentionSweepThrottled } from './retention.js';
 
 type ReminderCandidate = {
   id: string;
@@ -507,6 +508,7 @@ async function runReminderCycle() {
     await runTelegramReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram reminders]'));
     await runTelegramFollowupJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram followup]'));
     await cleanupExpiredRegistrationTokens().catch(error => logger.error({ err: error }, '[ASPБ token cleanup]'));
+    await runRetentionSweepThrottled().catch(error => logger.error({ err: error }, '[ASPБ retention]'));
   } finally {
     reminderCycleRunning = false;
   }

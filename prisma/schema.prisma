@@ -55,6 +55,11 @@ model Lead {
   professionalStatus   String?              @map("professional_status")
   consent              Boolean              @default(false)
   marketingConsent     Boolean              @default(false) @map("marketing_consent")
+  consentAt            DateTime?            @map("consent_at")
+  marketingConsentAt   DateTime?            @map("marketing_consent_at")
+  consentPolicyVersion String?              @map("consent_policy_version")
+  consentIpHash        String?              @map("consent_ip_hash")
+  consentRevokedAt     DateTime?            @map("consent_revoked_at")
   source               String?
   utmSource            String?              @map("utm_source")
   utmMedium            String?              @map("utm_medium")

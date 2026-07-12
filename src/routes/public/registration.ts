@@ -1,9 +1,9 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
-import { AppError, asyncHandler } from '../../lib/http.js';
+import { AppError, asyncHandler, getClientIp } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
-import { createAccessToken, hashToken } from '../../lib/tokens.js';
+import { createAccessToken, hashIp, hashToken } from '../../lib/tokens.js';
 import { getDailyBroadcastDate, getWebinarAccess, getWebinarRoomState } from '../../lib/time.js';
 import { getEffectiveVideoDurationMinutes, getWebinarLiveState } from '../../lib/webinarLive.js';
 import { enqueueParticipantLoginEmail, enqueueRegistrationEmail } from '../../lib/emailOutbox.js';
@@ -28,6 +28,9 @@ import {
   saveEvent,
   setRoomTokenCookie,
 } from './helpers.js';
+
+// Версия политики конфиденциальности на момент фиксации согласия (152-ФЗ: доказуемость согласия).
+const CONSENT_POLICY_VERSION = '2026-07-12';
 
 export const registrationRouter = Router();
 
@@ -192,6 +195,10 @@ registrationRouter.post(
     );
     const successUrl = buildFrontendUrl('/crisis_premium/success.html');
 
+    // Доказуемость согласия (152-ФЗ): фиксируем момент, версию политики и хэш IP при согласии.
+    const consentGivenAt = new Date();
+    const consentIpHash = data.consent ? hashIp(getClientIp(req)) : null;
+
     const { lead, registration } = await prisma.$transaction(async tx => {
       const lead = await tx.lead.upsert({
         where: { email },
@@ -202,6 +209,11 @@ registrationRouter.post(
           professionalStatus: professionalStatus ?? undefined,
           consent: data.consent,
           marketingConsent: data.marketingConsent ? true : undefined,
+          consentAt: data.consent ? consentGivenAt : undefined,
+          marketingConsentAt: data.marketingConsent ? consentGivenAt : undefined,
+          consentPolicyVersion: data.consent ? CONSENT_POLICY_VERSION : undefined,
+          consentIpHash: data.consent ? consentIpHash : undefined,
+          consentRevokedAt: data.consent ? null : undefined,
           source: clean(data.source) ?? undefined,
           utmSource: clean(data.utmSource) ?? undefined,
           utmMedium: clean(data.utmMedium) ?? undefined,
@@ -217,6 +229,10 @@ registrationRouter.post(
           professionalStatus,
           consent: data.consent,
           marketingConsent: data.marketingConsent,
+          consentAt: data.consent ? consentGivenAt : null,
+          marketingConsentAt: data.marketingConsent ? consentGivenAt : null,
+          consentPolicyVersion: data.consent ? CONSENT_POLICY_VERSION : null,
+          consentIpHash,
           source: clean(data.source),
           utmSource: clean(data.utmSource),
           utmMedium: clean(data.utmMedium),

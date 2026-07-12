@@ -549,6 +549,46 @@ adminRouter.patch(
   }),
 );
 
+// #16 (152-ФЗ, право субъекта на удаление/отзыв): обезличивание лида по запросу.
+// Персональные поля затираются; строка и обезличенная статистика сохраняются; факт — в AuditLog.
+adminRouter.post(
+  '/api/admin/leads/:id/anonymize',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const id = z.string().min(1).parse(req.params.id);
+    const before = await prisma.lead.findUnique({ where: { id }, select: { id: true } });
+    if (!before) {
+      throw new AppError(404, 'Лид не найден');
+    }
+    const anonymizedAt = new Date();
+    await prisma.lead.update({
+      where: { id },
+      data: {
+        name: 'Удалённый пользователь',
+        phone: '',
+        email: `anonymized-${id}@deleted.invalid`,
+        city: null,
+        professionalStatus: null,
+        telegramChatId: null,
+        telegramUsername: null,
+        telegramFirstName: null,
+        marketingConsent: false,
+        consentRevokedAt: anonymizedAt,
+      },
+    });
+    // В аудит НЕ пишем сырые ПДн — только факт обезличивания.
+    await audit(req as AdminRequest, {
+      action: 'lead.anonymize',
+      entityType: 'lead',
+      entityId: id,
+      before: { id, hadPersonalData: true },
+      after: { anonymized: true, anonymizedAt: anonymizedAt.toISOString() },
+    });
+    res.json({ ok: true, anonymized: true });
+  }),
+);
+
 adminRouter.get(
   '/api/admin/registrations',
   requireAdmin,

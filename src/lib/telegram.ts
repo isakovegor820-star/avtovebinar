@@ -343,6 +343,9 @@ export function buildTelegramStartUrl(token?: string) {
   return url.toString();
 }
 
+// #9 (152/149-ФЗ): осознанное решение — уведомление админам содержит контактные ПДн (телефон/email),
+// т.к. менеджеры связываются с лидом прямо из Telegram (исполнение договора / законный интерес).
+// Приёмник — приватный админ-чат; трансграничный характер Telegram раскрыт в политике (privacy.html).
 export function notifyRegistration(input: NotifyRegistrationInput) {
   return sendTelegramMessage({
     text: [

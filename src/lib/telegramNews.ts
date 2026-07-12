@@ -4,6 +4,10 @@ import { prisma } from './prisma.js';
 import { sendTelegramMessageToChat } from './telegram.js';
 import { logger } from './logger.js';
 
+// Троттлинг отправки новостного дайджеста (как TELEGRAM_BROADCAST_DELAY_MS в broadcast-воркере):
+// без паузы всплеск 429 открывает общий circuit breaker и рубит остаток выпуска + напоминания.
+const TELEGRAM_NEWS_SEND_DELAY_MS = 40;
+
 type FeedItem = {
   title: string;
   url: string;
@@ -298,7 +302,8 @@ async function runTelegramNewsJobOnceUnlocked(now = new Date()) {
   }
 
   const leads = await prisma.lead.findMany({
-    where: { telegramChatId: { not: null } },
+    // 152/38-ФЗ: новостной дайджест — рекламная рассылка, шлём только давшим marketingConsent.
+    where: { telegramChatId: { not: null }, marketingConsent: true },
     select: { telegramChatId: true },
     take: 5000,
   });
@@ -334,7 +339,8 @@ async function runTelegramNewsJobOnceUnlocked(now = new Date()) {
   let failed = 0;
   let lastError: string | null = null;
 
-  for (const chatId of chatIds) {
+  for (let i = 0; i < chatIds.length; i += 1) {
+    const chatId = chatIds[i];
     try {
       await sendTelegramMessageToChat(chatId, message);
       sent += 1;
@@ -342,6 +348,9 @@ async function runTelegramNewsJobOnceUnlocked(now = new Date()) {
       failed += 1;
       lastError = normalizeJobError(error);
       logger.error({ err: error }, '[ASPБ telegram news recipient]');
+    }
+    if (i < chatIds.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, TELEGRAM_NEWS_SEND_DELAY_MS));
     }
   }
 

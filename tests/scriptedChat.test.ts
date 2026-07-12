@@ -14,7 +14,11 @@ describe('scripted chat scenario', () => {
     expect(messages.length).toBeGreaterThan(0);
     expect(messages.every(message => message.offsetSeconds <= 120)).toBe(true);
     expect(messages.some(message => message.kind === 'agent_question')).toBe(true);
-    expect(messages[0]).toMatchObject({
+    // Первым теперь может идти «волна» (scripted_user без answerStartSeconds).
+    // Форму с answerStartSeconds проверяем на первом agent_question — именно у него оно есть.
+    expect(messages[0]).toMatchObject({ isSynthetic: true, agentId: expect.any(String) });
+    const firstQuestion = messages.find(message => message.kind === 'agent_question');
+    expect(firstQuestion).toMatchObject({
       isSynthetic: true,
       agentId: expect.any(String),
       answerStartSeconds: expect.any(Number),
@@ -66,12 +70,20 @@ describe('scripted chat scenario', () => {
     expect(() => assertScriptedChatFitsDuration(WEBINAR_VIDEO_DURATION_SECONDS, SCRIPTED_CHAT_SCENARIO)).not.toThrow();
   });
 
-  it('keeps visible scripted participants and messages unique', () => {
-    const visibleMessages = SCRIPTED_CHAT_SCENARIO.messages.filter(message => message.visible !== false);
-    const authorNames = visibleMessages.map(message => message.agentName);
-    const messageTexts = visibleMessages.map(message => message.message);
+  it('keeps curated scripted participants and messages unique (flood-волны исключены — они намеренно повторяются)', () => {
+    // «Волны цифр» (flood_*) намеренно повторяют и текст («1», «+»), и имена участников —
+    // это эффект живой толпы. Уникальность требуем только от курируемых (не-flood) сообщений.
+    const curated = SCRIPTED_CHAT_SCENARIO.messages.filter(
+      message => message.visible !== false && !message.id.startsWith('flood_'),
+    );
+    const authorNames = curated.map(message => message.agentName);
+    const messageTexts = curated.map(message => message.message);
 
     expect(new Set(authorNames).size).toBe(authorNames.length);
     expect(new Set(messageTexts).size).toBe(messageTexts.length);
+
+    // id уникальны по всему сценарию, включая волны.
+    const allIds = SCRIPTED_CHAT_SCENARIO.messages.map(message => message.id);
+    expect(new Set(allIds).size).toBe(allIds.length);
   });
 });

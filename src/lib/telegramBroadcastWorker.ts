@@ -137,6 +137,9 @@ export async function getActiveTelegramBroadcastJob() {
 }
 
 export async function createTelegramBroadcastJob(text: string) {
+  // #3 (152/38-ФЗ, осознанное решение): ручная админ-рассылка НАМЕРЕННО не гейтится по marketingConsent —
+  // это управляемое действие оператора, ответственность за характер сообщения лежит на админе.
+  // Автоматические новости (telegramNews) гейтятся, здесь — нет.
   const leads = await prisma.lead.findMany({
     where: { telegramChatId: { not: null } },
     select: { telegramChatId: true },

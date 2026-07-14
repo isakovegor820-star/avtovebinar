@@ -94,7 +94,7 @@
     @media (max-width: 900px) { .grid, .hot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } table { display:block; overflow:auto; } }
     @media (max-width: 620px) { .hot-grid { grid-template-columns:1fr; } }
   </style>
-  <link rel="stylesheet" href="admin-funnel.css?v=funnel-redesign-1" />
+  <link rel="stylesheet" href="admin-funnel.css?v=funnel-redesign-3" />
 </head>
 <body>
   <header>
@@ -154,23 +154,15 @@
             <div class="top">
               <div>
                 <h2>Маркетинговая воронка</h2>
-                <div class="sub">Период, источники, UTM и конверсии до заявки/договора.</div>
+                <div class="sub">Конверсии за период: от посетителя до партнерского договора.</div>
               </div>
               <button id="funnelRefreshBtn" class="ghost">Обновить</button>
             </div>
             <div class="filters">
               <input id="funnelFrom" type="date" />
               <input id="funnelTo" type="date" />
-              <select id="funnelGroupBy">
-                <option value="source">source</option>
-                <option value="utmSource">utm_source</option>
-                <option value="utmMedium">utm_medium</option>
-                <option value="utmCampaign">utm_campaign</option>
-              </select>
-              <label class="fn-toggle"><input type="checkbox" id="funnelOnlyConverting" /> Только с регистрациями</label>
             </div>
             <div id="funnelMetrics"></div>
-            <div id="funnelTable"></div>
           </section>
 
           <section class="panel">
@@ -242,6 +234,6 @@
     </section>
   </main>
 
-  <script src="admin.js?v=funnel-redesign-1"></script>
+  <script src="admin.js?v=funnel-redesign-3"></script>
 </body>
 </html>

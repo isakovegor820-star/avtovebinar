@@ -61,20 +61,6 @@
 .fn-tg span { font-size: 13px; color: var(--muted); }
 .fn-tg em { font-style: normal; font-weight: 700; color: #2f6cae; font-size: 13px; }
 
-/* ── Заголовок таблицы: легенда баз + переключатель ────── */
-.fn-tablehead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 10px; }
-.fn-legend { font-size: 12px; color: var(--muted); max-width: 660px; line-height: 1.45; }
-.fn-legend b { color: var(--blue); font-weight: 700; }
-.fn-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--blue); cursor: pointer; user-select: none; white-space: nowrap; }
-.fn-toggle input { width: auto; margin: 0; padding: 0; }
-
-/* ── Мини-бар посетителей и итоговая строка в таблице ───── */
-.funnel-table td.src .srcbar { display: block; height: 4px; margin-top: 6px; border-radius: 999px; background: var(--soft); overflow: hidden; max-width: 220px; }
-.funnel-table td.src .srcbar > i { display: block; height: 100%; border-radius: 999px; background: #a9c6e8; }
-.funnel-table tr.fn-total td { background: #eef4fb; font-weight: 800; border-top: 2px solid #cdd9e6; }
-.funnel-table tr.fn-total td.src strong { font-weight: 800; }
-.funnel-empty { padding: 22px 14px; text-align: center; color: var(--muted); font-size: 13px; }
-
 @media (max-width: 640px) {
   .fn-stage__conv { min-width: 116px; font-size: 12px; }
   .fn-flow__num, .fn-hero__conv b { font-size: 21px; }

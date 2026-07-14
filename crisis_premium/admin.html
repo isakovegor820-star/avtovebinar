@@ -94,6 +94,7 @@
     @media (max-width: 900px) { .grid, .hot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } table { display:block; overflow:auto; } }
     @media (max-width: 620px) { .hot-grid { grid-template-columns:1fr; } }
   </style>
+  <link rel="stylesheet" href="admin-funnel.css?v=funnel-redesign-1" />
 </head>
 <body>
   <header>
@@ -166,8 +167,9 @@
                 <option value="utmMedium">utm_medium</option>
                 <option value="utmCampaign">utm_campaign</option>
               </select>
+              <label class="fn-toggle"><input type="checkbox" id="funnelOnlyConverting" /> Только с регистрациями</label>
             </div>
-            <div class="grid" id="funnelMetrics"></div>
+            <div id="funnelMetrics"></div>
             <div id="funnelTable"></div>
           </section>
 
@@ -240,6 +242,6 @@
     </section>
   </main>
 
-  <script src="admin.js?v=moderation-chat-2"></script>
+  <script src="admin.js?v=funnel-redesign-1"></script>
 </body>
 </html>

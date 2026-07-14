@@ -219,61 +219,176 @@ let currentQueue = 'all';
       funnelTo.value = isoDate(now);
     }
 
+    let lastFunnelData = null;
+
+    function fmtNum(value) {
+      return Number(value || 0).toLocaleString('ru-RU');
+    }
+
     async function loadFunnel() {
       const params = new URLSearchParams();
       if (funnelFrom.value) params.set('from', funnelFrom.value);
       if (funnelTo.value) params.set('to', funnelTo.value);
       if (funnelGroupBy.value) params.set('groupBy', funnelGroupBy.value);
       const data = await api('/api/admin/analytics/funnel?' + params.toString());
-      const summaryItems = [
-        ['Посетители', data.summary.visitors],
-        ['Регистрации', data.summary.registrations + ' / ' + pct(data.rates.registrationRate)],
-        ['TG clicks', data.summary.telegramClicks + ' / ' + pct(data.rates.telegramClickRate)],
-        ['TG подписки', data.summary.telegramSubscribers + ' / ' + pct(data.rates.telegramSubscribeRate)],
-        ['Комната', data.summary.roomEntries + ' / ' + pct(data.rates.roomEntryRate)],
-        ['Вопросы', data.summary.questions + ' / ' + pct(data.rates.questionRate)],
-        ['Заявки', data.summary.applications + ' / ' + pct(data.rates.applicationRate)],
-        ['Договоры', data.summary.contracts + ' / ' + pct(data.rates.contractRate)]
-      ];
-      clear(funnelMetrics);
-      summaryItems.forEach(([label, value]) => {
-        funnelMetrics.append(node('div', { class:'card' }, [
-          node('div', { class:'metric', text:String(value) }),
-          node('div', { class:'label', text:label })
-        ]));
-      });
+      lastFunnelData = data;
+      renderFunnelMetrics(data);
+      renderFunnelTable(data);
+    }
 
-      clear(funnelTable);
-      // Числовая ячейка: счётчик + приглушённый процент. Нулевые значения дополнительно гасим,
-      // чтобы взгляд цеплялся за реальные конверсии, а не за частокол «0 / 0%».
-      function numCell(count, rate) {
-        const td = node('td', { class:'num' + (count ? '' : ' zero') }, [
-          node('span', { class:'cnt', text:String(count) })
+    function flowStep(num, cap) {
+      return node('div', { class:'fn-flow__step' }, [
+        node('span', { class:'fn-flow__num', text:num }),
+        node('span', { class:'fn-flow__cap', text:cap })
+      ]);
+    }
+
+    // Этап воронки: счётчик + полоса, ширина которой = конверсия к СВОЕЙ базе.
+    // База подписана явно («от регистраций» и т.д.) — раньше проценты считались от
+    // разных знаменателей без подписи, из-за чего «6 / 0.1%» и «1 / 16.7%» путали.
+    function stageNode(index, name, count, rate, baseLabel, baseCount) {
+      const stage = node('div', { class:'fn-stage', 'data-zero': count ? null : '1' }, [
+        node('div', { class:'fn-stage__top' }, [
+          node('span', { class:'fn-stage__idx', text:String(index) }),
+          node('span', { class:'fn-stage__name', text:name }),
+          node('span', { class:'fn-stage__count', text:fmtNum(count) })
+        ])
+      ]);
+      const fill = node('div', { class:'fn-stage__fill' });
+      const widthPct = rate === null ? 100 : Math.max(0, Math.min(1, Number(rate) || 0)) * 100;
+      fill.style.width = widthPct + '%';
+      const track = node('div', { class:'fn-stage__track' }, [fill]);
+      let conv;
+      if (rate === null) {
+        conv = node('span', { class:'fn-stage__conv', text:'вершина воронки' });
+      } else if (!baseCount) {
+        conv = node('span', { class:'fn-stage__conv', text:'нет базы' });
+      } else {
+        conv = node('span', { class:'fn-stage__conv' }, [
+          node('b', { text:pct(rate) }),
+          document.createTextNode(' от ' + baseLabel)
         ]);
-        if (rate !== undefined && rate !== null) {
+      }
+      stage.append(node('div', { class:'fn-stage__barrow' }, [track, conv]));
+      return stage;
+    }
+
+    function tgChip(count, label, rate, base) {
+      return node('div', { class:'fn-tg' }, [
+        node('b', { text:fmtNum(count) }),
+        node('span', { text:label }),
+        node('em', { text:base ? pct(rate) : '—' })
+      ]);
+    }
+
+    function renderFunnelMetrics(data) {
+      const s = data.summary;
+      const r = data.rates;
+      clear(funnelMetrics);
+      const root = node('div', { class:'fn' });
+
+      const overall = s.visitors ? s.contracts / s.visitors : 0;
+      root.append(node('div', { class:'fn-hero' }, [
+        node('div', { class:'fn-flow' }, [
+          flowStep(fmtNum(s.visitors), 'Посетители'),
+          node('span', { class:'fn-flow__arrow', text:'→' }),
+          flowStep(fmtNum(s.registrations), 'Регистрации'),
+          node('span', { class:'fn-flow__arrow', text:'→' }),
+          flowStep(fmtNum(s.contracts), 'Договоры')
+        ]),
+        node('div', { class:'fn-hero__conv' }, [
+          node('b', { text:pct(overall) }),
+          node('span', { text:'посетитель → договор' })
+        ])
+      ]));
+
+      root.append(node('div', { class:'fn-stages' }, [
+        stageNode(1, 'Посетители', s.visitors, null, '', s.visitors),
+        stageNode(2, 'Регистрации', s.registrations, r.registrationRate, 'посетителей', s.visitors),
+        stageNode(3, 'Вход в комнату', s.roomEntries, r.roomEntryRate, 'регистраций', s.registrations),
+        stageNode(4, 'Вопросы', s.questions, r.questionRate, 'вошедших в комнату', s.roomEntries),
+        stageNode(5, 'Заявки', s.applications, r.applicationRate, 'регистраций', s.registrations),
+        stageNode(6, 'Договоры', s.contracts, r.contractRate, 'заявок', s.applications)
+      ]));
+
+      root.append(node('div', { class:'fn-branch' }, [
+        node('div', { class:'fn-branch__title' }, [
+          document.createTextNode('Telegram '),
+          node('span', { text:'— от регистраций' })
+        ]),
+        node('div', { class:'fn-branch__items' }, [
+          tgChip(s.telegramClicks, 'клики', r.telegramClickRate, s.registrations),
+          tgChip(s.telegramSubscribers, 'подписки', r.telegramSubscribeRate, s.registrations)
+        ])
+      ]));
+
+      funnelMetrics.append(root);
+    }
+
+    // Источник: убираем общий origin-префикс, чтобы видеть отличающийся путь/страницу,
+    // а не одинаковое «https://aspb-partners.ru/...» в каждой строке. Полное значение — в title.
+    function prettySource(key) {
+      if (!key) return '—';
+      return key.replace(/^https?:\/\/[^/]+(?=\/)/, '') || key;
+    }
+
+    function renderFunnelTable(data) {
+      clear(funnelTable);
+      const onlyConverting = document.getElementById('funnelOnlyConverting');
+      const groups = onlyConverting && onlyConverting.checked
+        ? data.groups.filter(row => row.registrations > 0)
+        : data.groups.slice();
+
+      funnelTable.append(node('div', { class:'fn-tablehead' }, [
+        node('div', { class:'fn-legend' }, [
+          document.createTextNode('Проценты в столбцах: '),
+          node('b', { text:'Регистрации' }), document.createTextNode(' — от посетителей источника; '),
+          node('b', { text:'Комната / Заявки' }), document.createTextNode(' — от регистраций; '),
+          node('b', { text:'Договоры' }), document.createTextNode(' — от заявок; '),
+          node('b', { text:'Вопросы' }), document.createTextNode(' — абсолютное число.')
+        ]),
+        node('div', { class:'sub', text:'Источников: ' + groups.length })
+      ]));
+
+      if (!groups.length) {
+        funnelTable.append(node('div', { class:'funnel-empty', text:'Нет источников по выбранным условиям.' }));
+        return;
+      }
+
+      const maxVisitors = groups.reduce((max, row) => Math.max(max, row.visitors || 0), 0);
+
+      // Числовая ячейка: счётчик + приглушённый процент. Процент показываем только когда
+      // у него есть непустая база — иначе «0%» вводит в заблуждение (нечего делить).
+      function numCell(count, rate, base) {
+        const td = node('td', { class:'num' + (count ? '' : ' zero') }, [
+          node('span', { class:'cnt', text:fmtNum(count) })
+        ]);
+        if (rate !== undefined && rate !== null && base) {
           td.append(node('span', { class:'pct', text:pct(rate) }));
         }
         return td;
       }
-      // Источник: убираем общий origin-префикс, чтобы видеть отличающийся путь/страницу,
-      // а не одинаковое «https://aspb-partners.ru/...» в каждой строке. Полное значение — в title.
-      function prettySource(key) {
-        if (!key) return '—';
-        return key.replace(/^https?:\/\/[^/]+(?=\/)/, '') || key;
+      function srcCell(row) {
+        const bar = node('i');
+        bar.style.width = (maxVisitors ? Math.round((row.visitors / maxVisitors) * 100) : 0) + '%';
+        return node('td', { class:'src', title:row.key || '' }, [
+          node('strong', { text:prettySource(row.key) }),
+          node('span', { class:'srcbar' }, [bar])
+        ]);
       }
 
       const tbody = node('tbody');
-      data.groups.forEach(row => {
+      groups.forEach(row => {
         const isEmpty = !row.visitors && !row.registrations && !row.roomEntries && !row.applications && !row.contracts;
         tbody.append(node('tr', { class:isEmpty ? 'row-empty' : null }, [
-          node('td', { class:'src', title:row.key || '' }, [node('strong', { text:prettySource(row.key) })]),
+          srcCell(row),
           numCell(row.visitors),
-          numCell(row.registrations, row.registrationRate),
-          numCell(row.telegramSubscribers, row.telegramSubscribeRate),
-          numCell(row.roomEntries, row.roomEntryRate),
+          numCell(row.registrations, row.registrationRate, row.visitors),
+          numCell(row.telegramSubscribers, row.telegramSubscribeRate, row.registrations),
+          numCell(row.roomEntries, row.roomEntryRate, row.registrations),
           numCell(row.questions),
-          numCell(row.applications, row.applicationRate),
-          numCell(row.contracts, row.contractRate)
+          numCell(row.applications, row.applicationRate, row.registrations),
+          numCell(row.contracts, row.contractRate, row.applications)
         ]));
       });
       const numTh = label => node('th', { class:'num', text:label });
@@ -727,6 +842,11 @@ let currentQueue = 'all';
     broadcastBtn.addEventListener('click', sendBroadcast);
     funnelRefreshBtn.addEventListener('click', loadFunnel);
     [funnelFrom, funnelTo, funnelGroupBy].forEach(input => input.addEventListener('change', loadFunnel));
+    // Переключатель «только с регистрациями» перерисовывает лишь таблицу из уже
+    // загруженных данных — без повторного запроса к серверу.
+    document.getElementById('funnelOnlyConverting').addEventListener('change', () => {
+      if (lastFunnelData) renderFunnelTable(lastFunnelData);
+    });
     fillStatusFilter();
     initFunnelDates();
     fillManagerFilter();

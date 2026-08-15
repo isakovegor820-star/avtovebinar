@@ -80,6 +80,17 @@ export function requestParticipantLogin(email) {
   return post('/participant/login/request', { email });
 }
 
+export function participantLoginStatusMessage(result) {
+  if (result?.deliveryStatus === 'retrying' || result?.emailDeliveryAvailable === false) {
+    const retryAfter = Number(result?.retryAfterSeconds);
+    const retryText = Number.isFinite(retryAfter) && retryAfter > 0
+      ? ` через ${Math.ceil(retryAfter)} с`
+      : ' позже';
+    return `Сейчас не удаётся отправить письмо. Повторите запрос${retryText}.`;
+  }
+  return 'Если адрес зарегистрирован, ссылка для входа будет отправлена на него.';
+}
+
 export function consumeParticipantLoginToken(token) {
   return post('/participant/login/consume', { token });
 }
@@ -173,14 +184,19 @@ export async function handleRegistrationSubmit(event, formOverride) {
   const originalText = button ? button.textContent : '';
   const data = new FormData(form);
   const clients = form.querySelector('input[name="clients"]:checked');
-  const consent = form.querySelector('input[name="consent"]');
-  const marketingConsent = form.querySelector('input[name="marketingConsent"]');
+  const personalDataConsent = form.querySelector('input[name="personalDataConsent"]');
+  const termsAccepted = form.querySelector('input[name="termsAccepted"]');
+  const marketingEmailConsent = form.querySelector('input[name="marketingEmailConsent"]');
+  const marketingTelegramConsent = form.querySelector('input[name="marketingTelegramConsent"]');
 
   function showFormError(message) {
     form.querySelector('[data-registration-error="true"]')?.remove();
     const node = document.createElement('p');
     node.dataset.registrationError = 'true';
     node.className = 'text-label-sm text-error bg-error-container/40 border border-error/20 rounded-lg px-4 py-3';
+    node.setAttribute('role', 'alert');
+    node.setAttribute('aria-live', 'assertive');
+    node.setAttribute('tabindex', '-1');
     node.textContent = message;
     // Ошибку показываем НАД кнопкой отправки (а не в конце формы) и центрируем — иначе на
     // мобильном она появлялась под кнопкой, ниже видимой области, и причина отказа не видна.
@@ -191,10 +207,46 @@ export async function handleRegistrationSubmit(event, formOverride) {
       form.appendChild(node);
     }
     node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    node.focus({ preventScroll: true });
   }
 
-  if (consent && !consent.checked) {
+  function showVerificationRequired(result) {
+    form.querySelector('[data-registration-error="true"]')?.remove();
+    form.querySelector('[data-registration-verification="true"]')?.remove();
+
+    const node = document.createElement('section');
+    node.dataset.registrationVerification = 'true';
+    node.className = 'registration-verification-state';
+    node.setAttribute('role', 'status');
+    node.setAttribute('aria-live', 'polite');
+    node.setAttribute('tabindex', '-1');
+
+    const title = document.createElement('strong');
+    const deliveryAvailable = result.emailDeliveryAvailable !== false;
+    title.textContent = deliveryAvailable ? 'Проверьте почту' : 'Нужно подтвердить email';
+    const text = document.createElement('p');
+    text.textContent = deliveryAvailable
+      ? result.message ||
+        'Если этот email уже зарегистрирован, на него отправлена одноразовая ссылка для безопасного входа.'
+      : 'Данные существующего участника не изменены. Почтовая доставка сейчас отключена, поэтому ссылка не отправлена; повторите запрос на странице «Мой доступ» позже.';
+    const link = document.createElement('a');
+    link.href = result.accessUrl || 'access.html';
+    link.textContent = 'Запросить новую ссылку или открыть «Мой доступ»';
+    node.append(title, text, link);
+
+    const submitButton = form.querySelector('button[type="submit"]');
+    if (submitButton?.parentNode) submitButton.parentNode.insertBefore(node, submitButton);
+    else form.appendChild(node);
+    node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    node.focus({ preventScroll: true });
+  }
+
+  if (personalDataConsent && !personalDataConsent.checked) {
     showFormError('Подтвердите согласие на обработку персональных данных.');
+    return false;
+  }
+  if (termsAccepted && !termsAccepted.checked) {
+    showFormError('Подтвердите принятие пользовательского соглашения отдельным действием.');
     return false;
   }
 
@@ -223,10 +275,29 @@ export async function handleRegistrationSubmit(event, formOverride) {
       city: data.get('city') || '',
       professionalStatus,
       clientsProblem: clients ? clients.value : '',
-      consent: consent ? consent.checked : false,
-      marketingConsent: marketingConsent ? marketingConsent.checked : false,
+      personalDataConsent: personalDataConsent ? personalDataConsent.checked : false,
+      termsAccepted: termsAccepted ? termsAccepted.checked : false,
+      marketingEmailConsent: marketingEmailConsent ? marketingEmailConsent.checked : false,
+      marketingTelegramConsent: marketingTelegramConsent ? marketingTelegramConsent.checked : false,
       ...utm()
     });
+
+    if (result.verificationRequired) {
+      try {
+        // A stale client hint must never make an unverified duplicate email
+        // look authenticated. The server session remains authoritative.
+        window.localStorage.removeItem('crisisPremiumRegistered');
+      } catch {
+        // localStorage is optional.
+      }
+      showVerificationRequired(result);
+      if (button) {
+        button.textContent =
+          result.emailDeliveryAvailable === false ? 'Подтверждение email недоступно' : 'Ссылка для входа запрошена';
+        button.disabled = true;
+      }
+      return false;
+    }
 
     try {
       window.localStorage.setItem('crisisPremiumRegistered', 'true');
@@ -267,6 +338,11 @@ export function bindRegistrationForm() {
       else statusOther.value = '';
     });
   }
+
+  const submitButton = form.querySelector('[data-enable-submit]');
+  if (submitButton) submitButton.type = 'submit';
+  form.removeAttribute('inert');
+  form.removeAttribute('aria-busy');
 }
 
 export function bindTelegramTracking() {

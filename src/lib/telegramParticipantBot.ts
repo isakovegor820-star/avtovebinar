@@ -17,10 +17,26 @@ import {
   buildFrontendUrl,
   createRoomExchangeUrl,
   getParticipantSessionExpiresAt,
+  TELEGRAM_BINDING_VERSION,
   TELEGRAM_START_TOKEN_PURPOSE,
 } from './roomLinks.js';
 import { logger } from './logger.js';
 import { createTelegramPoller, type TelegramPoller } from './telegramPoller.js';
+import { MARKETING_TELEGRAM_CONSENT, consentEvidenceData } from './consentDocuments.js';
+import {
+  ANONYMIZED_LEAD_EMAIL_SUFFIX,
+  acquireLeadSecurityLock,
+  acquireTelegramDeliveryLock,
+  isLeadIdentityActive,
+  isParticipantRegistrationActive,
+} from './leadSecurity.js';
+
+// A revocation may wait for one already-started Telegram provider request
+// (20s hard deadline), then takes the short Lead data lock and commits.
+export const TELEGRAM_REVOCATION_TRANSACTION_OPTIONS = {
+  maxWait: 5_000,
+  timeout: 30_000,
+} as const;
 
 type TelegramUpdate = {
   update_id: number;
@@ -66,9 +82,28 @@ async function consumeTelegramStartToken(
       return null;
     }
 
+    await acquireLeadSecurityLock(tx, tokenRecord.registration.leadId);
+    const activeTokenRecord = await tx.registrationToken.findUnique({
+      where: { tokenHash: accessTokenHash },
+      include: {
+        registration: {
+          include: { lead: true, webinarSession: true },
+        },
+      },
+    });
+    if (
+      !activeTokenRecord ||
+      activeTokenRecord.id !== tokenRecord.id ||
+      activeTokenRecord.purpose !== TELEGRAM_START_TOKEN_PURPOSE ||
+      (activeTokenRecord.expiresAt && activeTokenRecord.expiresAt <= now) ||
+      !isParticipantRegistrationActive(activeTokenRecord.registration)
+    ) {
+      return null;
+    }
+
     const claimedToken = await tx.registrationToken.deleteMany({
       where: {
-        id: tokenRecord.id,
+        id: activeTokenRecord.id,
         tokenHash: accessTokenHash,
         purpose: TELEGRAM_START_TOKEN_PURPOSE,
         OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
@@ -78,24 +113,25 @@ async function consumeTelegramStartToken(
       return null;
     }
 
-    const previousChatId = tokenRecord.registration.lead.telegramChatId;
+    const previousChatId = activeTokenRecord.registration.lead.telegramChatId;
     const updatedLead = await tx.lead.update({
-      where: { id: tokenRecord.registration.leadId },
+      where: { id: activeTokenRecord.registration.leadId },
       data: {
         telegramChatId: input.chatId,
         telegramUsername: input.telegramUsername,
         telegramFirstName: input.telegramFirstName,
         telegramSubscribedAt: now,
+        telegramBindingVersion: TELEGRAM_BINDING_VERSION,
       },
     });
 
     await tx.registration.update({
-      where: { id: tokenRecord.registration.id },
-      data: { telegramClickedAt: tokenRecord.registration.telegramClickedAt ?? now },
+      where: { id: activeTokenRecord.registration.id },
+      data: { telegramClickedAt: activeTokenRecord.registration.telegramClickedAt ?? now },
     });
 
     return {
-      registration: tokenRecord.registration,
+      registration: activeTokenRecord.registration,
       updatedLead,
       isRebind: Boolean(previousChatId && previousChatId !== input.chatId),
     };
@@ -103,31 +139,44 @@ async function consumeTelegramStartToken(
 }
 
 async function createRoomUrl(registrationId: string, purpose = 'telegram_room') {
-  const registration = await prisma.registration.findUnique({
-    where: { id: registrationId },
-  });
-
-  if (!registration) {
-    throw new Error(`Registration not found for Telegram room link purpose ${purpose}`);
-  }
-
   // Ежедневная модель: ссылка из бота должна открывать СЕГОДНЯШНюю комнату в любой день,
   // а не протухать по сессии дня регистрации. Обменный токен одноразовый; срок = срок
-  // участницкой сессии (90 дней). После клика создаётся session-cookie, а доступ к комнате
+  // участницкой сессии (7 дней). После клика создаётся session-cookie, а доступ к комнате
   // на каждый день решает buildDailyRoomAccessPayload (берёт сессию на now).
-  return prisma.$transaction(tx =>
-    createRoomExchangeUrl(tx, {
+  return prisma.$transaction(async tx => {
+    const registrationRef = await tx.registration.findUnique({
+      where: { id: registrationId },
+      select: { leadId: true },
+    });
+    if (!registrationRef) return null;
+
+    await acquireLeadSecurityLock(tx, registrationRef.leadId);
+    const activeRegistration = await tx.registration.findUnique({
+      where: { id: registrationId },
+      include: { lead: true },
+    });
+    if (!activeRegistration || !isParticipantRegistrationActive(activeRegistration)) {
+      logger.warn({ registrationId, purpose }, 'Telegram room link skipped for inactive registration');
+      return null;
+    }
+
+    return createRoomExchangeUrl(tx, {
       registrationId,
       expiresAt: getParticipantSessionExpiresAt(),
-    }),
-  );
+    });
+  });
 }
 
 async function findLatestRegistrationByChat(chatId: string) {
   return prisma.registration.findFirst({
     where: {
+      status: 'registered',
+      emailVerifiedAt: { not: null },
       lead: {
         telegramChatId: chatId,
+        telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+        personalDataConsentRevokedAt: null,
+        email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
       },
     },
     include: {
@@ -145,23 +194,93 @@ async function saveBotEvent(input: {
   webinarSessionId?: string;
   metadata?: Record<string, unknown>;
 }) {
-  await prisma.event.create({
-    data: {
-      eventName: input.eventName,
-      leadId: input.leadId ?? null,
-      registrationId: input.registrationId ?? null,
-      webinarSessionId: input.webinarSessionId ?? null,
-      page: 'telegram_bot',
-      source: 'telegram',
-      metadataJson: input.metadata as Prisma.InputJsonValue | undefined,
-    },
+  const data = {
+    eventName: input.eventName,
+    page: 'telegram_bot',
+    source: 'telegram',
+    metadataJson: input.metadata as Prisma.InputJsonValue | undefined,
+  };
+  if (!input.leadId) {
+    await prisma.event.create({
+      data: {
+        ...data,
+        leadId: null,
+        registrationId: null,
+        webinarSessionId: null,
+      },
+    });
+    return true;
+  }
+
+  return prisma.$transaction(async tx => {
+    await acquireLeadSecurityLock(tx, input.leadId!);
+    const activeRegistration = input.registrationId
+      ? await tx.registration.findUnique({
+          where: { id: input.registrationId },
+          include: { lead: true },
+        })
+      : null;
+    if (
+      !activeRegistration ||
+      activeRegistration.leadId !== input.leadId ||
+      !isParticipantRegistrationActive(activeRegistration)
+    ) {
+      return false;
+    }
+
+    await tx.event.create({
+      data: {
+        ...data,
+        leadId: activeRegistration.leadId,
+        registrationId: activeRegistration.id,
+        webinarSessionId: input.webinarSessionId ?? activeRegistration.webinarSessionId,
+      },
+    });
+    return true;
+  });
+}
+
+async function refreshTelegramBindingForActiveRegistration(
+  registrationId: string,
+  expectedLeadId: string,
+  input: {
+    chatId: string;
+    telegramUsername?: string | null;
+    telegramFirstName?: string | null;
+  },
+) {
+  return prisma.$transaction(async tx => {
+    await acquireLeadSecurityLock(tx, expectedLeadId);
+    const activeRegistration = await tx.registration.findUnique({
+      where: { id: registrationId },
+      include: { lead: true, webinarSession: true },
+    });
+    if (
+      !activeRegistration ||
+      activeRegistration.leadId !== expectedLeadId ||
+      !isParticipantRegistrationActive(activeRegistration)
+    ) {
+      return null;
+    }
+
+    const updatedLead = await tx.lead.update({
+      where: { id: expectedLeadId },
+      data: {
+        telegramChatId: input.chatId,
+        telegramUsername: input.telegramUsername,
+        telegramFirstName: input.telegramFirstName,
+        telegramSubscribedAt: new Date(),
+        telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+      },
+    });
+    return { registration: activeRegistration, updatedLead };
   });
 }
 
 function buildSegmentTip(status?: string | null) {
   const value = (status || '').toLowerCase();
   if (value.includes('юрист') || value.includes('антикризис')) {
-    return 'На эфире разберем, как работать с долговыми клиентами без самостоятельного ведения всей процедуры банкротства.';
+    return 'В записи разобрано, как работать с долговыми клиентами без самостоятельного ведения всей процедуры банкротства.';
   }
 
   if (value.includes('налог') || value.includes('корпоратив')) {
@@ -172,7 +291,7 @@ function buildSegmentTip(status?: string | null) {
     return 'Посмотрите, какие долговые обращения можно не отпускать, а передавать в АСПБ по понятной партнерской модели.';
   }
 
-  return 'Подготовьте один пример клиента с долговой ситуацией: на эфире покажем, когда его стоит передать на диагностику в АСПБ.';
+  return 'Подготовьте один обезличенный пример клиента с долговой ситуацией: в записи показано, когда его стоит передать на диагностику в АСПБ.';
 }
 
 function notifyAdminSafely(task: Promise<unknown>) {
@@ -195,21 +314,29 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
   if (!payload) {
     const existingRegistration = await findLatestRegistrationByChat(chatId);
     if (existingRegistration) {
-      const updatedLead = await prisma.lead.update({
-        where: { id: existingRegistration.leadId },
-        data: {
-          telegramChatId: chatId,
-          telegramUsername,
-          telegramFirstName,
-          telegramSubscribedAt: existingRegistration.lead.telegramSubscribedAt ?? new Date(),
-        },
-      });
-      const roomUrl = await createRoomUrl(existingRegistration.id, 'telegram_repeat_start_room');
+      const refreshed = await refreshTelegramBindingForActiveRegistration(
+        existingRegistration.id,
+        existingRegistration.leadId,
+        { chatId, telegramUsername, telegramFirstName },
+      );
+      if (!refreshed) {
+        await sendTelegramMessageToChat(
+          chatId,
+          'Эта регистрация больше не активна. Зарегистрируйтесь заново, чтобы подключить уведомления.',
+        );
+        return;
+      }
+      const { registration: activeRegistration, updatedLead } = refreshed;
+      const roomUrl = await createRoomUrl(activeRegistration.id, 'telegram_repeat_start_room');
+      if (!roomUrl) {
+        await sendTelegramMessageToChat(chatId, 'Не удалось создать ссылку: регистрация больше не активна.');
+        return;
+      }
       await saveBotEvent({
         eventName: 'telegram_repeat_start',
-        leadId: existingRegistration.leadId,
-        registrationId: existingRegistration.id,
-        webinarSessionId: existingRegistration.webinarSessionId,
+        leadId: activeRegistration.leadId,
+        registrationId: activeRegistration.id,
+        webinarSessionId: activeRegistration.webinarSessionId,
         metadata: {
           username: telegramUsername,
           telegramFirstName,
@@ -228,23 +355,23 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
           utmSource: updatedLead.utmSource,
           utmMedium: updatedLead.utmMedium,
           utmCampaign: updatedLead.utmCampaign,
-          scheduledAt: existingRegistration.webinarSession.scheduledAt,
-          registeredAt: existingRegistration.registeredAt,
+          scheduledAt: activeRegistration.webinarSession.scheduledAt,
+          registeredAt: activeRegistration.registeredAt,
           telegramChatId: chatId,
           telegramUserId,
           telegramUsername,
           telegramFirstName,
-          registrationId: existingRegistration.id,
+          registrationId: activeRegistration.id,
           adminUrl: buildFrontendUrl('/admin'),
         }),
       );
       await sendTelegramMessageToChat(
         chatId,
         [
-          `${existingRegistration.lead.name}, напоминания уже подключены.`,
+          `${activeRegistration.lead.name}, напоминания уже подключены.`,
           '',
-          `Вебинар: ${existingRegistration.webinarSession.title}`,
-          `Начало: ${formatMoscowDate(existingRegistration.webinarSession.scheduledAt)} МСК`,
+          `Вебинар: ${activeRegistration.webinarSession.title}`,
+          `Начало: ${formatMoscowDate(activeRegistration.webinarSession.scheduledAt)} МСК`,
           '',
           'Команды: /status — регистрация, /room — ссылка в комнату.',
         ].join('\n'),
@@ -318,6 +445,13 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
   });
 
   const roomUrl = await createRoomUrl(registration.id, 'telegram_start_room');
+  if (!roomUrl) {
+    await sendTelegramMessageToChat(
+      chatId,
+      'Привязка не завершена: регистрация больше не активна. Зарегистрируйтесь заново.',
+    );
+    return;
+  }
 
   notifyAdminSafely(
     notifyTelegramSubscription({
@@ -350,7 +484,7 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
       `Вебинар: ${registration.webinarSession.title}`,
       `Начало: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
       '',
-      'До эфира подготовьте 1–2 клиентов с долгами, налогами или риском банкротства.',
+      'До премьеры подготовьте 1–2 обезличенных примера клиентов с долгами, налогами или риском банкротства.',
       buildSegmentTip(registration.lead.professionalStatus),
       '',
       'Напомню за 24 часа, за 3 часа и за 30 минут до старта.',
@@ -370,13 +504,17 @@ async function handleStatus(chatId: string) {
   }
 
   const roomUrl = await createRoomUrl(registration.id, 'telegram_status_room');
+  if (!roomUrl) {
+    await sendTelegramMessageToChat(chatId, 'Эта регистрация больше не активна. Зарегистрируйтесь заново.');
+    return;
+  }
   await sendTelegramMessageToChat(
     chatId,
     [
       'Ваша регистрация активна.',
       '',
       `Участник: ${registration.lead.name}`,
-      `Эфир: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
+      `Премьера записи: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
     ].join('\n'),
     { replyMarkup: telegramUrlButton('▶ Войти в комнату', roomUrl) },
   );
@@ -393,6 +531,10 @@ async function handleRoom(chatId: string) {
   }
 
   const roomUrl = await createRoomUrl(registration.id, 'telegram_room_command');
+  if (!roomUrl) {
+    await sendTelegramMessageToChat(chatId, 'Эта регистрация больше не активна. Зарегистрируйтесь заново.');
+    return;
+  }
   await sendTelegramMessageToChat(chatId, 'Ваша персональная вебинарная комната:', {
     replyMarkup: telegramUrlButton('▶ Войти в комнату', roomUrl),
   });
@@ -404,12 +546,114 @@ async function handleHelp(chatId: string) {
     [
       'Команды АСПБ:',
       '',
-      '/status — проверить регистрацию и время эфира',
+      '/status — проверить регистрацию и время премьеры записи',
       '/room — получить персональную ссылку в комнату',
+      '/unsubscribe — немедленно отказаться от рекламы в Telegram',
       '/help — помощь',
       '',
       `Регистрация: ${buildFrontendUrl('/crisis_premium/register.html')}`,
     ].join('\n'),
+  );
+}
+
+async function handleMarketingUnsubscribe(chatId: string) {
+  const lead = await prisma.lead.findFirst({
+    where: { telegramChatId: chatId, telegramBindingVersion: TELEGRAM_BINDING_VERSION },
+    include: {
+      consentRecords: {
+        where: {
+          kind: 'marketing_telegram',
+          action: 'grant',
+          documentId: MARKETING_TELEGRAM_CONSENT.id,
+        },
+        orderBy: { occurredAt: 'desc' },
+        take: 1,
+      },
+    },
+  });
+  if (!lead) {
+    await sendTelegramMessageToChat(chatId, 'Рекламная подписка для этого чата не найдена.');
+    return;
+  }
+
+  const revokedAt = new Date();
+  const revoked = await prisma.$transaction(async tx => {
+    // Global order for any transaction that needs both locks:
+    // TelegramDelivery -> Lead.
+    await acquireTelegramDeliveryLock(tx, lead.id);
+    await acquireLeadSecurityLock(tx, lead.id);
+    const currentLead = await tx.lead.findUnique({
+      where: { id: lead.id },
+      include: {
+        consentRecords: {
+          where: {
+            kind: 'marketing_telegram',
+            action: 'grant',
+            documentId: MARKETING_TELEGRAM_CONSENT.id,
+          },
+          orderBy: { occurredAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+    if (
+      !currentLead ||
+      !isLeadIdentityActive(currentLead) ||
+      currentLead.telegramChatId !== chatId ||
+      currentLead.telegramBindingVersion !== TELEGRAM_BINDING_VERSION
+    ) {
+      return false;
+    }
+
+    await tx.lead.update({
+      where: { id: currentLead.id },
+      data: {
+        marketingTelegramConsent: false,
+        marketingTelegramRevokedAt: revokedAt,
+        marketingTelegramRevocationChannel: 'telegram_command',
+        marketingTelegramRevocationReason: 'recipient_request',
+        marketingConsent: currentLead.marketingEmailConsent,
+      },
+    });
+    // A queued broadcast snapshot is not authorization. Mark pending rows inside the
+    // same Lead lock so a provider result from an older worker cannot overwrite this
+    // revocation with `sent` (the worker finalizes recipients through status/identity CAS).
+    await tx.telegramBroadcastRecipient.updateMany({
+      where: { leadId: currentLead.id, status: 'pending' },
+      data: {
+        status: 'skipped_revoked',
+        unsubscribedBeforeSendAt: revokedAt,
+        lastError: 'Recipient revoked Telegram marketing consent before delivery',
+      },
+    });
+    await tx.consentRecord.create({
+      data: consentEvidenceData(MARKETING_TELEGRAM_CONSENT, {
+        leadId: currentLead.id,
+        email: currentLead.email,
+        kind: 'marketing_telegram',
+        action: 'revoke',
+        sourceForm: 'telegram_participant_bot',
+        req: {
+          headers: { 'user-agent': 'telegram-participant-bot' },
+          socket: {},
+        },
+        occurredAt: revokedAt,
+        revocationChannel: 'telegram_command',
+        revocationReason: 'recipient_request',
+        revokedConsentId: currentLead.consentRecords[0]?.id,
+      }),
+    });
+    return true;
+  }, TELEGRAM_REVOCATION_TRANSACTION_OPTIONS);
+
+  if (!revoked) {
+    await sendTelegramMessageToChat(chatId, 'Рекламная подписка для этого чата не найдена.');
+    return;
+  }
+
+  await sendTelegramMessageToChat(
+    chatId,
+    'Готово: рекламные сообщения и новости АСПБ в Telegram отключены немедленно. Организационные сообщения о вашей регистрации регулируются отдельно.',
   );
 }
 
@@ -424,6 +668,11 @@ async function handleUpdate(update: TelegramUpdate) {
 
   if (text.startsWith('/start')) {
     await handleStart(chatId, text, update);
+    return;
+  }
+
+  if (text.startsWith('/unsubscribe') || text.startsWith('/stop') || /^стоп$/i.test(text)) {
+    await handleMarketingUnsubscribe(chatId);
     return;
   }
 
@@ -459,6 +708,7 @@ export function startParticipantTelegramBot() {
     allowedUpdates: ['message'],
     isEnabled: isParticipantBotReady,
     handleUpdate,
+    progressSubsystem: 'botParticipant',
   });
   poller.start();
   return poller;

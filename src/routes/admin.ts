@@ -11,23 +11,35 @@ import { hashPassword, verifyPassword } from '../lib/passwords.js';
 import { formatMoscowDate, sendTelegramMessage, sendTelegramMessageToChat } from '../lib/telegram.js';
 import {
   createTelegramBroadcastJob,
-  getActiveTelegramBroadcastJob,
+  previewTelegramBroadcastRecipients,
+  previewTelegramBroadcastRecipientsForSnapshot,
+  TELEGRAM_BROADCAST_CREATE_LOCK_KEY,
   TELEGRAM_BROADCAST_MAX_TEXT_LENGTH,
 } from '../lib/telegramBroadcastWorker.js';
 import { setContextIdentity } from '../lib/requestContext.js';
 import { getAdminHtml } from '../responses/adminPage.js';
-import { buildFrontendUrl, createRoomExchangeUrl, getRoomTokenExpiresAt } from '../lib/roomLinks.js';
+import {
+  buildFrontendUrl,
+  createRoomExchangeUrl,
+  getRoomTokenExpiresAt,
+  TELEGRAM_BINDING_VERSION,
+} from '../lib/roomLinks.js';
 import { MODERATOR_NAME, MODERATOR_ROLE, MODERATOR_CHAT_KIND, buildModeratorIntroMessage } from '../lib/moderator.js';
 import { findOrCreateWebinarSession } from '../lib/webinarSessions.js';
 import { getDailyBroadcastDate } from '../lib/time.js';
 import { getWebinarLiveState } from '../lib/webinarLive.js';
 import { getScriptedChatMessagesUntil } from '../lib/scriptedChat.js';
+import { createMfaEnrollment, decryptMfaSecret, verifyTotp } from '../lib/mfa.js';
+import { anonymizeLeadInTransaction, LEAD_ANONYMIZATION_TRANSACTION_TIMEOUT_MS } from '../lib/anonymizeLead.js';
+import { acquireLeadSecurityLock, isParticipantRegistrationActive } from '../lib/leadSecurity.js';
 
 export const adminRouter = Router();
 
 const ADMIN_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
 type AdminRole = (typeof ADMIN_ROLES)[number];
 type AnalyticsGroupBy = 'source' | 'utmSource' | 'utmMedium' | 'utmCampaign';
+const ADMIN_OWNER_MUTATION_LOCK_KEY = BigInt('48192731001');
+const LEAD_ANONYMIZATION_LOCK_KEY = BigInt('48192731003');
 const strongAdminPasswordSchema = z
   .string()
   .max(200)
@@ -37,16 +49,38 @@ function isAdminRole(value: string): value is AdminRole {
   return ADMIN_ROLES.includes(value as AdminRole);
 }
 
-const leadAnalyticsColumns: Record<AnalyticsGroupBy, Prisma.Sql> = {
-  source: Prisma.raw('l."source"'),
-  utmSource: Prisma.raw('l."utm_source"'),
-  utmMedium: Prisma.raw('l."utm_medium"'),
-  utmCampaign: Prisma.raw('l."utm_campaign"'),
+function adminSessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: (env.NODE_ENV === 'production' ? 'strict' : 'lax') as 'strict' | 'lax',
+    secure: env.NODE_ENV === 'production',
+    partitioned: env.NODE_ENV === 'production' ? true : undefined,
+    path: '/',
+  };
+}
+
+async function acquireTransactionLock(tx: Prisma.TransactionClient, key: bigint) {
+  await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${key})`);
+}
+
+const eventAnalyticsColumns: Record<AnalyticsGroupBy, Prisma.Sql> = {
+  source: Prisma.raw('e."source"'),
+  utmSource: Prisma.raw('e."utm_source"'),
+  utmMedium: Prisma.raw('e."utm_medium"'),
+  utmCampaign: Prisma.raw('e."utm_campaign"'),
 };
 
-type AnalyticsCountRow = {
-  key: string | null;
-  count: number | bigint;
+type FunnelCohortRow = {
+  key: string;
+  visitors: number | bigint;
+  legacyVisitors: number | bigint;
+  registrations: number | bigint;
+  telegramClicks: number | bigint;
+  telegramSubscribers: number | bigint;
+  roomEntries: number | bigint;
+  questions: number | bigint;
+  applications: number | bigint;
+  contracts: number | bigint;
 };
 
 function toCount(value: number | bigint) {
@@ -77,7 +111,12 @@ async function requireAdmin(req: AdminRequest, _res: any, next: any) {
 
   if (session.adminId) {
     const adminUser = await prisma.adminUser.findUnique({ where: { id: session.adminId } });
-    if (!adminUser || !adminUser.isActive) {
+    if (
+      !adminUser ||
+      !adminUser.isActive ||
+      session.sessionVersion !== adminUser.sessionVersion ||
+      !adminUser.mfaEnabledAt
+    ) {
       return next(new AppError(401, 'Admin authorization required'));
     }
 
@@ -136,8 +175,9 @@ async function audit(
     before?: unknown;
     after?: unknown;
   },
+  db: Pick<Prisma.TransactionClient, 'auditLog'> | typeof prisma = prisma,
 ) {
-  await prisma.auditLog.create({
+  await db.auditLog.create({
     data: {
       adminUserId: req.admin?.id ?? null,
       action: input.action,
@@ -171,9 +211,17 @@ function managerWorkQueueWhere(now = new Date()): Prisma.RegistrationWhereInput 
   };
 }
 
+const VERIFIED_REGISTRATION_WHERE: Prisma.RegistrationWhereInput = {
+  status: 'registered',
+  emailVerifiedAt: { not: null },
+};
+
 function getRegistrationAccessWhere(req: AdminRequest, where: Prisma.RegistrationWhereInput = {}) {
+  const verifiedWhere: Prisma.RegistrationWhereInput = {
+    AND: [VERIFIED_REGISTRATION_WHERE, where],
+  };
   if (canSeeAllRegistrations(req) || getAdminRole(req) === 'viewer') {
-    return where;
+    return verifiedWhere;
   }
 
   const managerId = req.admin?.id;
@@ -183,7 +231,7 @@ function getRegistrationAccessWhere(req: AdminRequest, where: Prisma.Registratio
 
   return {
     AND: [
-      where,
+      verifiedWhere,
       {
         OR: [
           { assignedManagerId: managerId },
@@ -239,17 +287,46 @@ function maskNullable(value: string | null | undefined) {
   return value ? '[hidden]' : (value ?? null);
 }
 
+function serializeAssignedManagerForAdmin(manager: any, maskPii: boolean) {
+  if (!manager || !maskPii) return manager;
+  return { id: manager.id, name: manager.name, role: manager.role };
+}
+
 function serializeLeadForAdmin(lead: any, maskPii: boolean, includeExtendedFields: boolean) {
+  if (maskPii) {
+    const viewerLead = {
+      id: lead.id,
+      name: maskName(lead.name),
+      phone: maskPhone(lead.phone),
+      email: maskEmail(lead.email),
+      city: null,
+      professionalStatus: null,
+      telegramChatId: maskNullable(lead.telegramChatId),
+      telegramUsername: maskNullable(lead.telegramUsername),
+      telegramFirstName: maskName(lead.telegramFirstName),
+      telegramSubscribedAt: null,
+    };
+    return includeExtendedFields
+      ? {
+          ...viewerLead,
+          source: null,
+          utmSource: null,
+          utmMedium: null,
+          utmCampaign: null,
+        }
+      : viewerLead;
+  }
+
   const base = {
     id: lead.id,
-    name: maskPii ? maskName(lead.name) : lead.name,
-    phone: maskPii ? maskPhone(lead.phone) : lead.phone,
-    email: maskPii ? maskEmail(lead.email) : lead.email,
+    name: lead.name,
+    phone: lead.phone,
+    email: lead.email,
     city: lead.city,
     professionalStatus: lead.professionalStatus,
-    telegramChatId: maskPii ? maskNullable(lead.telegramChatId) : lead.telegramChatId,
-    telegramUsername: maskPii ? maskNullable(lead.telegramUsername) : lead.telegramUsername,
-    telegramFirstName: maskPii ? maskName(lead.telegramFirstName) : lead.telegramFirstName,
+    telegramChatId: lead.telegramChatId,
+    telegramUsername: lead.telegramUsername,
+    telegramFirstName: lead.telegramFirstName,
     telegramSubscribedAt: lead.telegramSubscribedAt,
   };
 
@@ -272,22 +349,69 @@ function serializeRegistrationDetailForAdmin(registration: any, maskPii: boolean
   }
 
   return {
-    ...registration,
+    id: registration.id,
+    status: registration.status,
+    crmStatus: registration.crmStatus,
+    isHot: registration.isHot,
+    managerNote: null,
+    assignedManagerId: registration.assignedManagerId,
+    assignedManager: serializeAssignedManagerForAdmin(registration.assignedManager, true),
+    nextContactAt: registration.nextContactAt,
+    registeredAt: registration.registeredAt,
+    successViewedAt: registration.successViewedAt,
+    roomEnteredAt: registration.roomEnteredAt,
+    telegramClickedAt: registration.telegramClickedAt,
+    chatBannedAt: registration.chatBannedAt,
     lead: serializeLeadForAdmin(registration.lead, true, true),
+    webinarSession: registration.webinarSession
+      ? {
+          id: registration.webinarSession.id,
+          title: registration.webinarSession.title,
+          scheduledAt: registration.webinarSession.scheduledAt,
+          durationMinutes: registration.webinarSession.durationMinutes,
+          status: registration.webinarSession.status,
+        }
+      : null,
     questions: registration.questions?.map((question: any) => ({
-      ...question,
+      id: question.id,
+      registrationId: question.registrationId,
       text: '[hidden]',
-      adminNote: question.adminNote ? '[hidden]' : question.adminNote,
+      publishedName: null,
+      adminNote: null,
+      isAnswered: question.isAnswered,
+      forwardedAt: question.forwardedAt,
+      createdAt: question.createdAt,
     })),
     partnerApplications: registration.partnerApplications?.map((application: any) => ({
-      ...application,
-      comment: application.comment ? '[hidden]' : application.comment,
+      id: application.id,
+      registrationId: application.registrationId,
+      sphere: null,
+      city: null,
+      clientFlow: null,
+      experience: null,
+      comment: null,
+      preferredFormat: null,
+      status: application.status,
+      assignedManagerId: application.assignedManagerId,
+      nextContactAt: application.nextContactAt,
+      contractSentAt: application.contractSentAt,
+      contractSignedAt: application.contractSignedAt,
+      createdAt: application.createdAt,
     })),
     events: registration.events?.map((event: any) => ({
-      ...event,
+      id: event.id,
+      eventName: event.eventName,
+      webinarSessionId: event.webinarSessionId,
+      page: event.page,
+      source: null,
+      utmSource: null,
+      utmMedium: null,
+      utmCampaign: null,
+      visitorId: null,
       userAgent: null,
       ipHash: null,
-      metadataJson: event.metadataJson ? null : event.metadataJson,
+      metadataJson: null,
+      createdAt: event.createdAt,
     })),
   };
 }
@@ -296,12 +420,12 @@ function serializePartnerApplicationForAdmin(application: any, maskPii: boolean)
   return {
     id: application.id,
     registrationId: application.registrationId,
-    sphere: application.sphere,
-    city: application.city,
-    clientFlow: application.clientFlow,
-    experience: application.experience,
-    comment: maskPii && application.comment ? '[hidden]' : application.comment,
-    preferredFormat: application.preferredFormat,
+    sphere: maskPii ? null : application.sphere,
+    city: maskPii ? null : application.city,
+    clientFlow: maskPii ? null : application.clientFlow,
+    experience: maskPii ? null : application.experience,
+    comment: maskPii ? maskNullable(application.comment) : application.comment,
+    preferredFormat: maskPii ? null : application.preferredFormat,
     status: application.status,
     createdAt: application.createdAt,
     lead: serializeLeadForAdmin(application.lead, maskPii, false),
@@ -337,7 +461,18 @@ adminRouter.get('/admin', (_req, res) => {
 adminRouter.post(
   '/api/admin/login',
   asyncHandler(async (req, res) => {
-    const data = z.object({ login: z.string().trim(), password: z.string() }).parse(req.body);
+    const data = z
+      .object({
+        login: z.string().trim(),
+        password: z.string(),
+        otp: z
+          .string()
+          .trim()
+          .regex(/^\d{6}$/)
+          .optional()
+          .or(z.literal('')),
+      })
+      .parse(req.body);
     await ensureDefaultAdminUser();
 
     const login = data.login.toLowerCase();
@@ -350,31 +485,134 @@ adminRouter.post(
 
     const passwordMatches = adminUser ? await verifyPassword(data.password, adminUser.passwordHash) : false;
     if (!adminUser || !passwordMatches) {
+      await prisma.auditLog.create({
+        data: {
+          adminUserId: adminUser?.id ?? null,
+          action: 'admin.login.failed',
+          entityType: 'admin_session',
+          entityId: adminUser?.id ?? null,
+          ipHash: hashIp(getClientIp(req)),
+          userAgent: req.headers['user-agent'] ?? null,
+          afterJson: { reason: 'invalid_credentials' },
+        },
+      });
       throw new AppError(401, 'Неверный логин или пароль');
     }
 
-    const sessionAdmin = { id: adminUser.id, email: adminUser.email, role: adminUser.role };
+    if (!adminUser.mfaSecretEncrypted) {
+      const enrollment = createMfaEnrollment(adminUser.email);
+      await prisma.adminUser.update({
+        where: { id: adminUser.id },
+        data: {
+          mfaSecretEncrypted: enrollment.encryptedSecret,
+          mfaEnabledAt: null,
+          sessionVersion: { increment: 1 },
+        },
+      });
+      await prisma.auditLog.create({
+        data: {
+          adminUserId: adminUser.id,
+          action: 'admin.mfa.enrollment_started',
+          entityType: 'admin_user',
+          entityId: adminUser.id,
+          ipHash: hashIp(getClientIp(req)),
+          userAgent: req.headers['user-agent'] ?? null,
+        },
+      });
+      res.json({
+        ok: true,
+        authenticated: false,
+        mfaSetupRequired: true,
+        secret: enrollment.secret,
+        otpauthUrl: enrollment.otpauthUrl,
+      });
+      return;
+    }
 
-    await prisma.adminUser.update({
+    if (!data.otp) {
+      res.json({ ok: true, authenticated: false, mfaRequired: true });
+      return;
+    }
+    let mfaSecret: string;
+    try {
+      mfaSecret = decryptMfaSecret(adminUser.mfaSecretEncrypted);
+    } catch {
+      throw new AppError(503, 'MFA требует сброса администратором');
+    }
+    if (!verifyTotp(mfaSecret, data.otp)) {
+      await prisma.auditLog.create({
+        data: {
+          adminUserId: adminUser.id,
+          action: 'admin.login.failed',
+          entityType: 'admin_session',
+          entityId: adminUser.id,
+          ipHash: hashIp(getClientIp(req)),
+          userAgent: req.headers['user-agent'] ?? null,
+          afterJson: { reason: 'invalid_mfa' },
+        },
+      });
+      throw new AppError(401, 'Неверный одноразовый код');
+    }
+
+    const authenticatedAdmin = await prisma.adminUser.update({
       where: { id: adminUser.id },
-      data: { lastLoginAt: new Date() },
+      data: {
+        lastLoginAt: new Date(),
+        mfaEnabledAt: adminUser.mfaEnabledAt ?? new Date(),
+      },
+    });
+    const sessionAdmin = {
+      id: authenticatedAdmin.id,
+      email: authenticatedAdmin.email,
+      role: authenticatedAdmin.role,
+      sessionVersion: authenticatedAdmin.sessionVersion,
+    };
+
+    await prisma.auditLog.create({
+      data: {
+        adminUserId: authenticatedAdmin.id,
+        action: 'admin.login.succeeded',
+        entityType: 'admin_session',
+        entityId: authenticatedAdmin.id,
+        ipHash: hashIp(getClientIp(req)),
+        userAgent: req.headers['user-agent'] ?? null,
+        afterJson: { mfa: true },
+      },
     });
 
     res.cookie('aspb_admin_session', createAdminSession(sessionAdmin), {
-      httpOnly: true,
-      sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
-      secure: env.NODE_ENV === 'production',
-      partitioned: env.NODE_ENV === 'production' ? true : undefined,
+      ...adminSessionCookieOptions(),
       maxAge: 24 * 60 * 60 * 1000,
     });
-    res.json({ ok: true });
+    res.json({ ok: true, authenticated: true });
   }),
 );
 
 adminRouter.post('/api/admin/logout', (_req, res) => {
-  res.clearCookie('aspb_admin_session');
+  res.clearCookie('aspb_admin_session', adminSessionCookieOptions());
   res.json({ ok: true });
 });
+
+adminRouter.post(
+  '/api/admin/sessions/revoke-all',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const actor = (req as AdminRequest).admin;
+    if (!actor?.id) throw new AppError(401, 'Admin authorization required');
+    await prisma.adminUser.update({
+      where: { id: actor.id },
+      data: { sessionVersion: { increment: 1 } },
+    });
+    await audit(req as AdminRequest, {
+      action: 'admin.sessions.revoke_all',
+      entityType: 'admin_user',
+      entityId: actor.id,
+      after: { revoked: true },
+    });
+    res.clearCookie('aspb_admin_session', adminSessionCookieOptions());
+    res.json({ ok: true, revoked: true });
+  }),
+);
 
 adminRouter.get(
   '/api/admin/me',
@@ -387,14 +625,18 @@ adminRouter.get(
 adminRouter.get(
   '/api/admin/managers',
   requireAdmin,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const maskPii = shouldMaskRegistrationPii(req as AdminRequest);
     const managers = await prisma.adminUser.findMany({
       where: { isActive: true },
       select: { id: true, name: true, email: true, role: true },
       orderBy: [{ role: 'asc' }, { name: 'asc' }],
     });
 
-    res.json({ ok: true, managers });
+    res.json({
+      ok: true,
+      managers: managers.map(manager => serializeAssignedManagerForAdmin(manager, maskPii)),
+    });
   }),
 );
 
@@ -492,49 +734,76 @@ adminRouter.patch(
         role: z.string().optional(),
         isActive: z.boolean().optional(),
         password: strongAdminPasswordSchema.optional().or(z.literal('')),
+        resetMfa: z.boolean().optional(),
       })
       .parse(req.body);
-    const before = await prisma.adminUser.findUnique({
-      where: { id },
-      select: { id: true, name: true, email: true, role: true, isActive: true },
-    });
-
-    if (!before) {
-      throw new AppError(404, 'Admin user not found');
-    }
-
     if (data.role && !isAdminRole(data.role)) {
       throw new AppError(400, 'Invalid admin role');
     }
 
     const actorRole = (req as AdminRequest).admin?.role;
-    if (actorRole !== 'owner') {
-      if (before.role === 'owner') {
-        throw new AppError(403, 'Недостаточно прав для изменения владельца');
-      }
-      if (data.role === 'owner') {
-        throw new AppError(403, 'Недостаточно прав для назначения роли владельца');
-      }
-    }
+    const passwordHash = data.password ? await hashPassword(data.password) : undefined;
+    const { before, user } = await prisma.$transaction(async tx => {
+      // Every owner-affecting PATCH takes the same transaction-scoped lock. The owner count and
+      // mutation therefore cannot both pass concurrently and leave the system without an owner.
+      await acquireTransactionLock(tx, ADMIN_OWNER_MUTATION_LOCK_KEY);
+      const before = await tx.adminUser.findUnique({
+        where: { id },
+        select: { id: true, name: true, email: true, role: true, isActive: true },
+      });
 
-    const user = await prisma.adminUser.update({
-      where: { id },
-      data: {
-        name: data.name,
-        role: data.role,
-        isActive: data.isActive,
-        passwordHash: data.password ? await hashPassword(data.password) : undefined,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        isActive: true,
-        lastLoginAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      if (!before) {
+        throw new AppError(404, 'Admin user not found');
+      }
+
+      if (actorRole !== 'owner') {
+        if (before.role === 'owner') {
+          throw new AppError(403, 'Недостаточно прав для изменения владельца');
+        }
+        if (data.role === 'owner') {
+          throw new AppError(403, 'Недостаточно прав для назначения роли владельца');
+        }
+      }
+
+      const removesActiveOwner =
+        before.role === 'owner' &&
+        before.isActive &&
+        ((data.role !== undefined && data.role !== 'owner') || data.isActive === false);
+      if (removesActiveOwner) {
+        const activeOwnerCount = await tx.adminUser.count({
+          where: { role: 'owner', isActive: true },
+        });
+        if (activeOwnerCount <= 1) {
+          throw new AppError(409, 'Нельзя отключить или понизить последнего активного владельца');
+        }
+      }
+
+      const user = await tx.adminUser.update({
+        where: { id },
+        data: {
+          name: data.name,
+          role: data.role,
+          isActive: data.isActive,
+          passwordHash,
+          mfaSecretEncrypted: data.resetMfa ? null : undefined,
+          mfaEnabledAt: data.resetMfa ? null : undefined,
+          sessionVersion:
+            data.password || data.resetMfa || data.role !== undefined || data.isActive !== undefined
+              ? { increment: 1 }
+              : undefined,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isActive: true,
+          lastLoginAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      return { before, user };
     });
 
     await audit(req as AdminRequest, {
@@ -557,35 +826,44 @@ adminRouter.post(
   requireRole(['owner', 'admin']),
   asyncHandler(async (req, res) => {
     const id = z.string().min(1).parse(req.params.id);
-    const before = await prisma.lead.findUnique({ where: { id }, select: { id: true } });
-    if (!before) {
-      throw new AppError(404, 'Лид не найден');
-    }
     const anonymizedAt = new Date();
-    await prisma.lead.update({
-      where: { id },
-      data: {
-        name: 'Удалённый пользователь',
-        phone: '',
-        email: `anonymized-${id}@deleted.invalid`,
-        city: null,
-        professionalStatus: null,
-        telegramChatId: null,
-        telegramUsername: null,
-        telegramFirstName: null,
-        marketingConsent: false,
-        consentRevokedAt: anonymizedAt,
+    const result = await prisma.$transaction(
+      async tx => {
+        await acquireTransactionLock(tx, LEAD_ANONYMIZATION_LOCK_KEY);
+        const anonymization = await anonymizeLeadInTransaction(tx, {
+          leadId: id,
+          anonymizedAt,
+          revocationChannel: 'admin',
+          revocationReason: 'manual_admin_anonymization',
+        });
+        if (!anonymization.anonymized) {
+          throw new AppError(404, 'Лид не найден');
+        }
+
+        // The erasure and its audit evidence are one atomic commit. A process crash must not leave
+        // irreversible deletion without the required operator trail.
+        await audit(
+          req as AdminRequest,
+          {
+            action: 'lead.anonymize',
+            entityType: 'lead',
+            entityId: id,
+            before: { id, hadPersonalData: true },
+            after: { anonymized: true, anonymizedAt: anonymizedAt.toISOString() },
+          },
+          tx,
+        );
+
+        return {
+          registrationCount: anonymization.registrationCount,
+          questionCount: anonymization.questionCount,
+          partnerApplicationCount: anonymization.partnerApplicationCount,
+          broadcastRecipientCount: anonymization.broadcastRecipientCount,
+        };
       },
-    });
-    // В аудит НЕ пишем сырые ПДн — только факт обезличивания.
-    await audit(req as AdminRequest, {
-      action: 'lead.anonymize',
-      entityType: 'lead',
-      entityId: id,
-      before: { id, hadPersonalData: true },
-      after: { anonymized: true, anonymizedAt: anonymizedAt.toISOString() },
-    });
-    res.json({ ok: true, anonymized: true });
+      { maxWait: 5_000, timeout: LEAD_ANONYMIZATION_TRANSACTION_TIMEOUT_MS },
+    );
+    res.json({ ok: true, anonymized: true, ...result });
   }),
 );
 
@@ -638,10 +916,19 @@ adminRouter.get(
 
     const leadFilters: Prisma.LeadWhereInput[] = [];
     if (query.telegram === 'yes') {
-      leadFilters.push({ telegramChatId: { not: null } });
+      leadFilters.push({
+        telegramChatId: { not: null },
+        telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+      });
     }
     if (query.telegram === 'no') {
-      leadFilters.push({ telegramChatId: null });
+      leadFilters.push({
+        OR: [
+          { telegramChatId: null },
+          { telegramBindingVersion: null },
+          { telegramBindingVersion: { not: TELEGRAM_BINDING_VERSION } },
+        ],
+      });
     }
     if (query.query) {
       leadFilters.push({
@@ -688,10 +975,10 @@ adminRouter.get(
         id: item.id,
         status: item.status,
         crmStatus: item.crmStatus,
-        managerNote: item.managerNote,
+        managerNote: maskPii ? null : item.managerNote,
         isHot: item.isHot,
         assignedManagerId: item.assignedManagerId,
-        assignedManager: item.assignedManager,
+        assignedManager: serializeAssignedManagerForAdmin(item.assignedManager, maskPii),
         nextContactAt: item.nextContactAt,
         registeredAt: item.registeredAt,
         roomEnteredAt: item.roomEnteredAt,
@@ -742,7 +1029,7 @@ adminRouter.get(
         crmStatus: item.crmStatus,
         isHot: item.isHot,
         assignedManagerId: item.assignedManagerId,
-        assignedManager: item.assignedManager,
+        assignedManager: serializeAssignedManagerForAdmin(item.assignedManager, maskPii),
         nextContactAt: item.nextContactAt,
         roomEnteredAt: item.roomEnteredAt,
         telegramClickedAt: item.telegramClickedAt,
@@ -929,43 +1216,71 @@ adminRouter.post(
       throw new AppError(404, 'Registration not found');
     }
 
-    if (!registration.lead.telegramChatId) {
+    if (!registration.lead.telegramChatId || registration.lead.telegramBindingVersion !== TELEGRAM_BINDING_VERSION) {
       throw new AppError(400, 'У участника не подключен Telegram');
     }
 
-    const roomUrl = await prisma.$transaction(tx =>
-      createRoomExchangeUrl(tx, {
-        registrationId: registration.id,
-        expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
-      }),
-    );
+    const secured = await prisma.$transaction(async tx => {
+      await acquireLeadSecurityLock(tx, registration.leadId);
+      const activeRegistration = await tx.registration.findFirst({
+        where: getRegistrationAccessWhere(adminReq, { id: registration.id }),
+        include: { lead: true, webinarSession: true },
+      });
+      if (!activeRegistration || !isParticipantRegistrationActive(activeRegistration)) {
+        throw new AppError(409, 'Регистрация больше не активна');
+      }
+      if (
+        !activeRegistration.lead.telegramChatId ||
+        activeRegistration.lead.telegramBindingVersion !== TELEGRAM_BINDING_VERSION
+      ) {
+        throw new AppError(400, 'У участника не подключен Telegram');
+      }
+      const roomUrl = await createRoomExchangeUrl(tx, {
+        registrationId: activeRegistration.id,
+        expiresAt: getRoomTokenExpiresAt(activeRegistration.webinarSession),
+      });
+      return { registration: activeRegistration, roomUrl };
+    });
+    const activeRegistration = secured.registration;
+    const roomUrl = secured.roomUrl;
     const defaultText = [
-      `${registration.lead.name}, напоминаем про вебинар АСПБ.`,
+      `${activeRegistration.lead.name}, напоминаем про вебинар АСПБ.`,
       '',
-      `Начало: ${formatMoscowDate(registration.webinarSession.scheduledAt)} МСК`,
+      `Начало: ${formatMoscowDate(activeRegistration.webinarSession.scheduledAt)} МСК`,
       '',
       `Ваша персональная комната: ${roomUrl}`,
     ].join('\n');
     const text = data.text ? [data.text, '', `Ваша персональная комната: ${roomUrl}`].join('\n') : defaultText;
 
-    await sendTelegramMessageToChat(registration.lead.telegramChatId, text);
+    await sendTelegramMessageToChat(activeRegistration.lead.telegramChatId!, text);
 
-    await prisma.event.create({
-      data: {
-        eventName: 'admin_manual_telegram_reminder',
-        leadId: registration.leadId,
-        registrationId: registration.id,
-        webinarSessionId: registration.webinarSessionId,
-        source: 'admin',
-        page: 'admin',
-      },
-    });
-
-    await audit(adminReq, {
-      action: 'registration.telegram_reminder.send',
-      entityType: 'registration',
-      entityId: registration.id,
-      after: { chatId: registration.lead.telegramChatId, textLength: text.length },
+    await prisma.$transaction(async tx => {
+      await acquireLeadSecurityLock(tx, activeRegistration.leadId);
+      const stillActive = await tx.registration.findUnique({
+        where: { id: activeRegistration.id },
+        include: { lead: true },
+      });
+      if (!stillActive || !isParticipantRegistrationActive(stillActive)) return;
+      await tx.event.create({
+        data: {
+          eventName: 'admin_manual_telegram_reminder',
+          leadId: stillActive.leadId,
+          registrationId: stillActive.id,
+          webinarSessionId: stillActive.webinarSessionId,
+          source: 'admin',
+          page: 'admin',
+        },
+      });
+      await audit(
+        adminReq,
+        {
+          action: 'registration.telegram_reminder.send',
+          entityType: 'registration',
+          entityId: stillActive.id,
+          after: { chatId: stillActive.lead.telegramChatId, textLength: text.length },
+        },
+        tx,
+      );
     });
 
     res.json({ ok: true, sent: true, webinarUrl: roomUrl });
@@ -980,25 +1295,38 @@ adminRouter.patch(
     const id = z.string().parse(req.params.id);
     const adminReq = req as AdminRequest;
     const data = z.object({ managerNote: z.string().max(5000).optional().or(z.literal('')) }).parse(req.body);
-    const before = await prisma.registration.findFirst({
-      where: getRegistrationAccessWhere(adminReq, { id }),
-      select: { managerNote: true },
-    });
-    if (!before) {
-      throw new AppError(404, 'Registration not found');
-    }
-
-    const registration = await prisma.registration.update({
-      where: { id },
-      data: { managerNote: data.managerNote || null },
-    });
-
-    await audit(adminReq, {
-      action: 'registration.note.update',
-      entityType: 'registration',
-      entityId: id,
-      before,
-      after: { managerNote: registration.managerNote },
+    const registration = await prisma.$transaction(async tx => {
+      const registrationRef = await tx.registration.findFirst({
+        where: getRegistrationAccessWhere(adminReq, { id }),
+        select: { leadId: true },
+      });
+      if (!registrationRef) {
+        throw new AppError(404, 'Registration not found');
+      }
+      await acquireLeadSecurityLock(tx, registrationRef.leadId);
+      const activeRegistration = await tx.registration.findFirst({
+        where: getRegistrationAccessWhere(adminReq, { id }),
+        include: { lead: true },
+      });
+      if (!activeRegistration || !isParticipantRegistrationActive(activeRegistration)) {
+        throw new AppError(409, 'Регистрация больше не активна');
+      }
+      const registration = await tx.registration.update({
+        where: { id },
+        data: { managerNote: data.managerNote || null },
+      });
+      await audit(
+        adminReq,
+        {
+          action: 'registration.note.update',
+          entityType: 'registration',
+          entityId: id,
+          before: { managerNote: activeRegistration.managerNote },
+          after: { managerNote: registration.managerNote },
+        },
+        tx,
+      );
+      return registration;
     });
 
     res.json({ ok: true, registration });
@@ -1030,18 +1358,106 @@ adminRouter.get(
 );
 
 adminRouter.post(
+  '/api/admin/telegram/broadcast/preview',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    z.object({ text: z.string().trim().min(3).max(TELEGRAM_BROADCAST_MAX_TEXT_LENGTH) }).parse(req.body);
+    const preview = await previewTelegramBroadcastRecipients();
+    res.json({
+      ok: true,
+      enabled: preview.enabled,
+      total: preview.total,
+      consentDocumentId: preview.consentDocumentId,
+      consentDocumentVersion: preview.consentDocumentVersion,
+      sampleLimit: preview.sampleLimit,
+      sampleTruncated: preview.sampleTruncated,
+      recipients: preview.recipients.map(recipient => ({
+        leadId: recipient.leadId,
+        chatId: `***${recipient.chatId.slice(-4)}`,
+        consentRecordId: recipient.consentRecordId,
+        consentAt: recipient.consentAt,
+        inclusionReason: recipient.inclusionReason,
+      })),
+    });
+  }),
+);
+
+adminRouter.post(
   '/api/admin/telegram/broadcast',
   requireAdmin,
   requireRole(['owner', 'admin']),
   asyncHandler(async (req, res) => {
-    const data = z.object({ text: z.string().trim().min(3).max(TELEGRAM_BROADCAST_MAX_TEXT_LENGTH) }).parse(req.body);
-
-    const activeJob = await getActiveTelegramBroadcastJob();
-    if (activeJob) {
-      throw new AppError(409, 'Telegram-рассылка уже выполняется');
+    const data = z
+      .object({
+        text: z.string().trim().min(3).max(TELEGRAM_BROADCAST_MAX_TEXT_LENGTH),
+        idempotencyKey: z.string().uuid(),
+        confirmRecipientCount: z.number().int().nonnegative(),
+      })
+      .parse(req.body);
+    if (env.TELEGRAM_MANUAL_BROADCAST !== 'on') {
+      throw new AppError(503, 'Ручная Telegram-рассылка временно отключена');
     }
 
-    const job = await createTelegramBroadcastJob(data.text);
+    const actor = (req as AdminRequest).admin;
+    const actorId = actor?.id;
+    if (!actorId) throw new AppError(401, 'Admin authorization required');
+    const queueResult = await prisma.$transaction(
+      async tx => {
+        // The active-job check and job creation are one serialized critical section. A second
+        // request blocks here, then observes either the same idempotency key or the active job.
+        await acquireTransactionLock(tx, TELEGRAM_BROADCAST_CREATE_LOCK_KEY);
+        const duplicate = await tx.telegramBroadcastJob.findUnique({
+          where: { idempotencyKey: data.idempotencyKey },
+        });
+        if (duplicate) {
+          return { duplicate: true as const, duplicateJob: duplicate };
+        }
+
+        const activeJob = await tx.telegramBroadcastJob.findFirst({
+          where: {
+            status: { in: ['pending', 'sending', 'failed'] },
+            completedAt: null,
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (activeJob) {
+          throw new AppError(409, 'Telegram-рассылка уже выполняется');
+        }
+
+        const preview = await previewTelegramBroadcastRecipientsForSnapshot(tx);
+        if (preview.total !== data.confirmRecipientCount) {
+          throw new AppError(409, 'Список получателей изменился. Выполните preview повторно.');
+        }
+        const job = await createTelegramBroadcastJob(
+          {
+            text: data.text,
+            initiatedById: actorId,
+            idempotencyKey: data.idempotencyKey,
+          },
+          { preview, tx },
+        );
+        return { duplicate: false as const, job, preview };
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        maxWait: 10_000,
+        timeout: 60_000,
+      },
+    );
+
+    if (queueResult.duplicate) {
+      const duplicate = queueResult.duplicateJob;
+      res.status(200).json({
+        ok: true,
+        queued: duplicate.status !== 'completed',
+        duplicate: true,
+        jobId: duplicate.id,
+        total: duplicate.total,
+      });
+      return;
+    }
+    const { job, preview } = queueResult;
 
     await prisma.event.create({
       data: {
@@ -1052,6 +1468,8 @@ adminRouter.post(
           jobId: job.jobId,
           total: job.total,
           textLength: data.text.length,
+          consentDocumentVersion: preview.consentDocumentVersion,
+          initiatedById: actor.id,
         },
       },
     });
@@ -1060,7 +1478,12 @@ adminRouter.post(
       action: 'telegram.broadcast.queue',
       entityType: 'telegram_broadcast',
       entityId: job.jobId,
-      after: { total: job.total, textLength: data.text.length },
+      after: {
+        total: job.total,
+        textLength: data.text.length,
+        consentDocumentVersion: preview.consentDocumentVersion,
+        idempotencyKey: data.idempotencyKey,
+      },
     });
 
     res.status(job.queued ? 202 : 200).json({
@@ -1077,7 +1500,8 @@ adminRouter.get(
   '/api/admin/telegram/broadcast/current',
   requireAdmin,
   requireRole(['owner', 'admin', 'manager', 'viewer']),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const maskPii = shouldMaskRegistrationPii(req as AdminRequest);
     const job = await prisma.telegramBroadcastJob.findFirst({
       orderBy: { createdAt: 'desc' },
     });
@@ -1093,7 +1517,7 @@ adminRouter.get(
             failed: job.failed,
             attempts: job.attempts,
             nextIndex: job.nextIndex,
-            lastError: job.lastError,
+            lastError: maskPii ? null : job.lastError,
             nextAttemptAt: job.nextAttemptAt,
             startedAt: job.startedAt,
             completedAt: job.completedAt,
@@ -1136,28 +1560,41 @@ adminRouter.patch(
     const id = z.string().parse(req.params.id);
     const adminReq = req as AdminRequest;
     const data = z.object({ isAnswered: z.boolean(), adminNote: z.string().optional() }).parse(req.body);
-    const before = await prisma.question.findFirst({
-      where: getQuestionAccessWhere(adminReq, { id }),
-      select: { isAnswered: true, adminNote: true },
-    });
-    if (!before) {
-      throw new AppError(404, 'Question not found');
-    }
-
-    const question = await prisma.question.update({
-      where: { id },
-      data: {
-        isAnswered: data.isAnswered,
-        adminNote: data.adminNote,
-      },
-    });
-
-    await audit(adminReq, {
-      action: 'question.update',
-      entityType: 'question',
-      entityId: id,
-      before,
-      after: { isAnswered: question.isAnswered, adminNote: question.adminNote },
+    const question = await prisma.$transaction(async tx => {
+      const questionRef = await tx.question.findFirst({
+        where: getQuestionAccessWhere(adminReq, { id }),
+        select: { registration: { select: { leadId: true } } },
+      });
+      if (!questionRef) {
+        throw new AppError(404, 'Question not found');
+      }
+      await acquireLeadSecurityLock(tx, questionRef.registration.leadId);
+      const activeQuestion = await tx.question.findFirst({
+        where: getQuestionAccessWhere(adminReq, { id }),
+        include: { registration: { include: { lead: true } } },
+      });
+      if (!activeQuestion || !isParticipantRegistrationActive(activeQuestion.registration)) {
+        throw new AppError(409, 'Регистрация участника больше не активна');
+      }
+      const question = await tx.question.update({
+        where: { id },
+        data: {
+          isAnswered: data.isAnswered,
+          adminNote: data.adminNote,
+        },
+      });
+      await audit(
+        adminReq,
+        {
+          action: 'question.update',
+          entityType: 'question',
+          entityId: id,
+          before: { isAnswered: activeQuestion.isAnswered, adminNote: activeQuestion.adminNote },
+          after: { isAnswered: question.isAnswered, adminNote: question.adminNote },
+        },
+        tx,
+      );
+      return question;
     });
 
     res.json({ ok: true, question });
@@ -1179,39 +1616,56 @@ adminRouter.post(
 
     const question = await prisma.question.findFirst({
       where: getQuestionAccessWhere(adminReq, { id }),
-      select: { id: true, webinarSessionId: true, registrationId: true, isAnswered: true },
+      select: {
+        id: true,
+        webinarSessionId: true,
+        registrationId: true,
+        isAnswered: true,
+        registration: { select: { leadId: true } },
+      },
     });
     if (!question) {
       throw new AppError(404, 'Question not found');
     }
 
     const result = await prisma.$transaction(async tx => {
+      await acquireLeadSecurityLock(tx, question.registration.leadId);
+      const activeQuestion = await tx.question.findFirst({
+        where: getQuestionAccessWhere(adminReq, { id: question.id }),
+        include: { registration: { include: { lead: true } } },
+      });
+      if (!activeQuestion || !isParticipantRegistrationActive(activeQuestion.registration)) {
+        throw new AppError(409, 'Регистрация участника больше не активна');
+      }
       const chatMessage = await tx.webinarChatMessage.create({
         data: {
-          webinarSessionId: question.webinarSessionId,
-          registrationId: question.registrationId,
+          webinarSessionId: activeQuestion.webinarSessionId,
+          registrationId: activeQuestion.registrationId,
           kind: MODERATOR_CHAT_KIND,
           authorName: MODERATOR_NAME,
           authorRole: MODERATOR_ROLE,
           message: text,
           isSynthetic: false,
           visibleAt: new Date(),
-          metadataJson: { replyToQuestionId: question.id, viaAdmin: true },
+          metadataJson: { replyToQuestionId: activeQuestion.id, viaAdmin: true },
         },
       });
       const updated = await tx.question.update({
-        where: { id: question.id },
+        where: { id: activeQuestion.id },
         data: { isAnswered: true },
       });
+      await audit(
+        adminReq,
+        {
+          action: 'question.reply',
+          entityType: 'question',
+          entityId: activeQuestion.id,
+          before: { isAnswered: activeQuestion.isAnswered },
+          after: { isAnswered: true, chatMessageId: chatMessage.id, length: text.length },
+        },
+        tx,
+      );
       return { chatMessage, updated };
-    });
-
-    await audit(adminReq, {
-      action: 'question.reply',
-      entityType: 'question',
-      entityId: id,
-      before: { isAnswered: question.isAnswered },
-      after: { isAnswered: true, chatMessageId: result.chatMessage.id, length: text.length },
     });
 
     res.status(201).json({ ok: true, chatMessageId: result.chatMessage.id, question: result.updated });
@@ -1383,7 +1837,7 @@ adminRouter.get(
   requireAdmin,
   asyncHandler(async (_req, res) => {
     const [
-      pageViews,
+      visitorStats,
       registrations,
       roomEntries,
       telegramClicks,
@@ -1392,29 +1846,59 @@ adminRouter.get(
       questions,
       partnerApplications,
     ] = await Promise.all([
-      prisma.event.count({ where: { eventName: 'page_view' } }),
-      prisma.registration.count(),
-      prisma.registration.count({ where: { roomEnteredAt: { not: null } } }),
-      prisma.registration.count({ where: { telegramClickedAt: { not: null } } }),
-      prisma.lead.count({ where: { telegramChatId: { not: null } } }),
+      prisma.$queryRaw<Array<{ pageViews: number | bigint; uniqueVisitors: number | bigint }>>(Prisma.sql`
+        SELECT
+          COUNT(*)::int AS "pageViews",
+          COUNT(DISTINCT CASE
+            WHEN e."visitor_id" IS NOT NULL THEN e."visitor_id"
+            WHEN e."ip_hash" IS NOT NULL THEN
+              'legacy:' || e."ip_hash" || ':' || md5(COALESCE(e."user_agent", ''))
+            ELSE NULL
+          END)::int AS "uniqueVisitors"
+        FROM "events" e
+        WHERE e."event_name" = 'page_view'
+      `),
+      prisma.registration.count({ where: VERIFIED_REGISTRATION_WHERE }),
+      prisma.registration.count({
+        where: { AND: [VERIFIED_REGISTRATION_WHERE, { roomEnteredAt: { not: null } }] },
+      }),
+      prisma.registration.count({
+        where: { AND: [VERIFIED_REGISTRATION_WHERE, { telegramClickedAt: { not: null } }] },
+      }),
+      prisma.lead.count({
+        where: {
+          telegramChatId: { not: null },
+          telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+          registrations: { some: VERIFIED_REGISTRATION_WHERE },
+        },
+      }),
       prisma.registration.count({
         where: {
-          OR: [
-            { isHot: true },
-            { partnerApplications: { some: {} } },
-            { questions: { some: {} } },
-            { roomEnteredAt: { not: null } },
+          AND: [
+            VERIFIED_REGISTRATION_WHERE,
+            {
+              OR: [
+                { isHot: true },
+                { partnerApplications: { some: {} } },
+                { questions: { some: {} } },
+                { roomEnteredAt: { not: null } },
+              ],
+            },
           ],
         },
       }),
-      prisma.question.count(),
-      prisma.partnerApplication.count(),
+      prisma.question.count({ where: { registration: VERIFIED_REGISTRATION_WHERE } }),
+      prisma.partnerApplication.count({ where: { registration: { is: VERIFIED_REGISTRATION_WHERE } } }),
     ]);
+
+    const pageViews = toCount(visitorStats[0]?.pageViews ?? 0);
+    const uniqueVisitors = toCount(visitorStats[0]?.uniqueVisitors ?? 0);
 
     res.json({
       ok: true,
       summary: {
         pageViews,
+        uniqueVisitors,
         registrations,
         roomEntries,
         telegramClicks,
@@ -1422,7 +1906,7 @@ adminRouter.get(
         hotLeads,
         questions,
         partnerApplications,
-        registrationRate: pageViews ? Number((registrations / pageViews).toFixed(3)) : 0,
+        registrationRate: uniqueVisitors ? Number((registrations / uniqueVisitors).toFixed(3)) : 0,
       },
     });
   }),
@@ -1437,6 +1921,7 @@ adminRouter.get(
         from: z.string().optional(),
         to: z.string().optional(),
         groupBy: z.enum(['source', 'utmSource', 'utmMedium', 'utmCampaign']).default('source'),
+        attribution: z.enum(['firstTouch', 'lastTouch']).default('firstTouch'),
       })
       .parse(req.query);
     const now = new Date();
@@ -1444,10 +1929,13 @@ adminRouter.get(
       ? new Date(`${query.from}T00:00:00.000Z`)
       : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const to = query.to ? new Date(`${query.to}T23:59:59.999Z`) : now;
-    const dateRange = { gte: from, lte: to };
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+      throw new AppError(400, 'Invalid analytics date range');
+    }
     const groupField = query.groupBy;
     const emptyGroup = () => ({
       visitors: 0,
+      legacyVisitors: 0,
       registrations: 0,
       telegramClicks: 0,
       telegramSubscribers: 0,
@@ -1464,101 +1952,124 @@ adminRouter.get(
       return groups.get(key)!;
     };
 
-    const leadColumn = leadAnalyticsColumns[groupField];
-    const [
-      visitorEvents,
-      telegramClickEvents,
-      registrations,
-      telegramSubscribers,
-      roomEntries,
-      questions,
-      applications,
-      contracts,
-    ] = await Promise.all([
-      prisma.event.groupBy({
-        by: [groupField],
-        where: { eventName: 'page_view', createdAt: dateRange },
-        _count: { _all: true },
-      } as any),
-      prisma.event.groupBy({
-        by: [groupField],
-        where: { eventName: 'telegram_click', createdAt: dateRange },
-        _count: { _all: true },
-      } as any),
-      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
-        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
-        FROM "registrations" r
-        JOIN "leads" l ON l."id" = r."lead_id"
-        WHERE r."registered_at" >= ${from} AND r."registered_at" <= ${to}
-        GROUP BY ${leadColumn}
-      `),
-      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
-        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
-        FROM "leads" l
-        WHERE l."telegram_subscribed_at" >= ${from} AND l."telegram_subscribed_at" <= ${to}
-        GROUP BY ${leadColumn}
-      `),
-      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
-        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
-        FROM "registrations" r
-        JOIN "leads" l ON l."id" = r."lead_id"
-        WHERE r."room_entered_at" >= ${from} AND r."room_entered_at" <= ${to}
-        GROUP BY ${leadColumn}
-      `),
-      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
-        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
-        FROM "questions" q
-        JOIN "leads" l ON l."id" = q."lead_id"
-        WHERE q."created_at" >= ${from} AND q."created_at" <= ${to}
-        GROUP BY ${leadColumn}
-      `),
-      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
-        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
-        FROM "partner_applications" p
-        JOIN "leads" l ON l."id" = p."lead_id"
-        WHERE p."created_at" >= ${from} AND p."created_at" <= ${to}
-        GROUP BY ${leadColumn}
-      `),
-      prisma.$queryRaw<AnalyticsCountRow[]>(Prisma.sql`
-        SELECT ${leadColumn} AS key, COUNT(*)::int AS count
-        FROM "partner_applications" p
-        JOIN "leads" l ON l."id" = p."lead_id"
-        WHERE (
-          (p."contract_signed_at" >= ${from} AND p."contract_signed_at" <= ${to})
-          OR (p."status" IN ('contract_signed', 'paid') AND p."updated_at" >= ${from} AND p."updated_at" <= ${to})
-        )
-        GROUP BY ${leadColumn}
-      `),
-    ]);
+    const groupColumn = eventAnalyticsColumns[groupField];
+    const cohortRows = await prisma.$queryRaw<FunnelCohortRow[]>(Prisma.sql`
+      WITH page_events AS (
+        SELECT
+          COALESCE(
+            e."visitor_id",
+            'legacy:' || COALESCE(e."ip_hash", 'unknown') || ':' || md5(COALESCE(e."user_agent", ''))
+          ) AS visitor_key,
+          e."visitor_id" IS NULL AS is_legacy,
+          COALESCE(NULLIF(BTRIM(${groupColumn}), ''), 'direct/unknown') AS key,
+          e."created_at"
+        FROM "events" e
+        WHERE e."event_name" = 'page_view'
+          AND e."created_at" >= ${from}
+          AND e."created_at" <= ${to}
+          AND (e."visitor_id" IS NOT NULL OR e."ip_hash" IS NOT NULL)
+      ),
+      cohort AS (
+        SELECT DISTINCT ON (visitor_key)
+          visitor_key,
+          is_legacy,
+          key AS first_key,
+          "created_at" AS cohort_started_at
+        FROM page_events
+        ORDER BY visitor_key, "created_at" ASC
+      ),
+      registration_links AS (
+        SELECT DISTINCT ON (c.visitor_key)
+          c.visitor_key,
+          e."registration_id",
+          e."created_at" AS linked_at
+        FROM cohort c
+        JOIN "events" e
+          ON COALESCE(
+            e."visitor_id",
+            'legacy:' || COALESCE(e."ip_hash", 'unknown') || ':' || md5(COALESCE(e."user_agent", ''))
+          ) = c.visitor_key
+         AND e."registration_id" IS NOT NULL
+         AND e."created_at" >= c.cohort_started_at
+        JOIN "registrations" linked_registration
+          ON linked_registration."id" = e."registration_id"
+         AND linked_registration."registered_at" >= c.cohort_started_at
+         AND linked_registration."status" = 'registered'
+         AND linked_registration."email_verified_at" IS NOT NULL
+        ORDER BY c.visitor_key, e."created_at" ASC
+      ),
+      attributed_cohort AS (
+        SELECT
+          c.visitor_key,
+          c.is_legacy,
+          CASE
+            WHEN ${query.attribution} = 'lastTouch' THEN COALESCE(
+              (
+                SELECT pe.key
+                FROM page_events pe
+                WHERE pe.visitor_key = c.visitor_key
+                  AND pe."created_at" <= COALESCE(rl.linked_at, ${to})
+                ORDER BY pe."created_at" DESC
+                LIMIT 1
+              ),
+              c.first_key
+            )
+            ELSE c.first_key
+          END AS key,
+          rl."registration_id",
+          rl.linked_at
+        FROM cohort c
+        LEFT JOIN registration_links rl ON rl.visitor_key = c.visitor_key
+      )
+      SELECT
+        ac.key,
+        COUNT(DISTINCT ac.visitor_key)::int AS visitors,
+        COUNT(DISTINCT ac.visitor_key) FILTER (WHERE ac.is_legacy)::int AS "legacyVisitors",
+        COUNT(DISTINCT ac.visitor_key) FILTER (WHERE ac."registration_id" IS NOT NULL)::int AS registrations,
+        COUNT(DISTINCT ac.visitor_key) FILTER (
+          WHERE r."telegram_clicked_at" >= ac.linked_at
+        )::int AS "telegramClicks",
+        COUNT(DISTINCT ac.visitor_key) FILTER (
+          WHERE l."telegram_subscribed_at" >= ac.linked_at
+        )::int AS "telegramSubscribers",
+        COUNT(DISTINCT ac.visitor_key) FILTER (
+          WHERE r."room_entered_at" >= ac.linked_at
+        )::int AS "roomEntries",
+        COUNT(DISTINCT ac.visitor_key) FILTER (WHERE q."id" IS NOT NULL)::int AS questions,
+        COUNT(DISTINCT ac.visitor_key) FILTER (WHERE p."id" IS NOT NULL)::int AS applications,
+        COUNT(DISTINCT ac.visitor_key) FILTER (
+          WHERE p."contract_signed_at" IS NOT NULL OR p."status" IN ('contract_signed', 'paid')
+        )::int AS contracts
+      FROM attributed_cohort ac
+      LEFT JOIN "registrations" r ON r."id" = ac."registration_id"
+      LEFT JOIN "leads" l ON l."id" = r."lead_id"
+      LEFT JOIN "questions" q
+        ON q."lead_id" = r."lead_id"
+       AND q."created_at" >= ac.linked_at
+      LEFT JOIN "partner_applications" p
+        ON p."lead_id" = r."lead_id"
+       AND p."created_at" >= ac.linked_at
+      GROUP BY ac.key
+      ORDER BY applications DESC, registrations DESC, visitors DESC
+    `);
 
-    (visitorEvents as Array<Record<string, unknown> & { _count: { _all: number } }>).forEach(item => {
-      groupFor(item[groupField]).visitors += item._count._all;
-    });
-    (telegramClickEvents as Array<Record<string, unknown> & { _count: { _all: number } }>).forEach(item => {
-      groupFor(item[groupField]).telegramClicks += item._count._all;
-    });
-    registrations.forEach(item => {
-      groupFor(item.key).registrations += toCount(item.count);
-    });
-    telegramSubscribers.forEach(item => {
-      groupFor(item.key).telegramSubscribers += toCount(item.count);
-    });
-    roomEntries.forEach(item => {
-      groupFor(item.key).roomEntries += toCount(item.count);
-    });
-    questions.forEach(item => {
-      groupFor(item.key).questions += toCount(item.count);
-    });
-    applications.forEach(item => {
-      groupFor(item.key).applications += toCount(item.count);
-    });
-    contracts.forEach(item => {
-      groupFor(item.key).contracts += toCount(item.count);
+    cohortRows.forEach(item => {
+      const group = groupFor(item.key);
+      group.visitors += toCount(item.visitors);
+      group.legacyVisitors += toCount(item.legacyVisitors);
+      group.registrations += toCount(item.registrations);
+      group.telegramClicks += toCount(item.telegramClicks);
+      group.telegramSubscribers += toCount(item.telegramSubscribers);
+      group.roomEntries += toCount(item.roomEntries);
+      group.questions += toCount(item.questions);
+      group.applications += toCount(item.applications);
+      group.contracts += toCount(item.contracts);
     });
 
     const summary = emptyGroup();
     for (const group of groups.values()) {
       summary.visitors += group.visitors;
+      summary.legacyVisitors += group.legacyVisitors;
       summary.registrations += group.registrations;
       summary.telegramClicks += group.telegramClicks;
       summary.telegramSubscribers += group.telegramSubscribers;
@@ -1567,10 +2078,7 @@ adminRouter.get(
       summary.applications += group.applications;
       summary.contracts += group.contracts;
     }
-    // Clamp к [0,1]: стадии воронки агрегируются по разным временным окнам/событиям
-    // (напр. questions по created_at, roomEntries по room_entered_at), поэтому без зажима
-    // конверсия могла превышать 100% (на дашборде «Вопросы 120%»).
-    const rate = (part: number, total: number) => (total > 0 ? Math.min(1, Number((part / total).toFixed(3))) : 0);
+    const rate = (part: number, total: number) => (total > 0 ? Number((part / total).toFixed(3)) : 0);
     const rows = [...groups.entries()]
       .map(([key, value]) => ({
         key,
@@ -1587,17 +2095,31 @@ adminRouter.get(
       ok: true,
       period: { from: from.toISOString(), to: to.toISOString() },
       groupBy: groupField,
+      attribution: query.attribution,
+      cohortDefinition:
+        'unique visitors whose first page view is in the period; first registration and downstream lifetime stages are linked by visitor and lead',
       summary,
       rates: {
         registrationRate: rate(summary.registrations, summary.visitors),
         telegramClickRate: rate(summary.telegramClicks, summary.registrations),
         telegramSubscribeRate: rate(summary.telegramSubscribers, summary.registrations),
         roomEntryRate: rate(summary.roomEntries, summary.registrations),
-        questionRate: rate(summary.questions, summary.roomEntries),
+        questionRate: rate(summary.questions, summary.registrations),
         applicationRate: rate(summary.applications, summary.registrations),
         contractRate: rate(summary.contracts, summary.applications),
       },
       groups: rows,
+      dataQuality: {
+        legacyVisitors: summary.legacyVisitors,
+        visitorIdCoverage:
+          summary.visitors > 0
+            ? Number(((summary.visitors - summary.legacyVisitors) / summary.visitors).toFixed(3))
+            : 1,
+        warnings:
+          summary.legacyVisitors > 0
+            ? ['Часть истории рассчитана по legacy fallback (хэш IP + браузер); новые визиты используют visitor ID.']
+            : [],
+      },
     });
   }),
 );
@@ -1606,6 +2128,7 @@ adminRouter.get(
   '/api/admin/analytics/events',
   requireAdmin,
   asyncHandler(async (req, res) => {
+    const maskPii = shouldMaskRegistrationPii(req as AdminRequest);
     const query = z
       .object({
         from: z.string().optional(),
@@ -1652,7 +2175,17 @@ adminRouter.get(
       page: query.page,
       pageSize: query.pageSize,
       total,
-      events,
+      events: maskPii
+        ? events.map(event => ({
+            ...event,
+            source: null,
+            utmSource: null,
+            utmMedium: null,
+            utmCampaign: null,
+            leadId: null,
+            registrationId: null,
+          }))
+        : events,
     });
   }),
 );

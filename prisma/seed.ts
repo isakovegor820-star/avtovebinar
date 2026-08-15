@@ -1,16 +1,60 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { pathToFileURL } from 'node:url';
 import { getNextWebinarDate, WEBINAR_DURATION_MINUTES, WEBINAR_REPLAY_HOURS, WEBINAR_TITLE } from '../src/lib/time.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import {
   WEBINAR_BROADCAST_POSTER_URL,
   WEBINAR_BROADCAST_VIDEO_URL,
-  WEBINAR_RECORDING_POSTER_PATH,
-  WEBINAR_RECORDING_VIDEO_PATH,
   DEFAULT_TIMELINE_EVENTS,
   WEBINAR_VIDEO_DURATION_SECONDS,
 } from '../src/lib/webinarTimeline.js';
 
 const prisma = new PrismaClient();
+
+type SeedAdminClient = Pick<Prisma.TransactionClient, 'adminUser' | '$executeRaw'>;
+const INITIAL_OWNER_SEED_LOCK_ID = 1_096_175_682n;
+
+export async function createInitialOwnerIfMissing(
+  client: SeedAdminClient,
+  adminLogin = process.env.ADMIN_LOGIN,
+  adminPassword = process.env.ADMIN_PASSWORD,
+) {
+  await client.$executeRaw`SELECT pg_advisory_xact_lock(${INITIAL_OWNER_SEED_LOCK_ID})`;
+  const anyExistingAdmin = await client.adminUser.findFirst({ select: { id: true } });
+
+  // ADMIN_LOGIN is configuration, not an instruction to create another owner.
+  // Once the admin table is non-empty, bootstrap is permanently a no-op.
+  if (anyExistingAdmin) return { created: false };
+
+  if (!adminLogin) {
+    throw new Error('ADMIN_LOGIN is required for seeding the initial owner admin user');
+  }
+
+  const adminEmail = adminLogin.includes('@') ? adminLogin.toLowerCase() : `${adminLogin}@local.admin`;
+  if (!adminPassword) {
+    throw new Error('ADMIN_PASSWORD is required when creating the initial owner admin user');
+  }
+
+  try {
+    await client.adminUser.create({
+      data: {
+        name: adminLogin,
+        email: adminEmail,
+        passwordHash: await hashPassword(adminPassword),
+        role: 'owner',
+        isActive: true,
+      },
+    });
+    return { created: true };
+  } catch (error) {
+    // Defensive fallback for a creator outside the seed lock. Never follow a
+    // unique conflict with an owner/reactivation update.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return { created: false };
+    }
+    throw error;
+  }
+}
 
 async function main() {
   const scheduledAt = getNextWebinarDate(new Date());
@@ -71,10 +115,10 @@ async function main() {
     title: session.title,
     description:
       'Запись вебинара АСПБ о том, как бухгалтеру, юристу или консультанту развиваться на рынке банкротства и передавать клиентов в партнерской модели.',
-    posterUrl: WEBINAR_RECORDING_POSTER_PATH,
-    videoUrl: WEBINAR_RECORDING_VIDEO_PATH,
+    posterUrl: WEBINAR_BROADCAST_POSTER_URL,
+    videoUrl: WEBINAR_BROADCAST_VIDEO_URL,
     hlsUrl: null,
-    durationSeconds: 568,
+    durationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
     publishedAt: new Date('2026-06-10T17:05:00.000Z'),
     visible: true,
     orderIndex: 0,
@@ -95,29 +139,16 @@ async function main() {
     });
   }
 
-  const adminLogin = process.env.ADMIN_LOGIN;
-  const adminPassword = process.env.ADMIN_PASSWORD;
-  if (!adminLogin || !adminPassword) {
-    throw new Error('ADMIN_LOGIN and ADMIN_PASSWORD are required for seeding the owner admin user');
-  }
-  const adminEmail = adminLogin.includes('@') ? adminLogin.toLowerCase() : `${adminLogin}@local.admin`;
-
-  await prisma.adminUser.upsert({
-    where: { email: adminEmail },
-    update: {
-      name: adminLogin,
-      role: 'owner',
-      isActive: true,
-    },
-    create: {
-      name: adminLogin,
-      email: adminEmail,
-      passwordHash: await hashPassword(adminPassword),
-      role: 'owner',
-    },
-  });
+  await prisma.$transaction(tx => createInitialOwnerIfMissing(tx));
 }
 
-main().finally(async () => {
-  await prisma.$disconnect();
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+    .catch(error => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

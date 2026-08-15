@@ -1,11 +1,27 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { env } from './env.js';
 import type { ReminderKind } from './email.js';
 import { EMAIL_JOB_REMINDER, enqueueReminderEmail, runEmailOutboxJobOnce } from './emailOutbox.js';
 import { isPermanentTelegramError, sendTelegramMessageToChat, telegramUrlButton } from './telegram.js';
-import { createRoomExchangeUrl, getRoomTokenExpiresAt, buildFrontendUrl } from './roomLinks.js';
+import {
+  createRoomExchangeUrl,
+  getRoomTokenExpiresAt,
+  buildFrontendUrl,
+  TELEGRAM_BINDING_VERSION,
+} from './roomLinks.js';
 import { logger } from './logger.js';
 import { runRetentionSweepThrottled } from './retention.js';
+import {
+  initializeWorkerSubsystemProgress,
+  reportWorkerSubsystemProgress,
+  stopWorkerSubsystemProgress,
+} from './workerHeartbeat.js';
+import {
+  ANONYMIZED_LEAD_EMAIL_SUFFIX,
+  acquireLeadSecurityLock,
+  isParticipantRegistrationActive,
+} from './leadSecurity.js';
 
 type ReminderCandidate = {
   id: string;
@@ -17,7 +33,12 @@ type ReminderCandidate = {
   telegramReminder30mSentAt?: Date | null;
   telegramFollowupSentAt?: Date | null;
   lead?: {
+    id?: string;
+    telegramChatId?: string | null;
+    marketingTelegramConsent?: boolean;
+    marketingTelegramRevokedAt?: Date | null;
     professionalStatus?: string | null;
+    updatedAt?: Date;
   };
   webinarSession: { scheduledAt: Date; durationMinutes?: number; replayAvailableHours?: number };
 };
@@ -50,6 +71,252 @@ function telegramReminderField(kind: ReminderKind) {
     '3h': 'telegramReminder3hSentAt',
     '30m': 'telegramReminder30mSentAt',
   }[kind] as 'telegramReminder24hSentAt' | 'telegramReminder3hSentAt' | 'telegramReminder30mSentAt';
+}
+
+type TelegramSentField =
+  | 'telegramReminder24hSentAt'
+  | 'telegramReminder3hSentAt'
+  | 'telegramReminder30mSentAt'
+  | 'telegramLiveSentAt'
+  | 'telegramFollowupSentAt';
+
+type TelegramClaimField =
+  | 'telegramReminder24hClaimedUntil'
+  | 'telegramReminder3hClaimedUntil'
+  | 'telegramReminder30mClaimedUntil'
+  | 'telegramLiveClaimedUntil'
+  | 'telegramFollowupClaimedUntil';
+
+type TelegramDeliveryFields = {
+  sent: TelegramSentField;
+  claimedUntil: TelegramClaimField;
+};
+
+const TELEGRAM_DELIVERY_LEASE_MS = 10 * 60 * 1000;
+const TELEGRAM_DELIVERY_RETRY_MS = 2 * 60 * 1000;
+
+function telegramReminderDeliveryFields(kind: ReminderKind): TelegramDeliveryFields {
+  const fields: Record<ReminderKind, TelegramDeliveryFields> = {
+    '24h': {
+      sent: 'telegramReminder24hSentAt',
+      claimedUntil: 'telegramReminder24hClaimedUntil',
+    },
+    '3h': {
+      sent: 'telegramReminder3hSentAt',
+      claimedUntil: 'telegramReminder3hClaimedUntil',
+    },
+    '30m': {
+      sent: 'telegramReminder30mSentAt',
+      claimedUntil: 'telegramReminder30mClaimedUntil',
+    },
+  };
+  return fields[kind];
+}
+
+async function claimTelegramDelivery(input: {
+  registrationId: string;
+  expectedChatId: string;
+  fields: TelegramDeliveryFields;
+  requireMarketingConsent?: boolean;
+}) {
+  // Never derive a lease from the batch-selection timestamp. Large sequential batches can run
+  // longer than the lease; a late recipient would otherwise be claimed with an already-expired
+  // timestamp and could immediately be picked up by another worker.
+  const claimNow = new Date();
+  const leaseUntil = new Date(claimNow.getTime() + TELEGRAM_DELIVERY_LEASE_MS);
+  const leadWhere: Prisma.LeadWhereInput = {
+    telegramChatId: input.expectedChatId,
+    telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+    personalDataConsentRevokedAt: null,
+    email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
+    ...(input.requireMarketingConsent ? { marketingTelegramConsent: true, marketingTelegramRevokedAt: null } : {}),
+  };
+  const claimed = await prisma.registration.updateMany({
+    where: {
+      id: input.registrationId,
+      status: 'registered',
+      emailVerifiedAt: { not: null },
+      [input.fields.sent]: null,
+      OR: [{ [input.fields.claimedUntil]: null }, { [input.fields.claimedUntil]: { lte: claimNow } }],
+      lead: leadWhere,
+    } as Prisma.RegistrationWhereInput,
+    data: { [input.fields.claimedUntil]: leaseUntil } as Prisma.RegistrationUpdateManyMutationInput,
+  });
+
+  return claimed.count === 1 ? leaseUntil : null;
+}
+
+async function activeTelegramChatId(leadId: string, expectedChatId: string, requireMarketingConsent = false) {
+  const lead = await prisma.lead.findFirst({
+    where: {
+      id: leadId,
+      telegramChatId: expectedChatId,
+      telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+      personalDataConsentRevokedAt: null,
+      email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
+      ...(requireMarketingConsent ? { marketingTelegramConsent: true, marketingTelegramRevokedAt: null } : {}),
+    },
+    select: { telegramChatId: true },
+  });
+  return lead?.telegramChatId ?? null;
+}
+
+async function createRoomUrlForActiveRegistration(registrationId: string, expectedLeadId: string) {
+  return prisma.$transaction(async tx => {
+    await acquireLeadSecurityLock(tx, expectedLeadId);
+    const activeRegistration = await tx.registration.findUnique({
+      where: { id: registrationId },
+      include: { lead: true, webinarSession: true },
+    });
+    if (
+      !activeRegistration ||
+      activeRegistration.leadId !== expectedLeadId ||
+      !isParticipantRegistrationActive(activeRegistration)
+    ) {
+      return null;
+    }
+    return createRoomExchangeUrl(tx, {
+      registrationId: activeRegistration.id,
+      expiresAt: getRoomTokenExpiresAt(activeRegistration.webinarSession),
+    });
+  });
+}
+
+async function releaseTelegramDeliveryLease(registrationId: string, fields: TelegramDeliveryFields, leaseUntil: Date) {
+  return prisma.registration.updateMany({
+    where: {
+      id: registrationId,
+      [fields.sent]: null,
+      [fields.claimedUntil]: leaseUntil,
+    } as Prisma.RegistrationWhereInput,
+    data: { [fields.claimedUntil]: null } as Prisma.RegistrationUpdateManyMutationInput,
+  });
+}
+
+async function deferTelegramDelivery(
+  registrationId: string,
+  fields: TelegramDeliveryFields,
+  leaseUntil: Date,
+  now: Date,
+  error: unknown,
+) {
+  const retryAfterSeconds =
+    error instanceof Error ? (error as Error & { retryAfterSeconds?: number }).retryAfterSeconds : undefined;
+  const retryDelayMs = Math.max(
+    TELEGRAM_DELIVERY_RETRY_MS,
+    retryAfterSeconds && retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : 0,
+  );
+  return prisma.registration.updateMany({
+    where: {
+      id: registrationId,
+      [fields.sent]: null,
+      [fields.claimedUntil]: leaseUntil,
+    } as Prisma.RegistrationWhereInput,
+    data: {
+      [fields.claimedUntil]: new Date(now.getTime() + retryDelayMs),
+    } as Prisma.RegistrationUpdateManyMutationInput,
+  });
+}
+
+async function markTelegramDeliverySent(
+  registrationId: string,
+  fields: TelegramDeliveryFields,
+  leaseUntil: Date,
+  sentAt: Date,
+) {
+  const updated = await prisma.registration.updateMany({
+    where: {
+      id: registrationId,
+      [fields.sent]: null,
+      [fields.claimedUntil]: leaseUntil,
+    } as Prisma.RegistrationWhereInput,
+    data: {
+      [fields.sent]: sentAt,
+      [fields.claimedUntil]: null,
+    } as Prisma.RegistrationUpdateManyMutationInput,
+  });
+  if (updated.count !== 1) {
+    throw new Error('Telegram delivery succeeded, but its lease could not be finalized');
+  }
+}
+
+async function disableUndeliverableTelegramChat(input: {
+  leadId: string;
+  leadUpdatedAt: Date;
+  registrationId: string;
+  chatId: string;
+  fields: TelegramDeliveryFields;
+  leaseUntil: Date;
+}) {
+  return prisma.$transaction(async tx => {
+    await acquireLeadSecurityLock(tx, input.leadId);
+    // Fence by the exact lease before mutating the Lead. A stale worker must not clear a valid
+    // Telegram binding after a newer worker reclaimed/finalized this delivery.
+    const released = await tx.registration.updateMany({
+      where: {
+        id: input.registrationId,
+        [input.fields.sent]: null,
+        [input.fields.claimedUntil]: input.leaseUntil,
+      } as Prisma.RegistrationWhereInput,
+      data: { [input.fields.claimedUntil]: null } as Prisma.RegistrationUpdateManyMutationInput,
+    });
+    if (released.count !== 1) {
+      return false;
+    }
+
+    // Permanent Telegram errors mean this exact chat can no longer receive messages. Clearing
+    // only the stale transport address prevents an endless retry loop without fabricating a
+    // successful send or a legal consent revocation.
+    const cleared = await tx.lead.updateMany({
+      where: {
+        id: input.leadId,
+        telegramChatId: input.chatId,
+        updatedAt: input.leadUpdatedAt,
+      },
+      data: { telegramChatId: null },
+    });
+    return cleared.count === 1;
+  });
+}
+
+async function handleTelegramDeliveryError(input: {
+  error: unknown;
+  leadId: string;
+  leadUpdatedAt: Date;
+  registrationId: string;
+  chatId: string;
+  fields: TelegramDeliveryFields;
+  leaseUntil: Date;
+  now: Date;
+  label: string;
+}) {
+  const permanent = isPermanentTelegramError(input.error);
+  let permanentChatDisabled = false;
+  if (permanent) {
+    permanentChatDisabled = await disableUndeliverableTelegramChat(input).catch(cleanupError => {
+      logger.error(
+        { err: cleanupError, registrationId: input.registrationId },
+        `${input.label} не удалось отключить недоставляемый Telegram chat`,
+      );
+      return false;
+    });
+  } else {
+    await deferTelegramDelivery(input.registrationId, input.fields, input.leaseUntil, input.now, input.error).catch(
+      retryError =>
+        logger.error(
+          { err: retryError, registrationId: input.registrationId },
+          `${input.label} не удалось назначить повтор; lease освободится по timeout`,
+        ),
+    );
+  }
+  logger.error(
+    { err: input.error, registrationId: input.registrationId, permanent },
+    permanent
+      ? permanentChatDisabled
+        ? `${input.label} постоянная ошибка получателя — Telegram chat отключён`
+        : `${input.label} постоянная ошибка получателя, но lease уже потеряна — Telegram chat сохранён`
+      : `${input.label} временная ошибка — назначен короткий retry`,
+  );
 }
 
 export function getDueTelegramReminderKind(registration: ReminderCandidate, now = new Date()): ReminderKind | null {
@@ -113,33 +380,39 @@ function formatWebinarReminderLabel(scheduledAt: Date, now = new Date()) {
 function buildSegmentTip(status?: string | null) {
   const value = (status || '').toLowerCase();
   if (value.includes('юрист') || value.includes('антикризис')) {
-    return 'Подготовьте один вопрос по долговому клиенту: на эфире разберем, как передавать такие ситуации без самостоятельного ведения процедуры.';
+    return 'Подготовьте один вопрос по долговому клиенту: в записи разобрано, как передавать такие ситуации без самостоятельного ведения процедуры.';
   }
 
   if (value.includes('налог') || value.includes('корпоратив')) {
-    return 'Вспомните клиентов с требованиями ФНС, кредитной нагрузкой и риском субсидиарной ответственности: это хорошие примеры для разбора на эфире.';
+    return 'Вспомните клиентов с требованиями ФНС, кредитной нагрузкой и риском субсидиарной ответственности: это хорошие примеры для вопроса команде после премьеры.';
   }
 
   if (value.includes('руководитель') || value.includes('практик')) {
-    return 'Подумайте, какие долговые обращения сейчас уходят из вашей практики без понятного маршрута — на эфире покажем, как их передавать в АСПБ.';
+    return 'Подумайте, какие долговые обращения сейчас уходят из вашей практики без понятного маршрута — в записи показано, как их передавать в АСПБ.';
   }
 
-  return 'Подготовьте один пример клиента с долгами, кредиторами, налогами или риском банкротства — на эфире покажем, когда стоит передавать на диагностику.';
+  return 'Подготовьте один обезличенный пример клиента с долгами, кредиторами, налогами или риском банкротства — в записи показано, когда стоит передавать на диагностику.';
 }
 
 // Размер батча и предохранитель от бесконечного цикла при курсорной пагинации.
 const REMINDER_BATCH_SIZE = 100;
 const REMINDER_MAX_BATCHES = 50;
 
-export async function runReminderJobOnce(now = new Date()) {
+export async function runReminderJobOnce(now = new Date(), onProgress?: () => void) {
   let checked = 0;
   let sent = 0;
   let cursor: string | undefined;
 
   for (let batch = 0; batch < REMINDER_MAX_BATCHES; batch += 1) {
+    onProgress?.();
     const registrations = await prisma.registration.findMany({
       where: {
         status: 'registered',
+        emailVerifiedAt: { not: null },
+        lead: {
+          personalDataConsentRevokedAt: null,
+          email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
+        },
         webinarSession: {
           scheduledAt: {
             gt: now,
@@ -162,6 +435,7 @@ export async function runReminderJobOnce(now = new Date()) {
 
     checked += registrations.length;
     cursor = registrations[registrations.length - 1].id;
+    onProgress?.();
 
     // Один batch-запрос вместо N COUNT'ов (устраняет N+1): какие email-напоминания
     // уже поставлены для регистраций этого батча. Ключ — `registrationId:reminderKind`.
@@ -172,6 +446,7 @@ export async function runReminderJobOnce(now = new Date()) {
     const existingReminderKeys = new Set(existingJobs.map(job => `${job.registrationId}:${job.reminderKind}`));
 
     for (const registration of registrations) {
+      onProgress?.();
       const kind = getDueReminderKind(registration, now);
       if (!kind) {
         continue;
@@ -182,24 +457,27 @@ export async function runReminderJobOnce(now = new Date()) {
       }
 
       const created = await prisma.$transaction(async tx => {
-        const webinarUrl = await createRoomExchangeUrl(tx, {
-          registrationId: registration.id,
-          expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
+        await acquireLeadSecurityLock(tx, registration.leadId);
+        const activeRegistration = await tx.registration.findUnique({
+          where: { id: registration.id },
+          include: { lead: true, webinarSession: true },
         });
-        const partnerUrl = await createRoomExchangeUrl(tx, {
-          registrationId: registration.id,
-          expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
-          hash: 'partnerApplication',
-        });
+        if (
+          !activeRegistration ||
+          activeRegistration.leadId !== registration.leadId ||
+          !isParticipantRegistrationActive(activeRegistration) ||
+          getDueReminderKind(activeRegistration, now) !== kind
+        ) {
+          return 0;
+        }
+
         return enqueueReminderEmail(tx, {
           kind,
-          registrationId: registration.id,
-          webinarSessionId: registration.webinarSessionId,
-          toEmail: registration.lead.email,
-          toName: registration.lead.name,
-          scheduledAt: registration.webinarSession.scheduledAt,
-          webinarUrl,
-          partnerUrl,
+          registrationId: activeRegistration.id,
+          webinarSessionId: activeRegistration.webinarSessionId,
+          toEmail: activeRegistration.lead.email,
+          toName: activeRegistration.lead.name,
+          scheduledAt: activeRegistration.webinarSession.scheduledAt,
         });
       });
       // createMany(skipDuplicates) вернёт 0, если напоминание уже было поставлено гонкой —
@@ -207,6 +485,7 @@ export async function runReminderJobOnce(now = new Date()) {
       if (created > 0) {
         sent += 1;
       }
+      onProgress?.();
     }
 
     if (registrations.length < REMINDER_BATCH_SIZE) {
@@ -217,17 +496,22 @@ export async function runReminderJobOnce(now = new Date()) {
   return { checked, sent };
 }
 
-export async function runTelegramReminderJobOnce(now = new Date()) {
+export async function runTelegramReminderJobOnce(now = new Date(), onProgress?: () => void) {
   let checked = 0;
   let sent = 0;
   let cursor: string | undefined;
 
   for (let batch = 0; batch < REMINDER_MAX_BATCHES; batch += 1) {
+    onProgress?.();
     const registrations = await prisma.registration.findMany({
       where: {
         status: 'registered',
+        emailVerifiedAt: { not: null },
         lead: {
           telegramChatId: { not: null },
+          telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+          personalDataConsentRevokedAt: null,
+          email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
         },
         webinarSession: {
           scheduledAt: {
@@ -251,35 +535,43 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
 
     checked += registrations.length;
     cursor = registrations[registrations.length - 1].id;
+    onProgress?.();
 
     for (const registration of registrations) {
+      onProgress?.();
       const kind = getDueTelegramReminderKind(registration, now);
       if (!kind || !registration.lead.telegramChatId) {
         continue;
       }
 
-      const field = telegramReminderField(kind);
-      // Атомарно «застолбить» отправку ДО неё: ставим метку только если она ещё пуста.
-      // Если другой тик/реплика уже застолбил (count !== 1) — пропускаем без дубля.
-      const claimed = await prisma.registration.updateMany({
-        where: { id: registration.id, [field]: null },
-        data: { [field]: now },
+      const fields = telegramReminderDeliveryFields(kind);
+      const leaseUntil = await claimTelegramDelivery({
+        registrationId: registration.id,
+        expectedChatId: registration.lead.telegramChatId,
+        fields,
       });
-      if (claimed.count !== 1) {
+      if (!leaseUntil) {
         continue;
       }
 
       const label = formatWebinarReminderLabel(registration.webinarSession.scheduledAt, now);
       try {
-        const roomUrl = await prisma.$transaction(tx =>
-          createRoomExchangeUrl(tx, {
-            registrationId: registration.id,
-            expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
-          }),
-        );
+        const roomUrl = await createRoomUrlForActiveRegistration(registration.id, registration.lead.id);
+        if (!roomUrl) {
+          await releaseTelegramDeliveryLease(registration.id, fields, leaseUntil);
+          continue;
+        }
+
+        // Re-read the transport address immediately before the external side effect. This is an
+        // organizational registration reminder; marketing opt-out is enforced on follow-up.
+        const chatId = await activeTelegramChatId(registration.lead.id, registration.lead.telegramChatId);
+        if (!chatId) {
+          await releaseTelegramDeliveryLease(registration.id, fields, leaseUntil);
+          continue;
+        }
 
         await sendTelegramMessageToChat(
-          registration.lead.telegramChatId,
+          chatId,
           [
             kind === '24h'
               ? `Напоминание: вебинар АСПБ ${label}.`
@@ -295,31 +587,27 @@ export async function runTelegramReminderJobOnce(now = new Date()) {
             '',
             `Тема: ${registration.webinarSession.title}`,
           ].join('\n'),
-          { replyMarkup: telegramUrlButton(kind === '30m' ? '▶ Войти в комнату' : '▶ Открыть комнату', roomUrl) },
+          {
+            replyMarkup: telegramUrlButton(kind === '30m' ? '▶ Войти в комнату' : '▶ Открыть комнату', roomUrl),
+            attempts: 1,
+          },
         );
+        await markTelegramDeliverySent(registration.id, fields, leaseUntil, new Date());
         sent += 1;
       } catch (error) {
-        // Постоянная ошибка получателя (заблокировал бота, удалён, chat not found) — повтор
-        // бессмыслен. Метку НЕ откатываем, иначе каждый тик до старта эфира будем долбить
-        // безнадёжный chatId и спамить логами/Telegram-API. Временные ошибки откатываем,
-        // чтобы напоминание повторилось на следующем тике.
-        const permanent = isPermanentTelegramError(error);
-        if (!permanent) {
-          await prisma.registration
-            .update({ where: { id: registration.id }, data: { [field]: null } })
-            .catch(rollbackError =>
-              logger.error(
-                { err: rollbackError, registrationId: registration.id, kind },
-                '[ASPБ telegram reminder] откат метки не удался — сообщение может быть потеряно',
-              ),
-            );
-        }
-        logger.error(
-          { err: error, registrationId: registration.id, kind, permanent },
-          permanent
-            ? '[ASPБ telegram reminder] постоянная ошибка получателя — больше не повторяем'
-            : '[ASPБ telegram reminder] временная ошибка — метка снята для повтора',
-        );
+        await handleTelegramDeliveryError({
+          error,
+          leadId: registration.lead.id,
+          leadUpdatedAt: registration.lead.updatedAt,
+          registrationId: registration.id,
+          chatId: registration.lead.telegramChatId,
+          fields,
+          leaseUntil,
+          now: new Date(),
+          label: '[ASPБ telegram reminder]',
+        });
+      } finally {
+        onProgress?.();
       }
     }
 
@@ -336,86 +624,112 @@ const TELEGRAM_FOLLOWUP_GRACE_MS = 10 * 60 * 1000; // «после эфира» 
 const TELEGRAM_FOLLOWUP_WINDOW_MS = 12 * 60 * 60 * 1000; // не догоняем эфиры старше 12 часов
 const TELEGRAM_LIVE_FOLLOWUP_BATCH = 500;
 
-// «🔴 Эфир начался» участникам с привязанным Telegram. Идемпотентно через CAS-claim
-// telegramLiveSentAt: ровно один раз на регистрацию, без дублей при рестарте/репликах.
-export async function runTelegramLiveJobOnce(now = new Date()) {
+// «🔴 Эфир начался» участникам с привязанным Telegram. CAS-lease сериализует реплики,
+// а telegramLiveSentAt записывается только после успешной внешней отправки.
+export async function runTelegramLiveJobOnce(now = new Date(), onProgress?: () => void) {
   let sent = 0;
   const registrations = await prisma.registration.findMany({
     where: {
       status: 'registered',
+      emailVerifiedAt: { not: null },
       telegramLiveSentAt: null,
-      lead: { telegramChatId: { not: null } },
+      OR: [{ telegramLiveClaimedUntil: null }, { telegramLiveClaimedUntil: { lte: now } }],
+      lead: {
+        telegramChatId: { not: null },
+        telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+        personalDataConsentRevokedAt: null,
+        email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
+      },
       webinarSession: { scheduledAt: { lte: now, gt: new Date(now.getTime() - TELEGRAM_LIVE_WINDOW_MS) } },
     },
     include: { lead: true, webinarSession: true },
+    orderBy: { id: 'asc' },
     take: TELEGRAM_LIVE_FOLLOWUP_BATCH,
   });
 
   for (const registration of registrations) {
+    onProgress?.();
     if (!registration.lead.telegramChatId) continue;
-    const claimed = await prisma.registration.updateMany({
-      where: { id: registration.id, telegramLiveSentAt: null },
-      data: { telegramLiveSentAt: now },
+    const fields: TelegramDeliveryFields = {
+      sent: 'telegramLiveSentAt',
+      claimedUntil: 'telegramLiveClaimedUntil',
+    };
+    const leaseUntil = await claimTelegramDelivery({
+      registrationId: registration.id,
+      expectedChatId: registration.lead.telegramChatId,
+      fields,
     });
-    if (claimed.count !== 1) continue;
+    if (!leaseUntil) continue;
 
     try {
-      const roomUrl = await prisma.$transaction(tx =>
-        createRoomExchangeUrl(tx, {
-          registrationId: registration.id,
-          expiresAt: getRoomTokenExpiresAt(registration.webinarSession),
-        }),
-      );
-      await sendTelegramMessageToChat(
-        registration.lead.telegramChatId,
-        '🔴 Эфир начался — подключайтесь, мы уже в комнате.',
-        { replyMarkup: telegramUrlButton('▶ Войти в эфир', roomUrl) },
-      );
+      const roomUrl = await createRoomUrlForActiveRegistration(registration.id, registration.lead.id);
+      if (!roomUrl) {
+        await releaseTelegramDeliveryLease(registration.id, fields, leaseUntil);
+        continue;
+      }
+
+      const chatId = await activeTelegramChatId(registration.lead.id, registration.lead.telegramChatId);
+      if (!chatId) {
+        await releaseTelegramDeliveryLease(registration.id, fields, leaseUntil);
+        continue;
+      }
+      await sendTelegramMessageToChat(chatId, 'Премьера записи началась — можно подключиться к комнате.', {
+        replyMarkup: telegramUrlButton('▶ Открыть премьеру', roomUrl),
+        attempts: 1,
+      });
+      await markTelegramDeliverySent(registration.id, fields, leaseUntil, new Date());
       sent += 1;
     } catch (error) {
-      const permanent = isPermanentTelegramError(error);
-      if (!permanent) {
-        await prisma.registration
-          .update({ where: { id: registration.id }, data: { telegramLiveSentAt: null } })
-          .catch(rollbackError =>
-            logger.error(
-              { err: rollbackError, registrationId: registration.id },
-              '[ASPБ telegram live] откат метки не удался — «эфир начался» может быть потерян',
-            ),
-          );
-      }
-      logger.error(
-        { err: error, registrationId: registration.id, permanent },
-        permanent
-          ? '[ASPБ telegram live] постоянная ошибка получателя — больше не повторяем'
-          : '[ASPБ telegram live] временная ошибка — метка снята для повтора',
-      );
+      await handleTelegramDeliveryError({
+        error,
+        leadId: registration.lead.id,
+        leadUpdatedAt: registration.lead.updatedAt,
+        registrationId: registration.id,
+        chatId: registration.lead.telegramChatId,
+        fields,
+        leaseUntil,
+        now: new Date(),
+        label: '[ASPБ telegram live]',
+      });
+    } finally {
+      onProgress?.();
     }
   }
 
   return { sent };
 }
 
-// «После эфира»: благодарность + запись + призыв к партнёрской заявке. Шлётся один раз
-// (CAS-claim telegramFollowupSentAt) спустя время после фактического конца эфира.
-export async function runTelegramFollowupJobOnce(now = new Date()) {
+// «После эфира»: благодарность + запись + призыв к партнёрской заявке. Отдельная
+// восстанавливаемая lease не подменяет telegramFollowupSentAt фактом ещё не сделанной отправки.
+export async function runTelegramFollowupJobOnce(now = new Date(), onProgress?: () => void) {
   let sent = 0;
   const registrations = await prisma.registration.findMany({
     where: {
       status: 'registered',
+      emailVerifiedAt: { not: null },
       telegramFollowupSentAt: null,
-      lead: { telegramChatId: { not: null } },
+      OR: [{ telegramFollowupClaimedUntil: null }, { telegramFollowupClaimedUntil: { lte: now } }],
+      lead: {
+        telegramChatId: { not: null },
+        telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+        personalDataConsentRevokedAt: null,
+        email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
+        marketingTelegramConsent: true,
+        marketingTelegramRevokedAt: null,
+      },
       webinarSession: {
         scheduledAt: { lt: now, gt: new Date(now.getTime() - TELEGRAM_FOLLOWUP_WINDOW_MS - 6 * 60 * 60 * 1000) },
       },
     },
     include: { lead: true, webinarSession: true },
+    orderBy: { id: 'asc' },
     take: TELEGRAM_LIVE_FOLLOWUP_BATCH,
   });
 
   const recordingsUrl = buildFrontendUrl('/crisis_premium/recordings.html');
 
   for (const registration of registrations) {
+    onProgress?.();
     if (!registration.lead.telegramChatId) continue;
     const durationMs = (registration.webinarSession.durationMinutes ?? 65) * 60 * 1000;
     const endAt = registration.webinarSession.scheduledAt.getTime() + durationMs;
@@ -423,41 +737,51 @@ export async function runTelegramFollowupJobOnce(now = new Date()) {
       continue;
     }
 
-    const claimed = await prisma.registration.updateMany({
-      where: { id: registration.id, telegramFollowupSentAt: null },
-      data: { telegramFollowupSentAt: now },
+    const fields: TelegramDeliveryFields = {
+      sent: 'telegramFollowupSentAt',
+      claimedUntil: 'telegramFollowupClaimedUntil',
+    };
+    const leaseUntil = await claimTelegramDelivery({
+      registrationId: registration.id,
+      expectedChatId: registration.lead.telegramChatId,
+      fields,
+      requireMarketingConsent: true,
     });
-    if (claimed.count !== 1) continue;
+    if (!leaseUntil) continue;
 
     try {
+      // This second read is deliberately adjacent to send: a consent revocation that races with
+      // candidate selection or lease acquisition prevents the follow-up from leaving the process.
+      const chatId = await activeTelegramChatId(registration.lead.id, registration.lead.telegramChatId, true);
+      if (!chatId) {
+        await releaseTelegramDeliveryLease(registration.id, fields, leaseUntil);
+        continue;
+      }
       await sendTelegramMessageToChat(
-        registration.lead.telegramChatId,
+        chatId,
         [
           'Спасибо, что были на вебинаре АСПБ.',
           '',
           'Запись и материалы — в разделе «Записи». Если есть клиент с долгами, налогами или риском банкротства — оставьте партнёрскую заявку, поможем довести.',
         ].join('\n'),
-        { replyMarkup: telegramUrlButton('Смотреть запись', recordingsUrl) },
+        { replyMarkup: telegramUrlButton('Смотреть запись', recordingsUrl), attempts: 1 },
       );
+      await markTelegramDeliverySent(registration.id, fields, leaseUntil, new Date());
       sent += 1;
     } catch (error) {
-      const permanent = isPermanentTelegramError(error);
-      if (!permanent) {
-        await prisma.registration
-          .update({ where: { id: registration.id }, data: { telegramFollowupSentAt: null } })
-          .catch(rollbackError =>
-            logger.error(
-              { err: rollbackError, registrationId: registration.id },
-              '[ASPБ telegram followup] откат метки не удался — followup может быть потерян',
-            ),
-          );
-      }
-      logger.error(
-        { err: error, registrationId: registration.id, permanent },
-        permanent
-          ? '[ASPБ telegram followup] постоянная ошибка получателя — больше не повторяем'
-          : '[ASPБ telegram followup] временная ошибка — метка снята для повтора',
-      );
+      await handleTelegramDeliveryError({
+        error,
+        leadId: registration.lead.id,
+        leadUpdatedAt: registration.lead.updatedAt,
+        registrationId: registration.id,
+        chatId: registration.lead.telegramChatId,
+        fields,
+        leaseUntil,
+        now: new Date(),
+        label: '[ASPБ telegram followup]',
+      });
+    } finally {
+      onProgress?.();
     }
   }
 
@@ -487,6 +811,9 @@ let reminderCycleRunning = false;
 let reminderCyclePromise: Promise<void> | null = null;
 let reminderInterval: NodeJS.Timeout | null = null;
 let reminderStartupTimer: NodeJS.Timeout | null = null;
+let consecutiveFailedReminderCycles = 0;
+let workerRestartRequested = false;
+const REMINDER_FAILURE_RESTART_THRESHOLD = 5;
 
 async function runReminderCycle() {
   // Локальный guard — защита от наложения тиков в одном процессе.
@@ -499,16 +826,46 @@ async function runReminderCycle() {
   // пуле соединений acquire и release попадали на РАЗНЫЕ коннекты — лок утекал и со временем
   // намертво блокировал прогон напоминаний (боты «переставали работать»). Идемпотентность теперь
   // гарантируется на уровне БД: уникальный индекс (registrationId, type, reminderKind) на
-  // email-джобах + CAS-claim (updateMany … count === 1) в outbox/broadcast — дублей не будет
-  // даже при нескольких репликах, и при этом ничто не может «залипнуть».
+  // email-джобах и восстанавливаемые CAS-leases в Telegram-доставке. Несколько реплик не
+  // отправляют одновременно, а claim после падения снова становится доступным по timeout.
   try {
-    await runReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ reminders]'));
-    await runEmailOutboxJobOnce().catch(error => logger.error({ err: error }, '[ASPБ email outbox]'));
-    await runTelegramLiveJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram live]'));
-    await runTelegramReminderJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram reminders]'));
-    await runTelegramFollowupJobOnce().catch(error => logger.error({ err: error }, '[ASPБ telegram followup]'));
-    await cleanupExpiredRegistrationTokens().catch(error => logger.error({ err: error }, '[ASPБ token cleanup]'));
-    await runRetentionSweepThrottled().catch(error => logger.error({ err: error }, '[ASPБ retention]'));
+    const reportProgress = () => reportWorkerSubsystemProgress('reminders');
+    const runStep = async (label: string, task: () => Promise<unknown>) => {
+      try {
+        reportProgress();
+        await task();
+        return true;
+      } catch (error) {
+        logger.error({ err: error }, label);
+        return false;
+      } finally {
+        // This records completed pipeline work. The independent process heartbeat
+        // intentionally keeps ticking even when a step is stuck, while this file
+        // becomes stale and makes the worker unhealthy.
+        reportProgress();
+      }
+    };
+    const results = [];
+    results.push(await runStep('[ASPБ reminders]', () => runReminderJobOnce(new Date(), reportProgress)));
+    results.push(await runStep('[ASPБ email outbox]', () => runEmailOutboxJobOnce(new Date(), {}, reportProgress)));
+    results.push(await runStep('[ASPБ telegram live]', () => runTelegramLiveJobOnce(new Date(), reportProgress)));
+    results.push(
+      await runStep('[ASPБ telegram reminders]', () => runTelegramReminderJobOnce(new Date(), reportProgress)),
+    );
+    results.push(
+      await runStep('[ASPБ telegram followup]', () => runTelegramFollowupJobOnce(new Date(), reportProgress)),
+    );
+    results.push(await runStep('[ASPБ token cleanup]', cleanupExpiredRegistrationTokens));
+    results.push(await runStep('[ASPБ retention]', () => runRetentionSweepThrottled(new Date(), reportProgress)));
+    const healthy = results.every(Boolean);
+    if (healthy) {
+      consecutiveFailedReminderCycles = 0;
+    } else {
+      consecutiveFailedReminderCycles += 1;
+      if (consecutiveFailedReminderCycles >= REMINDER_FAILURE_RESTART_THRESHOLD) {
+        throw new Error(`Reminder worker stayed unhealthy for ${consecutiveFailedReminderCycles} consecutive cycles`);
+      }
+    }
   } finally {
     reminderCycleRunning = false;
   }
@@ -519,9 +876,21 @@ export function startReminderScheduler() {
     return null;
   }
 
+  initializeWorkerSubsystemProgress('reminders');
+
   const run = () => {
     reminderCyclePromise = runReminderCycle()
-      .catch(error => logger.error({ err: error }, '[ASPБ reminder cycle]'))
+      .catch(error => {
+        logger.error({ err: error, consecutiveFailedReminderCycles }, '[ASPБ reminder cycle]');
+        if (env.NODE_ENV === 'production' && !workerRestartRequested) {
+          workerRestartRequested = true;
+          logger.fatal(
+            { consecutiveFailedReminderCycles },
+            '[ASPБ reminder cycle] sustained failure; exiting so the process supervisor can restart the worker',
+          );
+          setImmediate(() => process.exit(1));
+        }
+      })
       .finally(() => {
         reminderCyclePromise = null;
       });
@@ -548,4 +917,7 @@ export async function stopReminderScheduler() {
   if (reminderCyclePromise) {
     await reminderCyclePromise;
   }
+  consecutiveFailedReminderCycles = 0;
+  workerRestartRequested = false;
+  stopWorkerSubsystemProgress('reminders');
 }

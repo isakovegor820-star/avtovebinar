@@ -1,0 +1,143 @@
+.register-header-back {
+  padding: 0 20px;
+  border: 1px solid rgba(4, 22, 39, 0.2);
+  color: #041627;
+  background: #fff;
+  text-decoration: none;
+}
+
+.register-card-heading {
+  margin-bottom: 24px;
+}
+
+.register-card-kicker {
+  margin: 0 0 6px;
+  color: #52606d;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.register-card-heading h2 {
+  margin: 0;
+  color: #041627;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 800;
+}
+
+.register-card-heading p:last-child {
+  margin: 8px 0 0;
+  color: #52606d;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.registration-verification-state {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px solid #aac9ec;
+  border-radius: 10px;
+  background: #edf6ff;
+  color: #041627;
+  line-height: 1.5;
+}
+
+.registration-verification-state strong {
+  font-size: 17px;
+}
+
+.registration-verification-state p {
+  margin: 0;
+  color: #34495d;
+  font-size: 14px;
+}
+
+.registration-verification-state a {
+  width: fit-content;
+  color: #174f86;
+  font-size: 14px;
+  font-weight: 800;
+  text-underline-offset: 3px;
+}
+
+.registration-verification-state:focus-visible {
+  outline: 3px solid rgba(41, 102, 163, 0.35);
+  outline-offset: 3px;
+}
+
+@media (max-width: 767px) {
+  .register-header nav {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .register-header-back {
+    min-height: 40px;
+    padding: 0 15px;
+    font-size: 13px;
+  }
+
+  .register-mobile-nav {
+    display: none;
+  }
+
+  .register-main {
+    min-height: 0;
+    align-items: flex-start;
+    padding: 20px 16px 40px;
+  }
+
+  .register-layout {
+    gap: 28px;
+  }
+
+  .register-card {
+    order: 1;
+    padding: 22px 18px;
+    border-radius: 14px;
+  }
+
+  .register-intro {
+    order: 2;
+    gap: 20px;
+    padding: 0 4px;
+  }
+
+  .register-intro h1 {
+    margin-bottom: 14px;
+    font-size: 30px;
+    line-height: 1.14;
+  }
+
+  .register-intro .space-y-4 {
+    display: none;
+  }
+
+  .register-card-heading h2 {
+    font-size: 22px;
+  }
+
+  .register-card form {
+    gap: 18px;
+  }
+
+  .register-card input,
+  .register-card select,
+  .register-card button[type="submit"] {
+    min-height: 48px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .register-intro {
+    order: 1;
+  }
+
+  .register-card {
+    order: 2;
+  }
+}

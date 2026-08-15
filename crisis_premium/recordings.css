@@ -202,6 +202,19 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
   padding: 24px;
 }
 .recording-video-fallback.hidden { display: none; }
+.recording-video-fallback button {
+  min-height: 44px;
+  margin-top: 16px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  background: #fff;
+  color: #041627;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+.recording-video-fallback button:disabled { cursor: wait; opacity: 0.7; }
 
 /* ── Панель управления плеером ──────────────────────────────────────── */
 .recording-controls {
@@ -498,6 +511,33 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
 }
 .recordings-primary-link:hover { transform: translateY(-1px); background: #103355; box-shadow: 0 12px 24px rgba(4, 22, 39, 0.16); }
 
+.recordings-request-error {
+  min-height: 300px;
+  padding: 44px 24px;
+  border: 1px solid rgba(41, 102, 163, 0.15);
+  border-radius: 22px;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 18px 45px rgba(41, 102, 163, 0.08);
+}
+.recordings-request-error[hidden] { display: none; }
+.recordings-request-error > .material-symbols-outlined { color: #2966a3; font-size: 54px; }
+.recordings-request-error h2 { margin: 16px 0 8px; color: #041627; font-size: 28px; }
+.recordings-request-error p { margin: 0 auto; max-width: 580px; color: #44474c; line-height: 1.55; }
+.recordings-request-error button {
+  min-height: 46px;
+  margin-top: 22px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  background: #041627;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+.recordings-request-error button:disabled { cursor: wait; opacity: 0.65; }
+
 .recordings-access-gate {
   position: relative;
   grid-column: 1 / -1;
@@ -528,7 +568,10 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
   background:
     linear-gradient(180deg, rgba(4, 22, 39, 0.18), rgba(4, 22, 39, 0.84)),
     linear-gradient(90deg, rgba(4, 22, 39, 0.7), rgba(4, 22, 39, 0.08)),
-    url("assets/aspb-hero-consultation.png") center / cover;
+    image-set(
+      url("assets/aspb-hero-consultation-1122.avif") type("image/avif"),
+      url("assets/aspb-hero-consultation.png") type("image/png")
+    ) center / cover;
   color: #fff;
 }
 .recordings-access-visual span { font-size: 22px; font-weight: 800; }

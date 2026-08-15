@@ -55,28 +55,36 @@ npm run e2e:install
 
 ## Email outbox
 
-Регистрация не зависит от успешной SMTP-отправки. После сохранения lead/registration backend создает запись в `email_outbox_jobs` и сразу возвращает успех пользователю.
+После сохранения lead/registration backend создаёт `email_outbox_jobs` и
+возвращает одинаковый `202` для нового и уже известного email. Участническая
+сессия появляется только после перехода по одноразовой ссылке из письма.
 
 Outbox job хранит:
 
 - `type`, `status`;
 - `attempts`, `lastError`, `nextAttemptAt`, `sentAt`;
 - registration/session references;
-- адресата, дату эфира и персональную exchange-ссылку.
+- адресата, дату эфира и non-secret marker для ссылки.
 
-Scheduler раз в минуту отправляет `pending/failed` письма. При ошибке SMTP задача остается в БД со статусом `failed` и будет повторена позже. В `EMAIL_MODE=log` письмо считается обработанным, но персональные ссылки маскируются в логе.
+Scheduler раз в минуту отправляет `pending/failed` письма. Непосредственно перед
+SMTP worker создаёт raw link только в памяти, а в БД сохраняет лишь hash токена.
+При неоднозначной ошибке SMTP предыдущий hash остаётся действующим, retry
+выпускает новую короткоживущую ссылку. После terminal-результата outbox marker
+редактируется. В development/test при `EMAIL_MODE=log` задача получает статус
+`cancelled`: письмо не считается доставленным, а персональные ссылки маскируются
+в логе.
 
-Production требует `EMAIL_MODE=send` и валидный SMTP.
+Production может временно работать в честном degraded-режиме `EMAIL_MODE=log`:
+письмо и доступ не обещаются, API возвращает `deliveryStatus=retrying`.
+`EMAIL_MODE=send` включается только после SMTP verify.
 
 ## Вебинарная комната
 
-Видео ожидается здесь:
+Видео хранится в приватном origin/object storage, заданном через `WEBINAR_VIDEO_URL`/`WEBINAR_VIDEO_HLS_URL`.
+Прямой URL пользователю не возвращается: API проксирует поток только после проверки participant session.
+Локальные видеофайлы исключены из Docker context и не публикуются статическим сервером.
 
-```text
-crisis_premium/assets/webinar.mp4
-```
-
-Каждый день вебинар стартует в 19:00 по Москве. Live-состояние считается на сервере по `webinar_sessions.scheduled_at`, длительности видео и replay window. Во время live работает DVR-режим: пользователь может отмотать назад только в уже прошедшую часть эфира, будущая часть недоступна, а серверный live-edge продолжает идти дальше. Кнопка `К эфиру` возвращает к актуальному live-моменту. После завершения эфир переходит в replay, видео показывает “Вебинар окончен”, а чат остается открытым для вопросов.
+Каждый день вебинар стартует в 19:30 по Москве. Live-состояние считается на сервере по `webinar_sessions.scheduled_at`, длительности видео и replay window. Во время live работает DVR-режим: пользователь может отмотать назад только в уже прошедшую часть эфира, будущая часть недоступна, а серверный live-edge продолжает идти дальше. Кнопка `К эфиру` возвращает к актуальному live-моменту. После завершения эфир переходит в replay, видео показывает “Вебинар окончен”, а чат остается открытым для вопросов.
 
 Чат server-backed: сообщения и вопросы хранятся в БД, scripted chat синхронизируется с серверным live offset.
 
@@ -85,7 +93,8 @@ crisis_premium/assets/webinar.mp4
 1. Обновите `WEBINAR_VIDEO_DURATION_SECONDS` в `.env` / production env по фактической длительности файла или HLS-записи.
 2. Разметьте ответы в видео и поставьте `sendAtSeconds` у вопросов за 40-70 секунд до `answerStartSeconds`.
 3. Не оставляйте сообщения за пределами `WEBINAR_VIDEO_DURATION_SECONDS`, если это не post-webinar сообщение с `allowAfterVideo: true`.
-4. Запустите `npm test` перед публикацией: тесты валидируют сценарий и duration.
+4. Запустите `VIDEO_ENV_FILE=.env.production bash scripts/check-video.sh`: проверка читает фактически настроенный HLS/MP4 source и сверяет его длительность (production default — 3860 секунд).
+5. Запустите `npm test` перед публикацией: тесты валидируют сценарий и duration.
 
 ## Основные API
 
@@ -145,7 +154,7 @@ ADMIN_PASSWORD=...
 ADMIN_COOKIE_SECRET=...
 IP_HASH_SECRET=...
 METRICS_TOKEN=...
-EMAIL_MODE=send
+EMAIL_MODE=log # degraded до SMTP verify; затем переключить на send
 SMTP_HOST=...
 SMTP_PORT=587
 SMTP_USER=...
@@ -156,14 +165,16 @@ TELEGRAM_ADMIN_BOT_USERNAME=...
 TELEGRAM_ADMIN_CHAT_ID=...
 TELEGRAM_PARTICIPANT_BOT_TOKEN=...
 TELEGRAM_PARTICIPANT_BOT_USERNAME=...
+TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME=... # должен совпадать с username фактического participant bot
 WEBINAR_VIDEO_HLS_URL=https://cdn.example.com/webinar/master.m3u8 # optional but preferred
-WEBINAR_VIDEO_URL=https://cdn.example.com/webinar/webinar.mp4 # allowed production MP4 fallback/source
+WEBINAR_VIDEO_URL=https://private-cdn.example.com/webinar/webinar.mp4 # private origin, not a public playback URL
 WEBINAR_POSTER_URL=https://cdn.example.com/webinar/poster.jpg
+WEBINAR_MEDIA_ORIGIN_TOKEN=... # обязателен для внешнего origin; не нужен для same-origin файла из read-only mount
 WEBINAR_VIDEO_DURATION_SECONDS=3860
 WEBINAR_TEST_ROOM_MODE=off
 ```
 
-Production guard запрещает дефолтные admin-секреты, пустой `METRICS_TOKEN`, `EMAIL_MODE=log`, HTTP `PUBLIC_SITE_URL`, wildcard CORS, test-room mode и localhost video URLs. `DATABASE_URL` должен включать pooling параметры, например `connection_limit=10&pool_timeout=20`. `TRUST_PROXY` включайте только при запуске за доверенным reverse proxy. `/health/dependencies` сверяет Telegram `getMe.username` с настроенными bot usernames.
+Production guard запрещает дефолтные admin-секреты, пустой `METRICS_TOKEN`, HTTP `PUBLIC_SITE_URL`, wildcard CORS, test-room mode и localhost video URLs. `EMAIL_MODE=log` разрешён как явно degraded-режим без обещания доставки; при `send` обязательны SMTP-реквизиты и предварительный verify. Видео выдаётся только через cookie-защищённые `/api/media/*`: внешний private CDN/origin требует Bearer token, а same-origin файл может читаться приложением из read-only mount без сетевого origin. `DATABASE_URL` должен включать pooling параметры, например `connection_limit=10&pool_timeout=20`. `TRUST_PROXY` включайте только за доверенным reverse proxy. `/health/dependencies` без токена показывает только `checks.smtp`, `checks.telegram` и `checks.emailOutbox` со значениями `ok/degraded` — без ошибок провайдера, username, адресов, heartbeat timestamps и размеров очереди. Полные детали, включая SLA очереди и per-subsystem worker deadlines, доступны по `/health/dependencies/details` с metrics token.
 
 Docker production:
 
@@ -185,7 +196,7 @@ Helmet включает CSP, frame/object restrictions, COEP/CORP, cookie harden
 
 Публичные файлы `/.well-known/security.txt` и `/robots.txt` отдаются из static frontend root.
 
-Observability: каждый request получает `x-correlation-id`, pino logs включают `correlation_id`, `userId`/`adminId` где доступны. `/health/ready` проверяет готовность ядра API и БД, `/health/dependencies` отдельно проверяет SMTP/Telegram. `/metrics` отдает Prometheus text format: request counters/duration, 5xx rate alert state, email outbox depth, Telegram broadcast queue/dead-letter depth; в production endpoint требует `Authorization: Bearer <METRICS_TOKEN>`.
+Observability: каждый request получает `x-correlation-id`, pino logs включают `correlation_id`, `userId`/`adminId` где доступны. `/health/ready` проверяет готовность ядра API и БД, `/health/dependencies` публично показывает только категорию неисправного контура (`smtp`, `telegram`, `emailOutbox`) и состояние `ok/degraded`. Подробные checks доступны по `/health/dependencies/details`; он и `/metrics` в production требуют `Authorization: Bearer <METRICS_TOKEN>`.
 
 ## QA checklist
 

@@ -1,20 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/lib/prisma.js', () => {
-  return {
-    prisma: {
-      adminUser: {
-        findUnique: vi.fn(),
-        findFirst: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
-        count: vi.fn().mockResolvedValue(1),
-      },
-      auditLog: {
-        create: vi.fn(),
-      },
+  const prisma = {
+    adminUser: {
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      count: vi.fn().mockResolvedValue(1),
     },
+    auditLog: {
+      create: vi.fn(),
+    },
+    $executeRaw: vi.fn(),
+    $transaction: vi.fn(),
   };
+  prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
+  return { prisma };
 });
 
 import { createAccessToken, createAdminSession, hashToken, verifyAdminSession } from '../src/lib/tokens.js';
@@ -35,7 +37,6 @@ import {
   getReplayExpiresAt,
   getSessionStatus,
   getWebinarAccess,
-  WEBINAR_DURATION_MINUTES,
   WEBINAR_REPLAY_HOURS,
   WEBINAR_START_HOUR_MSK,
 } from '../src/lib/time.js';
@@ -53,6 +54,8 @@ import { PUBLIC_ANALYTICS_EVENTS } from '../src/lib/events.js';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.js';
 import { eventSchema } from '../src/routes/public/events.js';
 import { getWebinarVideoConfig } from '../src/lib/webinarVideo.js';
+import { getParticipantSessionExpiresAt, PARTICIPANT_SESSION_TTL_DAYS } from '../src/lib/roomLinks.js';
+import { parseVisitorId } from '../src/lib/visitor.js';
 import { checkTelegramConnectivity } from '../src/lib/telegram.js';
 
 describe('webinar time logic', () => {
@@ -79,8 +82,18 @@ describe('webinar time logic', () => {
     expect(scheduledAt.toISOString()).toBe('2026-05-21T16:30:00.000Z');
   });
 
-  it('switches the room schedule to tomorrow after the daily webinar ends', () => {
+  it('selects tomorrow for acquisition after todays webinar has finished', () => {
     const scheduledAt = getCurrentOrNextWebinarDate(new Date('2026-05-21T20:31:00.000Z'), 120);
+    expect(scheduledAt.toISOString()).toBe('2026-05-22T16:30:00.000Z');
+  });
+
+  it('selects todays acquisition slot on the next morning, never yesterdays replay', () => {
+    const scheduledAt = getCurrentOrNextWebinarDate(new Date('2026-05-22T07:00:00.000Z'), 120);
+    expect(scheduledAt.toISOString()).toBe('2026-05-22T16:30:00.000Z');
+  });
+
+  it('keeps todays acquisition slot through the exact configured end boundary', () => {
+    const scheduledAt = getCurrentOrNextWebinarDate(new Date('2026-05-22T18:30:00.000Z'), 120);
     expect(scheduledAt.toISOString()).toBe('2026-05-22T16:30:00.000Z');
   });
 
@@ -112,21 +125,15 @@ describe('webinar time logic', () => {
     expect(getReplayExpiresAt(scheduledAt, 120).toISOString()).toBe('2026-05-29T10:00:00.000Z');
   });
 
-  it('keeps firstSeen while the assigned webinar replay is still open', () => {
+  it('keeps a valid firstSeen value for attribution only', () => {
     const firstSeen = '2026-05-21T09:15:00.000Z';
-    const assignedWebinar = getNextWebinarDate(new Date(firstSeen));
-    const beforeReplayExpiry = new Date(
-      getReplayExpiresAt(assignedWebinar, WEBINAR_DURATION_MINUTES).getTime() - 60 * 1000,
-    );
-    const resolved = resolveFirstSeenAt(firstSeen, beforeReplayExpiry);
+    const resolved = resolveFirstSeenAt(firstSeen, new Date('2026-06-01T09:15:00.000Z'));
     expect(resolved.toISOString()).toBe(firstSeen);
   });
 
-  it('resets firstSeen after the assigned webinar replay expires', () => {
-    const firstSeen = '2026-05-21T09:15:00.000Z';
-    const assignedWebinar = getNextWebinarDate(new Date(firstSeen));
-    const now = new Date(getReplayExpiresAt(assignedWebinar, WEBINAR_DURATION_MINUTES).getTime() + 1);
-    const resolved = resolveFirstSeenAt(firstSeen, now);
+  it('uses the current time when firstSeen is invalid', () => {
+    const now = new Date('2026-06-01T09:15:00.000Z');
+    const resolved = resolveFirstSeenAt('invalid', now);
     expect(resolved).toBe(now);
   });
 });
@@ -144,6 +151,20 @@ describe('client IP extraction', () => {
     };
 
     expect(getClientIp(req as any)).toBe('10.0.0.42');
+  });
+});
+
+describe('participant and analytics identity', () => {
+  it('keeps participant cookie lifetime aligned with the seven-day privacy policy', () => {
+    const now = new Date('2026-07-29T10:00:00.000Z');
+    expect(PARTICIPANT_SESSION_TTL_DAYS).toBe(7);
+    expect(getParticipantSessionExpiresAt(now).toISOString()).toBe('2026-08-05T10:00:00.000Z');
+  });
+
+  it('accepts generated visitor IDs and rejects malformed cookie values', () => {
+    expect(parseVisitorId('FyVj0Lw2cL8Jf0O2XsSGyxbejlV3nL5M')).toBe('FyVj0Lw2cL8Jf0O2XsSGyxbejlV3nL5M');
+    expect(parseVisitorId('../admin')).toBeNull();
+    expect(parseVisitorId('short')).toBeNull();
   });
 });
 
@@ -257,7 +278,8 @@ describe('security configuration', () => {
       TELEGRAM_NOTIFY_MODE: 'send',
       TELEGRAM_BOT_POLLING: 'off',
       TELEGRAM_PARTICIPANT_BOT_TOKEN: 'participant-bot-token',
-      TELEGRAM_PARTICIPANT_BOT_USERNAME: 'aspb_participant_bot',
+      TELEGRAM_PARTICIPANT_BOT_USERNAME: 'jwjefgwreqfe_bot',
+      TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: 'jwjefgwreqfe_bot',
       TELEGRAM_PARTICIPANT_BOT_POLLING: 'off',
       TELEGRAM_CONSULTANT_BOT_TOKEN: '',
       TELEGRAM_CONSULTANT_BOT_USERNAME: '',
@@ -269,6 +291,7 @@ describe('security configuration', () => {
       WEBINAR_VIDEO_HLS_URL: 'https://cdn.example.com/webinar/master.m3u8',
       WEBINAR_VIDEO_URL: '',
       WEBINAR_POSTER_URL: 'https://cdn.example.com/webinar/poster.jpg',
+      WEBINAR_MEDIA_ORIGIN_TOKEN: 'unit-test-private-media-origin-token-123456',
       WEBINAR_VIDEO_DURATION_SECONDS: 568,
       WEBINAR_TEST_ROOM_MODE: 'off',
       WEBINAR_PREVIEW_MODE: 'off',
@@ -341,17 +364,48 @@ describe('security configuration', () => {
     ).toThrow(/WEBINAR_TEST_ROOM_MODE/);
   });
 
-  it('allows EMAIL_MODE=log without SMTP in production (Telegram-only channel)', () => {
+  it('rejects webinar preview mode in production', () => {
     expect(() =>
       validateProductionSecurity(
         secureProductionConfig({
-          EMAIL_MODE: 'log',
+          WEBINAR_PREVIEW_MODE: 'on',
+        }),
+      ),
+    ).toThrow(/WEBINAR_PREVIEW_MODE/);
+  });
+
+  it('rejects EMAIL_MODE=send when SMTP credentials are missing', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          EMAIL_MODE: 'send',
           SMTP_HOST: '',
           SMTP_USER: '',
           SMTP_PASS: '',
         }),
       ),
-    ).not.toThrow();
+    ).toThrow(/SMTP_HOST.*SMTP_USER.*SMTP_PASS/);
+  });
+
+  it('requires the expected participant bot username in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: undefined,
+        }),
+      ),
+    ).toThrow(/TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME is required/);
+  });
+
+  it('rejects a participant bot username that differs from the deployment pin', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          TELEGRAM_PARTICIPANT_BOT_USERNAME: 'actual_participant_bot',
+          TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: 'different_participant_bot',
+        }),
+      ),
+    ).toThrow(/TELEGRAM_PARTICIPANT_BOT_USERNAME must be different_participant_bot/);
   });
 
   it('requires a production metrics token', () => {
@@ -364,8 +418,8 @@ describe('security configuration', () => {
     ).toThrow(/METRICS_TOKEN/);
   });
 
-  it('allows production Telegram log mode without bot settings', () => {
-    expect(
+  it('requires the participant access bot in production even when Telegram delivery is in log mode', () => {
+    expect(() =>
       validateProductionSecurity(
         secureProductionConfig({
           TELEGRAM_NOTIFY_MODE: 'log',
@@ -374,8 +428,8 @@ describe('security configuration', () => {
           TELEGRAM_PARTICIPANT_BOT_TOKEN: '',
           TELEGRAM_PARTICIPANT_BOT_USERNAME: '',
         }),
-      ).TELEGRAM_NOTIFY_MODE,
-    ).toBe('log');
+      ),
+    ).toThrow(/participant bot username|TELEGRAM_PARTICIPANT_BOT_TOKEN/i);
   });
 
   it('rejects missing bot settings when production Telegram send mode is enabled', () => {
@@ -407,6 +461,41 @@ describe('security configuration', () => {
 
   it('accepts a hardened production configuration', () => {
     expect(validateProductionSecurity(secureProductionConfig()).NODE_ENV).toBe('production');
+  });
+
+  it('allows an explicit degraded email mode without pretending SMTP is available', () => {
+    expect(
+      validateProductionSecurity(
+        secureProductionConfig({
+          EMAIL_MODE: 'log',
+          SMTP_HOST: '',
+          SMTP_USER: '',
+          SMTP_PASS: '',
+        }),
+      ).EMAIL_MODE,
+    ).toBe('log');
+  });
+
+  it('allows same-origin media mounted behind the authenticated media endpoint without an origin token', () => {
+    const config = validateProductionSecurity(
+      secureProductionConfig({
+        PUBLIC_SITE_URL: 'https://aspb.example.com',
+        WEBINAR_VIDEO_HLS_URL: 'https://aspb.example.com/crisis_premium/assets/media/webinar/hls/master.m3u8',
+        WEBINAR_VIDEO_URL: 'https://aspb.example.com/crisis_premium/assets/media/webinar/video.mp4',
+        WEBINAR_MEDIA_ORIGIN_TOKEN: '',
+      }),
+    );
+    expect(config.WEBINAR_MEDIA_ORIGIN_TOKEN).toBe('');
+  });
+
+  it('requires an origin token for cross-origin media', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          WEBINAR_MEDIA_ORIGIN_TOKEN: '',
+        }),
+      ),
+    ).toThrow(/WEBINAR_MEDIA_ORIGIN_TOKEN/);
   });
 
   it('allows production CDN MP4 without HLS when provider is cdn', () => {
@@ -583,23 +672,48 @@ describe('registration validation logic', () => {
     name: 'Иван',
     phone: '+79000000000',
     email: 'ivan@example.com',
-    consent: true,
+    personalDataConsent: true,
+    termsAccepted: true,
   };
 
-  it('validates correct registration data and sets default marketingConsent to false', () => {
+  it('validates separate mandatory actions and defaults both marketing channels to false', () => {
     const parsed = registerSchema.parse(validData);
     expect(parsed.name).toBe('Иван');
-    expect(parsed.consent).toBe(true);
-    expect(parsed.marketingConsent).toBe(false);
+    expect(parsed.personalDataConsent).toBe(true);
+    expect(parsed.termsAccepted).toBe(true);
+    expect(parsed.marketingEmailConsent).toBe(false);
+    expect(parsed.marketingTelegramConsent).toBe(false);
   });
 
-  it('accepts explicit marketingConsent', () => {
-    const parsed = registerSchema.parse({ ...validData, marketingConsent: true });
-    expect(parsed.marketingConsent).toBe(true);
+  it('accepts channel-specific optional marketing consent', () => {
+    const parsed = registerSchema.parse({ ...validData, marketingTelegramConsent: true });
+    expect(parsed.marketingEmailConsent).toBe(false);
+    expect(parsed.marketingTelegramConsent).toBe(true);
   });
 
-  it('rejects registration without mandatory consent', () => {
-    expect(() => registerSchema.parse({ ...validData, consent: false })).toThrow();
+  it('parses explicit string booleans without treating "false" as consent', () => {
+    const parsed = registerSchema.parse({
+      ...validData,
+      personalDataConsent: 'true',
+      termsAccepted: 'true',
+      marketingEmailConsent: 'false',
+      marketingTelegramConsent: 'true',
+    });
+    expect(parsed.marketingEmailConsent).toBe(false);
+    expect(parsed.marketingTelegramConsent).toBe(true);
+  });
+
+  it('rejects registration without either mandatory separate action', () => {
+    expect(() => registerSchema.parse({ ...validData, personalDataConsent: false })).toThrow();
+    expect(() => registerSchema.parse({ ...validData, termsAccepted: false })).toThrow();
+    expect(() => registerSchema.parse({ ...validData, personalDataConsent: 'false' })).toThrow();
+    expect(() => registerSchema.parse({ ...validData, termsAccepted: 'false' })).toThrow();
+  });
+
+  it('rejects ambiguous truthy values for every consent field', () => {
+    for (const value of ['on', 'yes', '1', 1, {}, []]) {
+      expect(() => registerSchema.parse({ ...validData, marketingEmailConsent: value })).toThrow();
+    }
   });
 });
 
@@ -760,5 +874,39 @@ describe('admin privilege checks', () => {
     const error = next.mock.calls[0][0];
     expect(error.statusCode).toBe(403);
     expect(error.message).toContain('Недостаточно прав для создания владельца');
+  });
+
+  it('atomically prevents an owner from disabling the last active owner', async () => {
+    vi.mocked(prisma.adminUser.findUnique).mockResolvedValue({
+      id: 'owner_1',
+      name: 'Only Owner',
+      email: 'owner@example.com',
+      role: 'owner',
+      isActive: true,
+    } as any);
+    vi.mocked(prisma.adminUser.count).mockResolvedValue(1);
+
+    const req = {
+      params: { id: 'owner_1' },
+      body: { isActive: false },
+      admin: { id: 'owner_1', role: 'owner', email: 'owner@example.com' },
+      headers: {},
+      socket: { remoteAddress: '127.0.0.1' },
+    };
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    const next = vi.fn();
+
+    await new Promise<void>(resolve => {
+      const wrappedNext = (error: unknown) => {
+        next(error);
+        resolve();
+      };
+      res.json.mockImplementation(() => resolve());
+      patchHandler(req as any, res as any, wrappedNext);
+    });
+
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+    expect(prisma.adminUser.update).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'owner_1' } }));
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 409 }));
   });
 });

@@ -78,7 +78,7 @@
         state.contentTargetY = ((y - centerY) / centerY) * maxContentShift;
       }
 
-      function onMouseEnter(e) {
+      function onMouseEnter() {
         state.hovered = true;
         state.rect = button.getBoundingClientRect();
         startLerp();

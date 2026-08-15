@@ -10,7 +10,7 @@ import {
   formatUtcIcsDate,
   getJson,
 } from './utils.js?v=site-review-7';
-import { getRegistrationState } from './registration.js?v=site-review-7';
+import { getRegistrationState } from './registration.js?v=remediation-20260804-1';
 import { updateTelegramLinks } from './room.js?v=site-review-7';
 import { track } from './analytics.js?v=site-review-7';
 
@@ -38,13 +38,49 @@ function renderSuccessAccessGate() {
         <span class="material-symbols-outlined">lock</span>
       </div>
       <h1>Доступ не найден</h1>
-      <p>Кабинет участника показывается после регистрации или входа по одноразовой ссылке. Если вы уже регистрировались, восстановите доступ по email без пароля.</p>
+      <p>Кабинет участника показывается после новой регистрации или входа по одноразовой ссылке. Для существующего email нужно подтвердить владение адресом — повторная отправка формы не открывает доступ автоматически.</p>
       <div class="success-access-actions">
-        <a class="success-access-primary" href="access.html">Войти по email</a>
+        <a class="success-access-primary" href="access.html">Восстановить доступ</a>
         <a class="success-access-secondary" href="register.html">Зарегистрироваться</a>
       </div>
     </div>
   `;
+}
+
+function isAccessError(error) {
+  return error && [401, 403, 404].includes(Number(error.status));
+}
+
+function renderSuccessTemporaryError(error) {
+  const gate = document.getElementById('successAccessGate');
+  if (!gate) return;
+  gate.innerHTML = `
+    <div class="success-access-panel" role="alert" aria-live="assertive">
+      <div class="success-access-icon" aria-hidden="true">
+        <span class="material-symbols-outlined">wifi_off</span>
+      </div>
+      <h1>Не удалось проверить регистрацию</h1>
+      <p id="successTemporaryErrorText"></p>
+      <div class="success-access-actions">
+        <button id="successRetryButton" class="success-access-primary" type="button">Повторить проверку</button>
+        <a class="success-access-secondary" href="access.html">Открыть «Мой доступ»</a>
+      </div>
+    </div>
+  `;
+  const text = document.getElementById('successTemporaryErrorText');
+  if (text) {
+    text.textContent = navigator.onLine === false
+      ? 'Нет соединения с интернетом. Регистрация и доступ не удалены; подключитесь к сети и повторите.'
+      : Number(error?.status) >= 500
+        ? 'Сервис временно недоступен. Это не означает потерю доступа — повторите проверку через несколько секунд.'
+        : error?.message || 'Временная ошибка соединения. Регистрация и доступ не удалены.';
+  }
+  document.getElementById('successRetryButton')?.addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = 'Проверяем...';
+    await hydrateSuccessPage();
+  });
 }
 
 function capitalizeFirst(value) {
@@ -61,7 +97,7 @@ function buildSuccessIntro(data) {
   // Обе ветки тернарника были идентичны — схлопнуто без изменения вывода.
   const dateLabel = `${capitalizeFirst(day)} в ${time} МСК`;
 
-  return `${dateLabel} покажем готовую цепочку АСПБ: вы видите проблему и передаете клиента, команда ведет процедуру, вы получаете партнерское вознаграждение. Подключите Telegram-напоминания, чтобы получить ссылку на эфир и новости перед стартом.`;
+  return `${dateLabel} покажем готовую цепочку АСПБ: вы видите проблему и передаете клиента, команда ведет процедуру, а условия и размер возможного вознаграждения определяются договором. Рабочая ссылка уже доступна на этой странице; Telegram можно подключить отдельно для организационных напоминаний.`;
 }
 
 function bindSuccessCalendar(data) {
@@ -191,8 +227,12 @@ export async function hydrateSuccessPage() {
         }
       });
     }
-  } catch {
-    renderSuccessAccessGate();
+  } catch (error) {
+    if (isAccessError(error)) {
+      renderSuccessAccessGate();
+      return;
+    }
+    renderSuccessTemporaryError(error);
   }
 }
 
@@ -211,22 +251,22 @@ async function hydrateRecordingsSummary() {
       ? formatMoscowDateTime(payload.webinar.recordingAvailableAt)
       : '';
     const isLive = payload.accessStatus === 'live';
-    if (title) title.textContent = isLive ? 'Сейчас идет эфир' : 'Запись откроется после эфира';
+    if (title) title.textContent = isLive ? 'Сейчас идет премьера записи' : 'Запись откроется после премьеры';
     if (text) {
       text.textContent = isLive
-        ? 'Запись не открывается параллельно с трансляцией. Подключайтесь к комнате и смотрите эфир по расписанию.'
-        : `До эфира запись закрыта. После завершения${availableAt ? `, ориентировочно ${availableAt} МСК,` : ''} она появится в разделе “Записи”.`;
+        ? 'Постоянная запись не открывается параллельно с премьерой. Подключайтесь к комнате и смотрите запись по расписанию.'
+        : `До премьеры постоянная запись закрыта. После завершения${availableAt ? `, ориентировочно ${availableAt} МСК,` : ''} она появится в разделе “Записи”.`;
     }
     if (link) {
       link.setAttribute('href', payload.roomUrl || 'webinar.html');
       link.dataset.locked = 'true';
-      link.innerHTML = `<span class="material-symbols-outlined text-xl">${isLive ? 'play_circle' : 'schedule'}</span>${isLive ? 'Подключиться к эфиру' : 'Открыть окно ожидания'}`;
+      link.innerHTML = `<span class="material-symbols-outlined text-xl">${isLive ? 'play_circle' : 'schedule'}</span>${isLive ? 'Подключиться к премьере' : 'Открыть окно ожидания'}`;
     }
     return;
   }
 
   if (!payload.recordings?.length) {
-    if (title) title.textContent = 'Записи появятся после завершения эфира';
+    if (title) title.textContent = 'Запись появится после завершения премьеры';
     if (text) text.textContent = 'После окончания вебинара запись автоматически появится в разделе “Записи”.';
     if (link) {
       link.setAttribute('href', payload.roomUrl || 'webinar.html');

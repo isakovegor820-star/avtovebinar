@@ -14,10 +14,7 @@ export function hashIp(ip: string | undefined) {
     return null;
   }
 
-  return crypto
-    .createHmac('sha256', env.IP_HASH_SECRET)
-    .update(ip)
-    .digest('hex');
+  return crypto.createHmac('sha256', env.IP_HASH_SECRET).update(ip).digest('hex');
 }
 
 function sign(value: string) {
@@ -30,13 +27,16 @@ function timingSafeEqualString(left: string, right: string) {
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-export function createAdminSession(admin?: { id?: string; email?: string; role?: string }) {
+export function createAdminSession(admin?: { id?: string; email?: string; role?: string; sessionVersion?: number }) {
   const payload = JSON.stringify({
     login: env.ADMIN_LOGIN,
     adminId: admin?.id ?? null,
     email: admin?.email ?? null,
     role: admin?.role ?? 'owner',
-    exp: Date.now() + 24 * 60 * 60 * 1000
+    sessionVersion: admin?.sessionVersion ?? 1,
+    sessionId: crypto.randomUUID(),
+    issuedAt: Date.now(),
+    exp: Date.now() + 24 * 60 * 60 * 1000,
   });
   const encoded = Buffer.from(payload).toString('base64url');
   return `${encoded}.${sign(encoded)}`;
@@ -58,10 +58,19 @@ export function parseAdminSession(token: string | undefined) {
       adminId?: string | null;
       email?: string | null;
       role?: string | null;
+      sessionVersion?: number;
+      sessionId?: string;
+      issuedAt?: number;
       exp?: number;
     };
 
-    if (payload.login !== env.ADMIN_LOGIN || typeof payload.exp !== 'number' || payload.exp <= Date.now()) {
+    if (
+      payload.login !== env.ADMIN_LOGIN ||
+      typeof payload.exp !== 'number' ||
+      payload.exp <= Date.now() ||
+      typeof payload.sessionVersion !== 'number' ||
+      typeof payload.sessionId !== 'string'
+    ) {
       return null;
     }
 

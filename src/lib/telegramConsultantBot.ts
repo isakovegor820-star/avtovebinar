@@ -219,6 +219,7 @@ export function startConsultantTelegramBot() {
     allowedUpdates: ['message'],
     isEnabled: isConsultantBotReady,
     handleUpdate,
+    progressSubsystem: 'botConsultant',
   });
   poller.start();
   return poller;

@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
-import { getCountdown, getCurrentOrNextWebinarDate, getSessionStatus, getWebinarRoomState } from '../../lib/time.js';
+import { getCountdown, getDailyBroadcastDate, getSessionStatus, getWebinarRoomState } from '../../lib/time.js';
 import { DEFAULT_TIMELINE_EVENTS } from '../../lib/webinarTimeline.js';
 import { getEffectiveVideoDurationMinutes, getWebinarLiveState } from '../../lib/webinarLive.js';
 import { getScriptedChatMessagesUntil } from '../../lib/scriptedChat.js';
@@ -22,9 +22,11 @@ function publicTelegramUrl() {
 webinarRouter.get(
   '/webinar/current',
   asyncHandler(async (req, res) => {
-    const firstSeenAt = getFirstSeen(req, res);
-    const scheduledAt = getCurrentOrNextWebinarDate(new Date());
-    const cacheKey = `webinar-current:${firstSeenAt.toISOString()}:${scheduledAt.toISOString()}`;
+    // Фиксируем первичное касание отдельно от расписания. Оно не влияет на слот.
+    getFirstSeen(req, res);
+    const serverTime = new Date();
+    const scheduledAt = getDailyBroadcastDate(serverTime);
+    const cacheKey = `webinar-current:${scheduledAt.toISOString()}`;
     const cached = getCache<Record<string, unknown>>(cacheKey);
     if (cached) {
       res.setHeader('Cache-Control', 'private, max-age=30');
@@ -32,13 +34,11 @@ webinarRouter.get(
       return;
     }
 
-    const session = await findOrCreateWebinarSession(scheduledAt);
-    const serverTime = new Date();
+    const session = await findOrCreateWebinarSession(scheduledAt, serverTime);
 
     const payload = {
       ok: true,
       serverTime: serverTime.toISOString(),
-      firstSeenAt: firstSeenAt.toISOString(),
       scheduledAt: session.scheduledAt.toISOString(),
       status: getSessionStatus(serverTime, session.scheduledAt, getEffectiveVideoDurationMinutes(session)),
       countdown: getCountdown(serverTime, session.scheduledAt),
@@ -119,6 +119,7 @@ async function sendTimeline(req: Request, res: Response) {
   }
 
   const videoConfig = getWebinarVideoConfig(access.webinarSession);
+  const mediaBase = `/api/media/webinar/${encodeURIComponent(access.webinarSession.id)}`;
 
   const dbEvents = await getTimelineEvents(access.webinarSession.id, access.webinarSession.videoDurationSeconds);
 
@@ -139,14 +140,14 @@ async function sendTimeline(req: Request, res: Response) {
   res.json({
     ...basePayload,
     video: {
-      src: videoConfig.src,
-      hlsSrc: videoConfig.hlsSrc,
+      src: videoConfig.src ? `${mediaBase}/video` : null,
+      hlsSrc: videoConfig.hlsSrc ? `${mediaBase}/hls` : null,
       provider: videoConfig.provider,
       durationSeconds: access.webinarSession.videoDurationSeconds,
       poster: videoConfig.poster,
       fallbackAllowed: videoConfig.fallbackAllowed,
       localFallbackAllowed: videoConfig.localFallbackAllowed,
-      externalMp4Allowed: videoConfig.externalMp4Allowed,
+      externalMp4Allowed: Boolean(videoConfig.src),
       expected: Boolean(videoConfig.hlsSrc || videoConfig.src),
     },
     timeline,
@@ -208,17 +209,17 @@ async function sendChat(req: Request, res: Response) {
             validateDuration: false,
           },
         ).map(message => ({
-          // Наружу отдаём только безопасные поля чата. Метаданные сценария
-          // (isSynthetic, agentId, videoBlock, topic, priority, answer/relatedVideoSeconds)
-          // НЕ сериализуем — иначе через DevTools→Network видно, что чат скриптован.
+          // Наружу отдаём только поля, нужные для интерфейса. Внутренние метаданные
+          // сценария (agentId, videoBlock, topic, priority, answer/relatedVideoSeconds)
+          // не являются частью публичного контракта.
           id: message.id,
           offsetSeconds: message.offsetSeconds,
           visibleAt: new Date(access.webinarSession.scheduledAt.getTime() + message.offsetSeconds * 1000),
-          // Не раскрываем наружу, что чат скриптован: scripted_user/agent_question → нейтральный 'user'.
-          // live-chat.js для этих kind рендерит автора идентично обычному участнику (проверено).
-          kind: message.kind === 'agent_question' || message.kind === 'scripted_user' ? 'user' : message.kind,
+          // Подготовленные вопросы нельзя выдавать за сообщения зрителей в реальном времени.
+          kind:
+            message.kind === 'agent_question' || message.kind === 'scripted_user' ? 'prepared_question' : message.kind,
           authorName: message.authorName,
-          authorRole: message.authorRole,
+          authorRole: 'подготовленный вопрос',
           message: message.message,
         }))
       : [];

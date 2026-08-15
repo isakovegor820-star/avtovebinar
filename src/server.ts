@@ -8,6 +8,7 @@ import { startConsultantTelegramBot, stopConsultantTelegramBot } from './lib/tel
 import { startTelegramNewsScheduler, stopTelegramNewsScheduler } from './lib/telegramNews.js';
 import { prisma } from './lib/prisma.js';
 import { startTelegramBroadcastWorker, stopTelegramBroadcastWorker } from './lib/telegramBroadcastWorker.js';
+import { startWorkerHeartbeat, stopWorkerHeartbeat } from './lib/workerHeartbeat.js';
 
 type RuntimeHandle = {
   name: string;
@@ -28,13 +29,9 @@ function reportProcessError(error: unknown) {
 }
 
 function startBackgroundTask(name: string, start: () => unknown, stop: () => void | Promise<void>) {
-  try {
-    const handle = start();
-    if (handle) {
-      backgroundHandles.push({ name, stop });
-    }
-  } catch (error) {
-    logger.error({ err: reportProcessError(error), task: name }, 'Background task failed to start');
+  const handle = start();
+  if (handle) {
+    backgroundHandles.push({ name, stop });
   }
 }
 
@@ -61,6 +58,11 @@ function startWebinarWorker() {
   startBackgroundTask('consultant telegram bot', startConsultantTelegramBot, stopConsultantTelegramBot);
   startBackgroundTask('telegram news scheduler', startTelegramNewsScheduler, stopTelegramNewsScheduler);
   startBackgroundTask('telegram broadcast worker', startTelegramBroadcastWorker, stopTelegramBroadcastWorker);
+  startWorkerHeartbeat();
+  backgroundHandles.push({
+    name: 'worker process heartbeat',
+    stop: () => stopWorkerHeartbeat(),
+  });
   logger.info({ workerRole }, 'АСПБ autowebinar webinar worker started');
 }
 
@@ -68,7 +70,12 @@ if (workerRole === 'api' || workerRole === 'all') {
   startApiWorker();
 }
 if (workerRole === 'webinar' || workerRole === 'all') {
-  startWebinarWorker();
+  try {
+    startWebinarWorker();
+  } catch (error) {
+    logger.fatal({ err: reportProcessError(error) }, 'Webinar worker failed to start');
+    process.exit(1);
+  }
 }
 
 process.on('unhandledRejection', reason => {

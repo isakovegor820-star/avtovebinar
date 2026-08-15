@@ -48,7 +48,7 @@
     return node;
   }
 
-  function render(hintText, isLive = false, scheduledAt = null, serverTime = null) {
+  function render(isLive = false) {
     mount.style.display = "";
     const activeTab =
       current === "landing"
@@ -130,22 +130,11 @@
     if (!data?.ok) return false;
 
     const isLive = data.accessStatus === "live" || data.webinarStatus === "live" || data.webinar?.status === "live";
-    const scheduledAt = data.webinar?.scheduledAt;
-    const serverTime = data.serverTime;
     markRegisteredAccess(data);
     window.setTimeout(() => markRegisteredAccess(data), 0);
     window.setTimeout(() => markRegisteredAccess(data), 800);
 
-    let hintText = "Вебинар доступен";
-    if (current === "success") {
-      hintText = "Регистрация принята";
-    } else if (isLive) {
-      hintText = "Эфир идет";
-    } else if (data.accessStatus === "replay") {
-      hintText = "Запись доступна";
-    }
-
-    render(hintText, isLive, scheduledAt, serverTime);
+    render(isLive);
     return true;
   }
 

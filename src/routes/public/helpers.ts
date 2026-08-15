@@ -7,16 +7,7 @@ import { AppError } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { hashIp, hashToken } from '../../lib/tokens.js';
 import { getClientIp } from '../../lib/http.js';
-import {
-  getCountdown,
-  getDailyBroadcastDate,
-  getNextWebinarDate,
-  getReplayExpiresAt,
-  getWebinarAccess,
-  parseFirstSeenCookie,
-  WEBINAR_DURATION_MINUTES,
-  WEBINAR_REPLAY_HOURS,
-} from '../../lib/time.js';
+import { getCountdown, getDailyBroadcastDate, getWebinarAccess, parseFirstSeenCookie } from '../../lib/time.js';
 import { getEffectiveVideoDurationMinutes } from '../../lib/webinarLive.js';
 import { prisma } from '../../lib/prisma.js';
 import { setContextIdentity } from '../../lib/requestContext.js';
@@ -28,10 +19,13 @@ import {
   PARTICIPANT_LOGIN_TOKEN_PURPOSE,
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
+  TELEGRAM_BINDING_VERSION,
   TELEGRAM_START_TOKEN_PURPOSE,
 } from '../../lib/roomLinks.js';
 import { logger } from '../../lib/logger.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
+import { getVisitorId, hasAnalyticsConsent } from '../../lib/visitor.js';
+import { acquireLeadSecurityLock, isParticipantRegistrationActive } from '../../lib/leadSecurity.js';
 
 export {
   buildFrontendUrl,
@@ -41,6 +35,7 @@ export {
   PARTICIPANT_SESSION_TTL_DAYS,
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
+  TELEGRAM_BINDING_VERSION,
   TELEGRAM_START_TOKEN_PURPOSE,
 };
 
@@ -65,11 +60,7 @@ export function setFirstSeenCookie(res: Response, firstSeenAt: Date) {
 }
 
 export function resolveFirstSeenAt(value: unknown, now = new Date()) {
-  const firstSeenAt = parseFirstSeenCookie(value) ?? now;
-  const scheduledAt = getNextWebinarDate(firstSeenAt);
-  const replayExpiresAt = getReplayExpiresAt(scheduledAt, WEBINAR_DURATION_MINUTES, WEBINAR_REPLAY_HOURS);
-
-  return replayExpiresAt < now ? now : firstSeenAt;
+  return parseFirstSeenCookie(value) ?? now;
 }
 
 export function getFirstSeen(req: Request, res: Response) {
@@ -121,6 +112,10 @@ export async function findRegistrationByToken(token: string) {
     return null;
   }
 
+  if (!isParticipantRegistrationActive(tokenRecord.registration)) {
+    return null;
+  }
+
   return tokenRecord.registration;
 }
 
@@ -146,6 +141,10 @@ export async function findRegistrationBySessionToken(token: string) {
     return null;
   }
 
+  if (!isParticipantRegistrationActive(tokenRecord.registration)) {
+    return null;
+  }
+
   return tokenRecord.registration;
 }
 
@@ -159,6 +158,26 @@ export async function findRegistrationForRequest(req: Request) {
     setContextIdentity({ userId: registration.leadId });
   }
   return registration;
+}
+
+export async function refreshRoomTokenSession(req: Request, res: Response, registrationId: string, now = new Date()) {
+  const token = clean(req.cookies?.aspb_room_token);
+  if (!token) return null;
+
+  const expiresAt = getParticipantSessionExpiresAt(now);
+  const refreshed = await prisma.registrationToken.updateMany({
+    where: {
+      registrationId,
+      tokenHash: hashToken(token),
+      purpose: ROOM_SESSION_TOKEN_PURPOSE,
+      expiresAt: { gt: now },
+    },
+    data: { expiresAt },
+  });
+
+  if (refreshed.count !== 1) return null;
+  setRoomTokenCookie(res, token, expiresAt);
+  return expiresAt;
 }
 
 export function buildAccessPayload(
@@ -211,7 +230,15 @@ export async function buildDailyRoomAccessPayload(
   registration: NonNullable<Awaited<ReturnType<typeof findRegistrationByToken>>>,
   now: Date,
 ) {
+  const registeredAccess = buildAccessPayload(registration, now);
+  if (registeredAccess.accessStatus !== 'closed') {
+    return registeredAccess;
+  }
+
   const scheduledAt = getDailyBroadcastDate(now);
+  if (scheduledAt.getTime() === registration.webinarSession.scheduledAt.getTime()) {
+    return registeredAccess;
+  }
   const webinarSession = await findOrCreateWebinarSession(scheduledAt, now);
   return buildAccessPayload(registration, now, { webinarSession });
 }
@@ -222,7 +249,7 @@ export function notifySafely(task: Promise<unknown>) {
   });
 }
 
-export async function saveEvent(input: {
+export type SaveEventInput = {
   eventName: string;
   req: any;
   registration?: {
@@ -237,26 +264,113 @@ export async function saveEvent(input: {
   utmSource?: string | null;
   utmMedium?: string | null;
   utmCampaign?: string | null;
-}) {
-  const registration =
-    input.registration === undefined ? await findRegistrationForRequest(input.req) : input.registration;
+  analyticsOnly?: boolean;
+  webinarSessionId?: string | null;
+  dailyRoom?: boolean;
+};
 
-  await prisma.event.create({
-    data: {
-      eventName: input.eventName,
-      leadId: registration?.leadId ?? null,
-      registrationId: registration?.id ?? null,
-      webinarSessionId: registration?.webinarSessionId ?? null,
-      page: input.page ?? null,
-      source: input.source ?? null,
-      utmSource: input.utmSource ?? null,
-      utmMedium: input.utmMedium ?? null,
-      utmCampaign: input.utmCampaign ?? null,
-      userAgent: input.req.headers['user-agent'] ?? null,
-      ipHash: hashIp(getClientIp(input.req)),
-      metadataJson: input.metadata as Prisma.InputJsonValue | undefined,
-    },
+export async function saveEvent(input: SaveEventInput) {
+  const analyticsConsent = hasAnalyticsConsent(input.req);
+  const aggregateOnly = Boolean(input.analyticsOnly && !analyticsConsent);
+  const registration = aggregateOnly
+    ? null
+    : input.registration === undefined
+      ? await findRegistrationForRequest(input.req)
+      : input.registration;
+
+  const eventData = {
+    eventName: input.eventName,
+    visitorId: aggregateOnly ? null : getVisitorId(input.req),
+    page: input.page ?? null,
+    source: aggregateOnly ? null : (input.source ?? null),
+    utmSource: aggregateOnly ? null : (input.utmSource ?? null),
+    utmMedium: aggregateOnly ? null : (input.utmMedium ?? null),
+    utmCampaign: aggregateOnly ? null : (input.utmCampaign ?? null),
+    userAgent: aggregateOnly ? null : (input.req.headers['user-agent'] ?? null),
+    ipHash: aggregateOnly ? null : hashIp(getClientIp(input.req)),
+    metadataJson: aggregateOnly ? undefined : (input.metadata as Prisma.InputJsonValue | undefined),
+  };
+
+  if (!registration) {
+    await prisma.event.create({
+      data: {
+        ...eventData,
+        leadId: null,
+        registrationId: null,
+        webinarSessionId: null,
+      },
+    });
+    return null;
+  }
+
+  // Room events belong to the session the participant actually opened, not to
+  // the historical session stored on their original Registration. Callers that
+  // already built access pass the exact id; generic browser analytics can ask
+  // this helper to resolve the same daily-room selection centrally.
+  const effectiveWebinarSessionId =
+    input.webinarSessionId !== undefined
+      ? input.webinarSessionId
+      : input.dailyRoom
+        ? await (async () => {
+            const currentRegistration = await prisma.registration.findUnique({
+              where: { id: registration.id },
+              include: { lead: true, webinarSession: true },
+            });
+            if (!currentRegistration || currentRegistration.leadId !== registration.leadId) {
+              return registration.webinarSessionId;
+            }
+            return (await buildDailyRoomAccessPayload(currentRegistration, new Date())).webinarSession.id;
+          })()
+        : registration.webinarSessionId;
+
+  // Erasure fence: a request may have resolved its participant session before
+  // anonymization started. Serialize every linked event with anonymization and
+  // re-read the identity only after acquiring the shared lead lock; otherwise a
+  // delayed request could recreate IP/UA/metadata linked to an erased Lead.
+  return prisma.$transaction(async tx => {
+    await acquireLeadSecurityLock(tx, registration.leadId);
+    const activeRegistration = await tx.registration.findUnique({
+      where: { id: registration.id },
+      include: { lead: true, webinarSession: true },
+    });
+    if (
+      !activeRegistration ||
+      activeRegistration.leadId !== registration.leadId ||
+      !isParticipantRegistrationActive(activeRegistration)
+    ) {
+      return null;
+    }
+
+    await tx.event.create({
+      data: {
+        ...eventData,
+        leadId: activeRegistration.leadId,
+        registrationId: activeRegistration.id,
+        webinarSessionId: effectiveWebinarSessionId,
+      },
+    });
+    return activeRegistration;
   });
+}
 
-  return registration;
+export async function saveEventSafely(input: SaveEventInput, operation: string) {
+  try {
+    return await saveEvent(input);
+  } catch (error) {
+    // Business writes (registration, email enqueue, room entry, questions) have
+    // already succeeded before this helper is called. Analytics is observable
+    // but best-effort and must not turn that committed success into a client 500.
+    logger.error(
+      {
+        err: error,
+        operation,
+        eventName: input.eventName,
+        registrationId: input.registration?.id ?? null,
+        leadId: input.registration?.leadId ?? null,
+        webinarSessionId: input.webinarSessionId ?? input.registration?.webinarSessionId ?? null,
+      },
+      '[ASPБ analytics] best-effort event save failed',
+    );
+    return null;
+  }
 }

@@ -56,17 +56,18 @@ const envSchema = z.object({
   // Пусто → прямое соединение. На проде указывает на локальный privoxy → WARP.
   TELEGRAM_HTTPS_PROXY: z.string().optional(),
   TELEGRAM_NEWS_BROADCAST: z.enum(['on', 'off']),
+  TELEGRAM_MANUAL_BROADCAST: z.enum(['on', 'off']).optional(),
   TELEGRAM_NEWS_TIMES: z.string().min(1),
   TELEGRAM_NEWS_RSS_URLS: z.string().min(1),
   WEBINAR_VIDEO_URL: optionalUrl,
   WEBINAR_VIDEO_HLS_URL: optionalUrl,
   WEBINAR_POSTER_URL: optionalUrl,
+  WEBINAR_MEDIA_ORIGIN_TOKEN: z.string().min(32).optional(),
   WEBINAR_VIDEO_PROVIDER: z.enum(['local', 'cdn', 'hls', 'streaming']).default('local'),
   WEBINAR_VIDEO_DURATION_SECONDS: z.coerce.number().int().positive().default(3860),
   WEBINAR_TEST_ROOM_MODE: z.enum(['on', 'off']),
-  // Превью комнаты для владельца: открывает комнату как «живую» для держателей токена
-  // регистрации, НЕ затрагивая публичный лендинг (его отсчёт идёт через getSessionStatus).
-  // В отличие от WEBINAR_TEST_ROOM_MODE работает и на проде. По умолчанию выключено.
+  // Локальное превью комнаты для QA: открывает комнату как «живую» для держателей токена
+  // регистрации, не затрагивая публичный лендинг. В production запрещено.
   WEBINAR_PREVIEW_MODE: z.enum(['on', 'off']).default('off'),
   CORS_ORIGIN: z.string().min(1),
   WORKER_ROLE: z.enum(['api', 'webinar', 'all']).optional(),
@@ -79,6 +80,8 @@ const envSchema = z.object({
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
+
+export const ASPB_PARTICIPANT_BOT_USERNAME = 'jwjefgwreqfe_bot';
 
 export function isStrongPassword(value: string) {
   return value.length >= 12 && /[a-zа-я]/i.test(value) && /\d/.test(value);
@@ -95,6 +98,17 @@ function isLocalhostUrl(value: string) {
   try {
     const hostname = new URL(value).hostname.toLowerCase();
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
+function isLocalMountedMediaUrl(value: string | undefined, publicSiteUrl: string) {
+  if (!value) return false;
+  try {
+    const media = new URL(value, publicSiteUrl);
+    const publicOrigin = new URL(publicSiteUrl).origin;
+    return media.origin === publicOrigin && media.pathname.startsWith('/crisis_premium/');
   } catch {
     return false;
   }
@@ -139,25 +153,13 @@ export function validateProductionSecurity(config: EnvConfig) {
   if (isLocalhostUrl(config.PUBLIC_SITE_URL)) {
     errors.push('PUBLIC_SITE_URL must not use localhost in production');
   }
-  // Telegram-only — легитимная боевая конфигурация: EMAIL_MODE='log' (письма пишутся в лог,
-  // канал уведомлений — Telegram). SMTP-креды требуем только когда реально шлём почту.
   if (config.EMAIL_MODE === 'send' && (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS)) {
     errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required when EMAIL_MODE="send" in production');
-  }
-  // Хотя бы один рабочий канал уведомлений в проде: если почта в лог-режиме (EMAIL_MODE!=='send'),
-  // то Telegram обязан реально слать (TELEGRAM_NOTIFY_MODE==='send'). Иначе подтверждения, ссылки
-  // в комнату и напоминания только пишутся в лог — лиды молча ничего не получают.
-  if (config.EMAIL_MODE !== 'send' && config.TELEGRAM_NOTIFY_MODE !== 'send') {
-    errors.push(
-      'No notification channel in production: when EMAIL_MODE is not "send", TELEGRAM_NOTIFY_MODE must be "send"',
-    );
   }
   const needsTelegramAdmin =
     config.TELEGRAM_NOTIFY_MODE === 'send' ||
     config.TELEGRAM_ADMIN_BOT_POLLING === 'on' ||
     config.TELEGRAM_BOT_POLLING === 'on';
-  const needsTelegramParticipant =
-    config.TELEGRAM_NOTIFY_MODE === 'send' || config.TELEGRAM_PARTICIPANT_BOT_POLLING === 'on';
   if (
     needsTelegramAdmin &&
     (!(config.TELEGRAM_ADMIN_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
@@ -169,26 +171,29 @@ export function validateProductionSecurity(config: EnvConfig) {
     );
   }
   if (
-    needsTelegramParticipant &&
-    (!(config.TELEGRAM_PARTICIPANT_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
-      !(config.TELEGRAM_PARTICIPANT_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME))
+    !(config.TELEGRAM_PARTICIPANT_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
+    !(config.TELEGRAM_PARTICIPANT_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME)
   ) {
     errors.push(
-      'TELEGRAM_PARTICIPANT_BOT_TOKEN or TELEGRAM_BOT_TOKEN and participant bot username are required when participant Telegram features are enabled',
+      'TELEGRAM_PARTICIPANT_BOT_TOKEN or TELEGRAM_BOT_TOKEN and participant bot username are required for participant access in production',
     );
   }
   const participantBotUsername = config.TELEGRAM_PARTICIPANT_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME;
+  const expectedParticipantBotUsername = config.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME;
+  if (!expectedParticipantBotUsername) {
+    errors.push('TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME is required for participant Telegram in production');
+  }
   if (
-    needsTelegramParticipant &&
-    config.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME &&
-    participantBotUsername !== config.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME
+    expectedParticipantBotUsername &&
+    participantBotUsername?.toLowerCase() !== expectedParticipantBotUsername.toLowerCase()
   ) {
-    errors.push(
-      `TELEGRAM_PARTICIPANT_BOT_USERNAME must be ${config.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME} for this deployment`,
-    );
+    errors.push(`TELEGRAM_PARTICIPANT_BOT_USERNAME must be ${expectedParticipantBotUsername} for this deployment`);
   }
   if (config.WEBINAR_TEST_ROOM_MODE === 'on') {
     errors.push('WEBINAR_TEST_ROOM_MODE must be "off" in production');
+  }
+  if (config.WEBINAR_PREVIEW_MODE === 'on') {
+    errors.push('WEBINAR_PREVIEW_MODE must be "off" in production');
   }
   if (!config.WEBINAR_VIDEO_HLS_URL && !config.WEBINAR_VIDEO_URL) {
     errors.push('WEBINAR_VIDEO_HLS_URL or WEBINAR_VIDEO_URL is required in production');
@@ -201,6 +206,15 @@ export function validateProductionSecurity(config: EnvConfig) {
   }
   if (!config.WEBINAR_POSTER_URL) {
     errors.push('WEBINAR_POSTER_URL is required in production');
+  }
+  const remoteMediaSources = [config.WEBINAR_VIDEO_HLS_URL, config.WEBINAR_VIDEO_URL].filter(
+    source => source && !isLocalMountedMediaUrl(source, config.PUBLIC_SITE_URL),
+  );
+  if (remoteMediaSources.length > 0 && !config.WEBINAR_MEDIA_ORIGIN_TOKEN) {
+    errors.push('WEBINAR_MEDIA_ORIGIN_TOKEN is required in production for the private media origin');
+  }
+  if (remoteMediaSources.some(source => source && new URL(source).protocol !== 'https:')) {
+    errors.push('Remote WEBINAR_VIDEO_HLS_URL/WEBINAR_VIDEO_URL must use https in production');
   }
   for (const origin of corsOrigins) {
     if (isLocalhostUrl(origin)) {
@@ -237,9 +251,9 @@ function runtimeEnv() {
     PUBLIC_SITE_URL: process.env.PUBLIC_SITE_URL ?? 'http://127.0.0.1:5174',
     DATABASE_URL: process.env.DATABASE_URL ?? 'postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test',
     ADMIN_LOGIN: process.env.ADMIN_LOGIN ?? 'testadmin@example.com',
-    ADMIN_PASSWORD: `TestPassword${crypto.randomInt(100000, 999999)}`,
-    ADMIN_COOKIE_SECRET: crypto.randomBytes(32).toString('hex'),
-    IP_HASH_SECRET: crypto.randomBytes(32).toString('hex'),
+    ADMIN_PASSWORD: process.env.ADMIN_PASSWORD ?? `TestPassword${crypto.randomInt(100000, 999999)}`,
+    ADMIN_COOKIE_SECRET: process.env.ADMIN_COOKIE_SECRET ?? crypto.randomBytes(32).toString('hex'),
+    IP_HASH_SECRET: process.env.IP_HASH_SECRET ?? crypto.randomBytes(32).toString('hex'),
     METRICS_TOKEN: process.env.METRICS_TOKEN,
     EMAIL_MODE: process.env.EMAIL_MODE ?? 'log',
     SMTP_PORT: process.env.SMTP_PORT ?? '587',
@@ -255,6 +269,7 @@ function runtimeEnv() {
     TELEGRAM_CONSULTANT_BOT_POLLING: process.env.TELEGRAM_CONSULTANT_BOT_POLLING ?? 'off',
     TELEGRAM_HTTPS_PROXY: process.env.TELEGRAM_HTTPS_PROXY,
     TELEGRAM_NEWS_BROADCAST: process.env.TELEGRAM_NEWS_BROADCAST ?? 'off',
+    TELEGRAM_MANUAL_BROADCAST: process.env.TELEGRAM_MANUAL_BROADCAST ?? 'off',
     TELEGRAM_NEWS_TIMES: process.env.TELEGRAM_NEWS_TIMES ?? '09:00,11:30,14:00,16:30,19:00',
     TELEGRAM_NEWS_RSS_URLS:
       process.env.TELEGRAM_NEWS_RSS_URLS ??
@@ -262,6 +277,7 @@ function runtimeEnv() {
     WEBINAR_VIDEO_URL: process.env.WEBINAR_VIDEO_URL,
     WEBINAR_VIDEO_HLS_URL: process.env.WEBINAR_VIDEO_HLS_URL,
     WEBINAR_POSTER_URL: process.env.WEBINAR_POSTER_URL,
+    WEBINAR_MEDIA_ORIGIN_TOKEN: process.env.WEBINAR_MEDIA_ORIGIN_TOKEN,
     WEBINAR_VIDEO_PROVIDER: process.env.WEBINAR_VIDEO_PROVIDER ?? 'local',
     WEBINAR_VIDEO_DURATION_SECONDS: process.env.WEBINAR_VIDEO_DURATION_SECONDS ?? '3860',
     WEBINAR_TEST_ROOM_MODE: process.env.WEBINAR_TEST_ROOM_MODE ?? 'off',

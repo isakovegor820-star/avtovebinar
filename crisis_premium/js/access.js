@@ -5,25 +5,26 @@
 import {
   getParticipantAccess,
   logoutParticipant,
+  participantLoginStatusMessage,
   requestParticipantLogin,
-} from './registration.js?v=site-review-7';
+} from './registration.js?v=remediation-20260805-2';
 import { formatMoscowDateTime } from './utils.js?v=site-review-7';
 import { updateTelegramLinks } from './room.js?v=site-review-7';
 
 function statusLabel(data) {
-  if (data.accessStatus === 'live') return 'Эфир идет';
+  if (data.accessStatus === 'live') return 'Идет премьера записи';
   if (data.accessStatus === 'replay') return 'Запись доступна';
-  if (data.accessStatus === 'closed') return 'Доступ к эфиру закрыт';
-  if (data.accessStatus === 'pre_live') return 'Ожидание эфира';
-  return 'Эфир по расписанию';
+  if (data.accessStatus === 'closed') return 'Доступ к премьере закрыт';
+  if (data.accessStatus === 'pre_live') return 'Ожидание премьеры записи';
+  return 'Премьера записи по расписанию';
 }
 
 function statusText(data) {
   const date = data.webinar?.scheduledAt ? formatMoscowDateTime(data.webinar.scheduledAt) : '';
-  if (data.accessStatus === 'live') return 'Можно открыть комнату и подключиться к трансляции.';
+  if (data.accessStatus === 'live') return 'Можно открыть комнату и подключиться к премьере записи.';
   if (data.accessStatus === 'replay') return 'Это запись вебинара. Чат работает как форма вопроса для команды АСПБ.';
   if (data.accessStatus === 'closed') return 'Вебинарная комната закрыта. Опубликованные записи остаются в библиотеке участника без повторной регистрации.';
-  if (data.accessStatus === 'pre_live') return `До старта осталось меньше 15 минут. Откройте окно ожидания: эфир начнется ${date} МСК.`;
+  if (data.accessStatus === 'pre_live') return `До старта осталось меньше 15 минут. Откройте окно ожидания: премьера начнется ${date} МСК.`;
   return `Вы зарегистрированы. До ${date} МСК доступ к видео закрыт: сейчас главное — напоминание и окно ожидания.`;
 }
 
@@ -47,6 +48,37 @@ function showMode(mode) {
   document.body.dataset.accessMode = mode;
 }
 
+function isAccessError(error) {
+  return error && [401, 403, 404].includes(Number(error.status));
+}
+
+function temporaryErrorMessage(error) {
+  if (Number(error?.status) >= 500) {
+    return 'Сервис временно недоступен. Ваш доступ не удалён — повторите проверку через несколько секунд.';
+  }
+  if (navigator.onLine === false) {
+    return 'Нет соединения с интернетом. Ваш доступ сохранён; подключитесь к сети и повторите проверку.';
+  }
+  return error?.message || 'Не удалось связаться с сервером. Ваш доступ не удалён — повторите проверку.';
+}
+
+function renderTemporaryError(error) {
+  showMode('error');
+  setText('accessErrorText', temporaryErrorMessage(error));
+  const retry = document.getElementById('accessRetryButton');
+  if (!retry || retry.dataset.bound === 'true') return;
+  retry.dataset.bound = 'true';
+  retry.addEventListener('click', async () => {
+    retry.disabled = true;
+    showMode('loading');
+    try {
+      await hydrateAccessPage();
+    } finally {
+      retry.disabled = false;
+    }
+  });
+}
+
 function tokenErrorMessage() {
   try {
     const value = window.sessionStorage.getItem('aspbAccessTokenError');
@@ -63,7 +95,7 @@ function bindLoginForm() {
   form.dataset.bound = 'true';
 
   const status = document.getElementById('accessLoginStatus');
-  const button = form.querySelector('button[type="submit"]');
+  const button = form.querySelector('[data-enable-submit]');
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -80,12 +112,12 @@ function bindLoginForm() {
     }
 
     try {
-      await requestParticipantLogin(email);
+      const result = await requestParticipantLogin(email);
       if (status) {
-        status.textContent = 'Если этот email зарегистрирован, мы отправили одноразовую ссылку для входа.';
+        status.textContent = participantLoginStatusMessage(result);
       }
     } catch {
-      if (status) status.textContent = 'Не удалось отправить ссылку. Попробуйте позже.';
+      if (status) status.textContent = 'Не удалось запросить ссылку. Проверьте соединение и повторите попытку.';
     } finally {
       if (button) {
         button.disabled = false;
@@ -93,6 +125,9 @@ function bindLoginForm() {
       }
     }
   });
+  if (button) button.type = 'submit';
+  form.removeAttribute('inert');
+  form.removeAttribute('aria-busy');
 }
 
 function bindLogout() {
@@ -130,7 +165,7 @@ function renderAccess(data) {
   setHref('accessRoomLink', data.roomUrl || data.links?.room || 'webinar.html');
   setHref('accessRecoverLink', data.links?.access || 'access.html');
   if (data.accessStatus === 'live') {
-    setLinkContent('accessRoomLink', 'play_circle', 'Подключиться к эфиру');
+    setLinkContent('accessRoomLink', 'play_circle', 'Подключиться к премьере');
   } else if (data.accessStatus === 'waiting' || data.accessStatus === 'pre_live') {
     setLinkContent('accessRoomLink', 'schedule', 'Открыть окно ожидания');
   } else {
@@ -151,9 +186,9 @@ function renderAccess(data) {
     const availableAt = data.recordings?.recordingAvailableAt
       ? formatMoscowDateTime(data.recordings.recordingAvailableAt)
       : '';
-    recordingsText.textContent = `Запись откроется после эфира${availableAt ? ` — ориентировочно ${availableAt} МСК` : ''}. До этого видео доступно только в трансляции по расписанию.`;
+    recordingsText.textContent = `Постоянная запись откроется после премьеры${availableAt ? ` — ориентировочно ${availableAt} МСК` : ''}. До этого видео доступно только в комнате по расписанию.`;
   } else if (recordingsText && data.recordings?.available) {
-    recordingsText.textContent = `Доступно записей: ${data.recordings.count}. Это библиотека записей, не прямой эфир.`;
+    recordingsText.textContent = `Доступно записей: ${data.recordings.count}. Это защищённая библиотека материалов.`;
   }
   if (recordingsLink && recordingsLocked) {
     recordingsLink.setAttribute('href', data.roomUrl || data.links?.room || 'webinar.html');
@@ -184,7 +219,11 @@ export async function hydrateAccessPage() {
       return;
     }
     renderAccess(data);
-  } catch {
-    renderLogin();
+  } catch (error) {
+    if (isAccessError(error)) {
+      renderLogin();
+      return;
+    }
+    renderTemporaryError(error);
   }
 }

@@ -142,6 +142,50 @@
             text-transform: uppercase;
             letter-spacing: 0.08em;
         }
+        .debt-alert-source a {
+            color: inherit;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .mobile-details-toggle-wrap {
+            display: none;
+        }
+        .mobile-details-toggle {
+            width: 100%;
+            min-height: 52px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 20px;
+            border: 1px solid rgba(4, 22, 39, 0.18);
+            border-radius: 12px;
+            background: #ffffff;
+            color: #041627;
+            font-weight: 800;
+            box-shadow: 0 8px 24px rgba(4, 22, 39, 0.07);
+        }
+        .mobile-details-toggle[aria-expanded="true"] .material-symbols-outlined {
+            transform: rotate(180deg);
+        }
+        .mobile-details-toggle .material-symbols-outlined {
+            transition: transform 180ms ease;
+        }
+        @media (max-width: 767px) {
+            .mobile-details-toggle-wrap {
+                display: block;
+                padding: 18px 20px;
+                background: #f8f9fa;
+            }
+            body.mobile-details-collapsed .mobile-detail-section {
+                display: none;
+            }
+            #about,
+            #faq {
+                padding-top: 52px;
+                padding-bottom: 52px;
+            }
+        }
         .audience-section {
             background:
                 radial-gradient(circle at 14% 18%, rgba(210, 228, 251, 0.42), transparent 32%),
@@ -240,6 +284,9 @@
             background: #041627;
             color: #ffffff;
         }
+        .hero-picture {
+            display: contents;
+        }
         .hero-landing::before {
             content: "";
             position: absolute;
@@ -248,7 +295,10 @@
             background:
                 linear-gradient(90deg, rgba(4, 22, 39, 0.96) 0%, rgba(4, 22, 39, 0.82) 42%, rgba(4, 22, 39, 0.48) 100%),
                 linear-gradient(180deg, rgba(4, 22, 39, 0.34) 0%, rgba(4, 22, 39, 0.88) 100%),
-                url("assets/aspb-hero-consultation.png") center / cover no-repeat;
+                image-set(
+                    url("assets/aspb-hero-consultation-1122.avif") type("image/avif"),
+                    url("assets/aspb-hero-consultation.png") type("image/png")
+                ) center / cover no-repeat;
         }
         .hero-landing::after {
             content: "";
@@ -842,6 +892,11 @@
             cursor: pointer;
             min-height: 100px;
         }
+        .flip-card:focus-visible {
+            outline: 3px solid #2563eb;
+            outline-offset: 4px;
+            border-radius: 14px;
+        }
         .flip-card-inner {
             position: relative;
             width: 100%;
@@ -993,6 +1048,10 @@
                авто-flip и пр.) для пользователей с reduced-motion — экономит батарею/GPU. */
             *, *::before, *::after {
                 animation: none !important;
+            }
+            .flip-card-inner,
+            .flip-progress::after {
+                transition: none !important;
             }
         }
 
@@ -1152,7 +1211,7 @@
         }
 
 
-/* Flip card hint — pulsing corner icon */
+/* Flip card hint — static because disclosure state must not change or pulse on its own. */
 .flip-card-front::after {
     content: "↻";
     position: absolute;
@@ -1168,11 +1227,6 @@
     opacity: 0.4;
     border-radius: 50%;
     background: rgba(210, 228, 251, 0.5);
-    animation: flipHintPulse 2.5s ease-in-out infinite;
-}
-@keyframes flipHintPulse {
-    0%, 100% { opacity: 0.4; transform: scale(1); }
-    50% { opacity: 0.7; transform: scale(1.15); }
 }
 .flip-card.is-flipped .flip-card-front::after {
     display: none;
@@ -1239,6 +1293,68 @@
 }
 .income-step:hover::before {
     opacity: 1;
+}
+
+.site-mobile-menu {
+    border-top: 1px solid rgba(4, 22, 39, 0.08);
+}
+.site-mobile-menu summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #44474c;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    list-style: none;
+}
+.site-mobile-menu summary::-webkit-details-marker {
+    display: none;
+}
+.site-mobile-menu__icon {
+    position: relative;
+    width: 18px;
+    height: 14px;
+    flex: 0 0 auto;
+    border-top: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+}
+.site-mobile-menu__icon::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    border-top: 2px solid currentColor;
+    transform: translateY(-50%);
+}
+.site-mobile-menu__chevron {
+    margin-left: auto;
+    transition: transform 180ms ease;
+}
+.site-mobile-menu[open] .site-mobile-menu__chevron {
+    transform: rotate(180deg);
+}
+.site-mobile-menu nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 12px;
+    padding: 2px 0 10px;
+}
+.site-mobile-menu nav a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    color: #44474c;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.3;
+}
+@media (max-width: 420px) {
+    .site-mobile-menu nav {
+        grid-template-columns: 1fr;
+    }
 }
 /* SVG-стрелки между шагами заменены на «+» в разметке (формула 01 + 02 + 03 = …) — их CSS удалён */
 .income-steps.is-visible .income-step {

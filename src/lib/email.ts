@@ -14,6 +14,12 @@ type BaseEmailInput = {
 };
 
 export type ReminderKind = '24h' | '3h' | '30m';
+export const SMTP_OPERATION_TIMEOUT_MS = 25_000;
+// The durable outbox owns retries. Retrying sendMail inside one claimed job
+// makes an ambiguous timeout capable of delivering the same message twice and
+// unnecessarily extends the Lead erasure fence.
+export const SMTP_SEND_ATTEMPTS = 1;
+export const SMTP_DELIVERY_BUDGET_MS = SMTP_OPERATION_TIMEOUT_MS * SMTP_SEND_ATTEMPTS + 5_000;
 
 // Синглтон-транспортер с пулом соединений — переиспользуется между письмами,
 // чтобы не открывать новое TLS-соединение на каждую отправку.
@@ -34,6 +40,9 @@ function getTransporter() {
     pool: true,
     maxConnections: 5,
     maxMessages: 100,
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
     auth: {
       user: env.SMTP_USER,
       pass: env.SMTP_PASS,
@@ -41,6 +50,29 @@ function getTransporter() {
   });
 
   return cachedTransporter;
+}
+
+async function withSmtpOperationTimeout<T>(transporter: Transporter, operation: () => Promise<T>) {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          if (cachedTransporter === transporter) cachedTransporter = null;
+          try {
+            transporter.close();
+          } catch (error) {
+            logger.warn({ err: error }, 'Failed to close timed-out SMTP transporter');
+          } finally {
+            reject(new Error(`SMTP operation exceeded ${SMTP_OPERATION_TIMEOUT_MS}ms`));
+          }
+        }, SMTP_OPERATION_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function shouldLogEmail() {
@@ -136,28 +168,33 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
     return { sent: false, mode: 'log' as const };
   }
 
-  const transporter = getTransporter();
-
   await withCircuitBreaker(
     'smtp',
     () =>
       withRetries(
         'smtp.sendMail',
-        () =>
-          transporter.sendMail({
-            from: env.EMAIL_FROM,
-            replyTo: env.EMAIL_REPLY_TO,
-            to: input.to,
-            subject: input.subject,
-            text: input.text,
-            headers: {
-              // 152-ФЗ/38-ФЗ: возможность отписки в каждом письме (почтовый клиент покажет «Отписаться»).
-              'List-Unsubscribe': `<${buildUnsubscribeUrl(input.to)}>, <mailto:${
-                env.EMAIL_REPLY_TO ?? env.EMAIL_FROM
-              }?subject=unsubscribe>`,
-            },
-          }),
-        { attempts: 3, baseMs: 1000, maxMs: 10_000 },
+        () => {
+          // A timed-out attempt closes and evicts its pooled transporter. Resolve
+          // it per attempt so the retry opens a fresh connection instead of
+          // reusing the closed pool.
+          const transporter = getTransporter();
+          return withSmtpOperationTimeout(transporter, () =>
+            transporter.sendMail({
+              from: env.EMAIL_FROM,
+              replyTo: env.EMAIL_REPLY_TO,
+              to: input.to,
+              subject: input.subject,
+              text: input.text,
+              headers: {
+                // 152-ФЗ/38-ФЗ: возможность отписки в каждом письме (почтовый клиент покажет «Отписаться»).
+                'List-Unsubscribe': `<${buildUnsubscribeUrl(input.to)}>, <mailto:${
+                  env.EMAIL_REPLY_TO ?? env.EMAIL_FROM
+                }?subject=unsubscribe>`,
+              },
+            }),
+          );
+        },
+        { attempts: SMTP_SEND_ATTEMPTS, baseMs: 1000, maxMs: 5_000 },
       ),
     { failureThreshold: 3, cooldownMs: 60_000 },
   );
@@ -170,7 +207,11 @@ export async function verifyEmailConnectivity() {
     return { ok: true, mode: 'log' as const };
   }
 
-  await withCircuitBreaker('smtp', () => getTransporter().verify(), { failureThreshold: 3, cooldownMs: 60_000 });
+  const transporter = getTransporter();
+  await withCircuitBreaker('smtp', () => withSmtpOperationTimeout(transporter, () => transporter.verify()), {
+    failureThreshold: 3,
+    cooldownMs: 60_000,
+  });
   return { ok: true, mode: 'send' as const };
 }
 
@@ -207,12 +248,12 @@ export async function sendReminderEmail(input: BaseEmailInput & { kind: Reminder
   }).format(input.scheduledAt);
 
   const labelByKind: Record<ReminderKind, string> = {
-    '24h': `эфир начнется ${formatRelativeScheduled(input.scheduledAt)}`,
-    '3h': `эфир начнется ${formatRelativeScheduled(input.scheduledAt)}`,
-    '30m': `эфир начнется ${formatRelativeScheduled(input.scheduledAt)}`,
+    '24h': `премьера записи начнётся ${formatRelativeScheduled(input.scheduledAt)}`,
+    '3h': `премьера записи начнётся ${formatRelativeScheduled(input.scheduledAt)}`,
+    '30m': `премьера записи начнётся ${formatRelativeScheduled(input.scheduledAt)}`,
   };
 
-  const subject = `Напоминание АСПБ: эфир ${scheduled} МСК`;
+  const subject = `Напоминание АСПБ: премьера записи ${scheduled} МСК`;
   const text = buildEmailText(
     input,
     `${labelByKind[input.kind]}. Сохраните персональную ссылку и зайдите в комнату вовремя.`,

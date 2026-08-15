@@ -1,4 +1,4 @@
-import { env } from './env.js';
+import { ASPB_PARTICIPANT_BOT_USERNAME, env } from './env.js';
 import { withCircuitBreaker, withRetries } from './resilience.js';
 import { logger } from './logger.js';
 import { telegramFetch } from './telegramProxy.js';
@@ -15,8 +15,6 @@ type TelegramApiPayload = {
     retry_after?: number;
   };
 };
-
-const ASPB_PARTICIPANT_BOT_USERNAME = 'jwjefgwreqfe_bot';
 
 type TelegramGetMePayload = TelegramApiPayload & {
   result?: {
@@ -249,7 +247,7 @@ export function telegramUrlButton(text: string, url: string) {
 export async function sendTelegramMessageToChat(
   chatId: string,
   text: string,
-  options: { replyMarkup?: Record<string, unknown> } = {},
+  options: { replyMarkup?: Record<string, unknown>; attempts?: number } = {},
 ) {
   const message = text.slice(0, 3900);
 
@@ -278,7 +276,7 @@ export async function sendTelegramMessageToChat(
           return readTelegramPayload(response);
         },
         {
-          attempts: 3,
+          attempts: options.attempts ?? 3,
           baseMs: 1000,
           maxMs: 15_000,
           retryAfterMs: getTelegramRetryAfterMs,
@@ -357,7 +355,7 @@ export function notifyRegistration(input: NotifyRegistrationInput) {
       `Город: ${compact(input.city)}`,
       `Статус: ${compact(input.professionalStatus)}`,
       `Источник: ${compact(input.source)}`,
-      `Эфир: ${formatMoscowDate(input.scheduledAt)} МСК`,
+      `Премьера записи: ${formatMoscowDate(input.scheduledAt)} МСК`,
       '',
       `Админка: ${input.adminUrl}`,
     ].join('\n'),
@@ -429,7 +427,7 @@ export function notifyTelegramSubscription(input: NotifyTelegramSubscriptionInpu
     input.utmMedium ? `UTM medium: ${input.utmMedium}` : null,
     input.utmCampaign ? `UTM campaign: ${input.utmCampaign}` : null,
     `Регистрация: ${formatMoscowDate(input.registeredAt)} МСК`,
-    `Эфир: ${formatMoscowDate(input.scheduledAt)} МСК`,
+    `Премьера записи: ${formatMoscowDate(input.scheduledAt)} МСК`,
   ].filter(Boolean);
 
   const telegramRows = [
@@ -567,7 +565,7 @@ function isTransientTelegramError(error: unknown): boolean {
 // Безопасное чтение ответа Telegram: не-JSON тело (например HTML 5xx от прокси/WARP) не валит
 // процесс SyntaxError'ом, а превращается в осмысленную ошибку с HTTP-статусом.
 async function readTelegramPayload(response: Response): Promise<TelegramApiPayload> {
-  let payload: (TelegramApiPayload & { error_code?: number }) | null = null;
+  let payload: (TelegramApiPayload & { error_code?: number }) | null;
   try {
     payload = (await response.json()) as TelegramApiPayload & { error_code?: number };
   } catch {
@@ -584,7 +582,12 @@ async function readTelegramPayload(response: Response): Promise<TelegramApiPaylo
 }
 
 export async function checkTelegramConnectivity() {
-  if (env.TELEGRAM_NOTIFY_MODE === 'log') {
+  const hasActiveTelegramRuntime =
+    env.TELEGRAM_NOTIFY_MODE === 'send' ||
+    isAdminBotPollingEnabled() ||
+    isParticipantBotPollingEnabled() ||
+    isConsultantBotPollingEnabled();
+  if (!hasActiveTelegramRuntime) {
     return { ok: true, mode: 'log' as const };
   }
 
@@ -627,5 +630,5 @@ export async function checkTelegramConnectivity() {
     bots[check.kind.replace(' bot', '')] = { username: payload.result?.username ?? null };
   }
 
-  return { ok: true, mode: 'send' as const, bots };
+  return { ok: true, mode: env.TELEGRAM_NOTIFY_MODE as 'send' | 'log', bots };
 }

@@ -1,4 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const progressMocks = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  report: vi.fn(),
+  stop: vi.fn(),
+}));
+
+vi.mock('../src/lib/workerHeartbeat.js', () => ({
+  initializeWorkerSubsystemProgress: progressMocks.initialize,
+  reportWorkerSubsystemProgress: progressMocks.report,
+  stopWorkerSubsystemProgress: progressMocks.stop,
+}));
+
 import { createTelegramPoller } from '../src/lib/telegramPoller.js';
 
 type FetchCall = { url: string; method: string };
@@ -31,19 +44,21 @@ function stubTelegram(getUpdatesResponder: (getUpdatesCallIndex: number) => unkn
   };
 }
 
-function makePoller(handleUpdate: (u: { update_id: number }) => Promise<void>) {
+function makePoller(handleUpdate: (u: { update_id: number }) => Promise<void>, trackProgress = false) {
   return createTelegramPoller<{ update_id: number }>({
     name: 'test telegram bot',
     apiUrl: method => `https://api.telegram.org/botTEST/${method}`,
     allowedUpdates: ['message'],
     isEnabled: () => true,
     handleUpdate,
+    ...(trackProgress ? { progressSubsystem: 'botParticipant' as const } : {}),
   });
 }
 
 describe('createTelegramPoller', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -154,5 +169,18 @@ describe('createTelegramPoller', () => {
     poller.stop();
 
     expect(deleteCalls).toBeGreaterThanOrEqual(2); // снятие webhook повторили после сбоя
+  });
+
+  it('tracks each enabled bot in an independent progress subsystem', async () => {
+    stubTelegram(() => ({ ok: true, result: [] }));
+    const poller = makePoller(async () => {}, true);
+
+    poller.start();
+    await vi.advanceTimersByTimeAsync(0);
+    poller.stop();
+
+    expect(progressMocks.initialize).toHaveBeenCalledWith('botParticipant');
+    expect(progressMocks.report).toHaveBeenCalledWith('botParticipant');
+    expect(progressMocks.stop).toHaveBeenCalledWith('botParticipant');
   });
 });

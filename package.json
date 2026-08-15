@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -12,10 +12,10 @@
     "build": "tsc",
     "css:build": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --minify",
     "css:watch": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --watch",
-    "test": "DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log NODE_ENV=test vitest run",
+    "test": "DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log TELEGRAM_ADMIN_BOT_POLLING=off TELEGRAM_BOT_POLLING=off TELEGRAM_PARTICIPANT_BOT_POLLING=off TELEGRAM_CONSULTANT_BOT_POLLING=off TELEGRAM_NEWS_BROADCAST=off TELEGRAM_MANUAL_BROADCAST=off NODE_ENV=test node scripts/prepare-test-database.mjs && DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log TELEGRAM_ADMIN_BOT_POLLING=off TELEGRAM_BOT_POLLING=off TELEGRAM_PARTICIPANT_BOT_POLLING=off TELEGRAM_CONSULTANT_BOT_POLLING=off TELEGRAM_NEWS_BROADCAST=off TELEGRAM_MANUAL_BROADCAST=off NODE_ENV=test vitest run",
     "e2e:install": "npx playwright install --with-deps chromium",
-    "e2e": "DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} NODE_ENV=test EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log WEBINAR_TEST_ROOM_MODE=off npx prisma db push --skip-generate --accept-data-loss && DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log WEBINAR_TEST_ROOM_MODE=off playwright test",
-    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "e2e": "DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} NODE_ENV=test node scripts/prepare-test-database.mjs && DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on playwright test",
+    "lint": "eslint src tests prisma crisis_premium playwright.config.ts --ext .ts,.tsx,.js,.jsx",
     "check": "npm run build && npm test && npm audit --omit=dev",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -41,13 +41,17 @@
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "hls.js": "^1.6.16",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^9.0.3",
     "pino": "9.6.0",
     "prisma": "^6.19.0",
-    "undici": "^8.4.1",
+    "undici": "^8.10.0",
     "zod": "^4.1.13"
   },
+  "overrides": {
+    "ip-address": "10.4.0"
+  },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/container-queries": "^0.1.1",
     "@tailwindcss/forms": "^0.5.11",
@@ -55,11 +59,12 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.5",
     "@types/node": "^24.10.1",
-    "@types/nodemailer": "^8.0.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/supertest": "^7.2.0",
-    "@typescript-eslint/eslint-plugin": "7.18.0",
-    "@typescript-eslint/parser": "7.18.0",
-    "eslint": "8.57.1",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "eslint": "^10.8.0",
+    "globals": "^17.8.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.5",
     "prettier": "3.3.3",

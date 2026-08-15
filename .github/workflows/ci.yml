@@ -1,10 +1,30 @@
 name: CI
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: Deploy the verified workflow commit after all required jobs pass
+        required: true
+        type: choice
+        default: none
+        options:
+          - none
+          - staging
+          - production
+      allow_first_deploy:
+        description: Allow the selected staging/production target to start without an existing rollback image
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   dependency-review:
@@ -12,19 +32,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Dependency review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
 
   sast:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Semgrep
-        uses: semgrep/semgrep-action@v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1
         with:
           config: p/default
 
@@ -32,17 +52,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Secretlint
-        run: git ls-files -z | xargs -0 npx --yes -p secretlint -p @secretlint/secretlint-rule-preset-recommend secretlint --secretlintrc .secretlintrc.json
+        run: git ls-files -z | xargs -0 npx --yes -p secretlint@13.0.4 -p @secretlint/secretlint-rule-preset-recommend@13.0.4 secretlint --secretlintrc .secretlintrc.json
 
       - name: Dotenv lint
-        run: npx --yes dotenv-linter .env.example .env.production.example
+        run: npx --yes dotenv-linter@0.2.0 .env.example .env.production.example
 
   verify:
     runs-on: ubuntu-latest
-    needs: [sast, secret-scan]
 
     services:
       postgres:
@@ -63,13 +82,13 @@ jobs:
       NODE_ENV: test
       PORT: 5174
       PUBLIC_SITE_URL: http://127.0.0.1:5174
-      DATABASE_URL: postgresql://aspb@localhost:5432/aspb_autowebinar?schema=public
+      DATABASE_URL: postgresql://aspb@localhost:5432/aspb_autowebinar?schema=test
       ADMIN_LOGIN: admin@example.com
       ADMIN_PASSWORD: StrongAdmin123
       ADMIN_COOKIE_SECRET: ci-admin-cookie-secret-32-plus-chars
       IP_HASH_SECRET: ci-ip-hash-secret-32-plus-chars
       EMAIL_MODE: log
-      EMAIL_FROM: "АСПБ <no-reply@example.com>"
+      EMAIL_FROM: 'АСПБ <no-reply@example.com>'
       TELEGRAM_GROUP_URL: https://t.me/example
       TELEGRAM_NOTIFY_MODE: log
       TELEGRAM_ADMIN_BOT_POLLING: off
@@ -84,12 +103,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version: 22.23.2
           cache: npm
 
       - name: Install dependencies
@@ -119,67 +138,494 @@ jobs:
       - name: Test
         run: npm test
 
+  e2e:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aspb
+          POSTGRES_DB: aspb_autowebinar
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aspb -d aspb_autowebinar"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://aspb@localhost:5432/aspb_autowebinar?schema=test
+      ADMIN_LOGIN: admin@example.com
+      ADMIN_PASSWORD: StrongAdmin123
+      ADMIN_COOKIE_SECRET: ci-admin-cookie-secret-32-plus-chars
+      IP_HASH_SECRET: ci-ip-hash-secret-32-plus-chars
+      EMAIL_MODE: log
+      EMAIL_FROM: 'АСПБ <no-reply@example.com>'
+      TELEGRAM_GROUP_URL: https://t.me/example
+      TELEGRAM_NOTIFY_MODE: log
+      TELEGRAM_ADMIN_BOT_POLLING: off
+      TELEGRAM_BOT_POLLING: off
+      TELEGRAM_PARTICIPANT_BOT_POLLING: off
+      TELEGRAM_NEWS_BROADCAST: off
+      TELEGRAM_NEWS_TIMES: 09:00,11:30,14:00,16:30,19:00
+      TELEGRAM_NEWS_RSS_URLS: https://www.consultant.ru/rss/hotdocs.xml,https://www.consultant.ru/rss/nw.xml,https://www.consultant.ru/rss/db.xml
+      WEBINAR_TEST_ROOM_MODE: off
+      CORS_ORIGIN: http://127.0.0.1:5175
+      WORKER_ROLE: api
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.2
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Browser e2e
         run: npm run e2e
 
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.2
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Audit production dependencies
         run: npm audit --omit=dev
 
+  container-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Validate immutable deploy contract
+        run: node scripts/assert-ci-deploy-contract.mjs
+
       - name: Docker build smoke test
-        run: docker build -t aspb-autowebinar:ci .
+        run: |
+          build_ref="aspb-autowebinar-build:$GITHUB_SHA"
+          artifact="/tmp/aspb-image-$GITHUB_SHA.tar"
+          diff_probe=crisis_premium/_diffs_ci_context_probe.txt
+          full_diff_probe=crisis_premium/_full_diffs_ci_context_probe.txt
+          cleanup() { rm -f -- "$diff_probe" "$full_diff_probe"; }
+          trap cleanup EXIT
+          touch "$diff_probe" "$full_diff_probe"
+          docker build --build-arg BUILD_COMMIT_SHA="$GITHUB_SHA" -t "$build_ref" .
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$build_ref")" = "$GITHUB_SHA"
+          test "$(docker image inspect --format '{{index .Config.Labels "com.aspb.schema.compatibility"}}' "$build_ref")" = "email-links-v2"
+          docker run --rm --entrypoint sh "$build_ref" -c \
+            'test ! -e /app/crisis_premium/_diffs_ci_context_probe.txt && test ! -e /app/crisis_premium/_full_diffs_ci_context_probe.txt && test "$APP_BUILD_COMMIT_SHA" = "'"$GITHUB_SHA"'"'
+          docker save -o "$artifact" "$build_ref"
+          gzip -9 "$artifact"
+          cd /tmp
+          sha256sum "aspb-image-$GITHUB_SHA.tar.gz" > "aspb-image-$GITHUB_SHA.tar.gz.sha256"
+          cd "$GITHUB_WORKSPACE"
+          cleanup
+          trap - EXIT
+
+      - name: Attest immutable deploy image provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: /tmp/aspb-image-${{ github.sha }}.tar.gz
+
+      - name: Upload immutable deploy image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aspb-image-${{ github.sha }}
+          path: |
+            /tmp/aspb-image-${{ github.sha }}.tar.gz
+            /tmp/aspb-image-${{ github.sha }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Targeted image retention dry run
+        run: APP_IMAGE_KEEP_RECENT=3 bash scripts/prune-app-images.sh --dry-run
+
+      - name: Validate tracked production compose files
+        env:
+          COMPOSE_ENV_FILE: .env.production.example
+          DEPLOY_IMAGE_TAG: ${{ github.sha }}
+          DEPLOY_COMMIT_SHA: ${{ github.sha }}
+          POSTGRES_PASSWORD: ci-compose-validation-only
+        run: |
+          docker compose --env-file .env.production.example -f docker-compose.production.yml config --quiet
+          docker compose --env-file .env.production.example -f docker-compose.native-postgres.yml config --quiet
+
+      - name: Reject untracked deploy source files
+        run: |
+          fixture_dir=prisma/migrations/__ci_untracked_deploy_gate__
+          gate_log=/tmp/aspb-clean-worktree-gate.log
+          cleanup() { rm -rf -- "$fixture_dir"; rm -f -- "$gate_log"; }
+          trap cleanup EXIT
+          mkdir -p "$fixture_dir"
+          touch "$fixture_dir/migration.sql"
+          if bash scripts/assert-clean-deploy-worktree.sh >"$gate_log" 2>&1; then
+            echo "Deploy worktree gate accepted an untracked migration" >&2
+            exit 1
+          fi
+          grep -q '__ci_untracked_deploy_gate__/migration.sql' "$gate_log"
+          cleanup
+          trap - EXIT
+          bash scripts/assert-clean-deploy-worktree.sh
+
+      - name: Require private production env permissions
+        run: |
+          env_fixture="$(mktemp)"
+          cleanup() { rm -f -- "$env_fixture"; }
+          trap cleanup EXIT
+          chmod 600 "$env_fixture"
+          bash scripts/assert-private-env-file.sh "$env_fixture"
+          chmod 644 "$env_fixture"
+          if bash scripts/assert-private-env-file.sh "$env_fixture"; then
+            echo "Production env permission gate accepted mode 0644" >&2
+            exit 1
+          fi
 
       - name: Docker production command smoke test
-        run: docker run --rm --entrypoint sh aspb-autowebinar:ci -c 'test -f dist/src/server.js'
+        run: docker run --rm --entrypoint sh "aspb-autowebinar-build:$GITHUB_SHA" -c 'test -f dist/src/server.js'
+
+      - name: Deploy safety regression checks
+        run: |
+          bash scripts/test-deploy-release-safety.sh
+          bash scripts/test-install-deploy-image-attestation.sh
+          bash scripts/test-infra-safety.sh
 
   deploy-staging:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.deploy_target == 'staging' || inputs.deploy_target == 'production'))
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [sast, secret-scan, verify, e2e, dependency-audit, container-build]
     environment: staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
     steps:
+      - name: Download verified deploy image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: aspb-image-${{ github.sha }}
+          path: .deploy-artifact
+
       - name: Check staging configuration
-        id: staging-config
         env:
           STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
           STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+          STAGING_NATIVE_POSTGRES_STORAGE_PATH: ${{ secrets.STAGING_NATIVE_POSTGRES_STORAGE_PATH }}
         run: |
-          if [ -z "$STAGING_SSH_HOST" ] || [ -z "$STAGING_SSH_USER" ] || [ -z "$STAGING_SSH_KEY" ] || [ -z "$STAGING_DEPLOY_PATH" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Staging deploy skipped because one or more STAGING_* secrets are not configured."
-            exit 0
+          if [ -z "$STAGING_SSH_HOST" ] || [ -z "$STAGING_SSH_USER" ] || [ -z "$STAGING_SSH_KEY" ] || [ -z "$STAGING_DEPLOY_PATH" ] || [ -z "$STAGING_NATIVE_POSTGRES_STORAGE_PATH" ]; then
+            echo "Staging deploy configuration is incomplete; all STAGING_* secrets are required." >&2
+            exit 1
           fi
-          echo "configured=true" >> "$GITHUB_OUTPUT"
 
       - name: Deploy to staging over SSH
-        if: steps.staging-config.outputs.configured == 'true'
         env:
           STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
           STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+          STAGING_NATIVE_POSTGRES_STORAGE_PATH: ${{ secrets.STAGING_NATIVE_POSTGRES_STORAGE_PATH }}
+          ALLOW_FIRST_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_first_deploy && 'on' || 'off' }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging_key
           chmod 600 ~/.ssh/staging_key
+          printf -v deploy_path_q '%q' "$STAGING_DEPLOY_PATH"
+          printf -v deploy_sha_q '%q' "$GITHUB_SHA"
+          printf -v ci_run_url_q '%q' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf -v source_ref_q '%q' "$GITHUB_REF"
+          printf -v repository_q '%q' "$GITHUB_REPOSITORY"
+          printf -v postgres_storage_path_q '%q' "$STAGING_NATIVE_POSTGRES_STORAGE_PATH"
+          printf -v allow_first_deploy_q '%q' "$ALLOW_FIRST_DEPLOY"
+          remote_artifact_dir="/tmp/aspb-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-staging"
+          printf -v artifact_dir_q '%q' "$remote_artifact_dir"
           ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
-            "cd '$STAGING_DEPLOY_PATH' && git pull --ff-only && COMPOSE_FILE=docker-compose.production.yml && [ -f docker-compose.deploy.yml ] && COMPOSE_FILE=docker-compose.deploy.yml || true && docker compose --env-file .env.production -f \$COMPOSE_FILE build api && docker compose --env-file .env.production -f \$COMPOSE_FILE run --rm api npx prisma migrate deploy && docker compose --env-file .env.production -f \$COMPOSE_FILE up -d"
+            "umask 077; mkdir -- $artifact_dir_q"
+          cleanup_remote_artifacts() {
+            ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
+              "rm -f -- $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz.sha256; rmdir -- $artifact_dir_q 2>/dev/null || true" \
+              >/dev/null 2>&1 || true
+          }
+          trap cleanup_remote_artifacts EXIT
+          scp -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key \
+            ".deploy-artifact/aspb-image-$GITHUB_SHA.tar.gz" \
+            ".deploy-artifact/aspb-image-$GITHUB_SHA.tar.gz.sha256" \
+            "$STAGING_SSH_USER@$STAGING_SSH_HOST:$remote_artifact_dir/"
+          ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
+            "bash -s -- $deploy_path_q $deploy_sha_q $ci_run_url_q $artifact_dir_q $source_ref_q $repository_q $postgres_storage_path_q $allow_first_deploy_q" <<'REMOTE'
+          set -Eeuo pipefail
+          deploy_path="$1"
+          deploy_sha="$2"
+          ci_run_url="$3"
+          artifact_dir="$4"
+          source_ref="$5"
+          github_repository="$6"
+          native_postgres_storage_path="$7"
+          allow_first_deploy="$8"
+          if [[ ! "$artifact_dir" =~ ^/tmp/aspb-deploy-[0-9]+-[0-9]+-staging$ ]]; then
+            echo "Invalid staging artifact directory: $artifact_dir" >&2
+            exit 1
+          fi
+          if [[ "$native_postgres_storage_path" != /* || ! -d "$native_postgres_storage_path" ]]; then
+            echo "Invalid staging native PostgreSQL storage path: $native_postgres_storage_path" >&2
+            exit 1
+          fi
+          if [[ "$allow_first_deploy" != "on" && "$allow_first_deploy" != "off" ]]; then
+            echo "Invalid staging first-deploy flag" >&2
+            exit 1
+          fi
+          image_archive="$artifact_dir/aspb-image-$deploy_sha.tar.gz"
+          image_checksum="$image_archive.sha256"
+          cleanup_artifacts() {
+            rm -f -- "$image_archive" "$image_checksum"
+            rmdir -- "$artifact_dir" 2>/dev/null || true
+          }
+          trap cleanup_artifacts EXIT
+          command -v flock >/dev/null 2>&1 || { echo "flock is required" >&2; exit 1; }
+          deploy_lock_file=/tmp/aspb-autowebinar-deploy.lock
+          exec 9>"$deploy_lock_file"
+          if ! flock -n 9; then
+            echo "Another deployment is already running (lock: $deploy_lock_file)" >&2
+            exit 75
+          fi
+          cd "$deploy_path"
+          dirty_worktree="$(git status --porcelain=v1 --untracked-files=all -- . \
+            ':(exclude)backups/**' \
+            ':(exclude)test-results/**' \
+            ':(exclude)playwright-report/**' \
+            ':(exclude)blob-report/**' \
+            ':(exclude)outputs/**')"
+          if [ -n "$dirty_worktree" ]; then
+            echo "Refusing deploy from a worktree with tracked or untracked source changes:" >&2
+            printf '%s\n' "$dirty_worktree" >&2
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "$deploy_sha"
+          git checkout --detach "$deploy_sha"
+          test "$(git rev-parse HEAD)" = "$deploy_sha"
+          bash scripts/assert-clean-deploy-worktree.sh
+          if [ ! -d backups ]; then
+            echo "Pre-deploy backup directory is missing: $deploy_path/backups" >&2
+            exit 1
+          fi
+          verified_backup_file="$(find backups -maxdepth 1 -type f -name 'aspb-postgres-*.sql.gz' -print | sort | tail -n 1)"
+          if [ -z "$verified_backup_file" ]; then
+            echo "No pre-deploy PostgreSQL backup found in $deploy_path/backups" >&2
+            exit 1
+          fi
+          COMPOSE_FILE=docker-compose.native-postgres.yml \
+          COMPOSE_ENV_FILE=.env.production \
+          DEPLOY_COMMIT_SHA="$deploy_sha" \
+          DEPLOY_VERIFIED_CI_SHA="$deploy_sha" \
+          DEPLOY_VERIFIED_CI_RUN_URL="$ci_run_url" \
+          DEPLOY_GITHUB_REPOSITORY="$github_repository" \
+          DEPLOY_SOURCE_REF="$source_ref" \
+          DEPLOY_ENVIRONMENT=staging \
+          DEPLOY_LOCK_HELD=on \
+          DEPLOY_PREBUILT_IMAGES=on \
+          DEPLOY_IMAGE_ARCHIVE="$image_archive" \
+          DEPLOY_IMAGE_CHECKSUM_FILE="$image_checksum" \
+          NATIVE_POSTGRES_STORAGE_PATH="$native_postgres_storage_path" \
+          VERIFIED_BACKUP_FILE="$verified_backup_file" \
+          ALLOW_DEPLOY_WITHOUT_ROLLBACK="$allow_first_deploy" \
+            bash scripts/deploy-production.sh
+          REMOTE
+          trap - EXIT
+          cleanup_remote_artifacts
+
+  deploy-production:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.deploy_target == 'production'
+    runs-on: ubuntu-latest
+    needs: [sast, secret-scan, verify, e2e, dependency-audit, container-build, deploy-staging]
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Download verified deploy image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: aspb-image-${{ github.sha }}
+          path: .deploy-artifact
+
+      - name: Require production deployment configuration
+        env:
+          PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+          PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          PRODUCTION_DEPLOY_PATH: ${{ secrets.PRODUCTION_DEPLOY_PATH }}
+          PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH: ${{ secrets.PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH }}
+        run: |
+          for value in "$PRODUCTION_SSH_HOST" "$PRODUCTION_SSH_USER" "$PRODUCTION_SSH_KEY" "$PRODUCTION_DEPLOY_PATH" "$PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH"; do
+            if [ -z "$value" ]; then
+              echo "Production deploy configuration is incomplete; all PRODUCTION_* secrets are required." >&2
+              exit 1
+            fi
+          done
+
+      - name: Deploy verified commit to production over SSH
+        env:
+          PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+          PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          PRODUCTION_DEPLOY_PATH: ${{ secrets.PRODUCTION_DEPLOY_PATH }}
+          PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH: ${{ secrets.PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH }}
+          ALLOW_FIRST_DEPLOY: ${{ inputs.allow_first_deploy && 'on' || 'off' }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > ~/.ssh/production_key
+          chmod 600 ~/.ssh/production_key
+          printf -v deploy_path_q '%q' "$PRODUCTION_DEPLOY_PATH"
+          printf -v deploy_sha_q '%q' "$GITHUB_SHA"
+          printf -v ci_run_url_q '%q' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf -v source_ref_q '%q' "$GITHUB_REF"
+          printf -v repository_q '%q' "$GITHUB_REPOSITORY"
+          printf -v postgres_storage_path_q '%q' "$PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH"
+          printf -v allow_first_deploy_q '%q' "$ALLOW_FIRST_DEPLOY"
+          remote_artifact_dir="/tmp/aspb-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-production"
+          printf -v artifact_dir_q '%q' "$remote_artifact_dir"
+          ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/production_key "$PRODUCTION_SSH_USER@$PRODUCTION_SSH_HOST" \
+            "umask 077; mkdir -- $artifact_dir_q"
+          cleanup_remote_artifacts() {
+            ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/production_key "$PRODUCTION_SSH_USER@$PRODUCTION_SSH_HOST" \
+              "rm -f -- $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz.sha256; rmdir -- $artifact_dir_q 2>/dev/null || true" \
+              >/dev/null 2>&1 || true
+          }
+          trap cleanup_remote_artifacts EXIT
+          scp -o StrictHostKeyChecking=accept-new -i ~/.ssh/production_key \
+            ".deploy-artifact/aspb-image-$GITHUB_SHA.tar.gz" \
+            ".deploy-artifact/aspb-image-$GITHUB_SHA.tar.gz.sha256" \
+            "$PRODUCTION_SSH_USER@$PRODUCTION_SSH_HOST:$remote_artifact_dir/"
+          ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/production_key "$PRODUCTION_SSH_USER@$PRODUCTION_SSH_HOST" \
+            "bash -s -- $deploy_path_q $deploy_sha_q $ci_run_url_q $artifact_dir_q $source_ref_q $repository_q $postgres_storage_path_q $allow_first_deploy_q" <<'REMOTE'
+          set -Eeuo pipefail
+          deploy_path="$1"
+          deploy_sha="$2"
+          ci_run_url="$3"
+          artifact_dir="$4"
+          source_ref="$5"
+          github_repository="$6"
+          native_postgres_storage_path="$7"
+          allow_first_deploy="$8"
+          if [[ ! "$artifact_dir" =~ ^/tmp/aspb-deploy-[0-9]+-[0-9]+-production$ ]]; then
+            echo "Invalid production artifact directory: $artifact_dir" >&2
+            exit 1
+          fi
+          if [[ "$native_postgres_storage_path" != /* || ! -d "$native_postgres_storage_path" ]]; then
+            echo "Invalid production native PostgreSQL storage path: $native_postgres_storage_path" >&2
+            exit 1
+          fi
+          if [[ "$allow_first_deploy" != "on" && "$allow_first_deploy" != "off" ]]; then
+            echo "Invalid production first-deploy flag" >&2
+            exit 1
+          fi
+          image_archive="$artifact_dir/aspb-image-$deploy_sha.tar.gz"
+          image_checksum="$image_archive.sha256"
+          cleanup_artifacts() {
+            rm -f -- "$image_archive" "$image_checksum"
+            rmdir -- "$artifact_dir" 2>/dev/null || true
+          }
+          trap cleanup_artifacts EXIT
+          command -v flock >/dev/null 2>&1 || { echo "flock is required" >&2; exit 1; }
+          deploy_lock_file=/tmp/aspb-autowebinar-deploy.lock
+          exec 9>"$deploy_lock_file"
+          if ! flock -n 9; then
+            echo "Another deployment is already running (lock: $deploy_lock_file)" >&2
+            exit 75
+          fi
+          cd "$deploy_path"
+          dirty_worktree="$(git status --porcelain=v1 --untracked-files=all -- . \
+            ':(exclude)backups/**' \
+            ':(exclude)test-results/**' \
+            ':(exclude)playwright-report/**' \
+            ':(exclude)blob-report/**' \
+            ':(exclude)outputs/**')"
+          if [ -n "$dirty_worktree" ]; then
+            echo "Refusing deploy from a worktree with tracked or untracked source changes:" >&2
+            printf '%s\n' "$dirty_worktree" >&2
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "$deploy_sha"
+          git checkout --detach "$deploy_sha"
+          test "$(git rev-parse HEAD)" = "$deploy_sha"
+          bash scripts/assert-clean-deploy-worktree.sh
+          if [ ! -d backups ]; then
+            echo "Pre-deploy backup directory is missing: $deploy_path/backups" >&2
+            exit 1
+          fi
+          verified_backup_file="$(find backups -maxdepth 1 -type f -name 'aspb-postgres-*.sql.gz' -print | sort | tail -n 1)"
+          if [ -z "$verified_backup_file" ]; then
+            echo "No pre-deploy PostgreSQL backup found in $deploy_path/backups" >&2
+            exit 1
+          fi
+          COMPOSE_FILE=docker-compose.native-postgres.yml \
+          COMPOSE_ENV_FILE=.env.production \
+          DEPLOY_COMMIT_SHA="$deploy_sha" \
+          DEPLOY_VERIFIED_CI_SHA="$deploy_sha" \
+          DEPLOY_VERIFIED_CI_RUN_URL="$ci_run_url" \
+          DEPLOY_GITHUB_REPOSITORY="$github_repository" \
+          DEPLOY_SOURCE_REF="$source_ref" \
+          DEPLOY_ENVIRONMENT=production \
+          DEPLOY_LOCK_HELD=on \
+          DEPLOY_PREBUILT_IMAGES=on \
+          DEPLOY_IMAGE_ARCHIVE="$image_archive" \
+          DEPLOY_IMAGE_CHECKSUM_FILE="$image_checksum" \
+          NATIVE_POSTGRES_STORAGE_PATH="$native_postgres_storage_path" \
+          VERIFIED_BACKUP_FILE="$verified_backup_file" \
+          ALLOW_DEPLOY_WITHOUT_ROLLBACK="$allow_first_deploy" \
+            bash scripts/deploy-production.sh
+          REMOTE
+          trap - EXIT
+          cleanup_remote_artifacts
 
   lint-pr:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 22
+          node-version: 22.23.2
           cache: npm
 
       - name: Install dependencies

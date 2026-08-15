@@ -72,7 +72,7 @@
   function authorLabel(msg) {
     // Имя модератора уже содержит роль (напр. «Юлия, модератор АСПБ») — не дублируем authorRole.
     if (msg.kind === 'ai_manager' || msg.kind === 'moderator') return msg.authorName;
-    if (msg.kind === 'agent_question') {
+    if (msg.kind === 'prepared_question' || msg.kind === 'agent_question') {
       return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
     }
     return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
@@ -85,6 +85,10 @@
     fsOverlay = document.createElement('div');
     fsOverlay.id = 'fsChatOverlay';
     fsOverlay.setAttribute('aria-hidden', 'true');
+    fsOverlay.setAttribute('role', 'log');
+    fsOverlay.setAttribute('aria-live', 'polite');
+    fsOverlay.setAttribute('aria-relevant', 'additions');
+    fsOverlay.setAttribute('aria-label', 'Сообщения вебинара в полноэкранном режиме');
     fsList = document.createElement('div');
     fsList.id = 'fsChatOverlayList';
     fsOverlay.appendChild(fsList);
@@ -145,11 +149,17 @@
     fsActive = true;
     seedFsOverlay();
     fsOverlay.classList.add('fs-chat-visible');
+    fsOverlay.setAttribute('aria-hidden', 'false');
+    document.getElementById('liveChatMessages')?.setAttribute('aria-hidden', 'true');
   }
 
   function exitFsChat() {
     fsActive = false;
-    if (fsOverlay) fsOverlay.classList.remove('fs-chat-visible');
+    if (fsOverlay) {
+      fsOverlay.classList.remove('fs-chat-visible');
+      fsOverlay.setAttribute('aria-hidden', 'true');
+    }
+    document.getElementById('liveChatMessages')?.removeAttribute('aria-hidden');
   }
 
   function addMessage(msg) {
@@ -227,7 +237,7 @@
     if (!demoLive && data.accessStatus === 'replay') {
       if (chatPanel) chatPanel.classList.remove('hidden');
       isHiddenAfterEnd = false;
-      setInputState(false, 'Задайте вопрос после эфира...');
+      setInputState(false, 'Задайте вопрос после премьеры...');
       setActivity('Запись открыта, чат доступен для вопросов');
       setOnlineLabel('чат открыт');
       return;
@@ -236,7 +246,7 @@
     if (!demoLive && chatStatus === 'ended') {
       if (chatPanel) chatPanel.classList.remove('hidden');
       isHiddenAfterEnd = false;
-      setInputState(false, 'Задайте вопрос после эфира...');
+      setInputState(false, 'Задайте вопрос после премьеры...');
       setActivity('Вебинар окончен, чат открыт');
       setOnlineLabel('чат открыт');
       return;
@@ -248,14 +258,14 @@
     }
 
     if (!demoLive && chatStatus === 'locked') {
-      setInputState(true, 'Чат откроется в момент старта эфира');
-      setActivity('Чат откроется в момент старта эфира');
+      setInputState(true, 'Вопросы откроются в момент старта премьеры');
+      setActivity('Подготовленное обсуждение и форма вопросов откроются в момент старта премьеры');
       setOnlineLabel('ожидание');
       return;
     }
 
     setInputState(false, 'Задайте вопрос...');
-    setActivity('Вопросы и чат синхронизированы с эфиром');
+    setActivity('Подготовленные сообщения синхронизированы с записью; вопросы отправляются команде');
     setOnlineLabel('синхронно');
   }
 

@@ -4,6 +4,55 @@ let CRM_STATUSES = [];
 let activeManagers = [];
 let currentQueue = 'all';
 
+function requiredElement(id) {
+  const element = document.getElementById(id);
+  if (!element) throw new Error(`Admin UI element #${id} is missing`);
+  return element;
+}
+
+const loginBtn = requiredElement('loginBtn');
+const loginForm = requiredElement('loginForm');
+const login = requiredElement('login');
+const password = requiredElement('password');
+const otp = requiredElement('otp');
+const otpField = requiredElement('otpField');
+const mfaSetup = requiredElement('mfaSetup');
+const loginPanel = requiredElement('loginPanel');
+const appPanel = requiredElement('appPanel');
+const logoutBtn = requiredElement('logoutBtn');
+const loginError = requiredElement('loginError');
+const refreshBtn = requiredElement('refreshBtn');
+const chatRefreshBtn = requiredElement('chatRefreshBtn');
+const hotRefreshBtn = requiredElement('hotRefreshBtn');
+const usersRefreshBtn = requiredElement('usersRefreshBtn');
+const createUserBtn = requiredElement('createUserBtn');
+const broadcastBtn = requiredElement('broadcastBtn');
+const funnelRefreshBtn = requiredElement('funnelRefreshBtn');
+const funnelFrom = requiredElement('funnelFrom');
+const funnelTo = requiredElement('funnelTo');
+const funnelAttribution = requiredElement('funnelAttribution');
+const funnelMetrics = requiredElement('funnelMetrics');
+const queueTabs = requiredElement('queueTabs');
+const managerFilter = requiredElement('managerFilter');
+const telegramFilter = requiredElement('telegramFilter');
+const roomFilter = requiredElement('roomFilter');
+const questionFilter = requiredElement('questionFilter');
+const applicationFilter = requiredElement('applicationFilter');
+const statusFilter = requiredElement('statusFilter');
+const queryInput = requiredElement('queryInput');
+const dateInput = requiredElement('dateInput');
+const registrationsNode = requiredElement('registrationsNode');
+const applicationsNode = requiredElement('applicationsNode');
+const hotLeadsNode = requiredElement('hotLeadsNode');
+const modChatNode = requiredElement('modChatNode');
+const liveChatNode = requiredElement('liveChatNode');
+const liveChatStatus = requiredElement('liveChatStatus');
+const broadcastText = requiredElement('broadcastText');
+const broadcastStatus = requiredElement('broadcastStatus');
+const newUserRole = requiredElement('newUserRole');
+const userAdminSection = requiredElement('userAdminSection');
+const usersList = requiredElement('usersList');
+
     function showToast(message, isError) {
       var t = document.createElement('div');
       t.textContent = message;
@@ -104,11 +153,6 @@ let currentQueue = 'all';
       fillStatusFilter();
     }
 
-    function managerName(id) {
-      const manager = activeManagers.find(item => item.id === id);
-      return manager ? manager.name : 'Не назначен';
-    }
-
     function fillRoleSelect(roles) {
       clear(newUserRole);
       (roles || ['manager']).forEach(role => newUserRole.append(node('option', { value:role, text:role })));
@@ -186,7 +230,7 @@ let currentQueue = 'all';
     async function loadSummary() {
       const data = await api('/api/admin/analytics/summary');
       const items = [
-        ['Посетители', data.summary.pageViews],
+        ['Уникальные посетители', data.summary.uniqueVisitors],
         ['Регистрации', data.summary.registrations],
         ['Входы в комнату', data.summary.roomEntries],
         ['Telegram', data.summary.telegramSubscribers],
@@ -219,8 +263,6 @@ let currentQueue = 'all';
       funnelTo.value = isoDate(now);
     }
 
-    let lastFunnelData = null;
-
     function fmtNum(value) {
       return Number(value || 0).toLocaleString('ru-RU');
     }
@@ -229,8 +271,8 @@ let currentQueue = 'all';
       const params = new URLSearchParams();
       if (funnelFrom.value) params.set('from', funnelFrom.value);
       if (funnelTo.value) params.set('to', funnelTo.value);
+      params.set('attribution', funnelAttribution.value || 'firstTouch');
       const data = await api('/api/admin/analytics/funnel?' + params.toString());
-      lastFunnelData = data;
       renderFunnelMetrics(data);
     }
 
@@ -286,6 +328,12 @@ let currentQueue = 'all';
       const root = node('div', { class:'fn' });
 
       const overall = s.visitors ? s.contracts / s.visitors : 0;
+      root.append(node('p', {
+        class:'sub',
+        text:data.attribution === 'lastTouch'
+          ? 'Модель атрибуции: последний источник перед первой регистрацией.'
+          : 'Модель атрибуции: первый источник посетителя в выбранном периоде.'
+      }));
       root.append(node('div', { class:'fn-hero' }, [
         node('div', { class:'fn-flow' }, [
           flowStep(fmtNum(s.visitors), 'Посетители'),
@@ -304,7 +352,7 @@ let currentQueue = 'all';
         stageNode(1, 'Посетители', s.visitors, null, '', s.visitors),
         stageNode(2, 'Регистрации', s.registrations, r.registrationRate, 'посетителей', s.visitors),
         stageNode(3, 'Вход в комнату', s.roomEntries, r.roomEntryRate, 'регистраций', s.registrations),
-        stageNode(4, 'Вопросы', s.questions, r.questionRate, 'вошедших в комнату', s.roomEntries),
+        stageNode(4, 'Вопросы', s.questions, r.questionRate, 'регистраций', s.registrations),
         stageNode(5, 'Заявки', s.applications, r.applicationRate, 'регистраций', s.registrations),
         stageNode(6, 'Договоры', s.contracts, r.contractRate, 'заявок', s.applications)
       ]));
@@ -319,6 +367,13 @@ let currentQueue = 'all';
           tgChip(s.telegramSubscribers, 'подписки', r.telegramSubscribeRate, s.registrations)
         ])
       ]));
+
+      if (data.dataQuality?.warnings?.length) {
+        root.append(node('p', {
+          class:'sub',
+          text:`Качество данных: ${data.dataQuality.warnings.join(' ')} Покрытие visitor ID — ${pct(data.dataQuality.visitorIdCoverage)}.`
+        }));
+      }
 
       funnelMetrics.append(root);
     }
@@ -399,7 +454,7 @@ let currentQueue = 'all';
         node('thead', {}, [node('tr', {}, [
           node('th', { text:'Контакт' }),
           node('th', { text:'CRM' }),
-          node('th', { text:'Эфир' }),
+          node('th', { text:'Премьера записи' }),
           node('th', { text:'Действия' })
         ])]),
         tbody
@@ -444,7 +499,7 @@ let currentQueue = 'all';
           node('div', { class:'row' }, [node('span', { text:'Источник' }), node('strong', { text:registration.lead.source || 'direct' })]),
           node('div', { class:'row' }, [node('span', { text:'UTM' }), node('span', { text:[registration.lead.utmSource, registration.lead.utmMedium, registration.lead.utmCampaign].filter(Boolean).join(' / ') || '—' })]),
           node('div', { class:'row' }, [node('span', { text:'Регистрация' }), node('strong', { text:fmtDate(registration.registeredAt) })]),
-          node('div', { class:'row' }, [node('span', { text:'Эфир' }), node('strong', { text:fmtDate(registration.webinarSession.scheduledAt) })]),
+          node('div', { class:'row' }, [node('span', { text:'Премьера записи' }), node('strong', { text:fmtDate(registration.webinarSession.scheduledAt) })]),
           node('div', { class:'row' }, [node('span', { text:'Комната' }), node('strong', { text:registration.roomEnteredAt ? fmtDate(registration.roomEnteredAt) : 'не заходил' })]),
           node('label', { class:'stack' }, [node('span', { text:'Ответственный менеджер' }), managerSelect]),
           node('label', { class:'stack' }, [node('span', { text:'Следующий контакт' }), nextContact]),
@@ -598,7 +653,7 @@ let currentQueue = 'all';
         }});
 
         const banBtn = node('button', { class:'ghost', text:q.chatBanned ? 'Разбанить' : 'Забанить', onclick:async () => {
-          if (!q.chatBanned && !confirm('Забанить участника ' + q.lead.name + ' в чате? Его сообщения скроются из эфира, новые он отправить не сможет.')) return;
+          if (!q.chatBanned && !confirm('Забанить участника ' + q.lead.name + ' в чате? Его сообщения скроются из премьеры записи, новые он отправить не сможет.')) return;
           banBtn.disabled = true;
           try {
             await api('/api/admin/registrations/' + q.registrationId + '/chat-ban', {
@@ -634,18 +689,18 @@ let currentQueue = 'all';
         data = await api('/api/admin/webinar/chat/live');
       } catch (err) {
         clear(liveChatNode);
-        liveChatNode.append(node('div', { class:'chat-empty', text:err.message || 'Не удалось загрузить эфир.' }));
+        liveChatNode.append(node('div', { class:'chat-empty', text:err.message || 'Не удалось загрузить премьеру записи.' }));
         return;
       }
-      const statusLabel = data.webinarStatus === 'live' ? '· идёт эфир'
-        : data.webinarStatus === 'finished' ? '· эфир завершён'
-        : '· вне эфира';
+      const statusLabel = data.webinarStatus === 'live' ? '· идёт премьера записи'
+        : data.webinarStatus === 'finished' ? '· премьера завершена'
+        : '· вне премьеры';
       if (liveChatStatus) liveChatStatus.textContent = statusLabel;
 
       const atBottom = liveChatNode.scrollHeight - liveChatNode.scrollTop - liveChatNode.clientHeight < 60;
       clear(liveChatNode);
       if (!data.messages.length) {
-        liveChatNode.append(node('div', { class:'chat-empty', text:'Сообщений в чате эфира пока нет.' }));
+        liveChatNode.append(node('div', { class:'chat-empty', text:'Сообщений в чате премьеры пока нет.' }));
         return;
       }
       data.messages.forEach(m => {
@@ -666,11 +721,31 @@ let currentQueue = 'all';
       }
 
       broadcastBtn.disabled = true;
-      broadcastStatus.textContent = 'Отправляем...';
+      broadcastStatus.textContent = 'Проверяем согласия получателей...';
       try {
-        const data = await api('/api/admin/telegram/broadcast', {
+        const preview = await api('/api/admin/telegram/broadcast/preview', {
           method:'POST',
           body:JSON.stringify({ text })
+        });
+        if (!preview.enabled) {
+          broadcastStatus.textContent = 'Ручная рекламная рассылка выключена feature flag.';
+          return;
+        }
+        const confirmed = window.confirm(
+          'Получателей: ' + preview.total + '. Канал: Telegram. Версия согласия: ' +
+          preview.consentDocumentVersion + '. Поставить сообщение в очередь?'
+        );
+        if (!confirmed) {
+          broadcastStatus.textContent = 'Отправка отменена после preview.';
+          return;
+        }
+        const data = await api('/api/admin/telegram/broadcast', {
+          method:'POST',
+          body:JSON.stringify({
+            text,
+            confirmRecipientCount: preview.total,
+            idempotencyKey: window.crypto.randomUUID()
+          })
         });
         if (data.queued) {
           broadcastStatus.textContent = 'Рассылка поставлена в очередь: ' + data.total + ' получателей. Отправка идет в фоне.';
@@ -709,7 +784,7 @@ let currentQueue = 'all';
       const sections = [
         ['сводка', loadSummary], ['воронка', loadFunnel], ['горячие лиды', loadHotLeads],
         ['регистрации', loadRegistrations], ['заявки', loadApplications], ['вопросы', loadQuestions],
-        ['эфир', loadLiveMirror],
+        ['премьера записи', loadLiveMirror],
         ['пользователи', loadUsers], ['статус рассылки', loadBroadcastStatus],
       ];
       const results = await Promise.allSettled(sections.map(([, fn]) => fn()));
@@ -721,12 +796,37 @@ let currentQueue = 'all';
       }
     }
 
-    loginBtn.addEventListener('click', async () => {
+    loginForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      loginError.textContent = '';
+      loginBtn.disabled = true;
+      loginBtn.textContent = 'Проверяем...';
       try {
-        await api('/api/admin/login', {
+        const result = await api('/api/admin/login', {
           method: 'POST',
-          body: JSON.stringify({ login: login.value, password: password.value })
+          body: JSON.stringify({ login: login.value, password: password.value, otp: otp.value.trim() || undefined })
         });
+        if (result.mfaSetupRequired) {
+          otpField.classList.remove('hidden');
+          otp.required = true;
+          mfaSetup.classList.remove('hidden');
+          mfaSetup.textContent = 'Добавьте в приложение-аутентификатор ключ: ' + result.secret +
+            '. Затем введите текущий 6-значный код. Ключ больше не будет показан после входа.';
+          loginError.textContent = 'Для всех администраторов требуется MFA.';
+          otp.focus();
+          return;
+        }
+        if (result.mfaRequired) {
+          otpField.classList.remove('hidden');
+          otp.required = true;
+          loginError.textContent = 'Введите 6-значный код из приложения-аутентификатора.';
+          otp.focus();
+          return;
+        }
+        if (!result.authenticated) {
+          loginError.textContent = 'Вход не завершён.';
+          return;
+        }
         loginPanel.classList.add('hidden');
         appPanel.classList.remove('hidden');
         logoutBtn.classList.remove('hidden');
@@ -734,8 +834,14 @@ let currentQueue = 'all';
         await loadAll();
       } catch (error) {
         loginError.textContent = error.message;
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = otpField.classList.contains('hidden') ? 'Войти' : 'Подтвердить вход';
       }
     });
+    loginBtn.type = 'submit';
+    loginForm.removeAttribute('inert');
+    loginForm.removeAttribute('aria-busy');
 
     logoutBtn.addEventListener('click', async () => {
       await api('/api/admin/logout', { method: 'POST', body: '{}' });
@@ -757,7 +863,7 @@ let currentQueue = 'all';
     createUserBtn.addEventListener('click', createUser);
     broadcastBtn.addEventListener('click', sendBroadcast);
     funnelRefreshBtn.addEventListener('click', loadFunnel);
-    [funnelFrom, funnelTo].forEach(input => input.addEventListener('change', loadFunnel));
+    [funnelFrom, funnelTo, funnelAttribution].forEach(input => input.addEventListener('change', loadFunnel));
     fillStatusFilter();
     initFunnelDates();
     fillManagerFilter();

@@ -94,7 +94,7 @@
     @media (max-width: 900px) { .grid, .hot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } table { display:block; overflow:auto; } }
     @media (max-width: 620px) { .hot-grid { grid-template-columns:1fr; } }
   </style>
-  <link rel="stylesheet" href="admin-funnel.css?v=funnel-redesign-3" />
+  <link rel="stylesheet" href="admin-funnel.css?v=remediation-20260804-1" />
 </head>
 <body>
   <header>
@@ -109,11 +109,15 @@
 
   <main class="wrap">
     <section id="loginPanel" class="panel login">
-      <h2>Вход</h2>
-      <input id="login" placeholder="Логин" autocomplete="username" />
-      <input id="password" placeholder="Пароль" type="password" autocomplete="current-password" />
-      <button id="loginBtn">Войти</button>
-      <p id="loginError" class="sub"></p>
+      <h2 id="adminLoginTitle">Вход</h2>
+      <form id="loginForm" class="login-form" aria-labelledby="adminLoginTitle" inert aria-busy="true">
+        <label class="login-field" for="login"><span>Логин или email</span><input id="login" autocomplete="username" required /></label>
+        <label class="login-field" for="password"><span>Пароль</span><input id="password" type="password" autocomplete="current-password" required /></label>
+        <label id="otpField" class="login-field hidden" for="otp"><span>6-значный код MFA</span><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" /></label>
+        <div id="mfaSetup" class="sub hidden" role="status" aria-live="polite"></div>
+        <button id="loginBtn" type="button" data-enable-submit>Войти</button>
+        <p id="loginError" class="sub" role="alert" aria-live="assertive"></p>
+      </form>
     </section>
 
     <section id="appPanel" class="hidden">
@@ -161,6 +165,10 @@
             <div class="filters">
               <input id="funnelFrom" type="date" />
               <input id="funnelTo" type="date" />
+              <select id="funnelAttribution" aria-label="Модель атрибуции">
+                <option value="firstTouch">Атрибуция: первый контакт</option>
+                <option value="lastTouch">Атрибуция: последний контакт</option>
+              </select>
             </div>
             <div id="funnelMetrics"></div>
           </section>
@@ -197,10 +205,10 @@
 
           <section class="panel">
             <h2>Telegram-новости участникам</h2>
-            <div class="sub">Сообщение уйдет только тем, кто нажал Telegram-кнопку после регистрации и привязал бота.</div>
+            <div class="sub">Рекламное сообщение уйдёт только адресатам с отдельным действующим согласием на Telegram текущей версии. Перед постановкой в очередь будет показано точное число получателей.</div>
             <textarea id="broadcastText" placeholder="Например: Завтра в 19:30 МСК разберем, как юристу не терять клиентов с долговыми рисками и передавать их в АСПБ."></textarea>
             <div class="broadcast-actions">
-              <button id="broadcastBtn">Отправить новость</button>
+              <button id="broadcastBtn">Проверить получателей</button>
               <span id="broadcastStatus" class="status-line"></span>
             </div>
           </section>
@@ -209,7 +217,7 @@
             <div class="top">
               <div>
                 <h2>Чат вебинара</h2>
-                <div class="sub">Слева — модерация вопросов (ответить · переслать · забанить). Справа — эфир, как его видит участник.</div>
+                <div class="sub">Слева — модерация вопросов (ответить · переслать · забанить). Справа — премьера записи, как её видит участник.</div>
               </div>
               <button id="chatRefreshBtn" class="ghost">Обновить</button>
             </div>
@@ -219,7 +227,7 @@
                 <div id="modChatNode" class="chat-scroll"></div>
               </div>
               <div class="chat-pane">
-                <h3>Эфир <span id="liveChatStatus" class="live-status"></span></h3>
+                <h3>Премьера записи <span id="liveChatStatus" class="live-status"></span></h3>
                 <div id="liveChatNode" class="chat-scroll"></div>
               </div>
             </div>
@@ -234,6 +242,6 @@
     </section>
   </main>
 
-  <script src="admin.js?v=funnel-redesign-3"></script>
+  <script src="admin.js?v=remediation-20260804-1"></script>
 </body>
 </html>

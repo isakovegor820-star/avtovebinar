@@ -12,10 +12,10 @@
 <title>АСПБ — Экономика кризиса</title>
 <link rel="stylesheet" href="css/styles.css?v=team-4col-20260613"/>
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg"/>
-<link rel="stylesheet" href="cookie-consent.css"/>
+<link rel="stylesheet" href="cookie-consent.css?v=compact-1"/>
 <link href="flow-tabs.css?v=nav-tabs-7" rel="stylesheet"/>
 <link href="buttons.css?v=restore-animations-1" rel="stylesheet"/>
-<link href="app-styles.css?v=ux-fixes-22" rel="stylesheet"/>
+<link href="app-styles.css?v=remediation-20260804-3" rel="stylesheet"/>
 <link href="fonts.css?v=self-2" rel="stylesheet"/>
 </head>
 <body class="bg-background text-on-surface font-body-md selection:bg-primary-fixed selection:text-on-primary-fixed">
@@ -37,12 +37,19 @@
             </a>
 </nav>
 <div class="md:hidden px-gutter pb-3">
-<nav class="flex gap-3 overflow-x-auto text-label-sm font-label-sm" aria-label="Мобильная навигация">
-<a class="shrink-0 min-h-[44px] inline-flex items-center text-on-surface-variant hover:text-primary" href="#about">Как работает АСПБ</a>
-<a class="shrink-0 min-h-[44px] inline-flex items-center text-on-surface-variant hover:text-primary" href="#why-now">Почему сейчас</a>
-<a class="shrink-0 min-h-[44px] inline-flex items-center text-on-surface-variant hover:text-primary" href="#team">Команда</a>
-<a class="shrink-0 min-h-[44px] inline-flex items-center text-on-surface-variant hover:text-primary" href="#faq">Частые вопросы</a>
+<details class="site-mobile-menu">
+<summary>
+<span class="site-mobile-menu__icon" aria-hidden="true"></span>
+<span>Разделы страницы</span>
+<span class="material-symbols-outlined site-mobile-menu__chevron" aria-hidden="true">expand_more</span>
+</summary>
+<nav aria-label="Мобильная навигация">
+<a href="#about">Как работает АСПБ</a>
+<a href="#why-now">Почему сейчас</a>
+<a href="#team">Команда</a>
+<a href="#faq">Частые вопросы</a>
 </nav>
+</details>
 </div>
 </header>
 <div data-current="landing" data-flow-tabs style="display:none"></div>
@@ -60,7 +67,7 @@
 <span class="hero-title-accent">законно и системно</span>
                     </h1>
 <p class="hero-lead max-w-xl">
-                        Команда опытных арбитражных управляющих покажет, как юристу без практики в банкротстве находить клиентов, успешно вести процедуры или <span class="hero-lead-strong">передавать сложные кейсы арбитражным управляющим</span> и получать <span class="hero-lead-em">гарантированное вознаграждение</span> без увеличения команды и дополнительной операционки.
+                        Команда опытных арбитражных управляющих покажет, как юристу без практики в банкротстве находить клиентов, успешно вести процедуры или <span class="hero-lead-strong">передавать сложные кейсы арбитражным управляющим</span> и получать <span class="hero-lead-em">вознаграждение на условиях партнерского договора</span> без увеличения команды и дополнительной операционки.
                     </p>
 <div class="grid sm:grid-cols-3 gap-3 max-w-xl">
 <div class="hero-proof-card rounded-lg p-3 border border-outline-variant/30">
@@ -101,11 +108,11 @@
 <div class="flex items-center gap-4">
 <span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">event</span>
 <div>
-<p class="text-label-md font-label-md text-primary" data-webinar-relative-label>Ближайший эфир</p>
-<p class="text-label-sm font-label-sm text-on-surface-variant" id="webinarTargetLabel" data-webinar-target-label>Время эфира уточняется</p>
+<p class="text-label-md font-label-md text-primary" data-webinar-relative-label>Ближайшая премьера записи</p>
+<p class="text-label-sm font-label-sm text-on-surface-variant" id="webinarTargetLabel" data-webinar-target-label>Время премьеры уточняется</p>
 </div>
 </div>
-<div class="mt-4 grid grid-cols-4 gap-2" id="heroCountdown" aria-label="Отсчет до эфира" aria-live="polite">
+<div class="mt-4 grid grid-cols-4 gap-2" id="heroCountdown" aria-label="Отсчет до премьеры записи" aria-live="polite">
 <div class="bg-surface-container-lowest border border-outline-variant/20 rounded-lg px-3 py-3 text-center">
 <div class="text-headline-md font-headline-md text-primary" data-countdown-days>00</div>
 <div class="text-label-sm font-label-sm text-on-surface-variant">дней</div>
@@ -139,7 +146,10 @@
 </div>
 <div class="relative group h-[420px] sm:h-[520px] md:h-[640px] lg:h-[700px] hero-image-hover">
 <div class="absolute -inset-4 bg-primary/5 rounded-3xl blur-2xl group-hover:bg-primary/10 transition-all duration-500"></div>
-<img alt="Юрист и команда АСПБ разбирают долговую ситуацию клиента перед запуском антикризисного маршрута" class="relative rounded-xl shadow-2xl w-full h-full object-cover object-center transition-all duration-500 group-hover:scale-[1.02]" src="assets/aspb-hero-consultation.png"/>
+<picture class="hero-picture">
+<source type="image/avif" srcset="assets/aspb-hero-consultation-640.avif 640w, assets/aspb-hero-consultation-1122.avif 1122w" sizes="(max-width: 767px) calc(100vw - 32px), 50vw"/>
+<img alt="Юрист и команда АСПБ разбирают долговую ситуацию клиента перед запуском антикризисного маршрута" class="relative rounded-xl shadow-2xl w-full h-full object-cover object-center transition-all duration-500 group-hover:scale-[1.02]" src="assets/aspb-hero-consultation.png" width="1122" height="1402" fetchpriority="high" decoding="async"/>
+</picture>
 <!-- 3 mini-cards fan out on hover -->
 <div class="hero-fan-cards">
 <div class="hero-fan-card hero-fan-card--1">
@@ -161,7 +171,7 @@
 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
 </div>
 <p class="text-[13px] font-bold leading-tight">Партнёрство</p>
-<p class="text-[11px] leading-snug opacity-80 mt-1">Юрист получает вознаграждение за каждую передачу</p>
+<p class="text-[11px] leading-snug opacity-80 mt-1">Вознаграждение возможно по договору и при выполнении его условий</p>
 </div>
 </div>
 </div>
@@ -181,8 +191,8 @@
 Если доверитель пришел к вам с долгами, кредиторами или риском банкротства, вы уже находитесь в точке решения. На вебинаре покажем, как не отпускать такого клиента, а подключать АСПБ как сильную антикризисную команду.
 </p>
 <div class="debt-alert-card mt-6 rounded-xl px-5 py-5 md:px-6 md:py-5">
-<p class="debt-alert-text">Общий долг россиян по кредитам превысил <strong>37 трлн рублей</strong>. Займы выплачивают <strong>47,6 млн человек</strong>. У половины из них больше половины дохода уходит на погашение долгов, а каждый пятый уже просрочил платежи больше чем на месяц.</p>
-<p class="debt-alert-source">— Федеральный Центр Банкротства Граждан</p>
+<p class="debt-alert-text">Долг домашних хозяйств составил <strong>43,6 трлн рублей</strong> на 1 апреля 2026 года. В 2025 году суды признали банкротами <strong>568 тысяч граждан и ИП</strong> — на 31,5% больше, чем годом ранее.</p>
+<p class="debt-alert-source">Источники: <a href="https://cbr.ru/statistics/macro_itm/dkfs/ext_dep_indicator/" target="_blank" rel="noopener noreferrer">Банк России</a> и <a href="https://download.fedresurs.ru/news/%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE%20%D1%81%D1%82%D0%B0%D1%82%D1%80%D0%B5%D0%BB%D0%B8%D0%B7%202025%20%D0%BD%D0%B0%20%D1%81%D0%B0%D0%B9%D1%82.pdf" target="_blank" rel="noopener noreferrer">Федресурс</a></p>
 </div>
 </div>
 <div class="rounded-xl bg-white/[0.08] border border-white/10 p-5">
@@ -240,8 +250,8 @@
 </div>
 <div class="flip-card-back rounded-xl p-5 flex items-center">
 <div>
-<p class="text-[14px] font-bold text-white mb-2">Пример из практики</p>
-<p class="text-[13px] text-white/80 leading-relaxed">Партнёр направил 3 клиентов за квартал — все получили законное списание, ни одной жалобы.</p>
+<p class="text-[14px] font-bold text-white mb-2">Пример партнерского маршрута</p>
+<p class="text-[13px] text-white/80 leading-relaxed">Партнёр передает клиента на диагностику. АСПБ оценивает основания, фиксирует условия и ведет только законную процедуру, если она подходит клиенту.</p>
 <p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
 </div>
 </div>
@@ -257,7 +267,7 @@
 <button class="seg-tab" role="tab" aria-selected="false" data-tab="2" type="button">Подключаете масштаб</button>
 </div>
 <div class="seg-panel" id="regScalePanel">
-<p class="seg-panel-text" data-text-1="Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально." data-text-2="За вашей рекомендацией стоит команда АСПБ и 17 000+ успешных дел. Это сильнее, чем вести сложный кейс в одиночку.">Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.</p>
+<p class="seg-panel-text" data-text-1="Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально." data-text-2="За вашей рекомендацией стоит команда АУ и 17 000+ завершённых процедур по внутренним данным АСПБ. Это сильнее, чем вести сложный кейс в одиночку.">Банкротство — не “поражение”, а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.</p>
 </div>
 </div>
 <a class="cta-register-btn" href="register.html">
@@ -346,7 +356,13 @@
 </div>
 </section>
 <!-- Stats Section -->
-<section class="py-20 bg-surface border-y border-outline-variant/20" id="why-now">
+<div class="mobile-details-toggle-wrap">
+<button id="mobileDetailsToggle" class="mobile-details-toggle" type="button" aria-expanded="false" aria-controls="why-now income team program">
+<span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
+<span data-mobile-details-label>Показать программу, расчёты и команду</span>
+</button>
+</div>
+<section class="py-20 bg-surface border-y border-outline-variant/20 mobile-detail-section" id="why-now">
 <div class="max-w-container-max-width mx-auto px-gutter">
 <div class="grid lg:grid-cols-[0.95fr_1.05fr] gap-8 items-stretch">
 <div class="bento-card-tilt bento-card-interactive bento-card-interactive--dark text-on-primary rounded-xl p-8 md:p-10 shadow-xl flex flex-col justify-between overflow-hidden relative" style="transform-style:preserve-3d;perspective:800px">
@@ -381,14 +397,16 @@
 <div class="text-headline-xl font-headline-xl text-primary mb-2" data-countup="568000" data-countup-suffix="">568 000</div>
 <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-4">граждан и ИП в 2025</p>
 <p class="text-body-md text-on-surface-variant leading-relaxed">За цифрой стоят люди и предприниматели, которые уже ищут законный выход из долгов.</p>
+<a class="mt-4 inline-flex text-label-sm font-label-sm text-primary underline underline-offset-2" href="https://download.fedresurs.ru/news/%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE%20%D1%81%D1%82%D0%B0%D1%82%D1%80%D0%B5%D0%BB%D0%B8%D0%B7%202025%20%D0%BD%D0%B0%20%D1%81%D0%B0%D0%B9%D1%82.pdf" target="_blank" rel="noopener noreferrer">Федресурс, итоги 2025</a>
 </div>
 <div class="bento-card-interactive rounded-xl p-7 card-reveal card-reveal--delay">
 <div class="w-12 h-12 rounded-xl bg-primary-fixed text-primary flex items-center justify-center mb-8">
 <span class="material-symbols-outlined text-[28px]">trending_up</span>
 </div>
-<div class="text-headline-xl font-headline-xl text-primary mb-2" data-countup="2200000" data-countup-suffix=" млн" data-countup-display="2.2">2.2 млн</div>
-<p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-4">прошли процедуру за 10 лет</p>
-<p class="text-body-md text-on-surface-variant leading-relaxed">Банкротство стало массовым финансовым маршрутом, а не редкой крайностью.</p>
+<div class="text-headline-xl font-headline-xl text-primary mb-2" data-countup="31.5" data-countup-display="31.5" data-countup-suffix="%">31,5%</div>
+<p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-4">рост к 2024 году</p>
+<p class="text-body-md text-on-surface-variant leading-relaxed">Столько составил рост числа судебных банкротств граждан и ИП в 2025 году.</p>
+<a class="mt-4 inline-flex text-label-sm font-label-sm text-primary underline underline-offset-2" href="https://download.fedresurs.ru/news/%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE%20%D1%81%D1%82%D0%B0%D1%82%D1%80%D0%B5%D0%BB%D0%B8%D0%B7%202025%20%D0%BD%D0%B0%20%D1%81%D0%B0%D0%B9%D1%82.pdf" target="_blank" rel="noopener noreferrer">Федресурс, итоги 2025</a>
 </div>
 <div class="sm:col-span-2 flip-card card-reveal" style="animation-delay:0.25s">
 <div class="flip-card-inner">
@@ -407,8 +425,8 @@
 </div>
 <div class="flip-card-back rounded-xl p-6 flex items-center">
 <div>
-<p class="text-[14px] font-bold text-white mb-2">Реальный кейс</p>
-<p class="text-[13px] text-white/80 leading-relaxed">Юрист заметил у клиента долг перед ФНС и 3 кредиторов. Передал на диагностику в АСПБ — через 2 недели клиент получил план реструктуризации, юрист получил партнёрское вознаграждение.</p>
+<p class="text-[14px] font-bold text-white mb-2">Пример сценария</p>
+<p class="text-[13px] text-white/80 leading-relaxed">Юрист замечает у клиента долг перед ФНС и нескольких кредиторов, передает ситуацию на диагностику и получает предложенный АСПБ план дальнейших действий.</p>
 <p class="text-[11px] text-white/50 mt-3">← нажмите, чтобы вернуться</p>
 </div>
 </div>
@@ -419,7 +437,7 @@
 </div>
 </section>
 <!-- Income Calculator -->
-<section class="py-20 bg-background scroll-mt-32" id="income">
+<section class="py-20 bg-background scroll-mt-32 mobile-detail-section" id="income">
 <div class="max-w-container-max-width mx-auto px-gutter">
 <div class="text-center mb-14">
 <h2 class="text-headline-lg font-headline-lg text-primary mb-4">Сколько возможностей уходит, пока клиент ищет помощь не у вас</h2>
@@ -427,7 +445,7 @@
 <div class="loss-meter mt-8 max-w-4xl mx-auto rounded-xl p-5 md:p-6 text-left text-white">
 <div class="relative z-10 grid md:grid-cols-[1.2fr_0.8fr] gap-6 md:items-end">
 <div>
-<p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-2">сейчас в выбранном сценарии мимо проходит</p>
+<p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-2">примерный расчет выбранного сценария</p>
 <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
 <span class="loss-meter-value text-[40px] leading-[48px] font-bold" id="incomeLossMonthly">от 60 000 ₽</span>
 <span class="text-headline-md font-headline-md">в месяц</span>
@@ -435,7 +453,7 @@
 <p class="text-body-md text-white/[0.76] mt-3" id="incomeLossPhrase">Два клиента — уже ритм: вы помогаете вовремя и видите понятный результат.</p>
 </div>
 <div class="md:text-right">
-<p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-2">в год может проходить мимо</p>
+<p class="text-label-sm font-label-sm uppercase tracking-wider text-primary-fixed-dim mb-2">условный расчет за год</p>
 <div class="loss-meter-value text-headline-lg font-headline-lg text-secondary-container" id="incomeLossYearly">от 720 000 ₽</div>
 <p class="text-label-sm text-white/70 mt-2">ориентир, условия фиксируются договором</p>
 </div>
@@ -452,8 +470,9 @@
 </div>
 </div>
 <div class="grid md:grid-cols-3 gap-6" role="tablist" aria-label="Сценарии партнерского дохода">
+<p class="md:col-span-3 text-label-sm text-on-surface-variant text-center">Расчеты ниже используют условные 30 000 ₽ за одного принятого АСПБ клиента только как пример. Фактический размер, критерии принятия клиента и срок выплаты определяются вашим договором; доход не гарантируется.</p>
 <!-- Client Count Cards -->
-<button aria-controls="incomeDetail" aria-selected="false" class="income-card glass-card p-8 rounded-xl text-center flex flex-col items-center border border-outline-variant/20 shadow-sm relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-income-amount="от 30 000 ₽" data-income-caption="Первый партнерский маршрут" data-income-detail="Один клиент в месяц — это уже не потерянная рекомендация, а ориентир от 30 000 ₽ партнерского дохода за проблему, которую вы и так видите в своей работе." data-income-emotion="Первый клиент — это момент, когда проблема перестает уходить мимо вас и превращается в деньги." data-income-loss-width="32" data-income-monthly-value="30000" data-income-yearly-value="360000" data-income-step-one="Заметили сигнал" data-income-step-three="Условия зафиксированы договором" data-income-step-two="Передали в АСПБ" data-income-title="1 клиент в месяц" role="tab" type="button">
+<button aria-controls="incomeDetail" aria-selected="false" class="income-card glass-card p-8 rounded-xl text-center flex flex-col items-center border border-outline-variant/20 shadow-sm relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-income-amount="пример: 30 000 ₽" data-income-caption="Первый партнерский маршрут" data-income-detail="Один принятый клиент в месяц при условной ставке 30 000 ₽ дает пример расчета 30 000 ₽. Фактические условия определяются договором." data-income-emotion="Первый принятый клиент позволяет проверить партнерский процесс на практике." data-income-loss-width="32" data-income-monthly-value="30000" data-income-yearly-value="360000" data-income-step-one="Заметили сигнал" data-income-step-three="Условия зафиксированы договором" data-income-step-two="Передали в АСПБ" data-income-title="1 клиент в месяц" role="tab" type="button">
 <div class="w-12 h-12 bg-primary/5 rounded-full flex items-center justify-center mb-6">
 <span class="material-symbols-outlined text-primary">person</span>
 </div>
@@ -461,7 +480,7 @@
 <div class="text-headline-md font-headline-md text-primary mb-4">от 30 000 ₽</div>
 <div class="text-label-sm font-label-sm text-on-surface-variant italic">Первый партнерский маршрут</div>
 </button>
-<button aria-controls="incomeDetail" aria-selected="true" class="income-card glass-card p-8 rounded-xl text-center flex flex-col items-center border border-outline-variant/20 shadow-sm relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-income-amount="от 60 000 ₽" data-income-caption="Регулярный поток рекомендаций" data-income-detail="Два клиента в месяц — это уже регулярный поток: ориентир от 60 000 ₽. Вы не ведете суды и процедуру: передаете контакт, а АСПБ делает все остальное по договорной модели." data-income-emotion="Два клиента — уже ритм: вы помогаете вовремя и видите понятные деньги." data-income-loss-width="55" data-income-monthly-value="60000" data-income-yearly-value="720000" data-income-step-one="Поймали два запроса" data-income-step-three="Вознаграждение закреплено договором" data-income-step-two="АСПБ ведет процедуру" data-income-title="2 клиента в месяц" role="tab" type="button">
+<button aria-controls="incomeDetail" aria-selected="true" class="income-card glass-card p-8 rounded-xl text-center flex flex-col items-center border border-outline-variant/20 shadow-sm relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-income-amount="пример: 60 000 ₽" data-income-caption="Регулярный поток рекомендаций" data-income-detail="Два принятых клиента в месяц при условной ставке 30 000 ₽ дают пример расчета 60 000 ₽. Вы передаете контакт, а АСПБ ведет процедуру по договорной модели." data-income-emotion="Два принятых клиента показывают, как может работать регулярная партнерская модель." data-income-loss-width="55" data-income-monthly-value="60000" data-income-yearly-value="720000" data-income-step-one="Поймали два запроса" data-income-step-three="Вознаграждение закреплено договором" data-income-step-two="АСПБ ведет процедуру" data-income-title="2 клиента в месяц" role="tab" type="button">
 <div class="w-12 h-12 bg-primary/5 rounded-full flex items-center justify-center mb-6">
 <span class="material-symbols-outlined text-primary">group</span>
 </div>
@@ -469,7 +488,7 @@
 <div class="text-headline-md font-headline-md text-primary mb-4">от 60 000 ₽</div>
 <div class="text-label-sm font-label-sm text-on-surface-variant italic">Регулярный поток рекомендаций</div>
 </button>
-<button aria-controls="incomeDetail" aria-selected="false" class="income-card glass-card p-8 rounded-xl text-center flex flex-col items-center border border-outline-variant/20 shadow-sm relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-income-amount="от 150 000 ₽" data-income-caption="Системное партнерство с АСПБ" data-income-detail="Пять клиентов в месяц превращают партнерство в отдельное направление: ориентир от 150 000 ₽. Такой сценарий подходит юридической практике, где проблемные клиенты уже не исключение, а регулярный поток." data-income-emotion="Пять клиентов — это уже не случайность, а отдельная партнерская линия с ощутимыми деньгами." data-income-loss-width="100" data-income-monthly-value="150000" data-income-yearly-value="1800000" data-income-step-one="Собрали поток" data-income-step-three="Развили новое направление" data-income-step-two="Передали в команду АУ" data-income-title="5 клиентов в месяц" role="tab" type="button">
+<button aria-controls="incomeDetail" aria-selected="false" class="income-card glass-card p-8 rounded-xl text-center flex flex-col items-center border border-outline-variant/20 shadow-sm relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" data-income-amount="пример: 150 000 ₽" data-income-caption="Системное партнерство с АСПБ" data-income-detail="Пять принятых клиентов в месяц при условной ставке 30 000 ₽ дают пример расчета 150 000 ₽. Фактический результат зависит от договора и числа принятых клиентов." data-income-emotion="Пять принятых клиентов позволяют оценить системный партнерский сценарий." data-income-loss-width="100" data-income-monthly-value="150000" data-income-yearly-value="1800000" data-income-step-one="Собрали поток" data-income-step-three="Развили новое направление" data-income-step-two="Передали в команду АУ" data-income-title="5 клиентов в месяц" role="tab" type="button">
 <div class="w-12 h-12 bg-primary/5 rounded-full flex items-center justify-center mb-6">
 <span class="material-symbols-outlined text-primary">groups</span>
 </div>
@@ -482,12 +501,12 @@
 <div class="flex flex-col gap-6">
 <div>
 <div class="text-label-md font-label-md text-on-surface-variant mb-2" id="incomeDetailTitle">2 клиента в месяц</div>
-<div class="text-headline-md font-headline-md text-primary mb-3" id="incomeDetailAmount">от 60 000 ₽</div>
+<div class="text-headline-md font-headline-md text-primary mb-3" id="incomeDetailAmount">пример: 60 000 ₽</div>
 <div class="inline-flex items-center gap-2 rounded-full bg-secondary-container px-3 py-1.5 text-label-sm font-label-sm text-on-secondary-container mb-4">
 <span class="material-symbols-outlined text-[18px]">bolt</span>
-<span id="incomeDetailEmotion">Два клиента — уже ритм: вы помогаете вовремя и видите понятные деньги.</span>
+<span id="incomeDetailEmotion">Два принятых клиента показывают, как может работать регулярная партнерская модель.</span>
 </div>
-<p class="text-body-md text-on-surface-variant max-w-2xl" id="incomeDetailText">Два клиента в месяц — это уже регулярный дополнительный поток: ориентир от 60 000 ₽. Вы не ведете суды и процедуру: передаете контакт, а АСПБ делает все остальное.</p>
+<p class="text-body-md text-on-surface-variant max-w-2xl" id="incomeDetailText">Два принятых клиента в месяц при условной ставке 30 000 ₽ дают пример расчета 60 000 ₽. Фактические условия определяются договором.</p>
 <div class="mt-6 income-steps">
 <div class="flex flex-col sm:flex-row sm:items-stretch gap-3">
 <div class="grid sm:grid-cols-[1fr_auto_1fr_auto_1fr] gap-3 sm:gap-2 items-center sm:flex-1">
@@ -529,7 +548,7 @@
 </div>
 </section>
 <!-- Responsibility Card -->
-<section class="pt-6 pb-8 md:pt-8 md:pb-10">
+<section class="pt-6 pb-8 md:pt-8 md:pb-10 mobile-detail-section">
 <div class="max-w-[980px] mx-auto px-gutter">
 <div class="chain-shell p-5 sm:p-6 lg:p-7 rounded-xl text-white shadow-xl border border-primary-fixed-dim/20 overflow-hidden transition-all scroll-mt-36" id="chainPanel">
 <div class="grid lg:grid-cols-2 gap-7 lg:gap-10 items-center">
@@ -566,7 +585,7 @@
 </span>
 </span>
 </button>
-<button aria-pressed="false" class="chain-choice relative z-10 text-left rounded-lg border border-white/[0.12] bg-white/[0.06] p-4 transition-all hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-fixed-dim" data-chain-icon="verified" data-chain-text="Клиент получает законный выход из долговой ситуации, а вы не остаетесь просто наблюдателем: рекомендация превращается в партнерский доход и укрепляет вашу профессиональную роль." data-chain-title="Итог запоминается: клиент вышел, вы заработали честно" type="button">
+<button aria-pressed="false" class="chain-choice relative z-10 text-left rounded-lg border border-white/[0.12] bg-white/[0.06] p-4 transition-all hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-fixed-dim" data-chain-icon="verified" data-chain-text="При подписанном договоре и выполнении его условий рекомендация может привести к партнерскому вознаграждению. Результат не гарантируется самой передачей контакта." data-chain-title="Итог зависит от договора и фактического результата" type="button">
 <span class="flex items-start gap-4">
 <span class="chain-dot flex w-8 h-8 rounded-full items-center justify-center text-label-sm font-label-sm shrink-0">3</span>
 <span>
@@ -581,13 +600,13 @@
 </div>
 </section>
 <!-- Team -->
-<section class="pt-10 md:pt-12 pb-14 md:pb-16 bg-surface" id="team">
+<section class="pt-10 md:pt-12 pb-14 md:pb-16 bg-surface mobile-detail-section" id="team">
 <div class="max-w-container-max-width mx-auto px-gutter">
 
 <!-- Count-up hero stat -->
 <div class="text-center mb-8">
 <div class="text-headline-xl md:text-[56px] font-headline-xl text-primary mb-2" data-countup="17000" data-countup-suffix="+">17 000+</div>
-<p class="text-body-lg text-on-surface-variant">успешных дел по банкротству граждан и бизнеса</p>
+<p class="text-body-lg text-on-surface-variant">завершенных процедур по внутренним данным АСПБ</p>
 </div>
 
 <div class="text-center mb-8">
@@ -646,7 +665,7 @@
 <div class="team-photo-frame team-member-photo-frame relative overflow-hidden rounded-xl mb-3 aspect-square">
 <img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/gerasimov-alexander.jpg" alt="Александр Герасимов"/>
 <div class="team-card-tooltip">
-<p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: списал 12.4 млн долга для ИП за 7 месяцев, сохранив единственное жильё клиента</p>
+<p class="text-[12px] text-white/90 leading-relaxed">Специализация: банкротство ИП, анализ активов и защита законных интересов клиента в процедуре</p>
 </div>
 </div>
 <h4 class="text-headline-md font-headline-md text-primary">Александр Герасимов</h4>
@@ -664,7 +683,7 @@
 <div class="team-photo-frame team-member-photo-frame relative overflow-hidden rounded-xl mb-3 aspect-square">
 <img class="team-photo w-full h-full object-cover object-center pointer-events-none select-none" src="assets/andrey-abukaev.jpg" alt="Андрей Абукаев"/>
 <div class="team-card-tooltip">
-<p class="text-[12px] text-white/90 leading-relaxed">Последний кейс: снял субсидиарную ответственность 18 млн с директора через оспаривание сделок</p>
+<p class="text-[12px] text-white/90 leading-relaxed">Специализация: субсидиарная ответственность, анализ сделок и сопровождение руководителей бизнеса</p>
 </div>
 </div>
 <h4 class="text-headline-md font-headline-md text-primary">Андрей Абукаев</h4>
@@ -699,7 +718,7 @@
 </div>
 </section>
 <!-- Program -->
-<section class="py-20 bg-background border-t border-outline-variant/20 scroll-mt-48" id="program">
+<section class="py-20 bg-background border-t border-outline-variant/20 scroll-mt-48 mobile-detail-section" id="program">
 <div class="max-w-container-max-width mx-auto px-gutter">
 <div class="grid lg:grid-cols-[0.9fr_1.4fr] gap-10 lg:gap-14 items-start">
 <div class="lg:sticky lg:top-28">
@@ -802,7 +821,7 @@
 </div>
 </section>
 <!-- Audience Filters -->
-<section class="py-20 audience-section">
+<section class="py-20 audience-section mobile-detail-section">
 <div class="max-w-container-max-width mx-auto px-gutter">
 <div class="text-center max-w-3xl mx-auto mb-12">
 <p class="inline-flex items-center gap-2 rounded-full bg-primary text-white px-4 py-2 text-label-sm font-label-sm mb-5">
@@ -948,7 +967,7 @@
 <span class="faq-chevron material-symbols-outlined w-9 h-9 rounded-lg bg-surface-container text-primary flex items-center justify-center transition-all">expand_more</span>
 </summary>
 <div class="faq-answer px-5 md:px-6 pb-6 md:pl-[88px] text-body-md text-on-surface-variant">
-                    Вознаграждение возникает при передаче профильного клиента и дальнейшем заключении договора. На вебинаре разберем сценарии на 1, 2 и 5 клиентов в месяц, чтобы было понятно, сколько денег обычно проходит мимо.
+                    Возможность, основания, размер и срок выплаты определяются подписанным договором и фактическим выполнением его условий. Регистрация, просмотр вебинара или передача контакта сами по себе не гарантируют вознаграждение; примеры на вебинаре носят иллюстративный характер.
                 </div>
 </details>
 <details class="faq-card group bg-surface-container-lowest rounded-xl border border-outline-variant/50 overflow-hidden">
@@ -957,7 +976,7 @@
 <span class="material-symbols-outlined">live_tv</span>
 </span>
 <span class="flex-1">
-<span class="block text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-1">формат эфира</span>
+<span class="block text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-1">формат премьеры</span>
 <span class="block text-label-md font-label-md text-primary">Как технически проходит вебинар?</span>
 </span>
 <span class="faq-chevron material-symbols-outlined w-9 h-9 rounded-lg bg-surface-container text-primary flex items-center justify-center transition-all">expand_more</span>
@@ -972,13 +991,13 @@
 <span class="material-symbols-outlined">event_available</span>
 </span>
 <span class="flex-1">
-<span class="block text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-1">после эфира</span>
-<span class="block text-label-md font-label-md text-primary">Будет ли запись эфира?</span>
+<span class="block text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant mb-1">после премьеры</span>
+<span class="block text-label-md font-label-md text-primary">Будет ли доступна запись?</span>
 </span>
 <span class="faq-chevron material-symbols-outlined w-9 h-9 rounded-lg bg-surface-container text-primary flex items-center justify-center transition-all">expand_more</span>
 </summary>
 <div class="faq-answer px-5 md:px-6 pb-6 md:pl-[88px] text-body-md text-on-surface-variant">
-                    Да, запись появится в разделе «Записи» личного кабинета после завершения трансляции и останется доступной без срока истечения. В прямом эфире можно задать вопрос по своей ситуации.
+                    Да, запись появится в защищённом разделе «Записи» после завершения премьеры. Во время просмотра можно отправить вопрос команде АСПБ; ответ придёт отдельно и не имитирует живой ответ спикера.
                 </div>
 </details>
 </div>
@@ -1030,10 +1049,10 @@
 </div>
 </footer>
 <script src="landing-interactions.js?v=restore-animations-1"></script>
-<script type="module" src="js/main.js?v=webinar-1930"></script>
+<script type="module" src="js/main.js?v=remediation-20260804-1"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="buttons.js?v=restore-animations-1"></script>
 <script src="particles-bg.js?v=restore-animations-2"></script>
-<script src="main.js?v=webinar-1930"></script>
+<script src="main.js?v=remediation-20260804-3"></script>
 <script src="cookie-consent.js"></script>
 </body></html>

@@ -8,7 +8,8 @@ import { track } from './analytics.js?v=site-review-7';
 export function bindPartnerApplicationForm() {
   const form = document.getElementById('partnerApplicationForm');
   const status = document.getElementById('partnerApplicationStatus');
-  if (!form) return;
+  if (!form || form.dataset.bound === 'true') return;
+  form.dataset.bound = 'true';
 
   // FIX 6a: трекаем открытие формы при первом фокусе (один раз)
   form.addEventListener('focusin', () => {
@@ -60,4 +61,8 @@ export function bindPartnerApplicationForm() {
       }
     }
   });
+  const submitButton = form.querySelector('[data-enable-submit]');
+  if (submitButton) submitButton.type = 'submit';
+  form.removeAttribute('inert');
+  form.removeAttribute('aria-busy');
 }

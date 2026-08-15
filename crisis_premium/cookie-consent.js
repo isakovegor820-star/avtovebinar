@@ -55,8 +55,7 @@
     text.className = 'cookie-banner__text';
     text.appendChild(
       document.createTextNode(
-        'Мы используем cookie для работы сайта и улучшения сервиса. Нажимая «Принять», ' +
-          'вы соглашаетесь на использование cookie. Подробнее — в ',
+        'Обязательные cookie нужны для входа и безопасности. Необязательная собственная аналитика с постоянным идентификатором включается только после согласия; при отказе учитываются только агрегированные события без постоянного идентификатора. Подробнее — в ',
       ),
     );
     var link = document.createElement('a');
@@ -90,6 +89,9 @@
     });
     decline.addEventListener('click', function () {
       dismiss('declined');
+      // Следующий безопасный запрос даёт серверу возможность немедленно удалить
+      // ранее созданный HttpOnly visitor ID, если он остался от старой версии сайта.
+      window.fetch('/api/csrf', { credentials: 'same-origin' }).catch(function () {});
     });
 
     actions.appendChild(accept);

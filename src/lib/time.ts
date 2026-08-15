@@ -50,8 +50,12 @@ export function getCurrentOrNextWebinarDate(now: Date, durationMinutes = WEBINAR
   const todayStart = new Date(
     Date.UTC(parts.year, parts.month - 1, parts.day, WEBINAR_START_HOUR_MSK - 3, WEBINAR_START_MINUTE_MSK, 0),
   );
-  const todayEnd = new Date(todayStart.getTime() + durationMinutes * 60 * 1000);
+  const todayEnd = getWebinarEndAt(todayStart, durationMinutes);
 
+  // This selector is used by acquisition surfaces (`/webinar/current` and a
+  // brand-new registration), so it must never send a new visitor into
+  // yesterday's replay. Replay for an already confirmed participant is chosen
+  // from that participant's own Registration in buildDailyRoomAccessPayload.
   if (now.getTime() <= todayEnd.getTime()) {
     return todayStart;
   }

@@ -133,6 +133,7 @@ export function startAdminTelegramBot() {
     allowedUpdates: ['callback_query'],
     isEnabled: isAdminBotReady,
     handleUpdate: handleCallback,
+    progressSubsystem: 'botAdmin',
   });
   poller.start();
   return poller;

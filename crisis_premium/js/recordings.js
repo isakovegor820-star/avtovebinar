@@ -10,6 +10,7 @@ let hlsScriptPromise = null;
 let progressTimer = null;
 let currentRecordingId = null;
 let fullscreenChangeHandler = null;
+let videoSourceAttempt = 0;
 const progressMarks = new Set();
 
 let currentPlaylist = [];
@@ -59,7 +60,10 @@ function loadHlsScript() {
     script.src = '/vendor/hls.js/hls.min.js';
     script.async = true;
     script.onload = () => resolve(window.Hls);
-    script.onerror = () => reject(new Error('hls.js load failed'));
+    script.onerror = () => {
+      hlsScriptPromise = null;
+      reject(new Error('hls.js load failed'));
+    };
     document.head.appendChild(script);
   });
 
@@ -69,6 +73,45 @@ function loadHlsScript() {
 function setText(id, value) {
   const node = document.getElementById(id);
   if (node) node.textContent = value;
+}
+
+function setRecordingPlaybackFailureState(failed) {
+  const shell = document.getElementById('recordingPlayerShell');
+  const overlay = document.getElementById('recordingOverlayButton');
+  const controls = shell?.parentElement?.querySelector('.recording-controls');
+  if (shell) shell.dataset.playbackState = failed ? 'failed' : 'ready';
+
+  if (overlay) {
+    overlay.disabled = failed;
+    overlay.hidden = failed;
+    overlay.classList.toggle('hidden', failed);
+    if (failed) {
+      overlay.setAttribute('inert', '');
+      overlay.setAttribute('aria-hidden', 'true');
+    } else {
+      overlay.removeAttribute('inert');
+      overlay.removeAttribute('aria-hidden');
+    }
+  }
+
+  if (!controls) return;
+  controls.hidden = failed;
+  if (failed) {
+    controls.setAttribute('inert', '');
+    controls.setAttribute('aria-hidden', 'true');
+  } else {
+    controls.removeAttribute('inert');
+    controls.removeAttribute('aria-hidden');
+  }
+  controls.querySelectorAll('button, input').forEach(control => {
+    if (failed && !control.disabled) {
+      control.disabled = true;
+      control.dataset.playbackFailureDisabled = 'true';
+    } else if (!failed && control.dataset.playbackFailureDisabled === 'true') {
+      control.disabled = false;
+      delete control.dataset.playbackFailureDisabled;
+    }
+  });
 }
 
 const htmlEscapeNode = document.createElement('span');
@@ -94,6 +137,7 @@ function statusLabel(recording, serverTime) {
 }
 
 function showEmpty() {
+  clearTemporaryError();
   const root = document.getElementById('recordingsApp');
   if (!root) return;
   document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
@@ -108,6 +152,7 @@ function showEmpty() {
 }
 
 function showLocked(payload) {
+  clearTemporaryError();
   const root = document.getElementById('recordingsApp');
   if (!root) return;
   document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
@@ -117,22 +162,23 @@ function showLocked(payload) {
   root.innerHTML = `
     <section class="recordings-empty">
       <span class="material-symbols-outlined">${isLive ? 'live_tv' : 'lock_clock'}</span>
-      <h1>${isLive ? 'Сейчас идет эфир' : 'Запись откроется после эфира'}</h1>
+      <h1>${isLive ? 'Сейчас идет премьера записи' : 'Запись откроется после премьеры'}</h1>
       <p>${
         isLive
-          ? 'Не открываем полную запись во время трансляции, чтобы не ломать эфирный сценарий. Подключайтесь к комнате и смотрите по таймлайну.'
-          : `До старта в ${escapeHtml(scheduledAt)} МСК запись закрыта. После эфира${availableAt ? `, ориентировочно ${escapeHtml(availableAt)} МСК,` : ''} она появится здесь как обычная запись.`
+          ? 'Не открываем постоянную запись во время премьеры, чтобы сохранить последовательность программы. Подключайтесь к комнате и смотрите по таймлайну.'
+          : `До старта в ${escapeHtml(scheduledAt)} МСК постоянная запись закрыта. После премьеры${availableAt ? `, ориентировочно ${escapeHtml(availableAt)} МСК,` : ''} она появится здесь.`
       }</p>
-      <a href="${escapeHtml(payload.roomUrl || 'webinar.html')}" class="recordings-primary-link">${isLive ? 'Подключиться к эфиру' : 'Открыть окно ожидания'}</a>
+      <a href="${escapeHtml(payload.roomUrl || 'webinar.html')}" class="recordings-primary-link">${isLive ? 'Подключиться к премьере' : 'Открыть окно ожидания'}</a>
     </section>
   `;
 }
 
 function isAccessError(error) {
-  return error && [401, 403, 404].includes(Number(error.status));
+  return error && [401, 403].includes(Number(error.status));
 }
 
 function showAccessGate() {
+  clearTemporaryError();
   const root = document.getElementById('recordingsApp');
   if (!root) return;
   root.innerHTML = `
@@ -154,6 +200,63 @@ function showAccessGate() {
       </div>
     </section>
   `;
+}
+
+function temporaryRequestMessage(error) {
+  if (navigator.onLine === false) {
+    return 'Нет соединения с интернетом. Доступ к библиотеке не удалён; подключитесь к сети и повторите.';
+  }
+  if (Number(error?.status) >= 500) {
+    return 'Сервис записей временно недоступен. Это не означает потерю доступа — повторите запрос через несколько секунд.';
+  }
+  return error?.message || 'Не удалось связаться с сервером. Доступ и текущий выбор записи сохранены.';
+}
+
+function clearTemporaryError() {
+  const errorNode = document.getElementById('recordingsRequestError');
+  const app = document.getElementById('recordingsApp');
+  if (errorNode) errorNode.hidden = true;
+  if (app) app.hidden = false;
+}
+
+function showTemporaryError(error, retry) {
+  const errorNode = document.getElementById('recordingsRequestError');
+  const app = document.getElementById('recordingsApp');
+  const text = document.getElementById('recordingsRequestErrorText');
+  const button = document.getElementById('recordingsRequestRetry');
+  if (!errorNode || !app || !button) return;
+
+  if (text) text.textContent = temporaryRequestMessage(error);
+  app.hidden = true;
+  errorNode.hidden = false;
+  button.disabled = false;
+  button.onclick = async () => {
+    button.disabled = true;
+    button.textContent = 'Повторяем...';
+    clearTemporaryError();
+    try {
+      await retry();
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Повторить';
+    }
+  };
+  button.focus({ preventScroll: true });
+}
+
+function handleRequestError(error, retry) {
+  if (isAccessError(error)) {
+    showAccessGate();
+    return;
+  }
+  if (Number(error?.status) === 404) {
+    showTemporaryError(
+      { message: 'Эта запись больше недоступна. Обновите библиотеку, чтобы открыть актуальный материал.' },
+      () => hydrateRecordingsPage(),
+    );
+    return;
+  }
+  showTemporaryError(error, retry);
 }
 
 function recordingMatchesQuery(recording, query) {
@@ -213,7 +316,7 @@ function renderPlaylist(activeId) {
     `;
     item.addEventListener('click', () => {
       track('recording_cta_click', { recordingId: recording.id, index });
-      loadRecording(recording.id).catch(() => {});
+      loadRecordingSafely(recording.id);
     });
     list.appendChild(item);
   });
@@ -293,14 +396,24 @@ function bindControls(video, recording) {
 
   function updatePlayIcon() {
     const icon = video.paused ? 'play_arrow' : 'pause';
-    if (freshPlay) freshPlay.querySelector('.material-symbols-outlined').textContent = icon;
-    if (freshOverlay) freshOverlay.classList.toggle('hidden', !video.paused);
+    const playbackFailed = shell?.dataset.playbackState === 'failed';
+    if (freshPlay) {
+      freshPlay.querySelector('.material-symbols-outlined').textContent = icon;
+      freshPlay.setAttribute('aria-label', video.paused ? 'Воспроизвести запись' : 'Поставить запись на паузу');
+      freshPlay.disabled = playbackFailed;
+    }
+    if (freshOverlay) {
+      freshOverlay.classList.toggle('hidden', playbackFailed || !video.paused);
+      freshOverlay.disabled = playbackFailed;
+      freshOverlay.setAttribute('aria-label', 'Воспроизвести запись');
+    }
   }
 
   function updateTime() {
     const total = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : recording.durationSeconds || 0;
     const percent = total ? (video.currentTime / total) * 100 : 0;
     if (freshSeek) freshSeek.value = String(Math.max(0, Math.min(100, percent)));
+    if (freshSeek) freshSeek.setAttribute('aria-valuetext', `${formatTimelineTime(video.currentTime)} из ${formatTimelineTime(total)}`);
     if (current) current.textContent = formatTimelineTime(video.currentTime);
     if (duration) duration.textContent = formatTimelineTime(total);
   }
@@ -320,10 +433,12 @@ function bindControls(video, recording) {
   freshMute?.addEventListener('click', () => {
     video.muted = !video.muted;
     freshMute.querySelector('.material-symbols-outlined').textContent = video.muted ? 'volume_off' : 'volume_up';
+    freshMute.setAttribute('aria-label', video.muted ? 'Включить звук' : 'Выключить звук');
   });
   function updateFullscreenIcon() {
     const icon = document.fullscreenElement ? 'fullscreen_exit' : 'fullscreen';
     freshFullscreen?.querySelector('.material-symbols-outlined')?.replaceChildren(document.createTextNode(icon));
+    freshFullscreen?.setAttribute('aria-label', document.fullscreenElement ? 'Выйти из полноэкранного режима' : 'Открыть на весь экран');
   }
 
   function requestPlayerFullscreen() {
@@ -394,6 +509,10 @@ function bindControls(video, recording) {
   });
   updateTime();
   updatePlayIcon();
+  if (freshMute) {
+    freshMute.setAttribute('aria-label', video.muted ? 'Включить звук' : 'Выключить звук');
+  }
+  updateFullscreenIcon();
 
   progressTimer = window.setInterval(() => {
     if (!currentRecordingId || currentRecordingId !== recording.id || video.paused) return;
@@ -410,9 +529,62 @@ function bindControls(video, recording) {
   }, 1200);
 }
 
+function allowedMp4Source(recording) {
+  const localFallbackAllowed = Boolean(recording.video.localFallbackAllowed ?? recording.video.fallbackAllowed);
+  const externalMp4Allowed = Boolean(recording.video.externalMp4Allowed);
+  return recording.video.src && (externalMp4Allowed || localFallbackAllowed) ? recording.video.src : '';
+}
+
+function showRecordingVideoFailure(video, recording, message) {
+  const fallback = document.getElementById('recordingVideoFallback');
+  const text = document.getElementById('recordingVideoFallbackText');
+  const retry = document.getElementById('recordingVideoRetry');
+  const activeElement = document.activeElement;
+  const controls = document.querySelector('.recording-controls');
+  const overlay = document.getElementById('recordingOverlayButton');
+  const focusNeedsRecovery = Boolean(
+    activeElement &&
+      ((controls && controls.contains(activeElement)) ||
+        (overlay && (activeElement === overlay || overlay.contains(activeElement)))),
+  );
+  video.pause();
+  setRecordingPlaybackFailureState(true);
+  if (text) text.textContent = message;
+  fallback?.classList.remove('hidden');
+  if (retry) {
+    retry.disabled = false;
+    retry.onclick = async () => {
+      retry.disabled = true;
+      retry.textContent = 'Загружаем...';
+      try {
+        await setVideoSource(video, recording);
+      } finally {
+        retry.disabled = false;
+        retry.textContent = 'Повторить загрузку видео';
+      }
+    };
+    if (focusNeedsRecovery) retry.focus({ preventScroll: true });
+  }
+}
+
+function loadMp4(video, recording, source, attempt) {
+  video.addEventListener('error', () => {
+    if (attempt !== videoSourceAttempt) return;
+    showRecordingVideoFailure(
+      video,
+      recording,
+      'Не удалось загрузить резервный формат записи. Проверьте соединение и повторите попытку.',
+    );
+  }, { once: true });
+  video.src = source;
+  video.load();
+}
+
 async function setVideoSource(video, recording) {
+  const attempt = ++videoSourceAttempt;
   const fallback = document.getElementById('recordingVideoFallback');
   fallback?.classList.add('hidden');
+  setRecordingPlaybackFailureState(false);
 
   if (hlsInstance) {
     hlsInstance.destroy();
@@ -424,35 +596,71 @@ async function setVideoSource(video, recording) {
   video.setAttribute('playsinline', '');
   video.setAttribute('webkit-playsinline', '');
   video.muted = true;
-  video.currentTime = 0;
-  video.src = '';
+  video.removeAttribute('src');
+  video.load();
   if (recording.video.poster) video.setAttribute('poster', recording.video.poster);
+  const mp4Source = allowedMp4Source(recording);
 
   if (recording.video.hlsSrc) {
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.addEventListener('error', () => {
+        if (attempt !== videoSourceAttempt) return;
+        if (mp4Source) {
+          loadMp4(video, recording, mp4Source, attempt);
+          return;
+        }
+        showRecordingVideoFailure(video, recording, 'HLS-поток временно недоступен. Проверьте соединение и повторите попытку.');
+      }, { once: true });
       video.src = recording.video.hlsSrc;
       video.load();
       return;
     }
 
-    const Hls = await loadHlsScript();
-    if (Hls?.isSupported()) {
-      hlsInstance = new Hls({ lowLatencyMode: false, enableWorker: true });
-      hlsInstance.loadSource(recording.video.hlsSrc);
-      hlsInstance.attachMedia(video);
-      return;
+    try {
+      const Hls = await loadHlsScript();
+      if (attempt !== videoSourceAttempt) return;
+      if (Hls?.isSupported()) {
+        const hls = new Hls({ lowLatencyMode: false, enableWorker: true });
+        hlsInstance = hls;
+        let networkRecoveries = 0;
+        let mediaRecoveries = 0;
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data?.fatal || attempt !== videoSourceAttempt) return;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRecoveries < 2) {
+            networkRecoveries += 1;
+            window.setTimeout(() => {
+              if (attempt === videoSourceAttempt) hls.startLoad();
+            }, networkRecoveries * 500);
+            return;
+          }
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 1) {
+            mediaRecoveries += 1;
+            hls.recoverMediaError();
+            return;
+          }
+          hls.destroy();
+          if (hlsInstance === hls) hlsInstance = null;
+          if (mp4Source) {
+            loadMp4(video, recording, mp4Source, attempt);
+            return;
+          }
+          showRecordingVideoFailure(video, recording, 'Не удалось восстановить HLS-поток. Повторите загрузку записи.');
+        });
+        hls.loadSource(recording.video.hlsSrc);
+        hls.attachMedia(video);
+        return;
+      }
+    } catch {
+      // Continue to the explicitly permitted MP4 fallback below.
     }
   }
 
-  const localFallbackAllowed = Boolean(recording.video.localFallbackAllowed ?? recording.video.fallbackAllowed);
-  const externalMp4Allowed = Boolean(recording.video.externalMp4Allowed);
-  if (recording.video.src && (externalMp4Allowed || localFallbackAllowed)) {
-    video.src = recording.video.src;
-    video.load();
+  if (mp4Source) {
+    loadMp4(video, recording, mp4Source, attempt);
     return;
   }
 
-  fallback?.classList.remove('hidden');
+  showRecordingVideoFailure(video, recording, 'Для этой записи нет поддерживаемого источника видео. Попробуйте позже.');
 }
 
 function applyRecording(recording, playlist, serverTime) {
@@ -473,12 +681,17 @@ function applyRecording(recording, playlist, serverTime) {
   toggleSearchVisibility(playlist.length);
   renderPlaylist(recording.id);
   setVideoSource(video, recording).catch(() => {
-    document.getElementById('recordingVideoFallback')?.classList.remove('hidden');
+    showRecordingVideoFailure(
+      video,
+      recording,
+      'Не удалось подготовить запись. Проверьте соединение и повторите загрузку.',
+    );
   });
   bindControls(video, recording);
 }
 
 async function loadRecording(id) {
+  clearTemporaryError();
   const payload = await getJson(`/recordings/${encodeURIComponent(id)}`);
   if (!payload.ok) return;
   const url = new URL(window.location.href);
@@ -488,9 +701,18 @@ async function loadRecording(id) {
   applyRecording(payload.recording, payload.playlist, payload.serverTime);
 }
 
+async function loadRecordingSafely(id) {
+  try {
+    await loadRecording(id);
+  } catch (error) {
+    handleRequestError(error, () => loadRecordingSafely(id));
+  }
+}
+
 export async function hydrateRecordingsPage() {
   if (!window.location.pathname.endsWith('recordings.html')) return;
 
+  clearTemporaryError();
   try {
     const payload = await getJson('/recordings');
     if (!payload.ok) return;
@@ -509,10 +731,6 @@ export async function hydrateRecordingsPage() {
     const initial = payload.recordings.find(recording => recording.id === requestedId) || payload.recordings[0];
     await loadRecording(initial.id);
   } catch (error) {
-    if (isAccessError(error)) {
-      showAccessGate();
-      return;
-    }
-    showEmpty();
+    handleRequestError(error, () => hydrateRecordingsPage());
   }
 }

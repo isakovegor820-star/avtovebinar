@@ -1,5 +1,11 @@
 import { logger } from './logger.js';
 import { telegramFetch } from './telegramProxy.js';
+import {
+  initializeWorkerSubsystemProgress,
+  reportWorkerSubsystemProgress,
+  stopWorkerSubsystemProgress,
+  type WorkerSubsystem,
+} from './workerHeartbeat.js';
 
 /**
  * Единый надёжный long-polling драйвер для всех Telegram-ботов АСПБ.
@@ -42,6 +48,8 @@ export type TelegramPollerOptions<TUpdate extends TelegramUpdateBase> = {
   isEnabled: () => boolean;
   /** Обработчик одного апдейта. Ошибки внутри не останавливают цикл. */
   handleUpdate: (update: TUpdate) => Promise<void>;
+  /** Отдельный health-контур этого poller-а; отсутствие оставляет generic/test poller без side effects. */
+  progressSubsystem?: WorkerSubsystem;
 };
 
 const LONG_POLL_TIMEOUT_SECONDS = 25;
@@ -70,6 +78,12 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
   let backoffMs = MIN_BACKOFF_MS;
   let timer: NodeJS.Timeout | null = null;
   let controller: AbortController | null = null;
+
+  function reportProgress() {
+    if (options.progressSubsystem) {
+      reportWorkerSubsystemProgress(options.progressSubsystem);
+    }
+  }
 
   function schedule(delayMs: number) {
     if (stopped) return;
@@ -149,6 +163,7 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
     // Успех → сбрасываем backoff.
     backoffMs = MIN_BACKOFF_MS;
     for (const update of payload.result || []) {
+      reportProgress();
       try {
         await options.handleUpdate(update);
       } catch (error) {
@@ -157,6 +172,7 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
         // Сдвигаем offset даже при ошибке обработчика, чтобы «ядовитый» апдейт
         // не блокировал очередь навсегда.
         nextOffset = Math.max(nextOffset, update.update_id + 1);
+        reportProgress();
       }
     }
     return IDLE_DELAY_MS;
@@ -170,6 +186,7 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
     }
 
     running = true;
+    reportProgress();
     let delay = IDLE_DELAY_MS;
     try {
       if (!webhookCleared) {
@@ -177,8 +194,10 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
         // флаг остаётся false и следующий тик повторит попытку (иначе бот мог
         // навсегда залипнуть на 409 при недоснятом webhook).
         webhookCleared = await clearWebhook();
+        reportProgress();
       }
       delay = await pollOnce();
+      reportProgress();
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         // Зависший запрос оборван по таймауту — это норма, опрашиваем снова сразу.
@@ -191,6 +210,7 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
       }
     } finally {
       running = false;
+      reportProgress();
       schedule(delay);
     }
   }
@@ -202,6 +222,9 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
       stopped = false;
       webhookCleared = false;
       backoffMs = MIN_BACKOFF_MS;
+      if (options.progressSubsystem) {
+        initializeWorkerSubsystemProgress(options.progressSubsystem);
+      }
       logger.info(`[${options.name}] polling enabled (long-poll ${LONG_POLL_TIMEOUT_SECONDS}s)`);
       schedule(0);
     },
@@ -214,6 +237,9 @@ export function createTelegramPoller<TUpdate extends TelegramUpdateBase>(
       if (controller) {
         controller.abort();
         controller = null;
+      }
+      if (options.progressSubsystem) {
+        stopWorkerSubsystemProgress(options.progressSubsystem);
       }
     },
   };

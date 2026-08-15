@@ -8,7 +8,7 @@
 - `src/server.ts` - подключает фоновые задачи: reminders, admin bot, participant bot, consultant bot, news scheduler, broadcast worker.
 - `TELEGRAM_NOTIFY_MODE=log` переводит отправку в лог-режим. Это удобно для dev/test.
 - `TELEGRAM_NOTIFY_MODE=send` реально отправляет сообщения в Telegram.
-- `/health/dependencies` делает `getMe` по каждому настроенному token и падает, если Telegram вернул username, отличный от env username.
+- Защищённый `/health/dependencies/details` делает `getMe` по каждому настроенному token и падает, если Telegram вернул username, отличный от env username. Публичный `/health/dependencies` возвращает только `ok/degraded`.
 
 ## Бот менеджера
 
@@ -46,7 +46,7 @@ Env:
 
 - `TELEGRAM_PARTICIPANT_BOT_TOKEN`
 - `TELEGRAM_PARTICIPANT_BOT_USERNAME`
-- `TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME` опционально фиксирует ожидаемый username для конкретного deploy
+- `TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME` обязателен в production, фиксирует ожидаемый username этого deploy и должен совпадать с username фактического participant bot
 - `TELEGRAM_PARTICIPANT_BOT_POLLING=on`
 
 ## Бот-консультант
@@ -77,5 +77,5 @@ Env:
 2. Заполнить env-переменные нужного бота.
 3. Убедиться, что `WORKER_ROLE=webinar` или `WORKER_ROLE=all`.
 4. Поставить polling-флаг нужного бота в `on`.
-5. Проверить `/health/dependencies`: Telegram health-check делает `getMe` для настроенных токенов и сверяет `result.username` с env username.
+5. Проверить `/health/dependencies/details` с `Authorization: Bearer $METRICS_TOKEN`: Telegram health-check делает `getMe` для настроенных токенов и сверяет `result.username` с env username.
 6. Для participant bot зарегистрировать тестового участника, открыть Telegram deep-link один раз, затем повторить ту же ссылку и убедиться, что привязка не изменилась.

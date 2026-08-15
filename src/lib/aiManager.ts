@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { prisma } from './prisma.js';
 import { ASPB_KNOWLEDGE_BASE } from './aspbKnowledge.js';
+import { acquireLeadSecurityLock, isParticipantRegistrationActive } from './leadSecurity.js';
 
 const AI_MANAGER_NAME = 'Анна, менеджер АСПБ';
 const RESPONSE_PROBABILITY = 0.28;
@@ -8,6 +9,7 @@ const MIN_RESPONSE_GAP_SECONDS = 75;
 
 type AiQuestionInput = {
   questionId: string;
+  leadId: string;
   webinarSessionId: string;
   registrationId: string;
   text: string;
@@ -41,7 +43,7 @@ function buildAiManagerResponse(text: string) {
   }
 
   if (includesAny(text, ['банкрот', 'ип', 'ооо', 'долг', 'кредитор', 'исполнительн'])) {
-    return 'По долговым кейсам маршрут зависит от состава долгов, активов, кредиторов и документов. Без анализа нельзя обещать банкротство или списание, но можно вынести ситуацию на диагностику после эфира.';
+    return 'По долговым кейсам маршрут зависит от состава долгов, активов, кредиторов и документов. Без анализа нельзя обещать банкротство или списание, но можно передать обезличенную ситуацию на диагностику после премьеры записи.';
   }
 
   if (includesAny(text, ['партнер', 'процент', 'вознагражд', 'договор', 'услов'])) {
@@ -49,7 +51,7 @@ function buildAiManagerResponse(text: string) {
   }
 
   if (includesAny(text, ['регион', 'город', 'дистанц', 'удален'])) {
-    return 'По региональным кейсам обычно сначала оценивают документы и юрисдикцию. Многие вопросы можно разобрать дистанционно, но формат работы лучше уточнить после эфира по конкретной ситуации.';
+    return 'По региональным кейсам обычно сначала оценивают документы и юрисдикцию. Многие вопросы можно разобрать дистанционно, но формат работы лучше уточнить после премьеры записи по конкретной ситуации.';
   }
 
   return `Здесь лучше не давать индивидуальное заключение по одному сообщению. По правилам АСПБ сначала нужна диагностика документов и обстоятельств, а уже потом можно обсуждать законный маршрут. ${ASPB_KNOWLEDGE_BASE.tone}`;
@@ -64,35 +66,54 @@ export async function maybeScheduleAiManagerReply(input: AiQuestionInput) {
     return null;
   }
 
-  const lastAiMessage = await prisma.webinarChatMessage.findFirst({
-    where: {
-      webinarSessionId: input.webinarSessionId,
-      kind: 'ai_manager',
-    },
-    orderBy: { visibleAt: 'desc' },
-  });
-
-  if (lastAiMessage && input.now.getTime() - lastAiMessage.visibleAt.getTime() < MIN_RESPONSE_GAP_SECONDS * 1000) {
-    return null;
-  }
-
   const delaySeconds = 10 + Math.floor(hashToUnit(`${input.questionId}:delay`) * 11);
   const visibleAt = new Date(input.now.getTime() + delaySeconds * 1000);
 
-  return prisma.webinarChatMessage.create({
-    data: {
-      webinarSessionId: input.webinarSessionId,
-      registrationId: input.registrationId,
-      kind: 'ai_manager',
-      authorName: AI_MANAGER_NAME,
-      authorRole: 'менеджер АСПБ',
-      message: buildAiManagerResponse(input.text),
-      isSynthetic: true,
-      visibleAt,
-      metadataJson: {
-        replyToQuestionId: input.questionId,
-        delaySeconds,
+  return prisma.$transaction(async tx => {
+    await acquireLeadSecurityLock(tx, input.leadId);
+    const activeQuestion = await tx.question.findUnique({
+      where: { id: input.questionId },
+      include: {
+        registration: { include: { lead: true } },
       },
-    },
+    });
+    if (
+      !activeQuestion ||
+      activeQuestion.leadId !== input.leadId ||
+      activeQuestion.registrationId !== input.registrationId ||
+      activeQuestion.webinarSessionId !== input.webinarSessionId ||
+      !isParticipantRegistrationActive(activeQuestion.registration)
+    ) {
+      return null;
+    }
+
+    const lastAiMessage = await tx.webinarChatMessage.findFirst({
+      where: {
+        webinarSessionId: input.webinarSessionId,
+        kind: 'ai_manager',
+      },
+      orderBy: { visibleAt: 'desc' },
+    });
+
+    if (lastAiMessage && input.now.getTime() - lastAiMessage.visibleAt.getTime() < MIN_RESPONSE_GAP_SECONDS * 1000) {
+      return null;
+    }
+
+    return tx.webinarChatMessage.create({
+      data: {
+        webinarSessionId: input.webinarSessionId,
+        registrationId: input.registrationId,
+        kind: 'ai_manager',
+        authorName: AI_MANAGER_NAME,
+        authorRole: 'менеджер АСПБ',
+        message: buildAiManagerResponse(input.text),
+        isSynthetic: true,
+        visibleAt,
+        metadataJson: {
+          replyToQuestionId: input.questionId,
+          delaySeconds,
+        },
+      },
+    });
   });
 }

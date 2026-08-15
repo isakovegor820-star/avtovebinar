@@ -12,3 +12,12 @@ scratch
 *.log
 .DS_Store
 autowebinar-production
+**/*.mp4
+**/*.webm
+**/*.mov
+**/*.m3u8
+**/*.m4s
+crisis_premium/**/*.ts
+crisis_premium/_diffs_*
+crisis_premium/_full_diffs*
+webinar-data/**/*.ts

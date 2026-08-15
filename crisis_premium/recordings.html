@@ -6,9 +6,9 @@
 <title>Записи вебинаров | АСПБ</title>
 <link rel="stylesheet" href="css/styles.css?v=team-4col-20260613"/>
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg"/>
-<link rel="stylesheet" href="cookie-consent.css"/>
+<link rel="stylesheet" href="cookie-consent.css?v=compact-1"/>
 <link href="flow-tabs.css?v=nav-tabs-7" rel="stylesheet"/>
-<link rel="stylesheet" href="recordings.css?v=recordings-yt-3"/>
+<link rel="stylesheet" href="recordings.css?v=remediation-20260804-1"/>
 <link href="fonts.css?v=self-2" rel="stylesheet"/>
 </head>
 <body class="recordings-page">
@@ -29,6 +29,12 @@
 <p>Постоянная библиотека прошедших вебинаров АСПБ. Выберите запись слева, а справа — переключайтесь между всеми доступными материалами.</p>
 </div>
 </section>
+<section id="recordingsRequestError" class="recordings-request-error" role="alert" aria-live="assertive" hidden>
+<span class="material-symbols-outlined" aria-hidden="true">wifi_off</span>
+<h2>Не удалось загрузить записи</h2>
+<p id="recordingsRequestErrorText">Это временная ошибка соединения. Доступ не удалён.</p>
+<button id="recordingsRequestRetry" type="button">Повторить</button>
+</section>
 <div id="recordingsApp" class="recordings-layout">
 <div class="recording-main">
 <section class="recording-player-panel">
@@ -38,10 +44,11 @@
 <button id="recordingOverlayButton" class="recording-overlay-button" type="button" aria-label="Смотреть запись">
 <span class="material-symbols-outlined">play_arrow</span>
 </button>
-<div id="recordingVideoFallback" class="recording-video-fallback hidden">
+<div id="recordingVideoFallback" class="recording-video-fallback hidden" role="alert" aria-live="assertive">
 <div>
 <span class="material-symbols-outlined text-5xl mb-3">error</span>
-<p>Не удалось загрузить запись. Обновите страницу или попробуйте позже.</p>
+<p id="recordingVideoFallbackText">Не удалось загрузить запись. Проверьте соединение и попробуйте ещё раз.</p>
+<button id="recordingVideoRetry" type="button">Повторить загрузку видео</button>
 </div>
 </div>
 </div>
@@ -81,7 +88,7 @@
 </aside>
 </div>
 </main>
-<script type="module" src="js/main.js?v=webinar-1930"></script>
+<script type="module" src="js/main.js?v=remediation-20260804-3"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="cookie-consent.js"></script>
 </body></html>

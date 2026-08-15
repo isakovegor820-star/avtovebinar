@@ -1,12 +1,23 @@
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { env } from './env.js';
 import { prisma } from './prisma.js';
-import { sendTelegramMessageToChat } from './telegram.js';
 import { logger } from './logger.js';
+import {
+  acquireTelegramBroadcastCreationLock,
+  previewTelegramBroadcastRecipientsForSnapshot,
+  runTelegramBroadcastJobOnce,
+  snapshotTelegramBroadcastRecipients,
+  TELEGRAM_BROADCAST_KIND_NEWS,
+} from './telegramBroadcastWorker.js';
+import {
+  initializeWorkerSubsystemProgress,
+  reportWorkerSubsystemProgress,
+  stopWorkerSubsystemProgress,
+} from './workerHeartbeat.js';
 
-// Троттлинг отправки новостного дайджеста (как TELEGRAM_BROADCAST_DELAY_MS в broadcast-воркере):
-// без паузы всплеск 429 открывает общий circuit breaker и рубит остаток выпуска + напоминания.
-const TELEGRAM_NEWS_SEND_DELAY_MS = 40;
+const RSS_FETCH_TIMEOUT_MS = 10_000;
+const RSS_MAX_BODY_BYTES = 1024 * 1024;
 
 type FeedItem = {
   title: string;
@@ -187,18 +198,62 @@ function makePostKey(item: FeedItem) {
   return `rss:${item.url || item.title}`;
 }
 
-async function fetchFeed(url: string) {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'ASPB-Autowebinar/1.0 (+local)',
-    },
-  });
+async function readBoundedText(response: Response) {
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > RSS_MAX_BODY_BYTES) {
+    throw new Error('RSS response is larger than the configured limit');
+  }
+  if (!response.body) return '';
 
-  if (!response.ok) {
-    throw new Error(`RSS fetch failed ${response.status}: ${url}`);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > RSS_MAX_BODY_BYTES) {
+        await reader.cancel('RSS response exceeded the configured limit');
+        throw new Error('RSS response is larger than the configured limit');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
   }
 
-  return parseRss(await response.text());
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder('utf-8', { fatal: false }).decode(body);
+}
+
+export async function fetchFeed(url: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error('RSS fetch timed out')), RSS_FETCH_TIMEOUT_MS);
+  timeout.unref();
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'ASPB-Autowebinar/1.0 (+local)',
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      // Feed URLs may contain credentials. Never include the configured URL in
+      // an exception that can reach logs or health details.
+      throw new Error(`RSS fetch failed with HTTP ${response.status}`);
+    }
+
+    return parseRss(await readBoundedText(response));
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function fetchNewsCandidates(): Promise<NewsCandidate[]> {
@@ -266,27 +321,24 @@ function isUniqueConstraintError(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
-function normalizeJobError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.length > 500 ? `${message.slice(0, 497)}...` : message;
-}
-
 let telegramNewsJobRunning = false;
 
-export async function runTelegramNewsJobOnce(now = new Date()) {
+export async function runTelegramNewsJobOnce(now = new Date(), onProgress?: () => void) {
   if (telegramNewsJobRunning) {
     return { skipped: true, reason: 'in_progress' as const };
   }
 
   telegramNewsJobRunning = true;
+  onProgress?.();
   try {
-    return await runTelegramNewsJobOnceUnlocked(now);
+    return await runTelegramNewsJobOnceUnlocked(now, onProgress);
   } finally {
+    onProgress?.();
     telegramNewsJobRunning = false;
   }
 }
 
-async function runTelegramNewsJobOnceUnlocked(now = new Date()) {
+async function runTelegramNewsJobOnceUnlocked(now = new Date(), onProgress?: () => void) {
   if (env.TELEGRAM_NEWS_BROADCAST !== 'on') {
     return { skipped: true, reason: 'disabled' as const };
   }
@@ -297,36 +349,80 @@ async function runTelegramNewsJobOnceUnlocked(now = new Date()) {
   }
 
   const existingSlot = await prisma.telegramNewsPost.findFirst({ where: { slotKey: slot.slotKey } });
+  onProgress?.();
   if (existingSlot) {
     return { skipped: true, reason: 'already_sent' as const, slotKey: slot.slotKey };
   }
 
-  const leads = await prisma.lead.findMany({
-    // 152/38-ФЗ: новостной дайджест — рекламная рассылка, шлём только давшим marketingConsent.
-    where: { telegramChatId: { not: null }, marketingConsent: true },
-    select: { telegramChatId: true },
-    take: 5000,
-  });
-  const chatIds = Array.from(new Set(leads.map(lead => lead.telegramChatId).filter(Boolean))) as string[];
-
-  if (!chatIds.length) {
-    return { skipped: true, reason: 'no_subscribers' as const, slotKey: slot.slotKey };
-  }
-
   const candidate = await pickNewsCandidate(slot.slotKey);
-  let post: { id: string };
+  onProgress?.();
+  const message = buildNewsMessage(candidate, slot.timeLabel);
+  const jobId = randomUUID();
+  let queued: { kind: 'queued'; jobId: string; total: number } | { kind: 'existing' } | { kind: 'no_subscribers' };
   try {
-    post = await prisma.telegramNewsPost.create({
-      data: {
-        postKey: candidate.postKey,
-        slotKey: slot.slotKey,
-        title: candidate.title,
-        summary: candidate.summary,
-        url: candidate.url,
-        sourceTitle: candidate.sourceTitle,
-        status: 'sending',
+    queued = await prisma.$transaction(
+      async tx => {
+        await acquireTelegramBroadcastCreationLock(tx);
+        const duplicate = await tx.telegramNewsPost.findFirst({ where: { slotKey: slot.slotKey } });
+        if (duplicate) return { kind: 'existing' as const };
+
+        // A repeatable-read snapshot is durable evidence and a retry cursor, not
+        // authorization. The worker rechecks consent under the Lead lock directly
+        // before every bounded provider request.
+        const preview = await previewTelegramBroadcastRecipientsForSnapshot(tx, {
+          requireActiveRegistration: false,
+          onProgress,
+        });
+        if (preview.total === 0) return { kind: 'no_subscribers' as const };
+
+        await tx.telegramBroadcastJob.create({
+          data: {
+            id: jobId,
+            status: 'pending',
+            kind: TELEGRAM_BROADCAST_KIND_NEWS,
+            text: message,
+            // Legacy JSON columns remain empty. The normalized recipient table is
+            // the durable audit snapshot and the worker's only delivery cursor.
+            chatIds: [],
+            recipientSnapshot: Prisma.DbNull,
+            consentDocumentId: preview.consentDocumentId,
+            consentDocumentVersion: preview.consentDocumentVersion,
+            idempotencyKey: `telegram-news:${slot.slotKey}`,
+            total: preview.total,
+            nextAttemptAt: now,
+          },
+        });
+
+        const snapshotTotal = await snapshotTelegramBroadcastRecipients(tx, jobId, {
+          requireActiveRegistration: false,
+          onProgress,
+        });
+        if (snapshotTotal !== preview.total) {
+          throw new Error(
+            `Telegram news recipient snapshot changed during queueing (${snapshotTotal} != ${preview.total})`,
+          );
+        }
+
+        await tx.telegramNewsPost.create({
+          data: {
+            id: jobId,
+            postKey: candidate.postKey,
+            slotKey: slot.slotKey,
+            title: candidate.title,
+            summary: candidate.summary,
+            url: candidate.url,
+            sourceTitle: candidate.sourceTitle,
+            status: 'pending',
+          },
+        });
+        return { kind: 'queued' as const, jobId, total: preview.total };
       },
-    });
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        maxWait: 10_000,
+        timeout: 60_000,
+      },
+    );
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       return { skipped: true, reason: 'already_sent' as const, slotKey: slot.slotKey };
@@ -334,54 +430,35 @@ async function runTelegramNewsJobOnceUnlocked(now = new Date()) {
     throw error;
   }
 
-  const message = buildNewsMessage(candidate, slot.timeLabel);
-  let sent = 0;
-  let failed = 0;
-  let lastError: string | null = null;
-
-  for (let i = 0; i < chatIds.length; i += 1) {
-    const chatId = chatIds[i];
-    try {
-      await sendTelegramMessageToChat(chatId, message);
-      sent += 1;
-    } catch (error) {
-      failed += 1;
-      lastError = normalizeJobError(error);
-      logger.error({ err: error }, '[ASPБ telegram news recipient]');
-    }
-    if (i < chatIds.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, TELEGRAM_NEWS_SEND_DELAY_MS));
-    }
+  if (queued.kind === 'existing') {
+    return { skipped: true, reason: 'already_sent' as const, slotKey: slot.slotKey };
+  }
+  if (queued.kind === 'no_subscribers') {
+    return { skipped: true, reason: 'no_subscribers' as const, slotKey: slot.slotKey };
   }
 
-  const status = failed === 0 ? 'sent' : sent > 0 ? 'partial_failed' : 'failed';
-  await prisma.telegramNewsPost.update({
-    where: { id: post.id },
-    data: {
-      recipientCount: sent,
-      failedCount: failed,
-      status,
-      lastError,
-      completedAt: new Date(),
-    },
-  });
-
-  await prisma.event.create({
-    data: {
-      eventName: 'telegram_news_broadcast',
-      page: 'telegram_news',
-      source: 'scheduler',
-      metadataJson: {
-        slotKey: slot.slotKey,
-        postKey: candidate.postKey,
-        sent,
-        failed,
-        status,
-      } as Prisma.InputJsonValue,
-    },
-  });
-
-  return { skipped: false, slotKey: slot.slotKey, sent, failed, status };
+  // Fast first attempt preserves the old scheduler behaviour. Any transient failure is now
+  // persisted with nextAttemptAt and retried by the shared lease/fencing worker.
+  await runTelegramBroadcastJobOnce(now, { jobId: queued.jobId, onProgress });
+  onProgress?.();
+  const persisted = await prisma.telegramBroadcastJob.findUniqueOrThrow({ where: { id: queued.jobId } });
+  const status =
+    persisted.status === 'completed'
+      ? persisted.failed > 0
+        ? 'partial_failed'
+        : 'sent'
+      : persisted.status === 'failed'
+        ? 'retry_scheduled'
+        : persisted.status === 'dead_letter'
+          ? 'failed'
+          : persisted.status;
+  return {
+    skipped: false,
+    slotKey: slot.slotKey,
+    sent: persisted.sent,
+    failed: persisted.failed,
+    status,
+  };
 }
 
 export function startTelegramNewsScheduler() {
@@ -389,14 +466,17 @@ export function startTelegramNewsScheduler() {
     return null;
   }
 
+  initializeWorkerSubsystemProgress('news');
+  const reportProgress = () => reportWorkerSubsystemProgress('news');
+
   telegramNewsInterval = setInterval(() => {
-    runTelegramNewsJobOnce().catch(error => {
+    runTelegramNewsJobOnce(new Date(), reportProgress).catch(error => {
       logger.error({ err: error }, '[ASPБ telegram news]');
     });
   }, 60 * 1000);
 
   telegramNewsStartupTimer = setTimeout(() => {
-    runTelegramNewsJobOnce().catch(error => {
+    runTelegramNewsJobOnce(new Date(), reportProgress).catch(error => {
       logger.error({ err: error }, '[ASPБ telegram news]');
     });
   }, 8000);
@@ -417,4 +497,5 @@ export function stopTelegramNewsScheduler() {
     clearTimeout(telegramNewsStartupTimer);
     telegramNewsStartupTimer = null;
   }
+  stopWorkerSubsystemProgress('news');
 }

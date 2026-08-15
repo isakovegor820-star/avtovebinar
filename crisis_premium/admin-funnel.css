@@ -5,6 +5,18 @@
 
 .fn { display: grid; gap: 16px; margin: 20px 0 6px; }
 
+/* Login form accessibility overrides live in the external stylesheet so edits
+   do not invalidate the strict CSP hash of admin.html's legacy style block. */
+.login .login-form { display: grid; gap: 14px; }
+.login .login-field { display: grid; gap: 6px; color: var(--blue); font-size: 14px; font-weight: 700; }
+.login .login-field input { width: 100%; margin: 0; }
+.login .login-form button { min-height: 46px; }
+.login input:focus-visible,
+.login button:focus-visible {
+  outline: 3px solid rgba(41, 102, 163, 0.3);
+  outline-offset: 2px;
+}
+
 /* ── Сводка (итог воронки) ─────────────────────────────── */
 .fn-hero {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;

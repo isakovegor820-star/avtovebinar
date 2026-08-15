@@ -74,7 +74,7 @@
           // For "2.2 млн" style — interpolate to display value
           var displayNum = parseFloat(display);
           var currentDisplay = (eased * displayNum).toFixed(1);
-          el.textContent = currentDisplay + suffix;
+          el.textContent = currentDisplay.replace('.', ',') + suffix;
         } else {
           el.textContent = current.toLocaleString('ru-RU') + suffix;
         }
@@ -92,43 +92,34 @@
   });
 
   document.querySelectorAll('.flip-card').forEach(function(card) {
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    setFlipCardState(card, false);
     card.addEventListener('click', function() {
-      card.classList.toggle('is-flipped');
+      card.dataset.flipInteracted = 'true';
+      setFlipCardState(card, !card.classList.contains('is-flipped'));
+    });
+    card.addEventListener('keydown', function(event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      card.dataset.flipInteracted = 'true';
+      setFlipCardState(card, !card.classList.contains('is-flipped'));
     });
   });
 })();
 
-
-  // Auto-flip first card as hint
-  var flipCards = document.querySelectorAll('.flip-card');
-  if (flipCards.length > 0) {
-    var flipObserver = new IntersectionObserver(function(entries) {
-      entries.forEach(function(entry) {
-        if (entry.isIntersecting) {
-          flipObserver.unobserve(entry.target);
-          // Auto-flip after 3 seconds
-          setTimeout(function() {
-            entry.target.classList.add('is-flipped');
-            // Flip back after 2.5 seconds
-            setTimeout(function() {
-              entry.target.classList.remove('is-flipped');
-            }, 2500);
-          }, 3000);
-        }
-      });
-    }, { threshold: 0.5 });
-
-    // Observe only the first flip-card in each group
-    var observed = new Set();
-    flipCards.forEach(function(card) {
-      var parent = card.parentElement;
-      if (!observed.has(parent)) {
-        observed.add(parent);
-        flipObserver.observe(card);
-      }
-    });
-  }
-
+function setFlipCardState(card, expanded) {
+  var front = card.querySelector('.flip-card-front');
+  var back = card.querySelector('.flip-card-back');
+  var titleNode = front && front.querySelector('h2, h3, h4, .font-bold, .font-semibold, .text-label-md');
+  var title = card.dataset.flipTitle || (titleNode && titleNode.textContent.trim()) || 'карточки';
+  card.dataset.flipTitle = title;
+  card.classList.toggle('is-flipped', expanded);
+  card.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  card.setAttribute('aria-label', (expanded ? 'Скрыть пример: ' : 'Показать пример: ') + title);
+  if (front) front.setAttribute('aria-hidden', expanded ? 'true' : 'false');
+  if (back) back.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+}
 
   // Income steps — animate arrows on scroll
   var incomeSteps = document.querySelector('.income-steps');

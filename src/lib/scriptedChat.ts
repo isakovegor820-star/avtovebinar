@@ -108,7 +108,7 @@ export function loadScriptedChatScenarioFromFile(filePath = DEFAULT_SCENARIO_PAT
     return parseScriptedChatScenario(JSON.parse(raw));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid scripted chat scenario at ${filePath}: ${message}`);
+    throw new Error(`Invalid scripted chat scenario at ${filePath}: ${message}`, { cause: error });
   }
 }
 

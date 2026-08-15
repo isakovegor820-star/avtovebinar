@@ -4,13 +4,18 @@ import { getReplayExpiresAt } from './time.js';
 import { getEffectiveVideoDurationMinutes } from './webinarLive.js';
 import { createAccessToken, hashToken } from './tokens.js';
 
-export const ROOM_SESSION_TOKEN_PURPOSE = 'room_session';
+// Credential-purpose versions are an incident-response boundary. The previous
+// registration flow could issue a participant session and Telegram start token
+// to anyone who knew an existing email. New code must never accept those
+// pre-remediation credentials, even if their database expiry is still rolling.
+export const ROOM_SESSION_TOKEN_PURPOSE = 'room_session_v2_20260804';
 export const ROOM_EXCHANGE_TOKEN_PURPOSE = 'registration';
 export const PARTICIPANT_LOGIN_TOKEN_PURPOSE = 'participant_login';
-export const TELEGRAM_START_TOKEN_PURPOSE = 'telegram_start';
-// 90 дней (было 365): сокращаем окно угона session-cookie. Покрывает 7-дневный
-// replay-доступ с большим запасом, на UX зарегистрированного участника не влияет.
-export const PARTICIPANT_SESSION_TTL_DAYS = 90;
+export const TELEGRAM_START_TOKEN_PURPOSE = 'telegram_start_v2_20260804';
+export const TELEGRAM_BINDING_VERSION = 'v2_20260804';
+// Срок совпадает с опубликованной политикой и окном replay. Доступ можно безопасно
+// восстановить одноразовой ссылкой на email, поэтому длинная session-cookie не нужна.
+export const PARTICIPANT_SESSION_TTL_DAYS = 7;
 
 type RoomTokenTx = Prisma.TransactionClient;
 
@@ -49,6 +54,11 @@ export function getParticipantSessionExpiresAt(now = new Date()) {
   return new Date(now.getTime() + PARTICIPANT_SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
 }
 
+// SECURITY: the helpers below are raw persistence primitives. For an existing
+// Lead, callers must already hold acquireLeadSecurityLock and must re-read an
+// active registration inside this same transaction. Keeping `tx` mandatory
+// prevents accidental standalone writes, but the identity fence is a caller
+// invariant because new-registration creation has no pre-existing Lead to lock.
 export async function createRoomExchangeToken(
   tx: RoomTokenTx,
   input: {

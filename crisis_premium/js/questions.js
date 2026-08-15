@@ -43,7 +43,7 @@ export function updateWebinarInsights(currentTime, isSyncing = false) {
     if (!renderedInsightTimes.has(insight.time)) {
       renderedInsightTimes.add(insight.time);
       const item = document.createElement('div');
-      item.className = 'flex gap-3 webinar-insight-msg transition-all duration-500 ease-out opacity-0 translate-y-2';
+      item.className = 'flex gap-3 webinar-insight-msg transition-[opacity,transform] duration-500 ease-out opacity-0 translate-y-2';
 
       const icon = document.createElement('div');
       icon.className = 'w-8 h-8 rounded-full bg-primary text-on-primary flex-shrink-0 flex items-center justify-center';
@@ -85,17 +85,26 @@ export function updateWebinarInsights(currentTime, isSyncing = false) {
 export function bindQuestionForm() {
   const input = document.getElementById('questionInput');
   const button = document.getElementById('questionSubmit');
+  const status = document.getElementById('questionSubmitStatus');
+  const showToParticipants = document.getElementById('questionShowToParticipants');
+  const displayMode = document.getElementById('questionDisplayMode');
   if (!input || !button) return;
-  const errorParent = input.parentElement;
 
-  function clearQuestionError() {
-    errorParent?.querySelector('[data-question-error="true"]')?.remove();
+  function setQuestionStatus(message, { error = false } = {}) {
+    input.setAttribute('aria-invalid', error ? 'true' : 'false');
+    if (!status) return;
+    status.dataset.questionError = error ? 'true' : 'false';
+    status.setAttribute('role', error ? 'alert' : 'status');
+    status.setAttribute('aria-live', error ? 'assertive' : 'polite');
+    status.classList.toggle('text-error', error);
+    status.classList.toggle('text-on-surface-variant', !error);
+    status.textContent = message;
   }
 
   async function submitQuestion() {
     if (button.disabled) return;
 
-    clearQuestionError();
+    setQuestionStatus('');
     const text = input.value.trim();
     if (!text) return;
 
@@ -104,12 +113,19 @@ export function bindQuestionForm() {
     track('question_submit_attempt', { textLength: text.length });
 
     try {
-      const result = await post('/questions', { text });
+      const isPublic = Boolean(showToParticipants?.checked);
+      const result = await post('/questions', {
+        text,
+        showToParticipants: isPublic,
+        displayMode: displayMode?.value || 'pseudonym',
+        publicationNoticeAccepted: isPublic,
+      });
 
       // FIX 6a: трекаем успешную отправку
       track('question_submitted');
 
       input.value = '';
+      setQuestionStatus('Вопрос отправлен команде АСПБ.');
       document.dispatchEvent(new CustomEvent('aspb:chat-question-submitted', {
         detail: {
           text,
@@ -123,19 +139,18 @@ export function bindQuestionForm() {
     } catch (error) {
       // FIX 6b: вместо alert — inline-ошибка под полем ввода
       track('question_submit_error', { error: error.message });
-      clearQuestionError();
-      const errNode = document.createElement('p');
-      errNode.dataset.questionError = 'true';
-      errNode.className = 'text-label-sm text-error mt-1 px-1';
-      errNode.textContent = 'Не удалось отправить — проверьте соединение и попробуйте снова';
-      errorParent?.appendChild(errNode);
-      setTimeout(() => errNode.remove(), 4000);
+      setQuestionStatus('Не удалось отправить — проверьте соединение и попробуйте снова.', {
+        error: true,
+      });
     } finally {
       button.disabled = false;
     }
   }
 
   button.addEventListener('click', submitQuestion);
+  showToParticipants?.addEventListener('change', () => {
+    if (displayMode) displayMode.disabled = !showToParticipants.checked;
+  });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') submitQuestion();
   });

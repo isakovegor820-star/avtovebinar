@@ -22,7 +22,7 @@ if (telegramProxyAgent) {
 
 // Жёсткий дедлайн на запрос к Telegram. Без него зависший сокет (особенно через
 // прокси/WARP) держал бы await бесконечно и подвешивал весь reminder-цикл/рассылку.
-const TELEGRAM_REQUEST_TIMEOUT_MS = 20_000;
+export const TELEGRAM_REQUEST_TIMEOUT_MS = 20_000;
 
 export function telegramFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
   // Если вызывающий уже задал свой signal (long-poll в поллере имеет собственный таймаут) —

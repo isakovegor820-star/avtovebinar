@@ -4,6 +4,21 @@ body {
   font-family: Manrope, system-ui, sans-serif;
 }
 
+.access-noscript {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.5rem;
+  background: #fef3c7;
+  color: #78350f;
+  text-align: center;
+}
+
+.access-noscript a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   vertical-align: middle;
@@ -15,6 +30,7 @@ body {
 
 body[data-access-mode="loading"] #accessLoading,
 body[data-access-mode="login"] #accessLogin,
+body[data-access-mode="error"] #accessError,
 body[data-access-mode="ready"] #accessReady {
   display: block;
 }

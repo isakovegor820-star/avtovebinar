@@ -59,7 +59,9 @@ function shouldProtectRequest(req: Request) {
 export function ensureCsrfToken(req: Request, res: Response, next: NextFunction) {
   const existingToken = req.cookies?.[CSRF_COOKIE_NAME];
   const token = isValidCsrfToken(existingToken) ? existingToken : createCsrfToken();
-  res.cookie(CSRF_COOKIE_NAME, token, csrfCookieOptions());
+  if (!isValidCsrfToken(existingToken)) {
+    res.cookie(CSRF_COOKIE_NAME, token, csrfCookieOptions());
+  }
   res.locals.csrfToken = token;
   next();
 }
@@ -82,8 +84,10 @@ export function csrfProtection(req: Request, _res: Response, next: NextFunction)
   return next();
 }
 
-export function sendCsrfToken(req: Request, res: Response) {
-  const token = isValidCsrfToken(req.cookies?.[CSRF_COOKIE_NAME]) ? req.cookies[CSRF_COOKIE_NAME] : createCsrfToken();
-  res.cookie(CSRF_COOKIE_NAME, token, csrfCookieOptions());
+export function sendCsrfToken(_req: Request, res: Response) {
+  const token = res.locals.csrfToken;
+  if (!isValidCsrfToken(token)) {
+    throw new AppError(500, 'CSRF token was not initialized');
+  }
   res.json({ ok: true, csrfToken: token });
 }

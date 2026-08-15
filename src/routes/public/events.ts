@@ -5,7 +5,7 @@ import { asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { buildTelegramStartUrl } from '../../lib/telegram.js';
 import { PUBLIC_ANALYTICS_EVENTS } from '../../lib/events.js';
-import { clean, saveEvent } from './helpers.js';
+import { clean, saveEvent, saveEventSafely } from './helpers.js';
 
 export const eventsRouter = Router();
 
@@ -78,6 +78,8 @@ eventsRouter.post(
       utmSource: clean(data.utmSource),
       utmMedium: clean(data.utmMedium),
       utmCampaign: clean(data.utmCampaign),
+      analyticsOnly: true,
+      dailyRoom: data.page === '/crisis_premium/webinar.html',
     });
     res.status(201).json({ ok: true });
   }),
@@ -87,15 +89,19 @@ eventsRouter.post(
   '/telegram-click',
   asyncHandler(async (req, res) => {
     const data = z.object({ page: z.string().optional() }).parse(req.body);
-    const registration = await saveEvent({
-      eventName: 'telegram_click',
-      req,
-      page: data.page,
-    });
+    const registration = await saveEventSafely(
+      {
+        eventName: 'telegram_click',
+        req,
+        page: data.page,
+        dailyRoom: data.page === '/crisis_premium/webinar.html',
+      },
+      'telegram_click',
+    );
 
     if (registration && !registration.telegramClickedAt) {
-      await prisma.registration.update({
-        where: { id: registration.id },
+      await prisma.registration.updateMany({
+        where: { id: registration.id, status: 'registered' },
         data: { telegramClickedAt: new Date() },
       });
     }

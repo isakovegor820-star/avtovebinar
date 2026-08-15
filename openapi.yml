@@ -9,45 +9,122 @@ paths:
     get:
       summary: Liveness probe
       responses:
-        "200":
+        '200':
           description: Runtime is alive
   /health/ready:
     get:
       summary: Readiness probe
       responses:
-        "200":
+        '200':
           description: Core API and database are ready
-        "503":
+        '503':
           description: Core API or database is unavailable
   /health/dependencies:
     get:
-      summary: External dependency status
+      summary: Public redacted external dependency component status
       responses:
-        "200":
-          description: SMTP and Telegram checks are healthy
-        "503":
-          description: One or more external dependencies are unavailable
+        '200':
+          description: SMTP, Telegram and email outbox component states are healthy; diagnostics are omitted
+        '503':
+          description: One or more named components are degraded; errors, counts, identities and configuration are omitted
+  /health/dependencies/details:
+    get:
+      summary: Protected external dependency diagnostics
+      security:
+        - metricsBearer: []
+      responses:
+        '200':
+          description: Detailed dependency checks
+        '401':
+          description: Metrics token is missing in production
+        '403':
+          description: Metrics token is invalid in production
   /metrics:
     get:
       summary: Prometheus metrics
       security:
         - metricsBearer: []
       responses:
-        "200":
+        '200':
           description: Prometheus text exposition
-        "401":
+        '401':
           description: Metrics token is missing in production
-        "403":
+        '403':
           description: Metrics token is invalid in production
   /api/register:
     post:
-      summary: Register a webinar participant
+      summary: Start email-verified webinar registration
+      description: >-
+        Anonymous requests for new and existing email addresses deliberately receive the same
+        generic 202 response and never receive a participant cookie. A 201 response is possible
+        only when an already authenticated participant submits the same Lead identity.
       responses:
-        "201":
-          description: Registration saved and email outbox job created
+        '201':
+          description: Same authenticated participant updated; participant session cookie refreshed
+        '202':
+          description: Generic email-verification/recovery response; no participant session is issued
+        '400':
+          description: Registration or consent payload is invalid
+        '403':
+          description: CSRF token is missing or invalid
+  /api/registration/exchange:
+    post:
+      summary: Consume one-time email confirmation token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OneTimeTokenRequest'
+      responses:
+        '200':
+          description: Email ownership confirmed and HttpOnly participant session cookie issued
+        '403':
+          description: CSRF token is missing or invalid
+        '404':
+          description: Token is expired or already used
+  /api/participant/login/request:
+    post:
+      summary: Request a passwordless participant recovery link
+      description: The response is intentionally identical whether or not the email exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '202':
+          description: Generic queued/retrying delivery state without email-existence disclosure
+        '400':
+          description: Email payload is invalid
+        '403':
+          description: CSRF token is missing or invalid
+  /api/participant/login/consume:
+    post:
+      summary: Consume one-time participant recovery token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OneTimeTokenRequest'
+      responses:
+        '200':
+          description: HttpOnly participant session cookie issued
+        '403':
+          description: CSRF token is missing or invalid
+        '404':
+          description: Token is expired or already used
   /api/registration/exchange/{token}:
     post:
-      summary: Exchange one-time room token for HttpOnly session cookie
+      summary: Legacy one-time token exchange (deprecated)
+      deprecated: true
       parameters:
         - name: token
           in: path
@@ -55,67 +132,75 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           description: Session cookie issued
-        "403":
+        '403':
           description: CSRF token is missing or invalid
-        "404":
+        '404':
           description: Token is expired or already used
   /api/registration/session/current:
     get:
       summary: Current registration/session state from cookie
       responses:
-        "200":
+        '200':
           description: Current cookie-backed room state
   /api/webinar/current:
     get:
       summary: Public webinar schedule state
       responses:
-        "200":
+        '200':
           description: Webinar schedule and countdown
   /api/webinar/timeline/session/current:
     get:
       summary: Cookie-backed webinar timeline
       responses:
-        "200":
+        '200':
           description: Timeline and live state
-        "401":
+        '401':
           description: Missing room cookie
   /api/webinar/chat/session/current:
     get:
       summary: Cookie-backed webinar chat
       responses:
-        "200":
+        '200':
           description: Chat messages and live state
   /api/questions:
     post:
       summary: Submit webinar question
       responses:
-        "201":
+        '201':
           description: Question accepted
-        "403":
+        '403':
           description: CSRF token is missing or invalid
   /api/partner-application:
     post:
       summary: Submit partner application
       responses:
-        "201":
+        '201':
           description: Application accepted
-        "403":
+        '403':
           description: CSRF token is missing or invalid
   /api/admin/login:
     post:
       summary: Admin login
       responses:
-        "200":
+        '200':
           description: Admin session cookie issued
   /api/admin/telegram/broadcast:
     post:
       summary: Queue durable Telegram broadcast
       responses:
-        "202":
+        '202':
           description: Broadcast job queued
 components:
+  schemas:
+    OneTimeTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 20
   securitySchemes:
     metricsBearer:
       type: http

@@ -6,30 +6,32 @@
  * видео спикера сжимается в угол (класс `slides-active` на #videoPlayerContainer).
  *
  * Модуль самодостаточный и не зависит от внутренностей video.js: он только
- * слушает `timeupdate`/`seeked` у видео по id. Если слайдов нет или разметка
+ * слушает `timeupdate`/`seeking`/`seeked` у видео по id. Если слайдов нет или разметка
  * выключена — комната выглядит ровно как раньше (graceful degradation).
  *
  * Режим разметки таймкодов: открыть webinar.html?slides_edit=1 —
  * ПРОБЕЛ отмечает момент смены слайда, «Скопировать» выгружает массив.
  */
 
-const SLIDE_COUNT = 48;
-const FALLBACK_DURATION = 3860; // длина записи (сек), если video.duration ещё не готов
+import {
+  EXPECTED_SLIDE_COUNT,
+  VERIFIED_SLIDES,
+  hasVerifiedTimeline,
+  slideIndexForTime,
+} from './slideTimeline.js?v=sync-20260814-1';
+
+const SLIDE_COUNT = EXPECTED_SLIDE_COUNT;
 const SLIDE_SRC = i => `assets/slides/slide-${String(i + 1).padStart(2, '0')}.jpg`;
 const STORAGE_KEY = 'aspb_slide_timecodes';
 
-/**
- * Реальные таймкоды смены слайдов (секунды от начала видео), по одному на слайд.
- * Слайд 1 всегда с 0. Заполняется через режим разметки (?slides_edit=1) и
- * вставляется сюда. Пока null — используется равномерная раскладка по длине видео.
- *
- * Формат: [0, 42, 95, ...] — ровно SLIDE_COUNT значений по возрастанию.
- */
-const SLIDE_TIMECODES = null;
-
-function buildUniformTimecodes(duration) {
-  const total = Number.isFinite(duration) && duration > 0 ? duration : FALLBACK_DURATION;
-  return Array.from({ length: SLIDE_COUNT }, (_, i) => Math.round((i * total) / SLIDE_COUNT));
+function usableEditorTimecodes(value) {
+  if (!Array.isArray(value) || !value.length || value.length > SLIDE_COUNT || value[0] !== 0) return null;
+  const isOrdered = value.every((time, index) => (
+    Number.isFinite(time)
+    && time >= 0
+    && (index === 0 || time > value[index - 1])
+  ));
+  return isOrdered ? value : null;
 }
 
 function loadSavedTimecodes() {
@@ -53,58 +55,63 @@ function initSlides() {
 
   const params = new URLSearchParams(location.search);
   const editMode = params.get('slides_edit') === '1';
+  const verifiedTimeline = hasVerifiedTimeline(VERIFIED_SLIDES) ? VERIFIED_SLIDES : null;
+  const verifiedTimecodes = verifiedTimeline?.map(item => item.at) || null;
+  const editorTimecodes = editMode ? usableEditorTimecodes(loadSavedTimecodes()) : null;
 
-  // Источник таймкодов: сохранённая разметка → захардкоженный массив → равномерно.
-  let timecodes = loadSavedTimecodes() || SLIDE_TIMECODES || buildUniformTimecodes(video.duration);
-
-  container.classList.add('slides-active');
-  let currentIndex = -1;
-
-  // Префетч слайдов, чтобы не было мигания при перелистывании.
-  for (let i = 0; i < SLIDE_COUNT; i += 1) {
-    const img = new Image();
-    img.src = SLIDE_SRC(i);
+  // localStorage используется только редактором. Непроверенные локальные метки
+  // никогда не могут включить слайды для обычного участника.
+  if (!editMode && !verifiedTimecodes) {
+    slide.hidden = true;
+    slide.removeAttribute('src');
+    container.classList.remove('slides-active');
+    document.body.dataset.slidesStatus = 'disabled-unverified';
+    return;
   }
 
-  function indexForTime(t) {
-    let idx = 0;
-    for (let i = 0; i < timecodes.length; i += 1) {
-      if (t >= timecodes[i]) idx = i;
-    }
-    return idx;
+  const timecodes = editMode ? (editorTimecodes || [0]) : verifiedTimecodes;
+
+  slide.hidden = false;
+  container.classList.add('slides-active');
+  document.body.dataset.slidesStatus = editMode ? 'editing' : 'verified';
+  let currentIndex = -1;
+
+  // Загружаем только текущий и следующий слайд. Предыдущий вариант сразу
+  // скачивал все 48 изображений (~4.8 МБ), даже если участник не смотрел видео.
+  function preloadSlide(index) {
+    if (index < 0 || index >= SLIDE_COUNT) return;
+    const img = new Image();
+    img.src = SLIDE_SRC(index);
   }
 
   function showSlide(idx) {
     if (idx === currentIndex) return;
     currentIndex = idx;
     slide.src = SLIDE_SRC(idx);
+    slide.alt = `Слайд ${idx + 1} из ${SLIDE_COUNT}. ${VERIFIED_SLIDES[idx]?.title || 'Презентация вебинара'}`;
+    slide.dataset.slideIndex = String(idx + 1);
+    preloadSlide(idx + 1);
   }
 
   function sync() {
-    showSlide(indexForTime(video.currentTime));
+    const idx = editMode
+      ? timecodes.reduce((current, time, index) => (video.currentTime >= time ? index : current), 0)
+      : slideIndexForTime(video.currentTime, verifiedTimeline);
+    showSlide(idx);
   }
 
-  // Если таймкоды равномерные, пересчитываем их, когда станет известна длина видео.
-  video.addEventListener('loadedmetadata', () => {
-    if (!loadSavedTimecodes() && !SLIDE_TIMECODES) {
-      timecodes = buildUniformTimecodes(video.duration);
-      currentIndex = -1;
-      sync();
-    }
-  });
-
   video.addEventListener('timeupdate', sync);
-  video.addEventListener('seeked', () => {
-    currentIndex = -1;
-    sync();
-  });
+  video.addEventListener('seeking', sync);
+  video.addEventListener('seeked', sync);
 
-  showSlide(0);
+  // При восстановлении просмотра видео уже может стоять не на нулевой секунде.
+  // Первый кадр презентации сразу должен соответствовать текущей позиции.
+  sync();
   makeSpeakerDraggable(video);
 
   // В режиме разметки стартуем с РЕАЛЬНО сохранённых меток (или с нуля),
   // а не с равномерной заглушки — иначе редактор решит, что всё уже размечено.
-  if (editMode) initEditMode(video, loadSavedTimecodes());
+  if (editMode) initEditMode(video, editorTimecodes);
 }
 
 /**
@@ -251,7 +258,7 @@ function initEditMode(video, initialTimecodes) {
   };
 
   window.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.target.closest?.('input, textarea, select, button, a, [contenteditable="true"]')) return;
     if (e.code === 'Space') {
       e.preventDefault();
       mark();
@@ -270,7 +277,7 @@ function initEditMode(video, initialTimecodes) {
 }
 
 // Слайды — часть ЭФИРА, а не комнаты ожидания. Активируем их ТОЛЬКО когда сервер подтвердил
-// live/replay/test (через событие aspb:room-ready). До эфира (waiting/pre_live/closed) слой
+// live/replay/test (через событие aspb:room-ready). До премьеры (waiting/pre_live/closed) слой
 // слайдов не трогаем — иначе слайд из колоды мелькает в «чисто закрытом» окне ожидания.
 function maybeInitSlidesForBroadcast(detail) {
   const access = detail && detail.accessStatus ? detail.accessStatus : document.body.dataset.webinarAccessStatus;
@@ -290,7 +297,7 @@ if (slidesEditMode) {
     initSlides();
   }
 } else {
-  // Обычный просмотр: ждём готовности комнаты и активируем слайды только во время эфира/записи.
+  // Обычный просмотр: ждём готовности комнаты и активируем слайды только во время премьеры/записи.
   document.addEventListener('aspb:room-ready', event => maybeInitSlidesForBroadcast(event.detail || {}));
   // Если комната успела стать готовой до подписки (редкий race) — проверим текущий статус.
   if (document.body.dataset.webinarAccessStatus) maybeInitSlidesForBroadcast();

@@ -8,7 +8,7 @@
 
 Платформа перешла на cookie-only доступ в вебинарную комнату:
 
-- ежедневный webinar slot стартует в 19:00 по Москве;
+- ежедневный webinar slot стартует в 19:30 по Москве;
 - во время live включен DVR-режим: можно отмотать назад в уже прошедший эфир, но нельзя смотреть будущую часть;
 - одноразовый exchange-token может прийти в URL только для первичного обмена;
 - `POST /api/registration/exchange/:token` удаляет exchange-token и ставит `HttpOnly` cookie `aspb_room_token`;

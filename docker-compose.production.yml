@@ -1,12 +1,21 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+    max-file: "${DOCKER_LOG_MAX_FILES:-3}"
+
 services:
   api:
+    image: aspb-autowebinar-api:${DEPLOY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}
     container_name: aspb-autowebinar-api
     restart: unless-stopped
     env_file:
-      - .env.production
+      - ${COMPOSE_ENV_FILE:-.env.production}
     environment:
       WORKER_ROLE: api
       TRUST_PROXY: ${TRUST_PROXY:-1}
@@ -21,15 +30,19 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    logging: *default-logging
 
   webinar-worker:
+    image: aspb-autowebinar-worker:${DEPLOY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}
     container_name: aspb-autowebinar-worker
     restart: unless-stopped
     env_file:
-      - .env.production
+      - ${COMPOSE_ENV_FILE:-.env.production}
     environment:
       WORKER_ROLE: webinar
     depends_on:
@@ -37,12 +50,8 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    command: ["node", "dist/src/server.js"]
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"process.exit(0)\""]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+    command: ["node", "scripts/run-worker-with-watchdog.mjs"]
+    logging: *default-logging
 
   postgres:
     image: postgres:16-alpine
@@ -59,6 +68,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    logging: *default-logging
 
 volumes:
   aspb_postgres_prod_data:

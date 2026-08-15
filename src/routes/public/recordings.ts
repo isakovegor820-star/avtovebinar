@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { getWebinarEndAt } from '../../lib/time.js';
-import { buildFrontendUrl, findRegistrationForRequest, saveEvent } from './helpers.js';
+import { buildFrontendUrl, findRegistrationForRequest, saveEventSafely } from './helpers.js';
 
 export const recordingsRouter = Router();
 const DEFAULT_RECORDING_POSTER = '/crisis_premium/assets/webinar-poster.jpg';
@@ -50,8 +50,9 @@ async function requireRecordingAccount(req: Request) {
 
 function serializeRecording(recording: RecordingWithSession) {
   const durationSeconds = recording.durationSeconds ?? recording.webinarSession.videoDurationSeconds;
-  const videoSrc = recording.videoUrl ?? null;
-  const hlsSrc = recording.hlsUrl ?? null;
+  const mediaBase = `/api/media/recording/${encodeURIComponent(recording.id)}`;
+  const videoSrc = recording.videoUrl ? `${mediaBase}/video` : null;
+  const hlsSrc = recording.hlsUrl ? `${mediaBase}/hls` : null;
   const externalMp4Allowed = Boolean(recording.videoUrl);
   const posterUrl = recording.posterUrl ?? DEFAULT_RECORDING_POSTER;
 
@@ -61,8 +62,6 @@ function serializeRecording(recording: RecordingWithSession) {
     title: recording.title,
     description: recording.description,
     posterUrl,
-    videoUrl: videoSrc,
-    hlsUrl: hlsSrc,
     durationSeconds,
     publishedAt: recording.publishedAt?.toISOString() ?? null,
     visible: recording.visible,
@@ -100,12 +99,15 @@ recordingsRouter.get(
     const now = new Date();
     const recordings = await fetchPublishedRecordings(now);
 
-    await saveEvent({
-      eventName: 'recordings_open',
-      req,
-      registration,
-      page: '/crisis_premium/recordings.html',
-    });
+    await saveEventSafely(
+      {
+        eventName: 'recordings_open',
+        req,
+        registration,
+        page: '/crisis_premium/recordings.html',
+      },
+      'recordings_list',
+    );
 
     res.setHeader('Cache-Control', 'private, max-age=30');
     res.json({
@@ -131,13 +133,16 @@ recordingsRouter.get(
 
     const playlist = recordings.map(serializeRecording);
 
-    await saveEvent({
-      eventName: 'recording_open',
-      req,
-      registration,
-      page: '/crisis_premium/recordings.html',
-      metadata: { recordingId: req.params.id },
-    });
+    await saveEventSafely(
+      {
+        eventName: 'recording_open',
+        req,
+        registration,
+        page: '/crisis_premium/recordings.html',
+        metadata: { recordingId: req.params.id },
+      },
+      'recording_detail',
+    );
 
     res.setHeader('Cache-Control', 'private, max-age=30');
     res.json({

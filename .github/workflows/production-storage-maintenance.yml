@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/storage-maintenance
+      - main
     paths:
       - .github/workflows/production-storage-maintenance.yml
   workflow_dispatch:

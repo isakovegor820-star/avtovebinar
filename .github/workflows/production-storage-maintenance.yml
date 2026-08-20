@@ -1,0 +1,220 @@
+name: Production storage maintenance
+
+on:
+  push:
+    branches:
+      - codex/storage-maintenance
+    paths:
+      - .github/workflows/production-storage-maintenance.yml
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Inspect only or apply allowlisted retention
+        required: true
+        type: choice
+        default: inventory
+        options:
+          - inventory
+          - apply
+      install_retention:
+        description: Install a 15-minute retention cron for the production deploy user
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-storage-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      PRODUCTION_SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+      PRODUCTION_SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+      PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+      PRODUCTION_DEPLOY_PATH: ${{ secrets.PRODUCTION_DEPLOY_PATH }}
+      INPUT_MODE: ${{ inputs.mode }}
+      INPUT_INSTALL_RETENTION: ${{ inputs.install_retention }}
+    steps:
+      - name: Validate maintenance configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for value in "$PRODUCTION_SSH_HOST" "$PRODUCTION_SSH_USER" "$PRODUCTION_SSH_KEY" "$PRODUCTION_DEPLOY_PATH"; do
+            if [[ -z "$value" ]]; then
+              echo "Production maintenance configuration is incomplete." >&2
+              exit 1
+            fi
+          done
+
+      - name: Inventory, apply targeted retention, and verify
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mode=inventory
+          install_retention=off
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            mode="${INPUT_MODE:-inventory}"
+            if [[ "${INPUT_INSTALL_RETENTION:-false}" == "true" ]]; then
+              install_retention=on
+            else
+              install_retention=off
+            fi
+          fi
+          if [[ "$mode" != "inventory" && "$mode" != "apply" ]]; then
+            echo "Unsupported maintenance mode: $mode" >&2
+            exit 1
+          fi
+
+          install -m 700 -d ~/.ssh
+          key_file=~/.ssh/production_storage_maintenance_key
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          cleanup_key() {
+            rm -f -- "$key_file"
+          }
+          trap cleanup_key EXIT
+
+          printf -v deploy_path_q '%q' "$PRODUCTION_DEPLOY_PATH"
+          printf -v mode_q '%q' "$mode"
+          printf -v install_retention_q '%q' "$install_retention"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key_file" \
+            "$PRODUCTION_SSH_USER@$PRODUCTION_SSH_HOST" \
+            "bash -s -- $deploy_path_q $mode_q $install_retention_q" <<'REMOTE'
+          set -Eeuo pipefail
+
+          deploy_path="$1"
+          mode="$2"
+          install_retention="$3"
+          if [[ "$deploy_path" != /* || ! -d "$deploy_path" ]]; then
+            echo "Production deploy path is invalid or missing." >&2
+            exit 1
+          fi
+          if [[ "$mode" != "inventory" && "$mode" != "apply" ]]; then
+            echo "Unsupported maintenance mode: $mode" >&2
+            exit 1
+          fi
+          if [[ "$install_retention" != "on" && "$install_retention" != "off" ]]; then
+            echo "Unsupported retention installation mode: $install_retention" >&2
+            exit 1
+          fi
+          cd "$deploy_path"
+
+          section() {
+            printf '\n===== %s =====\n' "$1"
+          }
+
+          disk_inventory() {
+            section "Filesystem"
+            df -hT /
+            df -ih /
+
+            section "Largest top-level paths"
+            if command -v timeout >/dev/null 2>&1; then
+              timeout 180 du -xhd1 /var /opt /tmp 2>/dev/null | sort -h || true
+            else
+              du -xhd1 /var /opt /tmp 2>/dev/null | sort -h || true
+            fi
+
+            section "Docker usage"
+            docker info --format 'DockerRootDir={{.DockerRootDir}}' || true
+            docker system df -v || true
+            docker builder du || true
+
+            section "Containers"
+            docker ps -a --size --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Size}}' || true
+
+            section "Known retention targets"
+            du -sh backups /opt/compliance152-releases 2>/dev/null || true
+            find /tmp -mindepth 1 -maxdepth 1 -type d -name 'aspb-deploy-*' -mtime +0 -print 2>/dev/null || true
+
+            section "System logs and deleted-open files"
+            journalctl --disk-usage 2>/dev/null || true
+            if command -v lsof >/dev/null 2>&1; then
+              lsof +L1 2>/dev/null | head -n 100 || true
+            fi
+          }
+
+          disk_inventory
+
+          section "ASPB image retention dry-run"
+          APP_IMAGE_KEEP_RECENT=3 bash scripts/prune-app-images.sh --dry-run
+
+          compliance_ready=false
+          if [[ -f /opt/compliance152-releases/.compliance152-release-root && -L /opt/compliance152-current ]]; then
+            compliance_ready=true
+            section "Compliance release retention dry-run"
+            COMPLIANCE_PRUNE_LOCK_FILE=/tmp/prune-compliance152-releases.lock \
+              COMPLIANCE_KEEP_RELEASES=5 \
+              bash scripts/prune-server-storage.sh --dry-run
+          else
+            section "Compliance release retention"
+            echo "Guard marker or active-release symlink is absent; compliance cleanup is skipped."
+          fi
+
+          if [[ "$mode" == "apply" ]]; then
+            section "Applying allowlisted ASPB image retention"
+            APP_IMAGE_KEEP_RECENT=3 bash scripts/prune-app-images.sh --apply
+
+            if [[ "$compliance_ready" == "true" ]]; then
+              section "Applying guarded compliance release retention"
+              COMPLIANCE_PRUNE_LOCK_FILE=/tmp/prune-compliance152-releases.lock \
+                COMPLIANCE_KEEP_RELEASES=5 \
+                bash scripts/prune-server-storage.sh --apply
+            fi
+          fi
+
+          if [[ "$mode" == "apply" && "$install_retention" == "on" ]]; then
+            section "Installing 15-minute retention schedule"
+            if command -v crontab >/dev/null 2>&1; then
+              cron_tmp="$(mktemp)"
+              cleanup_cron_tmp() {
+                rm -f -- "$cron_tmp"
+              }
+              trap cleanup_cron_tmp EXIT
+              crontab -l 2>/dev/null | grep -v 'ASPB_STORAGE_RETENTION_V1' > "$cron_tmp" || true
+              printf -v deploy_path_q '%q' "$deploy_path"
+              logger_path="$(command -v logger || true)"
+              if [[ -z "$logger_path" ]]; then
+                logger_path=/usr/bin/logger
+              fi
+              printf -v logger_path_q '%q' "$logger_path"
+              printf '%s\n' \
+                "*/15 * * * * /bin/bash -lc 'cd $deploy_path_q || exit 1; APP_IMAGE_KEEP_RECENT=3 bash scripts/prune-app-images.sh --apply; if [ -f /opt/compliance152-releases/.compliance152-release-root ] && [ -L /opt/compliance152-current ]; then COMPLIANCE_PRUNE_LOCK_FILE=/tmp/prune-compliance152-releases.lock COMPLIANCE_KEEP_RELEASES=5 bash scripts/prune-server-storage.sh --apply; fi' 2>&1 | $logger_path_q -t aspb-storage-retention # ASPB_STORAGE_RETENTION_V1" \
+                >> "$cron_tmp"
+              crontab "$cron_tmp"
+              cleanup_cron_tmp
+              trap - EXIT
+              if crontab -l | grep -q 'ASPB_STORAGE_RETENTION_V1'; then
+                echo "Retention schedule installed for the production deploy user."
+              else
+                echo "Retention schedule verification failed." >&2
+                exit 1
+              fi
+              if command -v systemctl >/dev/null 2>&1; then
+                systemctl is-active cron 2>/dev/null || systemctl is-active crond 2>/dev/null || true
+              fi
+            else
+              echo "crontab is unavailable; no recurring schedule was installed." >&2
+              exit 1
+            fi
+          fi
+
+          section "Post-maintenance verification"
+          df -hT /
+          df -ih /
+          docker system df -v || true
+          docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+
+          for container_name in aspb-autowebinar-api aspb-autowebinar-worker; do
+            if docker inspect "$container_name" >/dev/null 2>&1; then
+              docker inspect --format '{{.Name}} status={{.State.Status}}{{if .State.Health}} health={{.State.Health.Status}}{{end}}' "$container_name"
+            fi
+          done
+          REMOTE

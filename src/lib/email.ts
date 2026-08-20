@@ -13,6 +13,21 @@ type BaseEmailInput = {
   partnerUrl?: string;
 };
 
+type PasswordlessLoginEmailInput = {
+  to: string;
+  displayName?: string | null;
+  loginUrl: string;
+  expiresInMinutes: number;
+};
+
+type OrganizationInvitationEmailInput = {
+  to: string;
+  organizationName: string;
+  roleLabel: string;
+  invitationUrl: string;
+  expiresInDays: number;
+};
+
 export type ReminderKind = '24h' | '3h' | '30m';
 export const SMTP_OPERATION_TIMEOUT_MS = 25_000;
 // The durable outbox owns retries. Retrying sendMail inside one claimed job
@@ -79,10 +94,10 @@ function shouldLogEmail() {
   return env.EMAIL_MODE === 'log' || !env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS;
 }
 
-function maskEmail(value: string) {
-  const [name, domain] = value.split('@');
-  if (!name || !domain) return '[redacted-email]';
-  return `${name.slice(0, 2)}***@${domain}`;
+function maskEmail(_value: string) {
+  // Even a partially masked address remains personal data and should not be
+  // present in routine application logs.
+  return '[redacted-email]';
 }
 
 function formatScheduled(date: Date) {
@@ -150,8 +165,16 @@ function buildEmailText(input: BaseEmailInput, intro: string) {
     .join('\n');
 }
 
-async function deliverEmail(input: BaseEmailInput & { subject: string; text: string }) {
-  const scheduled = formatScheduled(input.scheduledAt);
+async function deliverEmail(input: {
+  to: string;
+  subject: string;
+  text: string;
+  scheduledAt?: Date;
+  webinarUrl?: string;
+  partnerUrl?: string;
+  includeUnsubscribe?: boolean;
+}) {
+  const scheduled = input.scheduledAt ? formatScheduled(input.scheduledAt) : undefined;
 
   if (shouldLogEmail()) {
     logger.info(
@@ -159,7 +182,7 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
         to: maskEmail(input.to),
         subject: input.subject,
         scheduled,
-        webinarUrl: '[redacted-personal-link]',
+        personalUrl: input.webinarUrl ? '[redacted-personal-link]' : null,
         telegramConfigured: Boolean(env.TELEGRAM_GROUP_URL),
         partnerUrl: input.partnerUrl ? '[redacted-personal-link]' : null,
       },
@@ -185,12 +208,15 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
               to: input.to,
               subject: input.subject,
               text: input.text,
-              headers: {
-                // 152-ФЗ/38-ФЗ: возможность отписки в каждом письме (почтовый клиент покажет «Отписаться»).
-                'List-Unsubscribe': `<${buildUnsubscribeUrl(input.to)}>, <mailto:${
-                  env.EMAIL_REPLY_TO ?? env.EMAIL_FROM
-                }?subject=unsubscribe>`,
-              },
+              headers:
+                input.includeUnsubscribe === false
+                  ? undefined
+                  : {
+                      // 152-ФЗ/38-ФЗ: возможность отписки в каждом маркетинговом письме.
+                      'List-Unsubscribe': `<${buildUnsubscribeUrl(input.to)}>, <mailto:${
+                        env.EMAIL_REPLY_TO ?? env.EMAIL_FROM
+                      }?subject=unsubscribe>`,
+                    },
             }),
           );
         },
@@ -200,6 +226,53 @@ async function deliverEmail(input: BaseEmailInput & { subject: string; text: str
   );
 
   return { sent: true, mode: 'send' as const };
+}
+
+export async function sendUserPasswordlessLoginEmail(input: PasswordlessLoginEmailInput) {
+  const subject = 'Вход в платформу АСПБ';
+  const greeting = input.displayName?.trim() ? `${input.displayName.trim()},` : 'Здравствуйте,';
+  const text = [
+    greeting,
+    '',
+    'Откройте ссылку, чтобы войти в платформу юридических вебинаров АСПБ:',
+    input.loginUrl,
+    '',
+    `Ссылка действует ${input.expiresInMinutes} минут и только один раз.`,
+    'Если вы не запрашивали вход, просто проигнорируйте это письмо.',
+    '',
+    'АСПБ — Антикризисная служба помощи бизнесу',
+  ].join('\n');
+
+  return deliverEmail({
+    to: input.to,
+    subject,
+    text,
+    webinarUrl: input.loginUrl,
+    includeUnsubscribe: false,
+  });
+}
+
+export async function sendOrganizationInvitationEmail(input: OrganizationInvitationEmailInput) {
+  const subject = `Приглашение в ${input.organizationName}`;
+  const text = [
+    'Здравствуйте,',
+    '',
+    `Вас пригласили в организацию «${input.organizationName}» на платформе АСПБ.`,
+    `Роль: ${input.roleLabel}.`,
+    `Принять приглашение: ${input.invitationUrl}`,
+    '',
+    `Ссылка действует ${input.expiresInDays} дней и только один раз.`,
+    'Если вы не ожидали приглашение, просто проигнорируйте это письмо.',
+    '',
+    'АСПБ — Антикризисная служба помощи бизнесу',
+  ].join('\n');
+  return deliverEmail({
+    to: input.to,
+    subject,
+    text,
+    webinarUrl: input.invitationUrl,
+    includeUnsubscribe: false,
+  });
 }
 
 export async function verifyEmailConnectivity() {

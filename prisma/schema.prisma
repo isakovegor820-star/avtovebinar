@@ -40,18 +40,68 @@ enum OrganizationMembershipStatus {
   REMOVED   @map("removed")
 }
 
+enum UserAuthTokenPurpose {
+  PASSWORDLESS_LOGIN @map("passwordless_login")
+}
+
+enum UserAuthEmailJobStatus {
+  PENDING     @map("pending")
+  SENDING     @map("sending")
+  SENT        @map("sent")
+  FAILED      @map("failed")
+  DEAD_LETTER @map("dead_letter")
+  CANCELLED   @map("cancelled")
+}
+
+enum OrganizationInvitationStatus {
+  PENDING  @map("pending")
+  ACCEPTED @map("accepted")
+  REVOKED  @map("revoked")
+  EXPIRED  @map("expired")
+}
+
+enum AuthorVerificationStatus {
+  DRAFT      @map("draft")
+  PENDING    @map("pending")
+  NEEDS_INFO @map("needs_info")
+  VERIFIED   @map("verified")
+  REJECTED   @map("rejected")
+  SUSPENDED  @map("suspended")
+
+  @@map("author_verification_status")
+}
+
+enum AuthorEvidenceKind {
+  LICENSE        @map("license")
+  DIPLOMA        @map("diploma")
+  BAR_MEMBERSHIP @map("bar_membership")
+  OTHER          @map("other")
+
+  @@map("author_evidence_kind")
+}
+
 model User {
-  id               String                   @id @default(cuid())
-  emailNormalized  String                   @unique @map("email_normalized")
-  displayName      String?                  @map("display_name")
-  kind             UserKind                 @default(HUMAN)
-  status           UserStatus               @default(PENDING)
-  emailVerifiedAt  DateTime?                @map("email_verified_at")
-  sessionVersion   Int                      @default(1) @map("session_version")
-  createdAt        DateTime                 @default(now()) @map("created_at")
-  updatedAt        DateTime                 @updatedAt @map("updated_at")
-  memberships      OrganizationMembership[]
-  membershipAudits AuditLog[]
+  id                           String                   @id @default(cuid())
+  emailNormalized              String                   @unique @map("email_normalized")
+  displayName                  String?                  @map("display_name")
+  kind                         UserKind                 @default(HUMAN)
+  status                       UserStatus               @default(PENDING)
+  emailVerifiedAt              DateTime?                @map("email_verified_at")
+  mfaSecretEncrypted           String?                  @map("mfa_secret_encrypted")
+  mfaEnabledAt                 DateTime?                @map("mfa_enabled_at")
+  mfaEnrollmentExpiresAt       DateTime?                @map("mfa_enrollment_expires_at")
+  sessionVersion               Int                      @default(1) @map("session_version")
+  createdAt                    DateTime                 @default(now()) @map("created_at")
+  updatedAt                    DateTime                 @updatedAt @map("updated_at")
+  memberships                  OrganizationMembership[]
+  membershipAudits             AuditLog[]
+  authTokens                   UserAuthToken[]
+  sessions                     UserSession[]
+  authEmailJobs                UserAuthEmailJob[]
+  invitationsSent              OrganizationInvitation[] @relation("OrganizationInvitationInviter")
+  invitationsAccepted          OrganizationInvitation[] @relation("OrganizationInvitationAcceptor")
+  authorProfiles               AuthorProfile[]
+  authorVerificationsSubmitted AuthorVerification[]     @relation("AuthorVerificationSubmitter")
 
   @@index([status])
   @@index([kind])
@@ -69,29 +119,222 @@ model Organization {
   memberships     OrganizationMembership[]
   webinarSessions WebinarSession[]
   auditLogs       AuditLog[]
+  activeSessions  UserSession[]            @relation("UserSessionActiveOrganization")
+  invitations     OrganizationInvitation[]
+  authorProfiles  AuthorProfile[]
 
   @@index([status])
   @@map("organizations")
 }
 
 model OrganizationMembership {
-  id              String                       @id @default(cuid())
-  organizationId  String                       @map("organization_id")
-  userId          String                       @map("user_id")
-  role            OrganizationMembershipRole
-  status          OrganizationMembershipStatus @default(ACTIVE)
-  permissionsJson Json?                        @map("permissions_json")
-  joinedAt        DateTime                     @default(now()) @map("joined_at")
-  removedAt       DateTime?                    @map("removed_at")
-  createdAt       DateTime                     @default(now()) @map("created_at")
-  updatedAt       DateTime                     @updatedAt @map("updated_at")
-  organization    Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  user            User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  id                  String                       @id @default(cuid())
+  organizationId      String                       @map("organization_id")
+  userId              String                       @map("user_id")
+  role                OrganizationMembershipRole
+  status              OrganizationMembershipStatus @default(ACTIVE)
+  permissionsJson     Json?                        @map("permissions_json")
+  joinedAt            DateTime                     @default(now()) @map("joined_at")
+  removedAt           DateTime?                    @map("removed_at")
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
+  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user                User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  acceptedInvitations OrganizationInvitation[]
 
   @@unique([organizationId, userId])
   @@index([userId, status])
   @@index([organizationId, status, role])
   @@map("organization_memberships")
+}
+
+model UserAuthToken {
+  id         String               @id @default(cuid())
+  userId     String               @map("user_id")
+  tokenHash  String               @unique @map("token_hash")
+  purpose    UserAuthTokenPurpose
+  expiresAt  DateTime             @map("expires_at")
+  consumedAt DateTime?            @map("consumed_at")
+  createdAt  DateTime             @default(now()) @map("created_at")
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, expiresAt])
+  @@index([expiresAt])
+  @@map("user_auth_tokens")
+}
+
+model UserSession {
+  id                   String        @id @default(cuid())
+  userId               String        @map("user_id")
+  tokenHash            String        @unique @map("token_hash")
+  sessionVersion       Int           @map("session_version")
+  activeOrganizationId String?       @map("active_organization_id")
+  mfaVerifiedAt        DateTime?     @map("mfa_verified_at")
+  expiresAt            DateTime      @map("expires_at")
+  revokedAt            DateTime?     @map("revoked_at")
+  lastSeenAt           DateTime      @default(now()) @map("last_seen_at")
+  ipHash               String?       @map("ip_hash")
+  userAgent            String?       @map("user_agent")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrganization   Organization? @relation("UserSessionActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([activeOrganizationId])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+model UserAuthEmailJob {
+  id            String                 @id @default(cuid())
+  userId        String                 @map("user_id")
+  status        UserAuthEmailJobStatus @default(PENDING)
+  attempts      Int                    @default(0)
+  nextAttemptAt DateTime               @default(now()) @map("next_attempt_at")
+  claimedAt     DateTime?              @map("claimed_at")
+  claimToken    String?                @map("claim_token")
+  sentAt        DateTime?              @map("sent_at")
+  lastError     String?                @map("last_error")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([userId, status])
+  @@map("user_auth_email_jobs")
+}
+
+model OrganizationInvitation {
+  id               String                          @id @default(cuid())
+  organizationId   String                          @map("organization_id")
+  emailNormalized  String                          @map("email_normalized")
+  role             OrganizationMembershipRole
+  status           OrganizationInvitationStatus    @default(PENDING)
+  expiresAt        DateTime                        @map("expires_at")
+  invitedByUserId  String                          @map("invited_by_user_id")
+  acceptedByUserId String?                         @map("accepted_by_user_id")
+  membershipId     String?                         @map("membership_id")
+  acceptedAt       DateTime?                       @map("accepted_at")
+  revokedAt        DateTime?                       @map("revoked_at")
+  createdAt        DateTime                        @default(now()) @map("created_at")
+  updatedAt        DateTime                        @updatedAt @map("updated_at")
+  organization     Organization                    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invitedBy        User                            @relation("OrganizationInvitationInviter", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+  acceptedBy       User?                           @relation("OrganizationInvitationAcceptor", fields: [acceptedByUserId], references: [id], onDelete: Restrict)
+  membership       OrganizationMembership?         @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  tokens           OrganizationInvitationToken[]
+  emailJob         OrganizationInvitationEmailJob?
+
+  @@index([organizationId, status, expiresAt])
+  @@index([emailNormalized, status])
+  @@index([invitedByUserId])
+  @@index([acceptedByUserId])
+  @@map("organization_invitations")
+}
+
+model OrganizationInvitationToken {
+  id            String                 @id @default(cuid())
+  invitationId  String                 @map("invitation_id")
+  tokenHash     String                 @unique @map("token_hash")
+  expiresAt     DateTime               @map("expires_at")
+  consumedAt    DateTime?              @map("consumed_at")
+  invalidatedAt DateTime?              @map("invalidated_at")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  invitation    OrganizationInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+
+  @@index([invitationId, expiresAt])
+  @@index([expiresAt])
+  @@map("organization_invitation_tokens")
+}
+
+model OrganizationInvitationEmailJob {
+  id            String                 @id @default(cuid())
+  invitationId  String                 @unique @map("invitation_id")
+  status        UserAuthEmailJobStatus @default(PENDING)
+  attempts      Int                    @default(0)
+  nextAttemptAt DateTime               @default(now()) @map("next_attempt_at")
+  claimedAt     DateTime?              @map("claimed_at")
+  claimToken    String?                @map("claim_token")
+  sentAt        DateTime?              @map("sent_at")
+  lastError     String?                @map("last_error")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+  invitation    OrganizationInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@map("organization_invitation_email_jobs")
+}
+
+model AuthorProfile {
+  id                       String                       @id @default(cuid())
+  organizationId           String                       @map("organization_id")
+  userId                   String                       @map("user_id")
+  slug                     String                       @unique
+  publicName               String?                      @map("public_name")
+  bio                      String?
+  specializations          String[]                     @default([])
+  professionalOrganization String?                      @map("professional_organization")
+  region                   String?
+  experience               String?
+  verificationStatus       AuthorVerificationStatus     @default(DRAFT) @map("verification_status")
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  updatedAt                DateTime                     @updatedAt @map("updated_at")
+  organization             Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user                     User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  verifications            AuthorVerification[]
+  evidence                 AuthorVerificationEvidence[]
+
+  @@unique([organizationId, userId])
+  @@unique([id, organizationId])
+  @@index([organizationId, verificationStatus])
+  @@index([userId])
+  @@map("author_profiles")
+}
+
+model AuthorVerification {
+  id                    String                       @id @default(cuid())
+  profileId             String                       @map("profile_id")
+  organizationId        String                       @map("organization_id")
+  status                AuthorVerificationStatus     @default(PENDING)
+  submittedByUserId     String                       @map("submitted_by_user_id")
+  reviewedByAdminUserId String?                      @map("reviewed_by_admin_user_id")
+  publicComment         String?                      @map("public_comment")
+  internalReason        String?                      @map("internal_reason")
+  submittedAt           DateTime                     @default(now()) @map("submitted_at")
+  reviewedAt            DateTime?                    @map("reviewed_at")
+  createdAt             DateTime                     @default(now()) @map("created_at")
+  updatedAt             DateTime                     @updatedAt @map("updated_at")
+  profile               AuthorProfile                @relation(fields: [profileId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  submittedBy           User                         @relation("AuthorVerificationSubmitter", fields: [submittedByUserId], references: [id], onDelete: Restrict)
+  reviewedBy            AdminUser?                   @relation(fields: [reviewedByAdminUserId], references: [id], onDelete: Restrict)
+  evidence              AuthorVerificationEvidence[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, status, submittedAt])
+  @@index([profileId, submittedAt])
+  @@index([reviewedByAdminUserId])
+  @@map("author_verifications")
+}
+
+model AuthorVerificationEvidence {
+  id             String              @id @default(cuid())
+  profileId      String              @map("profile_id")
+  organizationId String              @map("organization_id")
+  verificationId String?             @map("verification_id")
+  kind           AuthorEvidenceKind
+  originalName   String              @map("original_name")
+  mimeType       String              @map("mime_type")
+  sizeBytes      Int                 @map("size_bytes")
+  checksumSha256 String              @map("checksum_sha256")
+  content        Bytes
+  createdAt      DateTime            @default(now()) @map("created_at")
+  profile        AuthorProfile       @relation(fields: [profileId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  verification   AuthorVerification? @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+
+  @@index([profileId, createdAt])
+  @@index([organizationId, verificationId])
+  @@map("author_verification_evidence")
 }
 
 model AdminUser {
@@ -111,6 +354,7 @@ model AdminUser {
   assignedRegistrations       Registration[]
   assignedPartnerApplications PartnerApplication[]
   telegramBroadcastJobs       TelegramBroadcastJob[]
+  authorVerificationReviews   AuthorVerification[]
 
   @@index([role])
   @@index([isActive])

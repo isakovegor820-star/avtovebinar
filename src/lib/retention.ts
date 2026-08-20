@@ -3,7 +3,7 @@ import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 import { anonymizeLead, pendingVerificationLeadEligibility } from './anonymizeLead.js';
 
-export const RETENTION_POLICY_VERSION = '2026-08-05.1';
+export const RETENTION_POLICY_VERSION = '2026-08-20.3';
 export const RETENTION_DAYS = {
   detailedEvents: 180,
   leadAttribution: 180,

@@ -195,6 +195,10 @@ INSERT INTO "legacy_row_counts" ("table_name", "row_count") VALUES
 
 \ir ../../prisma/migrations/20260820120000_tenant_foundation/migration.sql
 \ir ../../prisma/checks/20260820120000_tenant_foundation_concurrent_indexes.sql
+\ir ../../prisma/migrations/20260820143000_user_passwordless_auth/migration.sql
+\ir ../../prisma/migrations/20260820160000_organization_invitations/migration.sql
+\ir ../../prisma/migrations/20260820170000_user_owner_mfa/migration.sql
+\ir ../../prisma/migrations/20260820180000_author_verification/migration.sql
 
 DO $$
 DECLARE
@@ -319,6 +323,21 @@ BEGIN
   IF EXISTS (SELECT 1 FROM "users" WHERE "email_normalized" = 'operator@example.test')
     OR EXISTS (SELECT 1 FROM "organization_memberships" WHERE "user_id" = 'legacy-platform-admin') THEN
     RAISE EXCEPTION 'legacy platform admin was incorrectly promoted to a tenant user';
+  END IF;
+
+  IF (SELECT COUNT(*) FROM "user_auth_tokens") <> 0
+    OR (SELECT COUNT(*) FROM "user_sessions") <> 0
+    OR (SELECT COUNT(*) FROM "user_auth_email_jobs") <> 0
+    OR (SELECT COUNT(*) FROM "organization_invitations") <> 0
+    OR (SELECT COUNT(*) FROM "organization_invitation_tokens") <> 0
+    OR (SELECT COUNT(*) FROM "organization_invitation_email_jobs") <> 0 THEN
+    RAISE EXCEPTION 'TEN-004/TEN-005 expand migrations unexpectedly created identity data';
+  END IF;
+
+  IF (SELECT COUNT(*) FROM "author_profiles") <> 0
+    OR (SELECT COUNT(*) FROM "author_verifications") <> 0
+    OR (SELECT COUNT(*) FROM "author_verification_evidence") <> 0 THEN
+    RAISE EXCEPTION 'AUT-001/AUT-002/AUT-005 expand migration unexpectedly created author data';
   END IF;
 
   IF NOT EXISTS (

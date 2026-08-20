@@ -43,10 +43,13 @@ import {
   removeOrganizationMembership,
   updateOrganizationMembershipRole,
 } from '../src/lib/tenancy/membershipService.js';
+import { runUserAuthEmailOutboxJobOnce } from '../src/lib/tenancy/userAuthEmailOutbox.js';
+import { runOrganizationInvitationEmailOutboxJobOnce } from '../src/lib/tenancy/organizationInvitationEmailOutbox.js';
 import {
   getTenantWebinarSession,
   updateTenantWebinarSessionTitle,
 } from '../src/lib/tenancy/webinarSessionRepository.js';
+import { assertAuthorCanPublish } from '../src/lib/tenancy/authorVerification.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -59,7 +62,8 @@ async function getCsrfToken(agent: TestAgent) {
 
 function getExchangeTokenFromUrl(value: string) {
   const url = new URL(value);
-  return url.searchParams.get('token') || new URLSearchParams(url.hash.replace(/^#/, '')).get('token');
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+  return url.searchParams.get('token') || hash.get('token') || hash.get('invite');
 }
 
 async function deliverPendingEmails(now = new Date()) {
@@ -202,6 +206,27 @@ async function addHumanOwner(
   return { user, membership };
 }
 
+async function loginPlatformUser(userId: string) {
+  env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+  const rawToken = createAccessToken();
+  await prisma.userAuthToken.create({
+    data: {
+      userId,
+      tokenHash: hashToken(rawToken),
+      purpose: 'PASSWORDLESS_LOGIN',
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+  });
+  const agent = request.agent(app);
+  const csrfToken = await getCsrfToken(agent);
+  const response = await agent
+    .post('/api/v1/auth/passwordless/consume')
+    .set('x-csrf-token', csrfToken)
+    .send({ token: rawToken });
+  expect(response.status).toBe(200);
+  return { agent, csrfToken, response };
+}
+
 beforeAll(async () => {
   // Guard the target and verify that the test schema is reproducible from committed migrations.
   execSync('node scripts/assert-test-database.mjs', {
@@ -224,10 +249,12 @@ beforeEach(async () => {
     TELEGRAM_CONSULTANT_BOT_TOKEN: '',
     TELEGRAM_MANUAL_BROADCAST: 'off',
     EMAIL_MODE: 'log',
+    PLATFORM_ACCOUNTS_ENABLED: 'off',
+    PLATFORM_TENANCY_ENFORCEMENT: 'off',
   });
   // Truncate tables to guarantee absolute test isolation
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
   );
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
@@ -3413,4 +3440,925 @@ describe('critical path integration scenarios', () => {
       ).resolves.toBe(1);
     },
   );
+
+  it('issues and consumes a hashed one-time platform login token without account enumeration', async () => {
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    const tenant = await createTenantFixture({
+      slug: 'platform-login',
+      email: 'platform-owner@example.test',
+    });
+    const agent = request.agent(app);
+    const csrfToken = await getCsrfToken(agent);
+
+    const knownResponse = await agent
+      .post('/api/v1/auth/passwordless/request')
+      .set('x-csrf-token', csrfToken)
+      .send({ email: ' PLATFORM-OWNER@example.test ' });
+    const unknownResponse = await agent
+      .post('/api/v1/auth/passwordless/request')
+      .set('x-csrf-token', csrfToken)
+      .send({ email: 'unknown-account@example.test' });
+    expect(knownResponse.status).toBe(202);
+    expect(unknownResponse.status).toBe(202);
+    expect(knownResponse.body.message).toBe(unknownResponse.body.message);
+    await expect(prisma.userAuthEmailJob.count()).resolves.toBe(1);
+
+    const deliveries: Array<{ loginUrl: string; to: string }> = [];
+    const deliveryResult = await runUserAuthEmailOutboxJobOnce(new Date(), {
+      sendPasswordlessLoginEmail: async input => {
+        deliveries.push({ loginUrl: input.loginUrl, to: input.to });
+        return { sent: true, mode: 'send' };
+      },
+    });
+    expect(deliveryResult).toMatchObject({ checked: 1, sent: 1, failed: 0 });
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].to).toBe('platform-owner@example.test');
+    const rawToken = getExchangeTokenFromUrl(deliveries[0].loginUrl);
+    expect(rawToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const storedToken = await prisma.userAuthToken.findFirstOrThrow({ where: { userId: tenant.user.id } });
+    expect(storedToken.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(storedToken.tokenHash).not.toBe(rawToken);
+
+    const consumeResponse = await agent
+      .post('/api/v1/auth/passwordless/consume')
+      .set('x-csrf-token', csrfToken)
+      .send({ token: rawToken });
+    expect(consumeResponse.status).toBe(200);
+    expect(consumeResponse.body).toMatchObject({
+      ok: true,
+      user: { id: tenant.user.id, displayName: 'platform-owner@example.test' },
+      activeOrganizationId: tenant.organization.id,
+      correlationId: expect.any(String),
+    });
+    expect(consumeResponse.body.sessionToken).toBeUndefined();
+    const sessionCookieHeader = (consumeResponse.headers['set-cookie'] as unknown as string[]).find(value =>
+      value.startsWith('aspb_user_session='),
+    );
+    expect(sessionCookieHeader).toContain('HttpOnly');
+    expect(sessionCookieHeader).toContain('SameSite=Lax');
+    expect(sessionCookieHeader).toContain('Path=/');
+
+    const sessionResponse = await agent.get('/api/v1/auth/session');
+    expect(sessionResponse.status).toBe(200);
+    expect(sessionResponse.body.memberships).toEqual([
+      expect.objectContaining({ organizationId: tenant.organization.id, role: 'OWNER' }),
+    ]);
+
+    const replayAgent = request.agent(app);
+    const replayCsrf = await getCsrfToken(replayAgent);
+    const replayResponse = await replayAgent
+      .post('/api/v1/auth/passwordless/consume')
+      .set('x-csrf-token', replayCsrf)
+      .send({ token: rawToken });
+    expect(replayResponse.status).toBe(401);
+    expect(replayResponse.body).toMatchObject({ code: 'passwordless_token_invalid' });
+
+    const expiredRawToken = createAccessToken();
+    await prisma.userAuthToken.create({
+      data: {
+        userId: tenant.user.id,
+        tokenHash: hashToken(expiredRawToken),
+        purpose: 'PASSWORDLESS_LOGIN',
+        createdAt: new Date(Date.now() - 2 * 60_000),
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+    const expiredResponse = await replayAgent
+      .post('/api/v1/auth/passwordless/consume')
+      .set('x-csrf-token', replayCsrf)
+      .send({ token: expiredRawToken });
+    expect(expiredResponse.status).toBe(401);
+    expect(expiredResponse.body.code).toBe('passwordless_token_invalid');
+
+    const productionRawToken = createAccessToken();
+    await prisma.userAuthToken.create({
+      data: {
+        userId: tenant.user.id,
+        tokenHash: hashToken(productionRawToken),
+        purpose: 'PASSWORDLESS_LOGIN',
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const productionCookieAgent = request.agent(app);
+    const productionCookieCsrf = await getCsrfToken(productionCookieAgent);
+    const originalNodeEnv = env.NODE_ENV;
+    env.NODE_ENV = 'production';
+    try {
+      const productionCookieResponse = await productionCookieAgent
+        .post('/api/v1/auth/passwordless/consume')
+        .set('x-csrf-token', productionCookieCsrf)
+        .send({ token: productionRawToken });
+      expect(productionCookieResponse.status).toBe(200);
+      const productionCookieHeader = (productionCookieResponse.headers['set-cookie'] as unknown as string[]).find(
+        value => value.startsWith('aspb_user_session='),
+      );
+      expect(productionCookieHeader).toContain('HttpOnly');
+      expect(productionCookieHeader).toContain('Secure');
+      expect(productionCookieHeader).toContain('SameSite=Strict');
+      expect(productionCookieHeader).toContain('Partitioned');
+    } finally {
+      env.NODE_ENV = originalNodeEnv;
+    }
+    await expect(
+      prisma.auditLog.count({
+        where: { userId: tenant.user.id, action: 'user_auth.passwordless_consumed' },
+      }),
+    ).resolves.toBe(2);
+
+    const logoutResponse = await agent.post('/api/v1/auth/logout').set('x-csrf-token', csrfToken).send({});
+    expect(logoutResponse.status).toBe(204);
+    await expect(agent.get('/api/v1/auth/session')).resolves.toMatchObject({ status: 401 });
+  });
+
+  it('derives tenant scope from the platform session and hides foreign organizations and memberships', async () => {
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    const tenantA = await createTenantFixture({ slug: 'http-tenant-a', email: 'http-owner-a@example.test' });
+    const tenantB = await prisma.organization.create({
+      data: { name: 'HTTP tenant B', slug: 'http-tenant-b', status: 'ACTIVE' },
+    });
+    await prisma.organizationMembership.create({
+      data: {
+        organizationId: tenantB.id,
+        userId: tenantA.user.id,
+        role: 'AUTHOR',
+        status: 'ACTIVE',
+      },
+    });
+    const foreign = await createTenantFixture({ slug: 'http-tenant-foreign', email: 'foreign-owner@example.test' });
+    const memberA = await prisma.user.create({
+      data: {
+        emailNormalized: 'http-member-a@example.test',
+        displayName: 'HTTP member A',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const memberAMembership = await prisma.organizationMembership.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        userId: memberA.id,
+        role: 'AUTHOR',
+        status: 'ACTIVE',
+      },
+    });
+    const rawToken = createAccessToken();
+    await prisma.userAuthToken.create({
+      data: {
+        userId: tenantA.user.id,
+        tokenHash: hashToken(rawToken),
+        purpose: 'PASSWORDLESS_LOGIN',
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const agent = request.agent(app);
+    const csrfToken = await getCsrfToken(agent);
+    const consumeResponse = await agent
+      .post('/api/v1/auth/passwordless/consume')
+      .set('x-csrf-token', csrfToken)
+      .send({ token: rawToken });
+    expect(consumeResponse.status).toBe(200);
+    expect(consumeResponse.body.activeOrganizationId).toBeNull();
+    expect(
+      consumeResponse.body.memberships.map((item: { organizationId: string }) => item.organizationId).sort(),
+    ).toEqual([tenantA.organization.id, tenantB.id].sort());
+    expect(JSON.stringify(consumeResponse.body)).not.toContain(foreign.organization.id);
+
+    const missingContextWrite = await agent
+      .patch(`/api/v1/organization/memberships/${memberAMembership.id}/role`)
+      .set('x-csrf-token', csrfToken)
+      .send({ role: 'MODERATOR' });
+    expect(missingContextWrite.status).toBe(401);
+    expect(missingContextWrite.body.code).toBe('tenant_context_required');
+
+    const foreignSelection = await agent
+      .post('/api/v1/auth/active-organization')
+      .set('x-csrf-token', csrfToken)
+      .send({ organizationId: foreign.organization.id });
+    expect(foreignSelection.status).toBe(404);
+    expect(foreignSelection.body.code).toBe('tenant_context_unavailable');
+
+    const validSelection = await agent
+      .post('/api/v1/auth/active-organization')
+      .set('x-csrf-token', csrfToken)
+      .send({ organizationId: tenantA.organization.id });
+    expect(validSelection.status).toBe(200);
+    expect(validSelection.body.organizationId).toBe(tenantA.organization.id);
+
+    const auditCountBeforeForeignWrite = await prisma.auditLog.count();
+    const foreignWrite = await agent
+      .patch(`/api/v1/organization/memberships/${foreign.membership.id}/role`)
+      .set('x-csrf-token', csrfToken)
+      .send({ role: 'AUTHOR' });
+    expect(foreignWrite.status).toBe(404);
+    expect(foreignWrite.body.code).toBe('organization_membership_not_found');
+    await expect(prisma.auditLog.count()).resolves.toBe(auditCountBeforeForeignWrite);
+    await expect(
+      prisma.organizationMembership.findUniqueOrThrow({ where: { id: foreign.membership.id } }),
+    ).resolves.toMatchObject({ role: 'OWNER' });
+
+    const validWrite = await agent
+      .patch(`/api/v1/organization/memberships/${memberAMembership.id}/role`)
+      .set('x-csrf-token', csrfToken)
+      .send({ role: 'MODERATOR' });
+    expect(validWrite.status).toBe(200);
+    expect(validWrite.body.membership.role).toBe('MODERATOR');
+    await expect(
+      prisma.auditLog.findFirstOrThrow({
+        where: { entityId: memberAMembership.id, action: 'organization_membership.role_changed' },
+      }),
+    ).resolves.toMatchObject({
+      userId: tenantA.user.id,
+      organizationId: tenantA.organization.id,
+      correlationId: expect.any(String),
+    });
+
+    const lastOwnerResponse = await agent
+      .patch(`/api/v1/organization/memberships/${tenantA.membership.id}/role`)
+      .set('x-csrf-token', csrfToken)
+      .send({ role: 'AUTHOR' });
+    expect(lastOwnerResponse.status).toBe(409);
+    expect(lastOwnerResponse.body.code).toBe('last_organization_owner');
+    await expect(
+      prisma.organizationMembership.findUniqueOrThrow({ where: { id: tenantA.membership.id } }),
+    ).resolves.toMatchObject({ role: 'OWNER', status: 'ACTIVE' });
+  });
+
+  it('keeps platform auth disabled by default, rejects client tenant injection, and does not treat AdminUser as User', async () => {
+    const adminEmail = 'separate-platform-admin@example.test';
+    await prisma.adminUser.create({
+      data: {
+        name: 'Separate admin',
+        email: adminEmail,
+        passwordHash: await hashPassword('SeparateAdminPassword123'),
+        role: 'admin',
+        isActive: true,
+      },
+    });
+    const agent = request.agent(app);
+    const csrfToken = await getCsrfToken(agent);
+
+    const disabledResponse = await agent
+      .post('/api/v1/auth/passwordless/request')
+      .set('x-csrf-token', csrfToken)
+      .send({ email: adminEmail });
+    expect(disabledResponse.status).toBe(404);
+    expect(disabledResponse.body.code).toBe('platform_accounts_disabled');
+
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    const injectionResponse = await agent
+      .post('/api/v1/auth/passwordless/request')
+      .set('x-csrf-token', csrfToken)
+      .send({ email: adminEmail, organizationId: DEFAULT_ORGANIZATION_ID });
+    expect(injectionResponse.status).toBe(400);
+    expect(injectionResponse.body.code).toBe('validation_failed');
+
+    const adminOnlyResponse = await agent
+      .post('/api/v1/auth/passwordless/request')
+      .set('x-csrf-token', csrfToken)
+      .send({ email: adminEmail });
+    expect(adminOnlyResponse.status).toBe(202);
+    await expect(prisma.userAuthEmailJob.count()).resolves.toBe(0);
+    await expect(prisma.user.count({ where: { emailNormalized: adminEmail } })).resolves.toBe(0);
+  });
+
+  it('creates, delivers and accepts a role-bound one-time organization invitation', async () => {
+    const tenant = await createTenantFixture({ slug: 'invite-lifecycle', email: 'invite-owner@example.test' });
+    const ownerSession = await loginPlatformUser(tenant.user.id);
+    const invitedEmail = 'new-author@example.test';
+
+    const createResponse = await ownerSession.agent
+      .post('/api/v1/organization/invitations')
+      .set('x-csrf-token', ownerSession.csrfToken)
+      .send({ email: invitedEmail, role: 'AUTHOR' });
+    expect(createResponse.status).toBe(201);
+    expect(createResponse.body).toMatchObject({
+      ok: true,
+      deliveryStatus: 'queued',
+      invitation: { emailNormalized: invitedEmail, role: 'AUTHOR', status: 'PENDING' },
+      correlationId: expect.any(String),
+    });
+    expect(JSON.stringify(createResponse.body)).not.toMatch(/[A-Za-z0-9_-]{43}/);
+    await expect(prisma.organizationInvitationToken.count()).resolves.toBe(0);
+    await expect(prisma.organizationInvitationEmailJob.count()).resolves.toBe(1);
+
+    const deliveries: Array<{ to: string; invitationUrl: string; roleLabel: string }> = [];
+    const outboxResult = await runOrganizationInvitationEmailOutboxJobOnce(new Date(), {
+      sendOrganizationInvitationEmail: async input => {
+        deliveries.push({ to: input.to, invitationUrl: input.invitationUrl, roleLabel: input.roleLabel });
+        return { sent: true, mode: 'send' };
+      },
+    });
+    expect(outboxResult).toMatchObject({ checked: 1, sent: 1, failed: 0 });
+    expect(deliveries).toEqual([expect.objectContaining({ to: invitedEmail, roleLabel: 'автор' })]);
+    const invitationToken = getExchangeTokenFromUrl(deliveries[0].invitationUrl);
+    expect(invitationToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const storedToken = await prisma.organizationInvitationToken.findFirstOrThrow();
+    expect(storedToken.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(storedToken.tokenHash).not.toBe(invitationToken);
+
+    const inviteeAgent = request.agent(app);
+    const inviteeCsrf = await getCsrfToken(inviteeAgent);
+    const acceptResponse = await inviteeAgent
+      .post('/api/v1/organization/invitations/accept')
+      .set('x-csrf-token', inviteeCsrf)
+      .send({ token: invitationToken });
+    expect(acceptResponse.status).toBe(200);
+    expect(acceptResponse.body).toMatchObject({
+      ok: true,
+      activeOrganizationId: tenant.organization.id,
+      memberships: [expect.objectContaining({ organizationId: tenant.organization.id, role: 'AUTHOR' })],
+    });
+    expect(getCookieValue(acceptResponse, 'aspb_user_session')).toEqual(expect.any(String));
+    const invitedUser = await prisma.user.findUniqueOrThrow({ where: { emailNormalized: invitedEmail } });
+    expect(invitedUser).toMatchObject({ kind: 'HUMAN', status: 'ACTIVE', emailVerifiedAt: expect.any(Date) });
+    await expect(
+      prisma.organizationMembership.findUniqueOrThrow({
+        where: { organizationId_userId: { organizationId: tenant.organization.id, userId: invitedUser.id } },
+      }),
+    ).resolves.toMatchObject({ role: 'AUTHOR', status: 'ACTIVE' });
+    await expect(
+      prisma.organizationInvitation.findUniqueOrThrow({ where: { id: createResponse.body.invitation.id } }),
+    ).resolves.toMatchObject({
+      status: 'ACCEPTED',
+      acceptedByUserId: invitedUser.id,
+      membershipId: expect.any(String),
+      acceptedAt: expect.any(Date),
+    });
+    await expect(
+      prisma.organizationInvitationToken.findUniqueOrThrow({ where: { id: storedToken.id } }),
+    ).resolves.toMatchObject({ consumedAt: expect.any(Date), invalidatedAt: null });
+
+    const replayAgent = request.agent(app);
+    const replayCsrf = await getCsrfToken(replayAgent);
+    const replayResponse = await replayAgent
+      .post('/api/v1/organization/invitations/accept')
+      .set('x-csrf-token', replayCsrf)
+      .send({ token: invitationToken });
+    expect(replayResponse.status).toBe(401);
+    expect(replayResponse.body.code).toBe('organization_invitation_invalid');
+
+    const duplicateResponse = await ownerSession.agent
+      .post('/api/v1/organization/invitations')
+      .set('x-csrf-token', ownerSession.csrfToken)
+      .send({ email: invitedEmail, role: 'MODERATOR' });
+    expect(duplicateResponse.status).toBe(409);
+    expect(duplicateResponse.body.code).toBe('organization_membership_already_active');
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          organizationId: tenant.organization.id,
+          action: {
+            in: [
+              'organization_invitation.created',
+              'organization_invitation.accepted',
+              'organization_membership.created_from_invitation',
+            ],
+          },
+          correlationId: { not: null },
+        },
+      }),
+    ).resolves.toBe(3);
+  });
+
+  it('reactivates a removed membership and keeps invitation list/revoke tenant-scoped', async () => {
+    const tenantA = await createTenantFixture({ slug: 'invite-scope-a', email: 'invite-scope-owner-a@example.test' });
+    const tenantB = await createTenantFixture({ slug: 'invite-scope-b', email: 'invite-scope-owner-b@example.test' });
+    const returningUser = await prisma.user.create({
+      data: {
+        emailNormalized: 'returning-member@example.test',
+        displayName: 'Returning member',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const removedMembership = await prisma.organizationMembership.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        userId: returningUser.id,
+        role: 'AUDITOR',
+        status: 'REMOVED',
+        removedAt: new Date(),
+      },
+    });
+    const sessionA = await loginPlatformUser(tenantA.user.id);
+    const sessionB = await loginPlatformUser(tenantB.user.id);
+
+    const invitationA = await sessionA.agent
+      .post('/api/v1/organization/invitations')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ email: returningUser.emailNormalized, role: 'MODERATOR' });
+    const invitationB = await sessionB.agent
+      .post('/api/v1/organization/invitations')
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({ email: 'foreign-invite@example.test', role: 'ANALYST' });
+    expect(invitationA.status).toBe(201);
+    expect(invitationB.status).toBe(201);
+
+    const listA = await sessionA.agent.get('/api/v1/organization/invitations');
+    expect(listA.status).toBe(200);
+    expect(listA.body.invitations).toEqual([
+      expect.objectContaining({ id: invitationA.body.invitation.id, emailNormalized: returningUser.emailNormalized }),
+    ]);
+    expect(JSON.stringify(listA.body)).not.toContain(invitationB.body.invitation.id);
+
+    const auditCountBeforeForeignRevoke = await prisma.auditLog.count();
+    const foreignRevoke = await sessionA.agent
+      .delete(`/api/v1/organization/invitations/${invitationB.body.invitation.id}`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(foreignRevoke.status).toBe(404);
+    expect(foreignRevoke.body.code).toBe('organization_invitation_not_found');
+    await expect(prisma.auditLog.count()).resolves.toBe(auditCountBeforeForeignRevoke);
+    await expect(
+      prisma.organizationInvitation.findUniqueOrThrow({ where: { id: invitationB.body.invitation.id } }),
+    ).resolves.toMatchObject({ status: 'PENDING' });
+
+    const deliveries: Array<{ to: string; invitationUrl: string }> = [];
+    await runOrganizationInvitationEmailOutboxJobOnce(new Date(), {
+      sendOrganizationInvitationEmail: async input => {
+        deliveries.push({ to: input.to, invitationUrl: input.invitationUrl });
+        return { sent: true, mode: 'send' };
+      },
+    });
+    const returningDelivery = deliveries.find(delivery => delivery.to === returningUser.emailNormalized);
+    const returningToken = returningDelivery ? getExchangeTokenFromUrl(returningDelivery.invitationUrl) : null;
+    expect(returningToken).toEqual(expect.any(String));
+
+    const returningAgent = request.agent(app);
+    const returningCsrf = await getCsrfToken(returningAgent);
+    const accepted = await returningAgent
+      .post('/api/v1/organization/invitations/accept')
+      .set('x-csrf-token', returningCsrf)
+      .send({ token: returningToken });
+    expect(accepted.status).toBe(200);
+    await expect(
+      prisma.organizationMembership.findUniqueOrThrow({ where: { id: removedMembership.id } }),
+    ).resolves.toMatchObject({ role: 'MODERATOR', status: 'ACTIVE', removedAt: null });
+    await expect(
+      prisma.auditLog.findFirstOrThrow({
+        where: { entityId: removedMembership.id, action: 'organization_membership.reactivated_from_invitation' },
+      }),
+    ).resolves.toMatchObject({
+      userId: returningUser.id,
+      organizationId: tenantA.organization.id,
+      correlationId: expect.any(String),
+      beforeJson: expect.objectContaining({ role: 'AUDITOR', status: 'REMOVED' }),
+      afterJson: expect.objectContaining({ role: 'MODERATOR', status: 'ACTIVE' }),
+    });
+
+    const nonOwnerCreate = await returningAgent
+      .post('/api/v1/organization/invitations')
+      .set('x-csrf-token', returningCsrf)
+      .send({ email: 'must-not-invite@example.test', role: 'AUTHOR' });
+    expect(nonOwnerCreate.status).toBe(403);
+    expect(nonOwnerCreate.body.code).toBe('tenant_owner_required');
+
+    const revokedInvitation = await sessionA.agent
+      .post('/api/v1/organization/invitations')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ email: 'revoked-invite@example.test', role: 'AUTHOR' });
+    const revokedDeliveries: Array<{ invitationUrl: string }> = [];
+    await runOrganizationInvitationEmailOutboxJobOnce(new Date(), {
+      sendOrganizationInvitationEmail: async input => {
+        if (input.to === 'revoked-invite@example.test') revokedDeliveries.push({ invitationUrl: input.invitationUrl });
+        return { sent: true, mode: 'send' };
+      },
+    });
+    const revokedToken = getExchangeTokenFromUrl(revokedDeliveries[0].invitationUrl);
+    const revokeResponse = await sessionA.agent
+      .delete(`/api/v1/organization/invitations/${revokedInvitation.body.invitation.id}`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(revokeResponse.status).toBe(200);
+    expect(revokeResponse.body.invitation.status).toBe('REVOKED');
+    const revokedAgent = request.agent(app);
+    const revokedCsrf = await getCsrfToken(revokedAgent);
+    const revokedAccept = await revokedAgent
+      .post('/api/v1/organization/invitations/accept')
+      .set('x-csrf-token', revokedCsrf)
+      .send({ token: revokedToken });
+    expect(revokedAccept.status).toBe(401);
+    expect(revokedAccept.body.code).toBe('organization_invitation_invalid');
+
+    const expiringInvitation = await sessionA.agent
+      .post('/api/v1/organization/invitations')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ email: 'expired-invite@example.test', role: 'AUDITOR' });
+    const expiredDeliveries: Array<{ invitationUrl: string }> = [];
+    await runOrganizationInvitationEmailOutboxJobOnce(new Date(), {
+      sendOrganizationInvitationEmail: async input => {
+        if (input.to === 'expired-invite@example.test') expiredDeliveries.push({ invitationUrl: input.invitationUrl });
+        return { sent: true, mode: 'send' };
+      },
+    });
+    const expiredToken = getExchangeTokenFromUrl(expiredDeliveries[0].invitationUrl);
+    const expiredTokenRow = await prisma.organizationInvitationToken.findFirstOrThrow({
+      where: { invitationId: expiringInvitation.body.invitation.id },
+    });
+    const oldCreatedAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    const oldExpiresAt = new Date(Date.now() - 60_000);
+    await prisma.organizationInvitation.update({
+      where: { id: expiringInvitation.body.invitation.id },
+      data: { createdAt: oldCreatedAt, expiresAt: oldExpiresAt },
+    });
+    await prisma.organizationInvitationToken.update({
+      where: { id: expiredTokenRow.id },
+      data: { createdAt: oldCreatedAt, expiresAt: oldExpiresAt },
+    });
+    const expiredAgent = request.agent(app);
+    const expiredCsrf = await getCsrfToken(expiredAgent);
+    const expiredAccept = await expiredAgent
+      .post('/api/v1/organization/invitations/accept')
+      .set('x-csrf-token', expiredCsrf)
+      .send({ token: expiredToken });
+    expect(expiredAccept.status).toBe(401);
+    expect(expiredAccept.body.code).toBe('organization_invitation_invalid');
+    await sessionA.agent.get('/api/v1/organization/invitations');
+    await expect(
+      prisma.organizationInvitation.findUniqueOrThrow({ where: { id: expiringInvitation.body.invitation.id } }),
+    ).resolves.toMatchObject({ status: 'EXPIRED' });
+  });
+
+  it('makes owner MFA available and blocks protected tenant access until the session is verified', async () => {
+    const tenant = await createTenantFixture({ slug: 'owner-mfa', email: 'owner-mfa@example.test' });
+    const primarySession = await loginPlatformUser(tenant.user.id);
+    const otherSession = await loginPlatformUser(tenant.user.id);
+
+    const enrollment = await primarySession.agent
+      .post('/api/v1/auth/mfa/enrollment/start')
+      .set('x-csrf-token', primarySession.csrfToken)
+      .send({});
+    expect(enrollment.status).toBe(200);
+    expect(enrollment.body).toMatchObject({
+      secret: expect.stringMatching(/^[A-Z2-7]+$/),
+      otpauthUrl: expect.stringMatching(/^otpauth:\/\/totp\//),
+      expiresAt: expect.any(String),
+      correlationId: expect.any(String),
+    });
+    const enrollmentSecret = enrollment.body.secret as string;
+    const storedEnrollment = await prisma.user.findUniqueOrThrow({ where: { id: tenant.user.id } });
+    expect(storedEnrollment.mfaSecretEncrypted).toMatch(/^v1\./);
+    expect(storedEnrollment.mfaSecretEncrypted).not.toContain(enrollmentSecret);
+    expect(storedEnrollment.mfaEnabledAt).toBeNull();
+    expect(storedEnrollment.mfaEnrollmentExpiresAt).toEqual(expect.any(Date));
+
+    const invalidConfirm = await primarySession.agent
+      .post('/api/v1/auth/mfa/enrollment/confirm')
+      .set('x-csrf-token', primarySession.csrfToken)
+      .send({ otp: '000000' });
+    expect(invalidConfirm.status).toBe(401);
+    expect(invalidConfirm.body.code).toBe('user_mfa_code_invalid');
+
+    const confirm = await primarySession.agent
+      .post('/api/v1/auth/mfa/enrollment/confirm')
+      .set('x-csrf-token', primarySession.csrfToken)
+      .send({ otp: generateTotp(enrollmentSecret) });
+    expect(confirm.status).toBe(200);
+    expect(confirm.body).toMatchObject({
+      authenticated: true,
+      mfaRequired: false,
+      mfa: { enabled: true, verified: true },
+    });
+    await expect(otherSession.agent.get('/api/v1/auth/session')).resolves.toMatchObject({ status: 401 });
+    await expect(prisma.user.findUniqueOrThrow({ where: { id: tenant.user.id } })).resolves.toMatchObject({
+      mfaEnabledAt: expect.any(Date),
+      mfaEnrollmentExpiresAt: null,
+    });
+
+    const challengedSession = await loginPlatformUser(tenant.user.id);
+    expect(challengedSession.response.body).toMatchObject({
+      authenticated: false,
+      mfaRequired: true,
+    });
+    expect(challengedSession.response.body.user).toBeUndefined();
+    expect(challengedSession.response.body.memberships).toBeUndefined();
+    const challengeSummary = await challengedSession.agent.get('/api/v1/auth/session');
+    expect(challengeSummary.status).toBe(200);
+    expect(challengeSummary.body).toMatchObject({ authenticated: false, mfaRequired: true });
+    expect(challengeSummary.body.memberships).toBeUndefined();
+
+    const protectedBeforeMfa = await challengedSession.agent
+      .post('/api/v1/organization/invitations')
+      .set('x-csrf-token', challengedSession.csrfToken)
+      .send({ email: 'blocked-before-mfa@example.test', role: 'AUTHOR' });
+    expect(protectedBeforeMfa.status).toBe(401);
+    expect(protectedBeforeMfa.body.code).toBe('user_authentication_required');
+    await expect(prisma.organizationInvitation.count()).resolves.toBe(0);
+
+    const invalidVerification = await challengedSession.agent
+      .post('/api/v1/auth/mfa/verify')
+      .set('x-csrf-token', challengedSession.csrfToken)
+      .send({ otp: '12345', organizationId: tenant.organization.id });
+    expect(invalidVerification.status).toBe(400);
+    expect(invalidVerification.body.code).toBe('validation_failed');
+
+    const verification = await challengedSession.agent
+      .post('/api/v1/auth/mfa/verify')
+      .set('x-csrf-token', challengedSession.csrfToken)
+      .send({ otp: generateTotp(enrollmentSecret) });
+    expect(verification.status).toBe(200);
+    expect(verification.body).toMatchObject({
+      authenticated: true,
+      mfaRequired: false,
+      activeOrganizationId: tenant.organization.id,
+      mfa: { enabled: true, verified: true },
+    });
+
+    const protectedAfterMfa = await challengedSession.agent
+      .post('/api/v1/organization/invitations')
+      .set('x-csrf-token', challengedSession.csrfToken)
+      .send({ email: 'allowed-after-mfa@example.test', role: 'AUTHOR' });
+    expect(protectedAfterMfa.status).toBe(201);
+
+    const disable = await challengedSession.agent
+      .post('/api/v1/auth/mfa/disable')
+      .set('x-csrf-token', challengedSession.csrfToken)
+      .send({ otp: generateTotp(enrollmentSecret) });
+    expect(disable.status).toBe(200);
+    expect(disable.body.mfa).toEqual({ enabled: false, verified: true });
+    await expect(prisma.user.findUniqueOrThrow({ where: { id: tenant.user.id } })).resolves.toMatchObject({
+      mfaSecretEncrypted: null,
+      mfaEnabledAt: null,
+      mfaEnrollmentExpiresAt: null,
+    });
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          userId: tenant.user.id,
+          organizationId: tenant.organization.id,
+          action: { in: ['user_mfa.enrollment_started', 'user_mfa.enabled', 'user_mfa.verified', 'user_mfa.disabled'] },
+          correlationId: { not: null },
+        },
+      }),
+    ).resolves.toBe(4);
+  });
+
+  it('does not expose owner MFA enrollment to non-owner tenant roles', async () => {
+    const tenant = await createTenantFixture({
+      slug: 'author-mfa-denied',
+      email: 'author-mfa-denied@example.test',
+      role: 'AUTHOR',
+    });
+    const session = await loginPlatformUser(tenant.user.id);
+    const response = await session.agent
+      .post('/api/v1/auth/mfa/enrollment/start')
+      .set('x-csrf-token', session.csrfToken)
+      .send({});
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('tenant_owner_required');
+    await expect(
+      prisma.auditLog.count({ where: { userId: tenant.user.id, action: { startsWith: 'user_mfa.' } } }),
+    ).resolves.toBe(0);
+  });
+
+  it('saves, reviews and publishes only the safe projection of a tenant-scoped author profile', async () => {
+    const tenantA = await createTenantFixture({ slug: 'author-profile-a', email: 'author-profile-a@example.test' });
+    const tenantB = await createTenantFixture({ slug: 'author-profile-b', email: 'author-profile-b@example.test' });
+    const sessionA = await loginPlatformUser(tenantA.user.id);
+    const sessionB = await loginPlatformUser(tenantB.user.id);
+
+    const injectedTenant = await sessionA.agent
+      .patch('/api/v1/author-profile')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ publicName: 'Анна Юрист', organizationId: tenantB.organization.id });
+    expect(injectedTenant.status).toBe(400);
+    expect(injectedTenant.body.code).toBe('validation_failed');
+
+    const partialDraft = await sessionA.agent
+      .patch('/api/v1/author-profile')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ publicName: 'Анна Юрист', region: 'Москва' });
+    expect(partialDraft.status).toBe(200);
+    expect(partialDraft.body.profile).toMatchObject({
+      publicName: 'Анна Юрист',
+      region: 'Москва',
+      verificationStatus: 'DRAFT',
+    });
+
+    const incompleteSubmission = await sessionA.agent
+      .post('/api/v1/author-verification')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(incompleteSubmission.status).toBe(400);
+    expect(incompleteSubmission.body.code).toBe('validation_failed');
+    await expect(prisma.authorVerification.count()).resolves.toBe(0);
+
+    const completeDraft = await sessionA.agent
+      .patch('/api/v1/author-profile')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({
+        bio: 'Практикующий юрист по корпоративному и договорному праву с опытом сопровождения бизнеса.',
+        specializations: ['Корпоративное право', 'Договорная работа'],
+        professionalOrganization: 'Коллегия юристов «Право»',
+        experience: 'Более десяти лет сопровождаю компании и представляю доверителей в арбитражных судах.',
+      });
+    expect(completeDraft.status).toBe(200);
+    const profileId = completeDraft.body.profile.id as string;
+    const profileSlug = completeDraft.body.profile.slug as string;
+
+    const mismatchedEvidence = await sessionA.agent
+      .post('/api/v1/author-verification/evidence')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .set('content-type', 'application/pdf')
+      .set('x-evidence-kind', 'LICENSE')
+      .set('x-evidence-filename', encodeURIComponent('лицензия.pdf'))
+      .send(Buffer.from('not-a-pdf'));
+    expect(mismatchedEvidence.status).toBe(400);
+    expect(mismatchedEvidence.body.code).toBe('author_evidence_content_invalid');
+
+    const oversizedEvidence = await sessionA.agent
+      .post('/api/v1/author-verification/evidence')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .set('content-type', 'application/pdf')
+      .set('x-evidence-kind', 'LICENSE')
+      .set('x-evidence-filename', 'oversized.pdf')
+      .send(Buffer.alloc(5 * 1024 * 1024 + 1, 0x25));
+    expect(oversizedEvidence.status).toBe(413);
+    expect(oversizedEvidence.body.code).toBe('payload_too_large');
+
+    const pdfContent = Buffer.from('%PDF-1.7\nprivate verification evidence\n%%EOF');
+    const upload = await sessionA.agent
+      .post('/api/v1/author-verification/evidence')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .set('content-type', 'application/pdf')
+      .set('x-evidence-kind', 'LICENSE')
+      .set('x-evidence-filename', encodeURIComponent('../лицензия.pdf'))
+      .send(pdfContent);
+    expect(upload.status).toBe(201);
+    expect(upload.body.evidence).toMatchObject({
+      kind: 'LICENSE',
+      originalName: 'лицензия.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: pdfContent.length,
+      checksumSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      submitted: false,
+    });
+    expect(JSON.stringify(upload.body)).not.toContain('private verification evidence');
+    const evidenceId = upload.body.evidence.id as string;
+
+    const foreignEvidenceRead = await sessionB.agent.get(`/api/v1/author-verification/evidence/${evidenceId}`);
+    expect(foreignEvidenceRead.status).toBe(404);
+    expect(foreignEvidenceRead.body.code).toBe('author_evidence_not_found');
+    const foreignEvidenceDelete = await sessionB.agent
+      .delete(`/api/v1/author-verification/evidence/${evidenceId}`)
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({});
+    expect(foreignEvidenceDelete.status).toBe(404);
+    expect(foreignEvidenceDelete.body.code).toBe('author_evidence_not_found');
+
+    const submission = await sessionA.agent
+      .post('/api/v1/author-verification')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(submission.status).toBe(201);
+    expect(submission.body.verification).toMatchObject({ status: 'PENDING', publicComment: null });
+    const firstVerificationId = submission.body.verification.id as string;
+    await expect(prisma.authorProfile.findUniqueOrThrow({ where: { id: profileId } })).resolves.toMatchObject({
+      verificationStatus: 'PENDING',
+    });
+
+    const lockedDraft = await sessionA.agent
+      .patch('/api/v1/author-profile')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ region: 'Санкт-Петербург' });
+    expect(lockedDraft.status).toBe(409);
+    expect(lockedDraft.body.code).toBe('author_profile_not_editable');
+    const privateBeforeVerification = await request(app).get(`/api/v1/catalog/authors/${profileSlug}`);
+    expect(privateBeforeVerification.status).toBe(404);
+
+    const platformAdmin = await loginAdmin('admin', 'author-review-admin@example.test');
+    const managerAdmin = await loginAdmin('manager', 'author-review-manager@example.test');
+    const deniedAdminList = await managerAdmin.agent.get('/api/v1/platform/author-verifications');
+    expect(deniedAdminList.status).toBe(403);
+
+    const adminList = await platformAdmin.agent.get('/api/v1/platform/author-verifications?status=PENDING');
+    expect(adminList.status).toBe(200);
+    expect(adminList.body.items).toEqual([
+      expect.objectContaining({
+        id: firstVerificationId,
+        status: 'PENDING',
+        internalReason: null,
+        evidence: [expect.objectContaining({ id: evidenceId })],
+      }),
+    ]);
+    expect(JSON.stringify(adminList.body)).not.toContain('private verification evidence');
+
+    const adminEvidence = await platformAdmin.agent.get(`/api/v1/platform/author-verifications/evidence/${evidenceId}`);
+    expect(adminEvidence.status).toBe(200);
+    expect(adminEvidence.headers['cache-control']).toBe('no-store');
+    expect(adminEvidence.headers['x-robots-tag']).toContain('noindex');
+    expect(Buffer.from(adminEvidence.body)).toEqual(pdfContent);
+
+    const needsInfo = await platformAdmin.agent
+      .patch(`/api/v1/platform/author-verifications/${firstVerificationId}`)
+      .set('x-csrf-token', platformAdmin.csrfToken)
+      .send({
+        status: 'NEEDS_INFO',
+        publicComment: 'Добавьте подробности о судебной практике.',
+        internalReason: 'Недостаточно описан подтверждённый опыт.',
+      });
+    expect(needsInfo.status).toBe(200);
+    expect(needsInfo.body.verification).toMatchObject({
+      status: 'NEEDS_INFO',
+      publicComment: 'Добавьте подробности о судебной практике.',
+      internalReason: 'Недостаточно описан подтверждённый опыт.',
+    });
+
+    const authorAfterNeedsInfo = await sessionA.agent.get('/api/v1/author-profile');
+    expect(authorAfterNeedsInfo.status).toBe(200);
+    expect(authorAfterNeedsInfo.body.latestVerification).toMatchObject({
+      status: 'NEEDS_INFO',
+      publicComment: 'Добавьте подробности о судебной практике.',
+    });
+    expect(JSON.stringify(authorAfterNeedsInfo.body)).not.toContain('Недостаточно описан подтверждённый опыт.');
+
+    const revisedDraft = await sessionA.agent
+      .patch('/api/v1/author-profile')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({
+        experience:
+          'Более десяти лет сопровождаю компании; участвовала более чем в пятидесяти арбитражных спорах и веду договорные проекты.',
+      });
+    expect(revisedDraft.status).toBe(200);
+    const resubmission = await sessionA.agent
+      .post('/api/v1/author-verification')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(resubmission.status).toBe(201);
+    const secondVerificationId = resubmission.body.verification.id as string;
+
+    const verified = await platformAdmin.agent
+      .patch(`/api/v1/platform/author-verifications/${secondVerificationId}`)
+      .set('x-csrf-token', platformAdmin.csrfToken)
+      .send({ status: 'VERIFIED' });
+    expect(verified.status).toBe(200);
+    expect(verified.body.verification.status).toBe('VERIFIED');
+
+    const publicProfile = await request(app).get(`/api/v1/catalog/authors/${profileSlug}`);
+    expect(publicProfile.status).toBe(200);
+    expect(publicProfile.body.author).toMatchObject({
+      slug: profileSlug,
+      publicName: 'Анна Юрист',
+      verificationStatus: 'VERIFIED',
+      organization: { name: tenantA.organization.name, slug: tenantA.organization.slug },
+    });
+    expect(JSON.stringify(publicProfile.body)).not.toContain(evidenceId);
+    expect(JSON.stringify(publicProfile.body)).not.toContain('internalReason');
+    expect(JSON.stringify(publicProfile.body)).not.toContain(tenantA.user.emailNormalized);
+
+    const authorContext = await resolveTenantContext(prisma, {
+      userId: tenantA.user.id,
+      activeOrganizationId: tenantA.organization.id,
+      correlationId: 'req_author_publish_policy',
+    });
+    await expect(assertAuthorCanPublish(prisma, authorContext, profileId)).resolves.toMatchObject({ id: profileId });
+
+    const suspended = await platformAdmin.agent
+      .patch(`/api/v1/platform/author-verifications/${secondVerificationId}`)
+      .set('x-csrf-token', platformAdmin.csrfToken)
+      .send({ status: 'SUSPENDED', internalReason: 'Временная приостановка до повторной проверки.' });
+    expect(suspended.status).toBe(200);
+    expect(suspended.body.verification.status).toBe('SUSPENDED');
+    await expect(assertAuthorCanPublish(prisma, authorContext, profileId)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'author_verification_required',
+    });
+    const publicAfterSuspension = await request(app).get(`/api/v1/catalog/authors/${profileSlug}`);
+    expect(publicAfterSuspension.status).toBe(404);
+
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          organizationId: tenantA.organization.id,
+          action: {
+            in: [
+              'author_profile.draft_saved',
+              'author_verification.evidence_uploaded',
+              'author_verification.submitted',
+              'author_verification.reviewed',
+              'author_verification.evidence_accessed_by_admin',
+            ],
+          },
+          correlationId: { not: null },
+        },
+      }),
+    ).resolves.toBeGreaterThanOrEqual(8);
+  });
+
+  it('denies author profile mutations to non-author tenant roles', async () => {
+    const tenant = await createTenantFixture({
+      slug: 'moderator-author-profile-denied',
+      email: 'moderator-author-profile-denied@example.test',
+      role: 'MODERATOR',
+    });
+    const session = await loginPlatformUser(tenant.user.id);
+    const response = await session.agent
+      .patch('/api/v1/author-profile')
+      .set('x-csrf-token', session.csrfToken)
+      .send({ publicName: 'Недоступный профиль' });
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('tenant_permission_denied');
+    await expect(prisma.authorProfile.count()).resolves.toBe(0);
+  });
 });

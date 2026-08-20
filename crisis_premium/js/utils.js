@@ -76,7 +76,62 @@ export async function post(path, body) {
     throw error;
   }
 
+  if (response.status === 204) {
+    return { ok: true };
+  }
   return response.json();
+}
+
+export async function patchJson(path, body) {
+  const response = await fetchWithTimeout(`${API}${path}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
+    body: JSON.stringify(body)
+  });
+
+  const payload = response.status === 204 ? { ok: true } : await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || 'Ошибка запроса');
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+export async function deleteJson(path, body = {}) {
+  const response = await fetchWithTimeout(`${API}${path}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
+    body: JSON.stringify(body),
+  });
+  const payload = response.status === 204 ? { ok: true } : await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || 'Ошибка запроса');
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+export async function postBinary(path, body, headers = {}) {
+  const response = await fetchWithTimeout(`${API}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { ...headers, ...(await csrfHeaders()) },
+    body
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || 'Ошибка запроса');
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
 }
 
 export async function getJson(path) {

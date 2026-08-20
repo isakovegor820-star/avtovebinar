@@ -35,7 +35,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      'PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=send TELEGRAM_NOTIFY_MODE=log WEBINAR_VIDEO_PROVIDER=local WEBINAR_VIDEO_HLS_URL= WEBINAR_VIDEO_URL=http://127.0.0.1:5175/crisis_premium/assets/webinar.mp4 WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on WORKER_ROLE=api npx tsx src/server.ts',
+      'PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=send TELEGRAM_NOTIFY_MODE=log PLATFORM_ACCOUNTS_ENABLED=on WEBINAR_VIDEO_PROVIDER=local WEBINAR_VIDEO_HLS_URL= WEBINAR_VIDEO_URL=http://127.0.0.1:5175/crisis_premium/assets/webinar.mp4 WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on WORKER_ROLE=api npx tsx src/server.ts',
     url: 'http://127.0.0.1:5175/crisis_premium/index.html',
     reuseExistingServer: false,
     timeout: 30_000,

@@ -2,15 +2,21 @@ import { expect, test, type Page } from '@playwright/test';
 import { prisma } from '../../src/lib/prisma.js';
 import { hashPassword } from '../../src/lib/passwords.js';
 import { createAccessToken, hashToken } from '../../src/lib/tokens.js';
-import { generateTotp } from '../../src/lib/mfa.js';
+import { encryptMfaSecret, generateTotp } from '../../src/lib/mfa.js';
 import { buildUnsubscribeToken } from '../../src/lib/unsubscribe.js';
 import { TELEGRAM_BINDING_VERSION } from '../../src/lib/roomLinks.js';
 import { runEmailOutboxJobOnce } from '../../src/lib/emailOutbox.js';
+import { DEFAULT_ORGANIZATION_ID, DEFAULT_SYSTEM_OWNER_USER_ID } from '../../src/lib/tenancy/constants.js';
 
 async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, user_auth_tokens, user_sessions, user_auth_email_jobs, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
   );
+  await prisma.organizationMembership.deleteMany({
+    where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
+  });
+  await prisma.organization.deleteMany({ where: { id: { not: DEFAULT_ORGANIZATION_ID } } });
+  await prisma.user.deleteMany({ where: { id: { not: DEFAULT_SYSTEM_OWNER_USER_ID } } });
 }
 
 async function createExchangeRegistration(email: string) {
@@ -183,6 +189,242 @@ test('anonymous visitor sees the access gate only inside the video window', asyn
   await expect(page.locator('header')).toBeVisible();
 });
 
+test('platform magic link creates a cookie-only tenant session and removes the fragment token', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const organization = await prisma.organization.create({
+    data: { name: 'Команда E2E', slug: `platform-e2e-${Date.now()}`, status: 'ACTIVE' },
+  });
+  const user = await prisma.user.create({
+    data: {
+      emailNormalized: `platform-e2e-${Date.now()}@example.test`,
+      displayName: 'Елена Тестовая',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: {
+      organizationId: organization.id,
+      userId: user.id,
+      role: 'OWNER',
+      status: 'ACTIVE',
+    },
+  });
+  const rawToken = createAccessToken();
+  await prisma.userAuthToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(rawToken),
+      purpose: 'PASSWORDLESS_LOGIN',
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+  });
+
+  await page.goto(`/crisis_premium/platform-access.html#token=${rawToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'ready');
+  await expect(page.locator('#platformUserName')).toHaveText('Елена Тестовая');
+  await expect(page.locator('#platformOrganizationName')).toHaveText('Команда E2E');
+  await expect(page.locator('#platformRole')).toHaveText('Владелец');
+  expect(page.url()).not.toContain(rawToken);
+  expect(new URL(page.url()).hash).toBe('');
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+
+  const sessionCookie = (await page.context().cookies()).find(cookie => cookie.name === 'aspb_user_session');
+  expect(sessionCookie).toMatchObject({ httpOnly: true, sameSite: 'Lax' });
+  const sessionResponse = await page.request.get('/api/v1/auth/session');
+  expect(sessionResponse.ok()).toBeTruthy();
+  await expect(sessionResponse.json()).resolves.toMatchObject({
+    activeOrganizationId: organization.id,
+    user: { id: user.id },
+  });
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'ready');
+  await page.locator('#platformLogoutButton').click();
+  await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'login');
+  expect((await page.context().cookies()).find(cookie => cookie.name === 'aspb_user_session')).toBeUndefined();
+});
+
+test('organization invitation creates the bound membership and signs the invitee in', async ({ page }) => {
+  const organization = await prisma.organization.create({
+    data: { name: 'Команда авторов', slug: `invitation-e2e-${Date.now()}`, status: 'ACTIVE' },
+  });
+  const owner = await prisma.user.create({
+    data: {
+      emailNormalized: `invitation-owner-${Date.now()}@example.test`,
+      displayName: 'E2E owner',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: { organizationId: organization.id, userId: owner.id, role: 'OWNER', status: 'ACTIVE' },
+  });
+  const invitation = await prisma.organizationInvitation.create({
+    data: {
+      organizationId: organization.id,
+      emailNormalized: `invited-author-${Date.now()}@example.test`,
+      role: 'AUTHOR',
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + 60_000),
+      invitedByUserId: owner.id,
+    },
+  });
+  const rawToken = createAccessToken();
+  await prisma.organizationInvitationToken.create({
+    data: {
+      invitationId: invitation.id,
+      tokenHash: hashToken(rawToken),
+      expiresAt: invitation.expiresAt,
+    },
+  });
+
+  await page.goto(`/crisis_premium/platform-access.html#invite=${rawToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'ready');
+  await expect(page.locator('#platformOrganizationName')).toHaveText('Команда авторов');
+  await expect(page.locator('#platformRole')).toHaveText('Автор');
+  expect(page.url()).not.toContain(rawToken);
+  expect((await page.context().cookies()).find(cookie => cookie.name === 'aspb_user_session')).toMatchObject({
+    httpOnly: true,
+  });
+  const accepted = await prisma.organizationInvitation.findUniqueOrThrow({ where: { id: invitation.id } });
+  expect(accepted).toMatchObject({ status: 'ACCEPTED', acceptedByUserId: expect.any(String) });
+  await expect(
+    prisma.organizationMembership.findUniqueOrThrow({ where: { id: accepted.membershipId! } }),
+  ).resolves.toMatchObject({ organizationId: organization.id, role: 'AUTHOR', status: 'ACTIVE' });
+});
+
+test('owner MFA challenge hides tenant data until the one-time code is verified', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  const mfaSecret = 'JBSWY3DPEHPK3PXP';
+  const organization = await prisma.organization.create({
+    data: { name: 'Защищённая команда', slug: `mfa-e2e-${Date.now()}`, status: 'ACTIVE' },
+  });
+  const user = await prisma.user.create({
+    data: {
+      emailNormalized: `mfa-owner-${Date.now()}@example.test`,
+      displayName: 'Владелец с MFA',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+      mfaSecretEncrypted: encryptMfaSecret(mfaSecret),
+      mfaEnabledAt: new Date(),
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: { organizationId: organization.id, userId: user.id, role: 'OWNER', status: 'ACTIVE' },
+  });
+  const rawToken = createAccessToken();
+  await prisma.userAuthToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(rawToken),
+      purpose: 'PASSWORDLESS_LOGIN',
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+  });
+
+  await page.goto(`/crisis_premium/platform-access.html#token=${rawToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'mfa');
+  await expect(page.locator('#platformOrganizationName')).not.toBeVisible();
+  expect(page.url()).not.toContain(rawToken);
+
+  await page.locator('#platformMfaOtp').fill(generateTotp(mfaSecret));
+  await page.locator('#platformMfaButton').click();
+  await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'ready');
+  await expect(page.locator('#platformUserName')).toHaveText('Владелец с MFA');
+  await expect(page.locator('#platformOrganizationName')).toHaveText('Защищённая команда');
+  await expect(page.locator('#platformMfaSettingsDescription')).toContainText('MFA включена');
+  await expect(page.locator('#platformMfaDisableForm')).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test('author saves a profile, uploads private evidence and submits it for review', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  const organization = await prisma.organization.create({
+    data: { name: 'Юридическая команда', slug: `author-profile-e2e-${Date.now()}`, status: 'ACTIVE' },
+  });
+  const user = await prisma.user.create({
+    data: {
+      emailNormalized: `author-profile-${Date.now()}@example.test`,
+      displayName: 'Автор E2E',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: { organizationId: organization.id, userId: user.id, role: 'AUTHOR', status: 'ACTIVE' },
+  });
+  const rawToken = createAccessToken();
+  await prisma.userAuthToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(rawToken),
+      purpose: 'PASSWORDLESS_LOGIN',
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+  });
+
+  await page.goto(`/crisis_premium/platform-access.html#token=${rawToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#platformAuthorProfileLink')).toBeVisible();
+  await page.locator('#platformAuthorProfileLink').click();
+  await expect(page.locator('body')).toHaveAttribute('data-author-mode', 'content');
+
+  await page.locator('#authorPublicName').fill('Мария Юрист');
+  await page
+    .locator('#authorBio')
+    .fill('Практикующий юрист по корпоративному праву и договорной работе, сопровождающий российский бизнес.');
+  await page.locator('#authorSpecializations').fill('Корпоративное право\nДоговорная работа');
+  await page.locator('#authorOrganization').fill('Коллегия юристов');
+  await page.locator('#authorRegion').fill('Москва');
+  await page
+    .locator('#authorExperience')
+    .fill('Десять лет сопровождаю сделки, корпоративные процедуры и арбитражные споры.');
+  const saveResponsePromise = page.waitForResponse(
+    response => response.url().endsWith('/api/v1/author-profile') && response.request().method() === 'PATCH',
+  );
+  await page.locator('#authorSaveButton').click();
+  const saveResponse = await saveResponsePromise;
+  expect(saveResponse.status(), await saveResponse.text()).toBe(200);
+  await expect(page.locator('#authorProfileStatus')).toContainText('Черновик сохранён');
+
+  await page.locator('#authorEvidenceFile').setInputFiles({
+    name: 'qualification.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.7\nE2E private evidence\n%%EOF'),
+  });
+  await page.locator('#authorEvidenceButton').click();
+  await expect(page.locator('#authorEvidenceList')).toContainText('qualification.pdf');
+  await expect(page.locator('#authorEvidenceStatus')).toContainText('доступен только вам');
+
+  await page.locator('#authorSubmitButton').click();
+  await expect(page.locator('#authorStatusLabel')).toHaveText('На проверке');
+  await expect(page.locator('#authorSubmitStatus')).toContainText('Профиль отправлен на проверку');
+  await expect(page.locator('#authorPublicName')).toBeDisabled();
+  const profile = await prisma.authorProfile.findFirstOrThrow({ where: { userId: user.id } });
+  expect(profile.verificationStatus).toBe('PENDING');
+  await expect(prisma.authorVerificationEvidence.count({ where: { profileId: profile.id } })).resolves.toBe(1);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  const overflowSources = await page.locator('body *').evaluateAll(elements =>
+    elements
+      .map(element => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName,
+          id: element.id,
+          className: element.className,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+        };
+      })
+      .filter(rect => rect.left < -1 || rect.right > window.innerWidth + 1)
+      .slice(0, 10),
+  );
+  expect(overflow, JSON.stringify(overflowSources)).toBeLessThanOrEqual(1);
+});
+
 test('registered waiting state keeps the room visible and the video closed', async ({ page }) => {
   const now = new Date();
   const scheduledAt = new Date(now.getTime() + 45 * 60 * 1000);
@@ -326,13 +568,62 @@ test('registered participant restores access in a clean browser context', async 
 test('admin frontend logs in without relying on implicit DOM globals', async ({ page }) => {
   const email = 'admin-e2e@aspb.ru';
   const password = 'StrongAdminE2E123';
-  await prisma.adminUser.create({
+  const admin = await prisma.adminUser.create({
     data: {
       name: 'E2E Администратор',
       email,
       passwordHash: await hashPassword(password),
       role: 'owner',
       isActive: true,
+    },
+  });
+  const organization = await prisma.organization.create({
+    data: { name: 'Организация автора E2E', slug: `admin-author-e2e-${Date.now()}`, status: 'ACTIVE' },
+  });
+  const author = await prisma.user.create({
+    data: {
+      emailNormalized: `admin-review-author-${Date.now()}@example.test`,
+      displayName: 'Автор для проверки',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: { organizationId: organization.id, userId: author.id, role: 'AUTHOR', status: 'ACTIVE' },
+  });
+  const authorProfile = await prisma.authorProfile.create({
+    data: {
+      organizationId: organization.id,
+      userId: author.id,
+      slug: `author-${'a'.repeat(24)}`,
+      publicName: 'Анна Автор',
+      bio: 'Практикующий юрист с опытом корпоративного и договорного сопровождения бизнеса.',
+      specializations: ['Корпоративное право'],
+      professionalOrganization: 'Коллегия юристов',
+      region: 'Москва',
+      experience: 'Более десяти лет сопровождения компаний и арбитражных споров.',
+      verificationStatus: 'PENDING',
+    },
+  });
+  const verification = await prisma.authorVerification.create({
+    data: {
+      profileId: authorProfile.id,
+      organizationId: organization.id,
+      submittedByUserId: author.id,
+      status: 'PENDING',
+    },
+  });
+  await prisma.authorVerificationEvidence.create({
+    data: {
+      profileId: authorProfile.id,
+      organizationId: organization.id,
+      verificationId: verification.id,
+      kind: 'LICENSE',
+      originalName: 'qualification.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 14,
+      checksumSha256: 'b'.repeat(64),
+      content: Buffer.from('%PDF-1.7\n%%EOF'),
     },
   });
 
@@ -353,6 +644,32 @@ test('admin frontend logs in without relying on implicit DOM globals', async ({ 
   await expect(page.locator('#appPanel')).toBeVisible();
   await expect(page.locator('#logoutBtn')).toBeVisible();
   await expect(page.locator('#metrics')).toContainText('Регистрации');
+  await expect(page.locator('#authorVerificationSection')).toBeVisible();
+  await expect(page.locator('#authorVerificationList')).toContainText('Анна Автор');
+  await expect(page.locator('#authorVerificationList')).toContainText('qualification.pdf');
+  await page.setViewportSize({ width: 320, height: 760 });
+  const reviewPanelOverflow = await page
+    .locator('#authorVerificationSection')
+    .evaluate(element => element.scrollWidth - element.clientWidth);
+  expect(reviewPanelOverflow).toBeLessThanOrEqual(1);
+  const reviewStatusSelect = page.locator(`#verification-status-${verification.id}`);
+  await expect(reviewStatusSelect).toHaveAccessibleName(/Решение/);
+  await reviewStatusSelect.selectOption('NEEDS_INFO');
+  const publicComment = page.locator(`#verification-public-${verification.id}`);
+  await expect(publicComment).toHaveAccessibleName(/Комментарий автору/);
+  await publicComment.fill('Добавьте сведения о судебной практике.');
+  const internalReason = page.locator(`#verification-internal-${verification.id}`);
+  await expect(internalReason).toHaveAccessibleName(/Внутренняя причина/);
+  await internalReason.fill('Недостаточно деталей для решения.');
+  await page.getByRole('button', { name: 'Сохранить решение' }).click();
+  await expect
+    .poll(async () => (await prisma.authorVerification.findUniqueOrThrow({ where: { id: verification.id } })).status)
+    .toBe('NEEDS_INFO');
+  await expect(prisma.authorVerification.findUniqueOrThrow({ where: { id: verification.id } })).resolves.toMatchObject({
+    reviewedByAdminUserId: admin.id,
+    publicComment: 'Добавьте сведения о судебной практике.',
+    internalReason: 'Недостаточно деталей для решения.',
+  });
   expect(pageErrors).toEqual([]);
 });
 

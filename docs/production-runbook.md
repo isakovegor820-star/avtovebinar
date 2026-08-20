@@ -149,6 +149,70 @@ Concurrent-index script идемпотентен для уже valid indexes. Е
 на прежнем маршруте, но новые scoped services уже обязаны использовать
 server-resolved tenant context.
 
+Passwordless User auth добавлен additive migration
+`20260820143000_user_passwordless_auth`. Она создаёт только новые
+`user_auth_tokens`, `user_sessions` и `user_auth_email_jobs`; legacy rows не
+изменяются. Перед включением `PLATFORM_ACCOUNTS_ENABLED=on`:
+
+1. Убедитесь, что migration применена и worker `reminders` healthy.
+2. Проверьте SMTP в `send` mode и protected health для
+   `userAuthEmailOutbox`: failed/dead-letter/stale counts равны нулю.
+3. Создайте тестового `HUMAN User` с `ACTIVE` membership без
+   копирования `AdminUser` и пройдите
+   `/crisis_premium/platform-access.html` на тестовом адресе.
+4. Включите только `PLATFORM_ACCOUNTS_ENABLED`; tenant enforcement для
+   legacy сущностей оставьте `off` до их scoped миграций.
+5. Наблюдайте Prometheus queues `user_auth_email_outbox*` и alert
+   `user_auth_email_failed_or_dead_letter_jobs`. При деградации верните флаг
+   в `off`; миграцию и созданные hash-only данные не удаляйте.
+
+Организационные приглашения и owner MFA добавлены следующими additive
+migrations: `20260820160000_organization_invitations` и
+`20260820170000_user_owner_mfa`. Первая создаёт только invitation/token/outbox
+таблицы; вторая добавляет nullable MFA-поля к `users`/`user_sessions` и не
+изменяет `admin_users`. Перед открытием team-management flow:
+
+1. Проверьте protected dependency health
+   `organizationInvitationEmailOutbox` и worker `reminders`.
+2. В `EMAIL_MODE=send` отправьте invitation на контролируемый тестовый адрес,
+   примите его один раз и убедитесь, что replay и отзыв возвращают safe error.
+3. Проверьте Prometheus queues `invitation_email_outbox*` и alert
+   `invitation_email_failed_or_dead_letter_jobs`; raw invitation URL не должен
+   появляться в application log.
+4. Владелец включает MFA на странице «Мой доступ»: enrollment действует 10
+   минут, после подтверждения прочие User sessions отзываются. Новый вход до
+   TOTP показывает только MFA challenge и не возвращает tenant membership data.
+5. Отдельно повторите действующий platform-admin login с обязательной MFA:
+   tenant migration не меняет его secret, cookie или authorization middleware.
+
+Rollback выполняется флагом `PLATFORM_ACCOUNTS_ENABLED=off`. Не удаляйте новые
+таблицы/колонки и не очищайте invitation/session history. После rollback уже
+отправленные ссылки остаются недоступны через API до повторного включения флага.
+
+Author verification добавлен additive migration
+`20260820180000_author_verification`. Она создаёт только новые
+`author_profiles`, `author_verifications` и
+`author_verification_evidence`; legacy webinar, registration, CRM, email,
+Telegram и `admin_users` не изменяются. До открытия author onboarding:
+
+1. Примените migration при `PLATFORM_ACCOUNTS_ENABLED=off` и убедитесь,
+   что новые таблицы пусты, а legacy counts/postflight не изменились.
+2. Проверьте owner/author flow на контролируемом tenant: draft,
+   загрузка файла до 5 МиБ, submit и отказ в cross-tenant read/write.
+3. Пройдите platform-admin review: `PENDING -> NEEDS_INFO -> PENDING ->
+   VERIFIED`, затем `VERIFIED -> SUSPENDED`; проверьте audit с
+   correlation ID и отсутствие internal reason в author response.
+4. Убедитесь, что evidence response имеет `Cache-Control: no-store`,
+   `X-Robots-Tag: noindex`, а public profile не содержит email, document ID/bytes
+   и internal notes.
+5. Правила публичного профиля, SLA и сроки хранения документов
+   должны письменно утвердить юрист/DPO/владелец процесса. До этого не
+   включайте публичный onboarding и не запускайте destructive cleanup.
+
+Application rollback — `PLATFORM_ACCOUNTS_ENABLED=off`. Миграцию не
+откатывайте и не удаляйте профили/документы: это требует отдельного
+утверждённого retention/erasure process.
+
 Seed нужен только при первичной подготовке demo/default данных:
 
 ```bash

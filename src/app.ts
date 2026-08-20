@@ -171,6 +171,32 @@ const participantLoginEmailLimiter = rateLimit({
   },
 });
 
+const platformLoginEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (email.includes('@')) {
+      return `platform-email:${email}`;
+    }
+    return `platform-ip:${ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? '0.0.0.0')}`;
+  },
+  message: {
+    ok: true,
+    message: 'Если аккаунт доступен, мы отправим одноразовую ссылку для входа.',
+  },
+});
+
+const platformMutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  skip: () => env.NODE_ENV === 'test',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const tokenReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 90,
@@ -209,6 +235,11 @@ app.use('/api/participant/login/request', formLimiter);
 app.use('/api/participant/login/consume', tokenReadLimiter);
 app.use('/api/participant/access', tokenReadLimiter);
 app.use('/api/participant/logout', formLimiter);
+app.use('/api/v1/auth/passwordless/request', platformLoginEmailLimiter);
+app.use('/api/v1/auth/passwordless/request', platformMutationLimiter);
+app.use('/api/v1/auth/passwordless/consume', tokenReadLimiter);
+app.use('/api/v1/auth', platformMutationLimiter);
+app.use('/api/v1/organization', platformMutationLimiter);
 app.use('/api/questions', formLimiter);
 app.use('/api/partner-application', formLimiter);
 app.use('/api/events', eventLimiter);

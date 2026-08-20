@@ -1,7 +1,7 @@
 # Матрица сроков хранения АСПБ
 
-Версия: `2026-07-30.1`
-Дата утверждения в коде: 30.07.2026
+Версия: `2026-08-20.3`
+Дата утверждения в коде: 20.08.2026
 Статус: локальная реализация; до production требуется проверка российского юриста, DPO и письменное утверждение руководителя.
 
 HMAC IP, Telegram ID и `visitorId` являются псевдонимизированными персональными данными, а не автоматически обезличенными. Legal hold, инцидент, спор, действующий договор и прямая обязанность по закону приостанавливают уничтожение только в документированном объёме. Существующие журналы инцидентов не удаляются.
@@ -10,6 +10,15 @@ HMAC IP, Telegram ID и `visitorId` являются псевдонимизир�
 |---|---|---|---|---|---|---|---|
 | Регистрация и доступ | имя, телефон, email, город, статус | `leads`, `registrations` | 3 года | последнее взаимодействие/обновление | ПДн лида заменяются нейтральными значениями, связи для статистики сохраняются | активный договор, спор, закон, legal hold | `retention_runs`, audit действия по запросу |
 | Токены доступа | хэш токена, назначение, регистрация | `registration_tokens` | срок действия + 7 дней | `expires_at` | удаление строки | расследуемый инцидент с документированным legal hold | `retention_runs.result_json` |
+| Passwordless-токены User | SHA-256 хэш, purpose, expiry, consumed timestamp | `user_auth_tokens` | срок действия + 24 часа | `expires_at` | удаление строки worker cleanup | документированный security legal hold | worker log/metrics |
+| User session | SHA-256 хэш, active organization, IP-hash, User-Agent, revoke/expiry | `user_sessions` | expiry + 30 дней | `expires_at` | удаление строки worker cleanup | расследование инцидента/legal hold | audit + queue health |
+| Passwordless email outbox | User reference, state, attempts, redacted error; без email и raw URL | `user_auth_email_jobs` | 90 дней после terminal status | `updated_at` | удаление `sent/cancelled/dead_letter` job | спор/инцидент/legal hold | protected health + Prometheus metrics |
+| Организационное приглашение | organization, нормализованный email, роль, статус, инициатор/акцептор | `organization_invitations` | 3 года | принятие, отзыв или истечение | отдельный утверждённый tenant/account cleanup; audit сохраняется по своей политике | спор, инцидент, legal hold | `audit_logs`, tenant-scoped API |
+| Токен приглашения | SHA-256 хэш, invitation, expiry, consume/invalidate timestamp | `organization_invitation_tokens` | срок действия + 7 дней | `expires_at` | удаление строки worker cleanup | документированный security legal hold | worker cleanup result |
+| Invitation email outbox | invitation reference, state, attempts, redacted error; без raw URL | `organization_invitation_email_jobs` | 90 дней после terminal status | `updated_at` | удаление `sent/cancelled/dead_letter` job | спор/инцидент/legal hold | protected health + Prometheus metrics |
+| MFA владельца | зашифрованный TOTP secret, enabled/enrollment timestamps, session verification timestamp | `users`, `user_sessions` | до отключения MFA/удаления аккаунта; session marker — вместе с session | включение/отключение MFA, expiry session | secret удаляется при отключении; session — expiry + 30 дней | security incident/legal hold | `audit_logs`, authentication tests |
+| Профиль автора и решение о проверке | публичные профессиональные сведения, статус, комментарий автору, внутренняя причина | `author_profiles`, `author_verifications` | **не утверждён**; до утверждения — без автоудаления | закрытие аккаунта/прекращение публикации | отдельный tenant/account erasure после письменного решения юриста/DPO; обязательный аудит сохраняется отдельно | спор, проверка, legal hold | `audit_logs`, tenant/public projection tests |
+| Документы проверки автора | минимально необходимые PDF/JPEG/PNG, MIME, size, checksum | `author_verification_evidence` (приватное хранение) | **не утверждён**; до утверждения — без автоудаления | финальное решение о проверке/закрытие аккаунта | неотправленный документ автор удаляет сам; остальное удаление — только утверждённым erasure process | спор, проверка, legal hold | access audit, `no-store`/`noindex`, private projection tests |
 | Вопросы | текст, выбранная публикация | `questions` | 1 год | `created_at` | текст и отображаемое имя заменяются/очищаются | незавершённый ответ, спор, legal hold | `retention_runs` |
 | Чат участника | имя/псевдоним, статус, сообщение | `webinar_chat_messages` | 1 год | `created_at` | удаление пользовательского сообщения | legal hold | `retention_runs` |
 | Подготовленный чат | сценарный текст без данных участника | `webinar_chat_messages`, `webinar-data` | срок актуальности сценария | публикация версии сценария | удаление/замена при обновлении | авторские и доказательные материалы | Git |
@@ -23,6 +32,6 @@ HMAC IP, Telegram ID и `visitorId` являются псевдонимизир�
 | IP-hash/User-Agent админ-аудита | IP-hash, UA | `audit_logs` | 180 дней для технических меток | `created_at` | поля очищаются, факт действия остаётся | расследование инцидента/legal hold | `retention_runs` |
 | Административный аудит | актор, действие, объект, before/after без лишних ПДн | `audit_logs` | 3 года | `created_at` | отдельное контролируемое удаление после проверки legal hold | спор, инцидент, проверка | audit export |
 | Cookie выбора | `aspb_cookie_consent` | браузер | 12 месяцев | решение пользователя | удаление пользователем/истечение | нет | browser test |
-| CSRF/session cookie | CSRF, participant/admin session | браузер и hashes в БД | 12 часов / 7 дней / 24 часа | выдача/последнее использование | истечение и удаление токена | отзыв всех admin sessions | HTTP/integration tests |
+| CSRF/session cookie | CSRF, participant/admin/User session | браузер и hashes в БД | 12 часов / 7 дней / 24 часа; User session 7 дней | выдача/последнее использование | истечение, revoke и удаление hash | security incident/legal hold | HTTP/integration tests |
 
 Автоматический job реализован в `src/lib/retention.ts`. Каждый запуск сначала создаёт `retention_runs(status=running)`, затем фиксирует `completed` с количеством изменённых строк либо `failed` с ошибкой. Значения нельзя считать окончательно утверждёнными до юридической и бизнес-проверки матрицы.

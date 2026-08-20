@@ -16,7 +16,7 @@ import {
   TELEGRAM_BROADCAST_CREATE_LOCK_KEY,
   TELEGRAM_BROADCAST_MAX_TEXT_LENGTH,
 } from '../lib/telegramBroadcastWorker.js';
-import { setContextIdentity } from '../lib/requestContext.js';
+import { getRequestContext, setContextIdentity } from '../lib/requestContext.js';
 import { getAdminHtml } from '../responses/adminPage.js';
 import {
   buildFrontendUrl,
@@ -32,6 +32,12 @@ import { getScriptedChatMessagesUntil } from '../lib/scriptedChat.js';
 import { createMfaEnrollment, decryptMfaSecret, verifyTotp } from '../lib/mfa.js';
 import { anonymizeLeadInTransaction, LEAD_ANONYMIZATION_TRANSACTION_TIMEOUT_MS } from '../lib/anonymizeLead.js';
 import { acquireLeadSecurityLock, isParticipantRegistrationActive } from '../lib/leadSecurity.js';
+import {
+  getAdminAuthorEvidenceContent,
+  getAdminAuthorVerification,
+  listAdminAuthorVerifications,
+  reviewAuthorVerification,
+} from '../lib/tenancy/authorVerification.js';
 
 export const adminRouter = Router();
 
@@ -619,6 +625,86 @@ adminRouter.get(
   requireAdmin,
   asyncHandler(async (req, res) => {
     res.json({ ok: true, admin: (req as AdminRequest).admin });
+  }),
+);
+
+adminRouter.get(
+  '/api/v1/platform/author-verifications',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const result = await listAdminAuthorVerifications(prisma, req.query);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, ...result, correlationId: getRequestContext()?.correlationId });
+  }),
+);
+
+adminRouter.get(
+  '/api/v1/platform/author-verifications/evidence/:evidenceId',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const params = z
+      .object({ evidenceId: z.string().trim().min(1).max(191) })
+      .strict()
+      .parse(req.params);
+    const actor = (req as AdminRequest).admin;
+    if (!actor?.id) throw new AppError(401, 'Admin authorization required');
+    const evidence = await getAdminAuthorEvidenceContent(prisma, params.evidenceId);
+    await prisma.auditLog.create({
+      data: {
+        adminUserId: actor.id,
+        organizationId: evidence.organizationId,
+        correlationId: getRequestContext()?.correlationId,
+        action: 'author_verification.evidence_accessed_by_admin',
+        entityType: 'author_verification_evidence',
+        entityId: evidence.id,
+        ipHash: hashIp(getClientIp(req)),
+        userAgent: req.headers['user-agent'] ?? null,
+      },
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `attachment; filename="evidence-${evidence.id}"`);
+    res.type(evidence.mimeType).send(Buffer.from(evidence.content));
+  }),
+);
+
+adminRouter.get(
+  '/api/v1/platform/author-verifications/:verificationId',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const params = z
+      .object({ verificationId: z.string().trim().min(1).max(191) })
+      .strict()
+      .parse(req.params);
+    const verification = await getAdminAuthorVerification(prisma, params.verificationId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, verification, correlationId: getRequestContext()?.correlationId });
+  }),
+);
+
+adminRouter.patch(
+  '/api/v1/platform/author-verifications/:verificationId',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const params = z
+      .object({ verificationId: z.string().trim().min(1).max(191) })
+      .strict()
+      .parse(req.params);
+    const actor = (req as AdminRequest).admin;
+    if (!actor?.id) throw new AppError(401, 'Admin authorization required');
+    const verification = await reviewAuthorVerification(
+      prisma,
+      actor.id,
+      params.verificationId,
+      req.body,
+      getRequestContext()?.correlationId,
+    );
+    res.json({ ok: true, verification, correlationId: getRequestContext()?.correlationId });
   }),
 );
 

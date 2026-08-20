@@ -27,8 +27,18 @@
 Новый код обязан получать active organization из доверенного пользовательского
 контекста через `src/lib/tenancy/context.ts` и выполнять object read/write через
 scoped repository/service. Поле `organizationId` в payload не является
-доказательством доступа и отклоняется новыми Zod-контрактами. До реализации
-TEN-004 оба rollout-флага остаются выключены:
+доказательством доступа и отклоняется новыми Zod-контрактами.
+
+TEN-004 добавляет passwordless User auth: durable email outbox с hash-only
+одноразовыми токенами, `aspb_user_session` HttpOnly cookie, отзыв
+сессий и серверный выбор active organization. UI входа доступен по
+`/crisis_premium/platform-access.html`. TEN-005 добавляет owner-only приглашения,
+привязанные к email, роли и семидневному сроку, с отзывом, повторной активацией
+membership и отдельным durable outbox. TEN-008 сохраняет обязательную MFA
+`AdminUser` и добавляет владельцам организаций TOTP MFA: enrollment действует
+10 минут, секрет хранится зашифрованным, а непроверенная MFA-сессия не получает
+tenant-данные и доступ к защищённым endpoints. До controlled switch оба
+rollout-флага остаются выключены:
 
 ```text
 PLATFORM_ACCOUNTS_ENABLED=off
@@ -36,8 +46,22 @@ PLATFORM_TENANCY_ENFORCEMENT=off
 ```
 
 Это сохраняет действующие registration/room/replay/CRM/email/Telegram и
-platform-admin flow. Состояние требований и границы compatibility layer описаны
+platform-admin flow. При `PLATFORM_ACCOUNTS_ENABLED=off` новые routes возвращают
+safe `404`; старый participant passwordless flow не изменяется. Состояние требований
+и границы compatibility layer описаны
 в `docs/ASPB-LEGAL-PLATFORM-IMPLEMENTATION-STATUS.md`.
+
+AUT-001–AUT-005 добавляют tenant-scoped профиль автора и ручную
+проверку. Автор сохраняет черновик на
+`/crisis_premium/author-profile.html`, загружает до 5 МИБ PDF/JPEG/PNG и
+отправляет профиль на проверку. Файлы хранятся приватно, выдаются
+только после повторной authorization-проверки с `no-store` и не входят в
+публичную projection. Администратор может запросить уточнение,
+принять, отклонить или приостановить профиль; внутренняя причина никогда
+не возвращается автору. Публичный endpoint видит только `verified`
+активного автора с действующим membership. Прямой publish guard уже
+централизован в service policy и будет подключён к реальному Webinar publish API
+на этапе 2.
 
 ## Быстрый запуск
 
@@ -144,6 +168,29 @@ POST /api/events
 POST /api/questions
 POST /api/telegram-click
 POST /api/partner-application
+POST /api/v1/auth/passwordless/request
+POST /api/v1/auth/passwordless/consume
+GET  /api/v1/auth/session
+POST /api/v1/auth/active-organization
+POST /api/v1/auth/logout
+POST /api/v1/auth/sessions/revoke-all
+POST /api/v1/auth/mfa/verify
+POST /api/v1/auth/mfa/enrollment/start
+POST /api/v1/auth/mfa/enrollment/confirm
+POST /api/v1/auth/mfa/disable
+POST /api/v1/organization/invitations
+GET  /api/v1/organization/invitations
+POST /api/v1/organization/invitations/accept
+DELETE /api/v1/organization/invitations/:invitationId
+PATCH /api/v1/organization/memberships/:membershipId/role
+DELETE /api/v1/organization/memberships/:membershipId
+GET  /api/v1/author-profile
+PATCH /api/v1/author-profile
+POST /api/v1/author-verification
+POST /api/v1/author-verification/evidence
+GET  /api/v1/author-verification/evidence/:evidenceId
+DELETE /api/v1/author-verification/evidence/:evidenceId
+GET  /api/v1/catalog/authors/:slug
 ```
 
 Admin:
@@ -161,6 +208,10 @@ PATCH /api/admin/questions/:id
 GET   /api/admin/partner-applications
 POST  /api/admin/telegram/broadcast
 GET   /api/admin/analytics/summary
+GET   /api/v1/platform/author-verifications
+GET   /api/v1/platform/author-verifications/:id
+PATCH /api/v1/platform/author-verifications/:id
+GET   /api/v1/platform/author-verifications/evidence/:evidenceId
 ```
 
 ## Production env

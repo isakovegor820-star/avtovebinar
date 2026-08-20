@@ -22,6 +22,10 @@ import {
   acquireLeadSecurityLock,
   isParticipantRegistrationActive,
 } from './leadSecurity.js';
+import { cleanupExpiredUserAuth } from './tenancy/userAuth.js';
+import { runUserAuthEmailOutboxJobOnce } from './tenancy/userAuthEmailOutbox.js';
+import { runOrganizationInvitationEmailOutboxJobOnce } from './tenancy/organizationInvitationEmailOutbox.js';
+import { cleanupOrganizationInvitations } from './tenancy/organizationInvitations.js';
 
 type ReminderCandidate = {
   id: string;
@@ -848,6 +852,16 @@ async function runReminderCycle() {
     const results = [];
     results.push(await runStep('[ASPБ reminders]', () => runReminderJobOnce(new Date(), reportProgress)));
     results.push(await runStep('[ASPБ email outbox]', () => runEmailOutboxJobOnce(new Date(), {}, reportProgress)));
+    results.push(
+      await runStep('[ASPБ user auth email outbox]', () =>
+        runUserAuthEmailOutboxJobOnce(new Date(), {}, reportProgress),
+      ),
+    );
+    results.push(
+      await runStep('[ASPБ organization invitation email outbox]', () =>
+        runOrganizationInvitationEmailOutboxJobOnce(new Date(), {}, reportProgress),
+      ),
+    );
     results.push(await runStep('[ASPБ telegram live]', () => runTelegramLiveJobOnce(new Date(), reportProgress)));
     results.push(
       await runStep('[ASPБ telegram reminders]', () => runTelegramReminderJobOnce(new Date(), reportProgress)),
@@ -856,6 +870,8 @@ async function runReminderCycle() {
       await runStep('[ASPБ telegram followup]', () => runTelegramFollowupJobOnce(new Date(), reportProgress)),
     );
     results.push(await runStep('[ASPБ token cleanup]', cleanupExpiredRegistrationTokens));
+    results.push(await runStep('[ASPБ user auth cleanup]', () => cleanupExpiredUserAuth(prisma)));
+    results.push(await runStep('[ASPБ organization invitation cleanup]', () => cleanupOrganizationInvitations(prisma)));
     results.push(await runStep('[ASPБ retention]', () => runRetentionSweepThrottled(new Date(), reportProgress)));
     const healthy = results.every(Boolean);
     if (healthy) {

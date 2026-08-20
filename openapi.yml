@@ -121,6 +121,436 @@ paths:
           description: CSRF token is missing or invalid
         '404':
           description: Token is expired or already used
+  /api/v1/auth/passwordless/request:
+    post:
+      summary: Request a passwordless platform User login link
+      description: >-
+        Returns the same accepted response for known, unknown, disabled and organization-less
+        addresses. Client-supplied organization identifiers are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordlessLoginRequest'
+      responses:
+        '202':
+          description: Generic non-enumerating response; a durable email job may have been queued
+        '400':
+          description: Strict request payload validation failed
+        '403':
+          description: CSRF token is missing or invalid
+        '404':
+          description: Platform accounts compatibility flag is disabled
+  /api/v1/auth/passwordless/consume:
+    post:
+      summary: Consume one-time platform User login token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OneTimeTokenRequest'
+      responses:
+        '200':
+          description: Hash-backed HttpOnly User session cookie issued; eligible memberships returned
+        '400':
+          description: Strict request payload validation failed
+        '401':
+          description: Token is unknown, expired, wrong-purpose or already consumed
+        '403':
+          description: CSRF token is missing or invalid
+  /api/v1/auth/session:
+    get:
+      summary: Read the current platform User session
+      security:
+        - userSessionCookie: []
+      responses:
+        '200':
+          description: User, active organization and server-resolved active memberships
+        '401':
+          description: User session is missing, expired, revoked or no longer eligible
+  /api/v1/auth/active-organization:
+    post:
+      summary: Select one active organization from authenticated User memberships
+      security:
+        - userSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActiveOrganizationRequest'
+      responses:
+        '200':
+          description: Active organization selected in the server-side session
+        '401':
+          description: User session is missing or invalid
+        '404':
+          description: Unknown and foreign organizations are intentionally indistinguishable
+  /api/v1/auth/logout:
+    post:
+      summary: Revoke the current platform User session
+      security:
+        - userSessionCookie: []
+      responses:
+        '204':
+          description: Current session revoked and cookie cleared
+  /api/v1/auth/sessions/revoke-all:
+    post:
+      summary: Revoke all sessions for the authenticated platform User
+      security:
+        - userSessionCookie: []
+      responses:
+        '204':
+          description: Session version incremented, sessions revoked and cookie cleared
+  /api/v1/auth/mfa/verify:
+    post:
+      summary: Verify an MFA-challenged platform User session
+      description: Until this succeeds, the session cannot read tenant data or call protected tenant endpoints.
+      security:
+        - userSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaOtpRequest'
+      responses:
+        '200':
+          description: Current session marked MFA-verified and tenant session summary returned
+        '400':
+          description: Strict OTP payload validation failed
+        '401':
+          description: Session or one-time code is invalid
+  /api/v1/auth/mfa/enrollment/start:
+    post:
+      summary: Start a ten-minute owner MFA enrollment
+      security:
+        - userSessionCookie: []
+      responses:
+        '200':
+          description: One-time setup secret and otpauth URL returned with no-store caching
+        '403':
+          description: Active membership in the selected organization is not OWNER
+        '409':
+          description: MFA is already enabled
+  /api/v1/auth/mfa/enrollment/confirm:
+    post:
+      summary: Confirm owner MFA enrollment
+      security:
+        - userSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaOtpRequest'
+      responses:
+        '200':
+          description: MFA enabled, current session verified and other User sessions revoked
+        '401':
+          description: One-time code is invalid
+        '403':
+          description: Active membership in the selected organization is not OWNER
+        '409':
+          description: Enrollment is absent, expired or MFA is already enabled
+  /api/v1/auth/mfa/disable:
+    post:
+      summary: Disable owner MFA after a fresh TOTP check
+      security:
+        - userSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaOtpRequest'
+      responses:
+        '200':
+          description: MFA secret removed and other User sessions revoked
+        '401':
+          description: Current session or one-time code is invalid
+        '403':
+          description: Active membership in the selected organization is not OWNER
+  /api/v1/organization/invitations/accept:
+    post:
+      summary: Accept a role-bound one-time organization invitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OneTimeTokenRequest'
+      responses:
+        '200':
+          description: Membership created or reactivated and HttpOnly User session issued
+        '401':
+          description: Invitation is unknown, expired, revoked or already consumed
+  /api/v1/organization/invitations:
+    post:
+      summary: Create an invitation in the server-selected organization
+      security:
+        - userSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationInvitationRequest'
+      responses:
+        '201':
+          description: Pending invitation and durable delivery job created atomically
+        '403':
+          description: Authenticated membership is not an active owner
+        '409':
+          description: The email already has an active membership
+    get:
+      summary: List invitations in the server-selected organization
+      security:
+        - userSessionCookie: []
+      responses:
+        '200':
+          description: Tenant-scoped invitation list; expired pending rows are marked expired
+        '403':
+          description: Authenticated membership is not an active owner
+  /api/v1/organization/invitations/{invitationId}:
+    delete:
+      summary: Revoke a pending invitation in the server-selected organization
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationId'
+      responses:
+        '200':
+          description: Invitation revoked, active token hashes invalidated and delivery cancelled when possible
+        '403':
+          description: Authenticated membership is not an active owner
+        '404':
+          description: Unknown and cross-tenant invitations are intentionally indistinguishable
+  /api/v1/organization/memberships/{membershipId}/role:
+    patch:
+      summary: Change a membership role in the server-selected tenant
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/MembershipId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipRoleRequest'
+      responses:
+        '200':
+          description: Membership updated and audited atomically
+        '403':
+          description: Authenticated membership is not an active owner
+        '404':
+          description: Unknown and cross-tenant memberships are intentionally indistinguishable
+        '409':
+          description: Mutation would remove the last available active human owner
+  /api/v1/organization/memberships/{membershipId}:
+    delete:
+      summary: Remove a membership from the server-selected tenant
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '200':
+          description: Membership removed and audited atomically
+        '403':
+          description: Authenticated membership is not an active owner
+        '404':
+          description: Unknown and cross-tenant memberships are intentionally indistinguishable
+        '409':
+          description: Mutation would remove the last available active human owner
+  /api/v1/author-profile:
+    get:
+      summary: Read the current author's tenant-scoped profile and verification state
+      security:
+        - userSessionCookie: []
+      responses:
+        '200':
+          description: Safe author-facing profile, evidence metadata and latest public review comment
+        '403':
+          description: Active tenant membership is not OWNER or AUTHOR
+    patch:
+      summary: Save a strict tenant-scoped author profile draft
+      security:
+        - userSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorProfileDraft'
+      responses:
+        '200':
+          description: Draft saved and audited
+        '400':
+          description: Strict payload validation failed
+        '403':
+          description: Active tenant membership is not OWNER or AUTHOR
+        '409':
+          description: Profile state is not editable
+  /api/v1/author-verification:
+    post:
+      summary: Submit the complete author profile and private evidence for manual review
+      security:
+        - userSessionCookie: []
+      responses:
+        '201':
+          description: Immutable review submission created and audited
+        '400':
+          description: Required profile fields or evidence are missing
+        '403':
+          description: Active tenant membership is not OWNER or AUTHOR
+        '409':
+          description: Profile state cannot be submitted
+  /api/v1/author-verification/evidence:
+    post:
+      summary: Upload one private author verification document
+      description: Maximum 5 MiB; PDF, JPEG or PNG only; MIME and magic bytes are both validated.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: x-evidence-kind
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: [LICENSE, DIPLOMA, BAR_MEMBERSHIP, OTHER]
+        - name: x-evidence-filename
+          in: header
+          required: true
+          schema:
+            type: string
+            maxLength: 720
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema:
+              type: string
+              format: binary
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/png:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Private document stored and only non-content metadata returned
+        '400':
+          description: Metadata, MIME type or content signature is invalid
+        '413':
+          description: Upload exceeds 5 MiB
+  /api/v1/author-verification/evidence/{evidenceId}:
+    get:
+      summary: Download the current author's private verification document
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/EvidenceId'
+      responses:
+        '200':
+          description: Private no-store attachment
+        '404':
+          description: Unknown and cross-tenant evidence are intentionally indistinguishable
+    delete:
+      summary: Delete an unsubmitted private verification document
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/EvidenceId'
+      responses:
+        '200':
+          description: Unsubmitted evidence deleted and audited
+        '404':
+          description: Unknown and cross-tenant evidence are intentionally indistinguishable
+        '409':
+          description: Submitted evidence is immutable
+  /api/v1/catalog/authors/{authorSlug}:
+    get:
+      summary: Read the public projection of a verified active author
+      parameters:
+        - $ref: '#/components/parameters/AuthorSlug'
+      responses:
+        '200':
+          description: Public profile without email, internal notes or verification documents
+        '404':
+          description: Profile is absent, unverified, suspended or inactive
+  /api/v1/platform/author-verifications:
+    get:
+      summary: List author verification submissions for platform review
+      security:
+        - adminSessionCookie: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, NEEDS_INFO, VERIFIED, REJECTED, SUSPENDED]
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 191
+      responses:
+        '200':
+          description: Cursor page with private review metadata but no document bytes
+        '403':
+          description: Platform AdminUser role is insufficient
+  /api/v1/platform/author-verifications/{verificationId}:
+    get:
+      summary: Read one platform author verification submission
+      security:
+        - adminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/VerificationId'
+      responses:
+        '200':
+          description: Review details with public and internal comments
+        '404':
+          description: Verification does not exist
+    patch:
+      summary: Apply a role-limited author verification state transition
+      security:
+        - adminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/VerificationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorVerificationReview'
+      responses:
+        '200':
+          description: State transition and internal/public comment handling audited atomically
+        '400':
+          description: Required reason or author-facing comment is missing
+        '409':
+          description: State transition is not allowed
+  /api/v1/platform/author-verifications/evidence/{evidenceId}:
+    get:
+      summary: Download private verification evidence for platform review
+      security:
+        - adminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/EvidenceId'
+      responses:
+        '200':
+          description: Audited private no-store attachment
+        '403':
+          description: Platform AdminUser role is insufficient
+        '404':
+          description: Evidence does not exist
   /api/registration/exchange/{token}:
     post:
       summary: Legacy one-time token exchange (deprecated)
@@ -193,15 +623,168 @@ paths:
         '202':
           description: Broadcast job queued
 components:
+  parameters:
+    MembershipId:
+      name: membershipId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 191
+    InvitationId:
+      name: invitationId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 191
+    EvidenceId:
+      name: evidenceId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 191
+    VerificationId:
+      name: verificationId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 191
+    AuthorSlug:
+      name: authorSlug
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^author-[0-9a-f]{24}$'
   schemas:
     OneTimeTokenRequest:
       type: object
+      additionalProperties: false
       required: [token]
       properties:
         token:
           type: string
-          minLength: 20
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{43}$'
+    PasswordlessLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+    ActiveOrganizationRequest:
+      type: object
+      additionalProperties: false
+      required: [organizationId]
+      properties:
+        organizationId:
+          type: string
+          minLength: 1
+          maxLength: 191
+    MembershipRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [OWNER, AUTHOR, MODERATOR, CRM_MANAGER, ANALYST, AUDITOR]
+    OrganizationInvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        role:
+          type: string
+          enum: [OWNER, AUTHOR, MODERATOR, CRM_MANAGER, ANALYST, AUDITOR]
+    MfaOtpRequest:
+      type: object
+      additionalProperties: false
+      required: [otp]
+      properties:
+        otp:
+          type: string
+          pattern: '^\d{6}$'
+    AuthorProfileDraft:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        publicName:
+          type: string
+          nullable: true
+          minLength: 2
+          maxLength: 160
+        bio:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 5000
+        specializations:
+          type: array
+          maxItems: 30
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 2
+            maxLength: 120
+        professionalOrganization:
+          type: string
+          nullable: true
+          minLength: 2
+          maxLength: 240
+        region:
+          type: string
+          nullable: true
+          minLength: 2
+          maxLength: 160
+        experience:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 5000
+    AuthorVerificationReview:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [NEEDS_INFO, VERIFIED, REJECTED, SUSPENDED]
+        publicComment:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 2000
+        internalReason:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 4000
   securitySchemes:
     metricsBearer:
       type: http
       scheme: bearer
+    userSessionCookie:
+      type: apiKey
+      in: cookie
+      name: aspb_user_session
+    adminSessionCookie:
+      type: apiKey
+      in: cookie
+      name: aspb_admin_session

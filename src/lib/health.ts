@@ -4,6 +4,11 @@ import { env } from './env.js';
 import { verifyEmailConnectivity } from './email.js';
 import { checkTelegramConnectivity } from './telegram.js';
 import { EMAIL_OUTBOX_DUE_PENDING_SLA_MS, EMAIL_OUTBOX_STALE_SENDING_MS } from './emailOutboxPolicy.js';
+import { USER_AUTH_EMAIL_DUE_PENDING_SLA_MS, USER_AUTH_EMAIL_STALE_SENDING_MS } from './tenancy/userAuthEmailOutbox.js';
+import {
+  ORGANIZATION_INVITATION_EMAIL_DUE_PENDING_SLA_MS,
+  ORGANIZATION_INVITATION_EMAIL_STALE_SENDING_MS,
+} from './tenancy/organizationInvitationEmailOutbox.js';
 
 type HealthCheck = {
   ok: boolean;
@@ -117,6 +122,84 @@ export async function checkEmailOutbox(now = new Date()): Promise<HealthCheck> {
   }
 }
 
+export async function checkUserAuthEmailOutbox(now = new Date()): Promise<HealthCheck> {
+  try {
+    const staleBefore = new Date(now.getTime() - USER_AUTH_EMAIL_STALE_SENDING_MS);
+    const [pending, failed, deadLetter, sending, staleSending, oldestDue] = await withTimeout(
+      Promise.all([
+        prisma.userAuthEmailJob.count({ where: { status: 'PENDING' } }),
+        prisma.userAuthEmailJob.count({ where: { status: 'FAILED' } }),
+        prisma.userAuthEmailJob.count({ where: { status: 'DEAD_LETTER' } }),
+        prisma.userAuthEmailJob.count({ where: { status: 'SENDING' } }),
+        prisma.userAuthEmailJob.count({ where: { status: 'SENDING', claimedAt: { lt: staleBefore } } }),
+        prisma.userAuthEmailJob.findFirst({
+          where: { status: { in: ['PENDING', 'FAILED'] }, nextAttemptAt: { lte: now } },
+          orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          select: { nextAttemptAt: true },
+        }),
+      ]),
+      DEPENDENCY_DATA_TIMEOUT_MS,
+      'user auth email outbox health',
+    );
+    const oldestDuePendingAt = oldestDue?.nextAttemptAt ?? null;
+    const oldestDuePendingAgeMs = oldestDuePendingAt ? Math.max(0, now.getTime() - oldestDuePendingAt.getTime()) : null;
+    const duePendingOverSla =
+      oldestDuePendingAgeMs !== null && oldestDuePendingAgeMs > USER_AUTH_EMAIL_DUE_PENDING_SLA_MS;
+    return {
+      ok: failed === 0 && deadLetter === 0 && staleSending === 0 && !duePendingOverSla,
+      pending,
+      failed,
+      deadLetter,
+      sending,
+      staleSending,
+      oldestDuePendingAt,
+      oldestDuePendingAgeMs,
+      duePendingSlaMs: USER_AUTH_EMAIL_DUE_PENDING_SLA_MS,
+    };
+  } catch (error) {
+    return { ok: false, error: normalizeError(error) };
+  }
+}
+
+export async function checkOrganizationInvitationEmailOutbox(now = new Date()): Promise<HealthCheck> {
+  try {
+    const staleBefore = new Date(now.getTime() - ORGANIZATION_INVITATION_EMAIL_STALE_SENDING_MS);
+    const [pending, failed, deadLetter, sending, staleSending, oldestDue] = await withTimeout(
+      Promise.all([
+        prisma.organizationInvitationEmailJob.count({ where: { status: 'PENDING' } }),
+        prisma.organizationInvitationEmailJob.count({ where: { status: 'FAILED' } }),
+        prisma.organizationInvitationEmailJob.count({ where: { status: 'DEAD_LETTER' } }),
+        prisma.organizationInvitationEmailJob.count({ where: { status: 'SENDING' } }),
+        prisma.organizationInvitationEmailJob.count({ where: { status: 'SENDING', claimedAt: { lt: staleBefore } } }),
+        prisma.organizationInvitationEmailJob.findFirst({
+          where: { status: { in: ['PENDING', 'FAILED'] }, nextAttemptAt: { lte: now } },
+          orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          select: { nextAttemptAt: true },
+        }),
+      ]),
+      DEPENDENCY_DATA_TIMEOUT_MS,
+      'organization invitation email outbox health',
+    );
+    const oldestDuePendingAt = oldestDue?.nextAttemptAt ?? null;
+    const oldestDuePendingAgeMs = oldestDuePendingAt ? Math.max(0, now.getTime() - oldestDuePendingAt.getTime()) : null;
+    const duePendingOverSla =
+      oldestDuePendingAgeMs !== null && oldestDuePendingAgeMs > ORGANIZATION_INVITATION_EMAIL_DUE_PENDING_SLA_MS;
+    return {
+      ok: failed === 0 && deadLetter === 0 && staleSending === 0 && !duePendingOverSla,
+      pending,
+      failed,
+      deadLetter,
+      sending,
+      staleSending,
+      oldestDuePendingAt,
+      oldestDuePendingAgeMs,
+      duePendingSlaMs: ORGANIZATION_INVITATION_EMAIL_DUE_PENDING_SLA_MS,
+    };
+  } catch (error) {
+    return { ok: false, error: normalizeError(error) };
+  }
+}
+
 type WorkerSubsystem = 'reminders' | 'broadcast' | 'news' | 'botAdmin' | 'botParticipant' | 'botConsultant';
 
 type WorkerSubsystemHealthCheck = HealthCheck & {
@@ -195,10 +278,19 @@ export async function getReadiness() {
 }
 
 export async function getDependencyStatus() {
-  const [smtp, telegramProvider, emailOutboxQueue, workerSubsystems] = await Promise.all([
+  const [
+    smtp,
+    telegramProvider,
+    emailOutboxQueue,
+    userAuthEmailOutboxQueue,
+    organizationInvitationEmailOutboxQueue,
+    workerSubsystems,
+  ] = await Promise.all([
     checkSmtp(),
     checkTelegram(),
     checkEmailOutbox(),
+    checkUserAuthEmailOutbox(),
+    checkOrganizationInvitationEmailOutbox(),
     checkWorkerSubsystems(),
   ]);
   const expectedTelegramSubsystems = (workerSubsystems.expected ?? []).filter(subsystem => subsystem !== 'reminders');
@@ -210,7 +302,22 @@ export async function getDependencyStatus() {
     ...emailOutboxQueue,
     ok: emailOutboxQueue.ok && workerSubsystemsAreHealthy(workerSubsystems, ['reminders']),
   };
-  const checks = { smtp, telegram, emailOutbox, workerSubsystems };
+  const userAuthEmailOutbox = {
+    ...userAuthEmailOutboxQueue,
+    ok: userAuthEmailOutboxQueue.ok && workerSubsystemsAreHealthy(workerSubsystems, ['reminders']),
+  };
+  const organizationInvitationEmailOutbox = {
+    ...organizationInvitationEmailOutboxQueue,
+    ok: organizationInvitationEmailOutboxQueue.ok && workerSubsystemsAreHealthy(workerSubsystems, ['reminders']),
+  };
+  const checks = {
+    smtp,
+    telegram,
+    emailOutbox,
+    userAuthEmailOutbox,
+    organizationInvitationEmailOutbox,
+    workerSubsystems,
+  };
   return {
     ok: Object.values(checks).every(check => check.ok),
     checks,

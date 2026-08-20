@@ -7,6 +7,8 @@ import { partnersRouter } from './public/partners.js';
 import { mediaRouter } from './public/media.js';
 import { sendCsrfToken } from '../lib/csrf.js';
 import { getReadiness } from '../lib/health.js';
+import { platformAuthRouter } from './platformAuth.js';
+import { authorPlatformRouter } from './authorPlatform.js';
 
 export const publicRouter = Router();
 
@@ -31,6 +33,8 @@ publicRouter.get('/health/ready', async (_req, res, next) => {
 });
 
 publicRouter.get('/csrf', sendCsrfToken);
+publicRouter.use('/v1', platformAuthRouter);
+publicRouter.use('/v1', authorPlatformRouter);
 
 // Sub-routers (all paths are defined inside each module)
 publicRouter.use(registrationRouter);

@@ -37,6 +37,16 @@ import {
   TELEGRAM_BINDING_VERSION,
   TELEGRAM_START_TOKEN_PURPOSE,
 } from '../src/lib/roomLinks.js';
+import { DEFAULT_ORGANIZATION_ID, DEFAULT_SYSTEM_OWNER_USER_ID } from '../src/lib/tenancy/constants.js';
+import { resolveTenantContext } from '../src/lib/tenancy/context.js';
+import {
+  removeOrganizationMembership,
+  updateOrganizationMembershipRole,
+} from '../src/lib/tenancy/membershipService.js';
+import {
+  getTenantWebinarSession,
+  updateTenantWebinarSessionTitle,
+} from '../src/lib/tenancy/webinarSessionRepository.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -141,6 +151,57 @@ async function createRegisteredParticipant(email: string, scheduledAt = new Date
   return { lead, registration, webinarSession };
 }
 
+async function createTenantFixture(input: {
+  slug: string;
+  email: string;
+  role?: 'OWNER' | 'AUTHOR' | 'MODERATOR' | 'CRM_MANAGER' | 'ANALYST' | 'AUDITOR';
+}) {
+  const organization = await prisma.organization.create({
+    data: { name: input.slug.toUpperCase(), slug: input.slug, status: 'ACTIVE' },
+  });
+  const user = await prisma.user.create({
+    data: {
+      emailNormalized: input.email,
+      displayName: input.email,
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  const membership = await prisma.organizationMembership.create({
+    data: {
+      organizationId: organization.id,
+      userId: user.id,
+      role: input.role ?? 'OWNER',
+      status: 'ACTIVE',
+    },
+  });
+  return { organization, user, membership };
+}
+
+async function addHumanOwner(
+  organizationId: string,
+  emailNormalized: string,
+  status: 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED' = 'ACTIVE',
+) {
+  const user = await prisma.user.create({
+    data: {
+      emailNormalized,
+      displayName: emailNormalized,
+      status,
+      emailVerifiedAt: status === 'ACTIVE' ? new Date() : null,
+    },
+  });
+  const membership = await prisma.organizationMembership.create({
+    data: {
+      organizationId,
+      userId: user.id,
+      role: 'OWNER',
+      status: 'ACTIVE',
+    },
+  });
+  return { user, membership };
+}
+
 beforeAll(async () => {
   // Guard the target and verify that the test schema is reproducible from committed migrations.
   execSync('node scripts/assert-test-database.mjs', {
@@ -168,6 +229,11 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(
     'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
   );
+  await prisma.organizationMembership.deleteMany({
+    where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
+  });
+  await prisma.organization.deleteMany({ where: { id: { not: DEFAULT_ORGANIZATION_ID } } });
+  await prisma.user.deleteMany({ where: { id: { not: DEFAULT_SYSTEM_OWNER_USER_ID } } });
 });
 
 afterEach(() => {
@@ -2959,4 +3025,392 @@ describe('critical path integration scenarios', () => {
     expect(scriptedQuestion).not.toHaveProperty('topic');
     expect(scriptedQuestion).not.toHaveProperty('isSynthetic');
   });
+
+  it('keeps the ASPB bootstrap tenant and legacy webinar creation compatible', async () => {
+    const organization = await prisma.organization.findUniqueOrThrow({
+      where: { id: DEFAULT_ORGANIZATION_ID },
+    });
+    const systemUser = await prisma.user.findUniqueOrThrow({
+      where: { id: DEFAULT_SYSTEM_OWNER_USER_ID },
+    });
+    const membership = await prisma.organizationMembership.findUniqueOrThrow({
+      where: {
+        organizationId_userId: {
+          organizationId: DEFAULT_ORGANIZATION_ID,
+          userId: DEFAULT_SYSTEM_OWNER_USER_ID,
+        },
+      },
+    });
+    expect(organization).toMatchObject({ slug: 'aspb', status: 'ACTIVE' });
+    expect(systemUser).toMatchObject({ kind: 'SYSTEM', status: 'ACTIVE' });
+    expect(membership).toMatchObject({ role: 'OWNER', status: 'ACTIVE' });
+
+    const legacySession = await prisma.webinarSession.create({
+      data: {
+        title: 'Legacy create without tenant input',
+        scheduledAt: new Date('2030-01-01T10:00:00.000Z'),
+      },
+    });
+    expect(legacySession.organizationId).toBe(DEFAULT_ORGANIZATION_ID);
+  });
+
+  it('selects an active organization explicitly and keeps AdminUser outside tenant identity', async () => {
+    const primary = await createTenantFixture({ slug: 'tenant-context-a', email: 'shared@example.test' });
+    const secondaryOrganization = await prisma.organization.create({
+      data: { name: 'TENANT CONTEXT B', slug: 'tenant-context-b', status: 'ACTIVE' },
+    });
+    const secondaryMembership = await prisma.organizationMembership.create({
+      data: {
+        organizationId: secondaryOrganization.id,
+        userId: primary.user.id,
+        role: 'ANALYST',
+        status: 'ACTIVE',
+      },
+    });
+    const platformAdmin = await prisma.adminUser.create({
+      data: {
+        name: 'Independent platform operator',
+        email: primary.user.emailNormalized,
+        passwordHash: 'not-used-in-this-test',
+        role: 'owner',
+      },
+    });
+
+    await expect(resolveTenantContext(prisma, { userId: primary.user.id })).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'tenant_context_required',
+    });
+    const primaryContext = await resolveTenantContext(prisma, {
+      userId: primary.user.id,
+      activeOrganizationId: primary.organization.id,
+      correlationId: 'req_tenant_context_primary',
+    });
+    const secondaryContext = await resolveTenantContext(prisma, {
+      userId: primary.user.id,
+      activeOrganizationId: secondaryOrganization.id,
+      correlationId: 'req_tenant_context_secondary',
+    });
+    expect(primaryContext).toMatchObject({
+      organizationId: primary.organization.id,
+      membershipId: primary.membership.id,
+      role: 'OWNER',
+    });
+    expect(secondaryContext).toMatchObject({
+      organizationId: secondaryOrganization.id,
+      membershipId: secondaryMembership.id,
+      role: 'ANALYST',
+    });
+    expect(platformAdmin.id).not.toBe(primary.user.id);
+    await expect(
+      resolveTenantContext(prisma, {
+        userId: platformAdmin.id,
+        activeOrganizationId: primary.organization.id,
+      }),
+    ).rejects.toMatchObject({ statusCode: 404, code: 'tenant_context_unavailable' });
+  });
+
+  it('returns the same safe 404 for cross-tenant session read and write', async () => {
+    const tenantA = await createTenantFixture({ slug: 'isolation-a', email: 'owner-a@example.test' });
+    const tenantB = await createTenantFixture({ slug: 'isolation-b', email: 'owner-b@example.test' });
+    const sessionA = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        title: 'Tenant A webinar',
+        scheduledAt: new Date('2030-02-01T10:00:00.000Z'),
+      },
+    });
+    const sessionB = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        title: 'Tenant B webinar',
+        scheduledAt: new Date('2030-02-02T10:00:00.000Z'),
+      },
+    });
+    const contextA = await resolveTenantContext(prisma, {
+      userId: tenantA.user.id,
+      activeOrganizationId: tenantA.organization.id,
+      correlationId: 'req_tenant_isolation_a',
+    });
+
+    await expect(getTenantWebinarSession(prisma, contextA, sessionA.id)).resolves.toMatchObject({
+      id: sessionA.id,
+      organizationId: tenantA.organization.id,
+    });
+    await expect(getTenantWebinarSession(prisma, contextA, sessionB.id)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'tenant_resource_not_found',
+    });
+    await expect(
+      updateTenantWebinarSessionTitle(prisma, contextA, {
+        webinarSessionId: sessionA.id,
+        title: 'Client-forged tenant field',
+        organizationId: tenantB.organization.id,
+      }),
+    ).rejects.toMatchObject({ name: 'ZodError' });
+    await expect(
+      updateTenantWebinarSessionTitle(prisma, contextA, {
+        webinarSessionId: sessionB.id,
+        title: 'Forged cross-tenant update',
+      }),
+    ).rejects.toMatchObject({ statusCode: 404, code: 'tenant_resource_not_found' });
+    await expect(prisma.webinarSession.findUniqueOrThrow({ where: { id: sessionB.id } })).resolves.toMatchObject({
+      title: 'Tenant B webinar',
+    });
+    await expect(
+      resolveTenantContext(prisma, {
+        userId: tenantA.user.id,
+        activeOrganizationId: tenantB.organization.id,
+      }),
+    ).rejects.toMatchObject({ statusCode: 404, code: 'tenant_context_unavailable' });
+  });
+
+  it('audits membership changes, hides foreign members, and preserves the last available human owner', async () => {
+    const tenantA = await createTenantFixture({ slug: 'members-a', email: 'members-owner-a@example.test' });
+    const memberUser = await prisma.user.create({
+      data: { emailNormalized: 'member-a@example.test', status: 'ACTIVE', emailVerifiedAt: new Date() },
+    });
+    const member = await prisma.organizationMembership.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        userId: memberUser.id,
+        role: 'AUTHOR',
+        status: 'ACTIVE',
+      },
+    });
+    const tenantB = await createTenantFixture({ slug: 'members-b', email: 'members-owner-b@example.test' });
+    const contextA = await resolveTenantContext(prisma, {
+      userId: tenantA.user.id,
+      activeOrganizationId: tenantA.organization.id,
+      correlationId: 'req_membership_audit_123',
+    });
+
+    await expect(
+      updateOrganizationMembershipRole(prisma, contextA, {
+        membershipId: member.id,
+        role: 'MODERATOR',
+        organizationId: tenantB.organization.id,
+      }),
+    ).rejects.toMatchObject({ name: 'ZodError' });
+    await expect(
+      updateOrganizationMembershipRole(prisma, contextA, {
+        membershipId: member.id,
+        role: 'MODERATOR',
+      }),
+    ).resolves.toMatchObject({ role: 'MODERATOR' });
+    const roleAudit = await prisma.auditLog.findFirstOrThrow({
+      where: { entityId: member.id, action: 'organization_membership.role_changed' },
+    });
+    expect(roleAudit).toMatchObject({
+      userId: tenantA.user.id,
+      organizationId: tenantA.organization.id,
+      correlationId: 'req_membership_audit_123',
+      beforeJson: expect.objectContaining({ role: 'AUTHOR' }),
+      afterJson: expect.objectContaining({ role: 'MODERATOR' }),
+    });
+
+    const auditCountBeforeForeignAttempt = await prisma.auditLog.count();
+    await expect(
+      updateOrganizationMembershipRole(prisma, contextA, {
+        membershipId: tenantB.membership.id,
+        role: 'AUTHOR',
+      }),
+    ).rejects.toMatchObject({ statusCode: 404, code: 'organization_membership_not_found' });
+    await expect(prisma.auditLog.count()).resolves.toBe(auditCountBeforeForeignAttempt);
+    await expect(
+      prisma.organizationMembership.findUniqueOrThrow({ where: { id: tenantB.membership.id } }),
+    ).resolves.toMatchObject({ role: 'OWNER' });
+
+    await expect(removeOrganizationMembership(prisma, contextA, { membershipId: member.id })).resolves.toMatchObject({
+      status: 'REMOVED',
+      removedAt: expect.any(Date),
+    });
+    await expect(
+      prisma.auditLog.findFirstOrThrow({
+        where: { entityId: member.id, action: 'organization_membership.removed' },
+      }),
+    ).resolves.toMatchObject({
+      userId: tenantA.user.id,
+      organizationId: tenantA.organization.id,
+      correlationId: 'req_membership_audit_123',
+    });
+
+    const rejectedAuditCountBefore = await prisma.auditLog.count({
+      where: { entityId: tenantA.membership.id },
+    });
+    await expect(
+      updateOrganizationMembershipRole(prisma, contextA, {
+        membershipId: tenantA.membership.id,
+        role: 'AUTHOR',
+      }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'last_organization_owner' });
+    await expect(
+      removeOrganizationMembership(prisma, contextA, { membershipId: tenantA.membership.id }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'last_organization_owner' });
+    await expect(
+      prisma.organizationMembership.findUniqueOrThrow({ where: { id: tenantA.membership.id } }),
+    ).resolves.toMatchObject({ role: 'OWNER', status: 'ACTIVE' });
+    await expect(prisma.auditLog.count({ where: { entityId: tenantA.membership.id } })).resolves.toBe(
+      rejectedAuditCountBefore,
+    );
+  });
+
+  it.each(['SUSPENDED', 'DEACTIVATED'] as const)(
+    'does not count a second owner whose User is %s as available',
+    async userStatus => {
+      const suffix = userStatus.toLowerCase();
+      const tenant = await createTenantFixture({
+        slug: `unavailable-owner-${suffix}`,
+        email: `available-${suffix}@example.test`,
+      });
+      const unavailableOwner = await addHumanOwner(
+        tenant.organization.id,
+        `unavailable-${suffix}@example.test`,
+        userStatus,
+      );
+      const context = await resolveTenantContext(prisma, {
+        userId: tenant.user.id,
+        activeOrganizationId: tenant.organization.id,
+        correlationId: `req_unavailable_owner_${suffix}`,
+      });
+      const auditCountBefore = await prisma.auditLog.count();
+
+      await expect(
+        updateOrganizationMembershipRole(prisma, context, {
+          membershipId: tenant.membership.id,
+          role: 'AUTHOR',
+        }),
+      ).rejects.toMatchObject({ statusCode: 409, code: 'last_organization_owner' });
+      await expect(
+        removeOrganizationMembership(prisma, context, { membershipId: tenant.membership.id }),
+      ).rejects.toMatchObject({ statusCode: 409, code: 'last_organization_owner' });
+      await expect(
+        prisma.organizationMembership.findUniqueOrThrow({ where: { id: tenant.membership.id } }),
+      ).resolves.toMatchObject({ role: 'OWNER', status: 'ACTIVE' });
+      await expect(
+        prisma.organizationMembership.findUniqueOrThrow({ where: { id: unavailableOwner.membership.id } }),
+      ).resolves.toMatchObject({ role: 'OWNER', status: 'ACTIVE' });
+      await expect(prisma.auditLog.count()).resolves.toBe(auditCountBefore);
+    },
+  );
+
+  it('does not let the ASPB SYSTEM owner mask removal of the last HUMAN owner', async () => {
+    const humanOwner = await addHumanOwner(DEFAULT_ORGANIZATION_ID, 'aspb-human-owner@example.test');
+    const context = await resolveTenantContext(prisma, {
+      userId: humanOwner.user.id,
+      activeOrganizationId: DEFAULT_ORGANIZATION_ID,
+      correlationId: 'req_aspb_system_owner_guard',
+    });
+    const auditCountBefore = await prisma.auditLog.count();
+
+    await expect(
+      updateOrganizationMembershipRole(prisma, context, {
+        membershipId: humanOwner.membership.id,
+        role: 'AUTHOR',
+      }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'last_organization_owner' });
+    await expect(
+      removeOrganizationMembership(prisma, context, { membershipId: humanOwner.membership.id }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'last_organization_owner' });
+    await expect(
+      prisma.organizationMembership.findUniqueOrThrow({ where: { id: humanOwner.membership.id } }),
+    ).resolves.toMatchObject({ role: 'OWNER', status: 'ACTIVE' });
+    await expect(prisma.auditLog.count()).resolves.toBe(auditCountBefore);
+  });
+
+  it('allows one of two available HUMAN owners to be demoted or removed', async () => {
+    const tenant = await createTenantFixture({ slug: 'two-human-owners', email: 'two-owner-a@example.test' });
+    const second = await addHumanOwner(tenant.organization.id, 'two-owner-b@example.test');
+    const context = await resolveTenantContext(prisma, {
+      userId: tenant.user.id,
+      activeOrganizationId: tenant.organization.id,
+      correlationId: 'req_two_human_owners',
+    });
+
+    await expect(
+      updateOrganizationMembershipRole(prisma, context, {
+        membershipId: second.membership.id,
+        role: 'AUTHOR',
+      }),
+    ).resolves.toMatchObject({ role: 'AUTHOR' });
+    await expect(
+      updateOrganizationMembershipRole(prisma, context, {
+        membershipId: second.membership.id,
+        role: 'OWNER',
+      }),
+    ).resolves.toMatchObject({ role: 'OWNER' });
+    await expect(
+      removeOrganizationMembership(prisma, context, { membershipId: second.membership.id }),
+    ).resolves.toMatchObject({ status: 'REMOVED' });
+    await expect(
+      prisma.organizationMembership.count({
+        where: {
+          organizationId: tenant.organization.id,
+          role: 'OWNER',
+          status: 'ACTIVE',
+          user: { kind: 'HUMAN', status: 'ACTIVE' },
+        },
+      }),
+    ).resolves.toBe(1);
+  });
+
+  it.each([
+    ['demotion', 'demotion'],
+    ['removal', 'removal'],
+    ['demotion', 'removal'],
+  ] as const)(
+    'serializes concurrent owner %s/%s so one available HUMAN owner remains',
+    async (firstAction, secondAction) => {
+      const slug = `owner-race-${firstAction}-${secondAction}`;
+      const first = await createTenantFixture({ slug, email: `${slug}-a@example.test` });
+      const second = await addHumanOwner(first.organization.id, `${slug}-b@example.test`);
+      const firstContext = await resolveTenantContext(prisma, {
+        userId: first.user.id,
+        activeOrganizationId: first.organization.id,
+        correlationId: 'req_owner_race_first',
+      });
+      const secondContext = await resolveTenantContext(prisma, {
+        userId: second.user.id,
+        activeOrganizationId: first.organization.id,
+        correlationId: 'req_owner_race_second',
+      });
+
+      const mutate = (
+        action: 'demotion' | 'removal',
+        context: Awaited<ReturnType<typeof resolveTenantContext>>,
+        membershipId: string,
+      ) =>
+        action === 'demotion'
+          ? updateOrganizationMembershipRole(prisma, context, { membershipId, role: 'AUTHOR' })
+          : removeOrganizationMembership(prisma, context, { membershipId });
+
+      const results = await Promise.allSettled([
+        mutate(firstAction, firstContext, first.membership.id),
+        mutate(secondAction, secondContext, second.membership.id),
+      ]);
+      expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+      expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+      expect((results.find(result => result.status === 'rejected') as PromiseRejectedResult).reason).toMatchObject({
+        statusCode: 409,
+        code: 'last_organization_owner',
+      });
+      await expect(
+        prisma.organizationMembership.count({
+          where: {
+            organizationId: first.organization.id,
+            role: 'OWNER',
+            status: 'ACTIVE',
+            user: { kind: 'HUMAN', status: 'ACTIVE' },
+          },
+        }),
+      ).resolves.toBe(1);
+      await expect(
+        prisma.auditLog.count({
+          where: {
+            organizationId: first.organization.id,
+            action: { in: ['organization_membership.role_changed', 'organization_membership.removed'] },
+          },
+        }),
+      ).resolves.toBe(1);
+    },
+  );
 });

@@ -78,6 +78,77 @@ chmod 600 .env.production
 npm run prisma:deploy
 ```
 
+Tenant expand migration `20260820120000_tenant_foundation` впервые входит в
+release tenant foundation. Перед её первым production deploy проверьте вывод
+preflight: если строка этой migration уже есть в `_prisma_migrations`, остановите
+deploy. Нельзя публиковать изменённый checksum уже применённой migration — для
+такой базы нужен отдельный follow-up migration после разбора фактической схемы.
+
+Перед deploy обязательны свежий verified backup и доказанный restore в отдельную
+recovery DB (не production):
+
+```bash
+PG_DATABASE_URL="$PRODUCTION_DATABASE_URL" npm run backup:db
+PG_DATABASE_URL="$RECOVERY_DATABASE_URL" RESTORE_TARGET=recovery \
+  bash scripts/restore-postgres.sh backups/aspb-postgres-YYYYMMDDTHHMMSSZ.sql.gz
+```
+
+После успешного restore сохраните read-only preflight snapshot legacy-связности:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820120000_tenant_foundation_preflight.sql
+```
+
+Lock profile для PostgreSQL 16:
+
+- `ADD COLUMN ... DEFAULT 'org_aspb' NOT NULL` использует metadata-only fast
+  default, но запрашивает краткий `ACCESS EXCLUSIVE` lock на `webinar_sessions`;
+- nullable-колонки `audit_logs` также требуют краткий `ACCESS EXCLUSIVE` lock;
+- Prisma migration не строит индексы существующих таблиц: Prisma выполняет SQL
+  в transaction, несовместимой с `CREATE INDEX CONCURRENTLY`. Сразу после неё
+  обязательный отдельный script строит индексы `CONCURRENTLY`, не блокируя
+  обычные записи на время полного scan;
+- foreign keys добавляются `NOT VALID`, затем проверяются под
+  `SHARE UPDATE EXCLUSIVE`, который допускает обычные read/write;
+- `lock_timeout=5s` не позволяет migration долго удерживать очередь writers;
+  при timeout/ошибке остановите rollout и проверьте partial/invalid indexes до
+  любых `migrate resolve` или повторов.
+
+После `npm run prisma:deploy` выполните postflight:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820120000_tenant_foundation_concurrent_indexes.sql
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820120000_tenant_foundation_postflight.sql
+npm run prisma:deploy
+```
+
+Сравните все legacy counts с сохранённым preflight. Число строк не меняется;
+все `webinar_sessions` имеют `organization_id='org_aspb'`; bootstrap
+organization/system user/membership существуют ровно по одному; constraints и
+indexes valid/ready; повторный deploy сообщает `No pending migrations to apply`.
+`admin_users` не копируются в `users` и не получают tenant membership. Миграция
+additive/forward-only: rollback application image допустим, пока он не записывает
+`webinar_sessions` в обход DB-default; schema rollback или удаление новых таблиц
+не выполнять.
+
+Concurrent-index script идемпотентен для уже valid indexes. Если его запуск
+оборвался, postflight может показать `indisvalid=false`: не повторяйте script с
+`IF NOT EXISTS`, пока оператор не удалит конкретный invalid index через
+`DROP INDEX CONCURRENTLY` и не зафиксирует инцидент. Rollout-флаги в этом случае
+остаются `off`.
+
+До отдельного controlled switch держите
+`PLATFORM_ACCOUNTS_ENABLED=off` и `PLATFORM_TENANCY_ENFORCEMENT=off`. Это
+оставляет legacy registration, room, replay, CRM, email, Telegram и `/admin`
+на прежнем маршруте, но новые scoped services уже обязаны использовать
+server-resolved tenant context.
+
 Seed нужен только при первичной подготовке demo/default данных:
 
 ```bash

@@ -6,6 +6,7 @@ type RequestContext = {
   correlationId: string;
   userId?: string | null;
   adminId?: string | null;
+  organizationId?: string | null;
 };
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -34,7 +35,11 @@ export function getRequestContext() {
   return storage.getStore();
 }
 
-export function setContextIdentity(input: { userId?: string | null; adminId?: string | null }) {
+export function setContextIdentity(input: {
+  userId?: string | null;
+  adminId?: string | null;
+  organizationId?: string | null;
+}) {
   const context = storage.getStore();
   if (!context) {
     return;
@@ -45,6 +50,9 @@ export function setContextIdentity(input: { userId?: string | null; adminId?: st
   }
   if (input.adminId !== undefined) {
     context.adminId = input.adminId;
+  }
+  if (input.organizationId !== undefined) {
+    context.organizationId = input.organizationId;
   }
 }
 

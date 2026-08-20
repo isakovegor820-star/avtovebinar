@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
-import { createInitialOwnerIfMissing } from '../prisma/seed.js';
+import { createInitialOwnerIfMissing, ensureLegacyTenantBootstrap } from '../prisma/seed.js';
 
 describe('production seed safety', () => {
   it('does not create a second owner when ADMIN_LOGIN changes after bootstrap', async () => {
@@ -43,5 +43,63 @@ describe('production seed safety', () => {
         isActive: true,
       }),
     });
+  });
+
+  it('creates the ASPB compatibility tenant once and is idempotent on repeat', async () => {
+    const organization = {
+      findUnique: vi.fn().mockResolvedValueOnce(null).mockResolvedValue({ id: 'org_aspb' }),
+      create: vi.fn().mockResolvedValue({ id: 'org_aspb' }),
+    };
+    const user = {
+      upsert: vi.fn().mockResolvedValue({ id: 'user_aspb_system_owner' }),
+    };
+    const organizationMembership = {
+      create: vi.fn().mockResolvedValue({ id: 'membership_aspb_system_owner' }),
+      findUnique: vi.fn().mockResolvedValue({ id: 'membership_aspb_system_owner' }),
+      findFirst: vi.fn(),
+    };
+    const $executeRaw = vi.fn().mockResolvedValue(1);
+    const client = {
+      organization,
+      user,
+      organizationMembership,
+      $executeRaw,
+    } as unknown as Pick<Prisma.TransactionClient, 'organization' | 'user' | 'organizationMembership' | '$executeRaw'>;
+
+    await expect(ensureLegacyTenantBootstrap(client)).resolves.toEqual({ created: true });
+    await expect(ensureLegacyTenantBootstrap(client)).resolves.toEqual({ created: false });
+    expect(organization.create).toHaveBeenCalledTimes(1);
+    expect(user.upsert).toHaveBeenCalledTimes(1);
+    expect(organizationMembership.create).toHaveBeenCalledTimes(1);
+    expect($executeRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not silently re-grant tenant ownership when an existing ASPB organization has no owner', async () => {
+    const organization = {
+      findUnique: vi.fn().mockResolvedValue({ id: 'org_aspb' }),
+      create: vi.fn(),
+    };
+    const user = { upsert: vi.fn() };
+    const organizationMembership = {
+      create: vi.fn(),
+      findUnique: vi.fn().mockResolvedValue(null),
+      findFirst: vi.fn().mockResolvedValue(null),
+    };
+    const $executeRaw = vi.fn().mockResolvedValue(1);
+
+    await expect(
+      ensureLegacyTenantBootstrap({
+        organization,
+        user,
+        organizationMembership,
+        $executeRaw,
+      } as unknown as Pick<
+        Prisma.TransactionClient,
+        'organization' | 'user' | 'organizationMembership' | '$executeRaw'
+      >),
+    ).rejects.toThrow('refusing to grant tenant ownership during seed');
+    expect(organization.create).not.toHaveBeenCalled();
+    expect(user.upsert).not.toHaveBeenCalled();
+    expect(organizationMembership.create).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,7 @@ import {
   WEBINAR_VIDEO_DURATION_SECONDS,
 } from './webinarTimeline.js';
 import { getEffectiveVideoDurationMinutes } from './webinarLive.js';
+import { DEFAULT_ORGANIZATION_ID } from './tenancy/constants.js';
 
 function pointsToRecordingAsset(value: string | null | undefined) {
   if (!value) return false;
@@ -53,6 +54,7 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
         status,
       },
       create: {
+        organizationId: DEFAULT_ORGANIZATION_ID,
         title: WEBINAR_TITLE,
         scheduledAt,
         durationMinutes: WEBINAR_DURATION_MINUTES,

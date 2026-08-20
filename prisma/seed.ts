@@ -8,11 +8,84 @@ import {
   DEFAULT_TIMELINE_EVENTS,
   WEBINAR_VIDEO_DURATION_SECONDS,
 } from '../src/lib/webinarTimeline.js';
+import {
+  DEFAULT_ORGANIZATION_ID,
+  DEFAULT_ORGANIZATION_SLUG,
+  DEFAULT_SYSTEM_OWNER_EMAIL,
+  DEFAULT_SYSTEM_OWNER_MEMBERSHIP_ID,
+  DEFAULT_SYSTEM_OWNER_USER_ID,
+} from '../src/lib/tenancy/constants.js';
 
 const prisma = new PrismaClient();
 
 type SeedAdminClient = Pick<Prisma.TransactionClient, 'adminUser' | '$executeRaw'>;
+type SeedTenantClient = Pick<
+  Prisma.TransactionClient,
+  'organization' | 'organizationMembership' | 'user' | '$executeRaw'
+>;
 const INITIAL_OWNER_SEED_LOCK_ID = 1_096_175_682n;
+const LEGACY_TENANT_SEED_LOCK_ID = 1_096_175_683n;
+
+export async function ensureLegacyTenantBootstrap(client: SeedTenantClient) {
+  await client.$executeRaw`SELECT pg_advisory_xact_lock(${LEGACY_TENANT_SEED_LOCK_ID})`;
+
+  const existingOrganization = await client.organization.findUnique({
+    where: { id: DEFAULT_ORGANIZATION_ID },
+    select: { id: true },
+  });
+
+  if (!existingOrganization) {
+    await client.organization.create({
+      data: {
+        id: DEFAULT_ORGANIZATION_ID,
+        name: 'АСПБ',
+        slug: DEFAULT_ORGANIZATION_SLUG,
+        status: 'ACTIVE',
+        settingsJson: { compatibilityMode: 'legacy', scopeVersion: 1 },
+      },
+    });
+    await client.user.upsert({
+      where: { id: DEFAULT_SYSTEM_OWNER_USER_ID },
+      update: {},
+      create: {
+        id: DEFAULT_SYSTEM_OWNER_USER_ID,
+        emailNormalized: DEFAULT_SYSTEM_OWNER_EMAIL,
+        displayName: 'Системный владелец АСПБ',
+        kind: 'SYSTEM',
+        status: 'ACTIVE',
+      },
+    });
+    await client.organizationMembership.create({
+      data: {
+        id: DEFAULT_SYSTEM_OWNER_MEMBERSHIP_ID,
+        organizationId: DEFAULT_ORGANIZATION_ID,
+        userId: DEFAULT_SYSTEM_OWNER_USER_ID,
+        role: 'OWNER',
+        status: 'ACTIVE',
+        permissionsJson: { systemBootstrap: true },
+      },
+    });
+    return { created: true };
+  }
+
+  const existingMembership = await client.organizationMembership.findUnique({
+    where: { id: DEFAULT_SYSTEM_OWNER_MEMBERSHIP_ID },
+    select: { id: true },
+  });
+  if (existingMembership) return { created: false };
+
+  const activeOwner = await client.organizationMembership.findFirst({
+    where: {
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      role: 'OWNER',
+      status: 'ACTIVE',
+    },
+    select: { id: true },
+  });
+  if (activeOwner) return { created: false };
+
+  throw new Error('ASPB organization exists without an active owner; refusing to grant tenant ownership during seed');
+}
 
 export async function createInitialOwnerIfMissing(
   client: SeedAdminClient,
@@ -57,6 +130,7 @@ export async function createInitialOwnerIfMissing(
 }
 
 async function main() {
+  await prisma.$transaction(tx => ensureLegacyTenantBootstrap(tx));
   const scheduledAt = getNextWebinarDate(new Date());
 
   const session = await prisma.webinarSession.upsert({
@@ -74,6 +148,7 @@ async function main() {
       status: 'scheduled',
     },
     create: {
+      organizationId: DEFAULT_ORGANIZATION_ID,
       title: WEBINAR_TITLE,
       scheduledAt,
       durationMinutes: WEBINAR_DURATION_MINUTES,

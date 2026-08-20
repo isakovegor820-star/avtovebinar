@@ -15,6 +15,7 @@ export const logger = (pino as unknown as typeof pino.default)({
       correlation_id: context.correlationId,
       userId: context.userId ?? undefined,
       adminId: context.adminId ?? undefined,
+      organizationId: context.organizationId ?? undefined,
     };
   },
 });

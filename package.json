@@ -48,6 +48,7 @@
     "zod": "^4.1.13"
   },
   "overrides": {
+    "deepmerge-ts": "8.0.1",
     "ip-address": "10.4.0"
   },
   "devDependencies": {

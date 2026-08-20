@@ -86,7 +86,7 @@ jobs:
       ADMIN_LOGIN: admin@example.com
       ADMIN_PASSWORD: StrongAdmin123
       ADMIN_COOKIE_SECRET: ci-admin-cookie-secret-32-plus-chars
-      IP_HASH_SECRET: ci-ip-hash-secret-32-plus-chars
+      IP_HASH_SECRET: ci-ip-hash-secret-32-plus-chars-x
       EMAIL_MODE: log
       EMAIL_FROM: 'АСПБ <no-reply@example.com>'
       TELEGRAM_GROUP_URL: https://t.me/example
@@ -162,7 +162,7 @@ jobs:
       ADMIN_LOGIN: admin@example.com
       ADMIN_PASSWORD: StrongAdmin123
       ADMIN_COOKIE_SECRET: ci-admin-cookie-secret-32-plus-chars
-      IP_HASH_SECRET: ci-ip-hash-secret-32-plus-chars
+      IP_HASH_SECRET: ci-ip-hash-secret-32-plus-chars-x
       EMAIL_MODE: log
       EMAIL_FROM: 'АСПБ <no-reply@example.com>'
       TELEGRAM_GROUP_URL: https://t.me/example

@@ -14,6 +14,31 @@
 
 Постоянные endpoints с token в path отключены. Frontend не хранит room token в `localStorage` и не отправляет token в analytics, questions или partner application.
 
+## Tenant foundation (этап 1)
+
+`User`, `Organization` и `OrganizationMembership` существуют отдельно от
+`AdminUser`: tenant-роли не дают доступ к platform `/admin`. Additive migration
+`20260820120000_tenant_foundation` создаёт compatibility-организацию `ASPB` и
+системного владельца без login credentials. Все существующие и новые legacy
+`WebinarSession` получают обязательный `organizationId=org_aspb`; связанные
+регистрации, вопросы, сообщения и события продолжают получать scope через
+сессию без изменения старых публичных контрактов.
+
+Новый код обязан получать active organization из доверенного пользовательского
+контекста через `src/lib/tenancy/context.ts` и выполнять object read/write через
+scoped repository/service. Поле `organizationId` в payload не является
+доказательством доступа и отклоняется новыми Zod-контрактами. До реализации
+TEN-004 оба rollout-флага остаются выключены:
+
+```text
+PLATFORM_ACCOUNTS_ENABLED=off
+PLATFORM_TENANCY_ENFORCEMENT=off
+```
+
+Это сохраняет действующие registration/room/replay/CRM/email/Telegram и
+platform-admin flow. Состояние требований и границы compatibility layer описаны
+в `docs/ASPB-LEGAL-PLATFORM-IMPLEMENTATION-STATUS.md`.
+
 ## Быстрый запуск
 
 ```bash

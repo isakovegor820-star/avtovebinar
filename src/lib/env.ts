@@ -73,6 +73,10 @@ const envSchema = z.object({
   WORKER_ROLE: z.enum(['api', 'webinar', 'all']).optional(),
   TRUST_PROXY: z.enum(['false', 'true', '1', 'loopback']).default('false'),
   ADMIN_DEV_BYPASS: z.enum(['false', 'true']).default('false'),
+  // Expand/switch flags for the tenant migration. Both remain off until the
+  // passwordless user-session flow is ready; legacy /admin is independent.
+  PLATFORM_ACCOUNTS_ENABLED: z.enum(['on', 'off']).default('off'),
+  PLATFORM_TENANCY_ENFORCEMENT: z.enum(['on', 'off']).default('off'),
   // Имя и роль модератора эфира: показываются участникам в чате (приветствие +
   // ручные ответы из админки). Настраиваются без правки кода — поменять в .env.
   MODERATOR_NAME: z.string().trim().min(2).max(80).default('Юлия, модератор АСПБ'),
@@ -80,6 +84,8 @@ const envSchema = z.object({
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
+type ProductionSecurityConfig = Omit<EnvConfig, 'PLATFORM_ACCOUNTS_ENABLED' | 'PLATFORM_TENANCY_ENFORCEMENT'> &
+  Partial<Pick<EnvConfig, 'PLATFORM_ACCOUNTS_ENABLED' | 'PLATFORM_TENANCY_ENFORCEMENT'>>;
 
 export const ASPB_PARTICIPANT_BOT_USERNAME = 'jwjefgwreqfe_bot';
 
@@ -114,7 +120,7 @@ function isLocalMountedMediaUrl(value: string | undefined, publicSiteUrl: string
   }
 }
 
-export function validateProductionSecurity(config: EnvConfig) {
+export function validateProductionSecurity<T extends ProductionSecurityConfig>(config: T): T {
   if (config.NODE_ENV !== 'production') {
     return config;
   }
@@ -283,6 +289,8 @@ function runtimeEnv() {
     WEBINAR_TEST_ROOM_MODE: process.env.WEBINAR_TEST_ROOM_MODE ?? 'off',
     CORS_ORIGIN: process.env.CORS_ORIGIN ?? 'http://127.0.0.1:5174',
     TRUST_PROXY: process.env.TRUST_PROXY ?? 'false',
+    PLATFORM_ACCOUNTS_ENABLED: process.env.PLATFORM_ACCOUNTS_ENABLED ?? 'off',
+    PLATFORM_TENANCY_ENFORCEMENT: process.env.PLATFORM_TENANCY_ENFORCEMENT ?? 'off',
   };
 }
 

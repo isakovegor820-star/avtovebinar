@@ -46,12 +46,16 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          for value in "$PRODUCTION_SSH_HOST" "$PRODUCTION_SSH_USER" "$PRODUCTION_SSH_KEY" "$PRODUCTION_DEPLOY_PATH"; do
-            if [[ -z "$value" ]]; then
-              echo "Production maintenance configuration is incomplete." >&2
-              exit 1
+          missing=0
+          for name in PRODUCTION_SSH_HOST PRODUCTION_SSH_USER PRODUCTION_SSH_KEY PRODUCTION_DEPLOY_PATH; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing production maintenance setting: $name" >&2
+              missing=1
             fi
           done
+          if (( missing != 0 )); then
+            exit 1
+          fi
 
       - name: Inventory, apply targeted retention, and verify
         shell: bash

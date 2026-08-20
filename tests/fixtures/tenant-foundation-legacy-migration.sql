@@ -13,7 +13,9 @@ CREATE TABLE "admin_users" (
 
 CREATE TABLE "webinar_sessions" (
   "id" TEXT NOT NULL PRIMARY KEY,
-  "scheduled_at" TIMESTAMP(3) NOT NULL
+  "title" TEXT NOT NULL,
+  "scheduled_at" TIMESTAMP(3) NOT NULL,
+  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX "webinar_sessions_scheduled_at_key" ON "webinar_sessions"("scheduled_at");
 
@@ -113,9 +115,9 @@ CREATE TABLE "audit_logs" (
 INSERT INTO "admin_users" ("id", "email")
 VALUES ('legacy-platform-admin', 'operator@example.test');
 
-INSERT INTO "webinar_sessions" ("id", "scheduled_at") VALUES
-  ('legacy-session-1', '2026-08-20T10:00:00.000Z'),
-  ('legacy-session-2', '2026-08-21T10:00:00.000Z');
+INSERT INTO "webinar_sessions" ("id", "title", "scheduled_at", "created_at") VALUES
+  ('legacy-session-1', 'Legacy webinar first session', '2026-08-20T10:00:00.000Z', '2026-08-01T10:00:00.000Z'),
+  ('legacy-session-2', 'Legacy webinar second session', '2026-08-21T10:00:00.000Z', '2026-08-02T10:00:00.000Z');
 
 INSERT INTO "webinar_recordings" ("id", "webinar_session_id", "video_url", "published_at")
 VALUES ('legacy-recording-1', 'legacy-session-1', 'https://media.example.test/legacy.mp4', '2026-08-20T12:00:00.000Z');
@@ -199,6 +201,7 @@ INSERT INTO "legacy_row_counts" ("table_name", "row_count") VALUES
 \ir ../../prisma/migrations/20260820160000_organization_invitations/migration.sql
 \ir ../../prisma/migrations/20260820170000_user_owner_mfa/migration.sql
 \ir ../../prisma/migrations/20260820180000_author_verification/migration.sql
+\ir ../../prisma/migrations/20260820190000_webinar_domain/migration.sql
 
 DO $$
 DECLARE
@@ -213,8 +216,30 @@ BEGIN
     END IF;
   END LOOP;
 
-  IF (SELECT COUNT(*) FROM "webinar_sessions" WHERE "organization_id" = 'org_aspb') <> 2 THEN
+  IF (SELECT COUNT(*) FROM "webinar_sessions"
+      WHERE "organization_id" = 'org_aspb'
+        AND "webinar_id" = 'webinar_aspb_legacy'
+        AND "timezone" = 'Europe/Moscow'
+        AND "lifecycle_status" = 'scheduled') <> 2 THEN
     RAISE EXCEPTION 'legacy webinar sessions were not fully scoped to org_aspb';
+  END IF;
+
+  IF (SELECT COUNT(*) FROM "webinars"
+      WHERE "id" = 'webinar_aspb_legacy'
+        AND "organization_id" = 'org_aspb'
+        AND "slug" = 'legacy-webinar'
+        AND "legacy_compatibility" = true
+        AND "content_status" = 'published'
+        AND "visibility" = 'unlisted') <> 1 THEN
+    RAISE EXCEPTION 'legacy Webinar compatibility container was not created exactly once';
+  END IF;
+
+  IF (SELECT COUNT(*) FROM "webinar_sessions" session
+      LEFT JOIN "webinars" webinar
+        ON webinar."id" = session."webinar_id"
+       AND webinar."organization_id" = session."organization_id"
+      WHERE webinar."id" IS NULL) <> 0 THEN
+    RAISE EXCEPTION 'webinar session scope contains an orphan relationship';
   END IF;
 
   IF NOT EXISTS (
@@ -338,6 +363,15 @@ BEGIN
     OR (SELECT COUNT(*) FROM "author_verifications") <> 0
     OR (SELECT COUNT(*) FROM "author_verification_evidence") <> 0 THEN
     RAISE EXCEPTION 'AUT-001/AUT-002/AUT-005 expand migration unexpectedly created author data';
+  END IF;
+
+  IF (SELECT COUNT(*) FROM "legal_practice_areas") <> 0
+    OR (SELECT COUNT(*) FROM "jurisdictions") <> 0
+    OR (SELECT COUNT(*) FROM "webinar_practice_areas") <> 0
+    OR (SELECT COUNT(*) FROM "webinar_sources") <> 0
+    OR (SELECT COUNT(*) FROM "webinar_slug_aliases") <> 0
+    OR (SELECT COUNT(*) FROM "webinar_commands") <> 0 THEN
+    RAISE EXCEPTION 'WEB expand migration unexpectedly created non-compatibility domain data';
   END IF;
 
   IF NOT EXISTS (

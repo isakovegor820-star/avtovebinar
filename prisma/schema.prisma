@@ -80,6 +80,108 @@ enum AuthorEvidenceKind {
   @@map("author_evidence_kind")
 }
 
+enum TaxonomyStatus {
+  ACTIVE   @map("active")
+  ARCHIVED @map("archived")
+
+  @@map("taxonomy_status")
+}
+
+enum WebinarContentStatus {
+  DRAFT         @map("draft")
+  NEEDS_REVIEW  @map("needs_review")
+  READY         @map("ready")
+  IN_MODERATION @map("in_moderation")
+  PUBLISHED     @map("published")
+  ARCHIVED      @map("archived")
+
+  @@map("webinar_content_status")
+}
+
+enum WebinarVisibility {
+  PUBLIC   @map("public")
+  UNLISTED @map("unlisted")
+  PRIVATE  @map("private")
+
+  @@map("webinar_visibility")
+}
+
+enum WebinarFreshnessStatus {
+  CURRENT    @map("current")
+  REVIEW_DUE @map("review_due")
+  OUTDATED   @map("outdated")
+  SUPERSEDED @map("superseded")
+  UNKNOWN    @map("unknown")
+
+  @@map("webinar_freshness_status")
+}
+
+enum WebinarAudienceLevel {
+  INTRODUCTORY @map("introductory")
+  PRACTITIONER @map("practitioner")
+  ADVANCED     @map("advanced")
+  ALL_LEVELS   @map("all_levels")
+
+  @@map("webinar_audience_level")
+}
+
+enum WebinarFormat {
+  RECORDED  @map("recorded")
+  PREMIERE  @map("premiere")
+  ON_DEMAND @map("on_demand")
+
+  @@map("webinar_format")
+}
+
+enum WebinarMediaStatus {
+  NOT_UPLOADED @map("not_uploaded")
+  PROCESSING   @map("processing")
+  READY        @map("ready")
+  FAILED       @map("failed")
+
+  @@map("webinar_media_status")
+}
+
+enum WebinarTranscriptStatus {
+  NOT_AVAILABLE @map("not_available")
+  DRAFT         @map("draft")
+  REVIEWED      @map("reviewed")
+  PUBLISHED     @map("published")
+
+  @@map("webinar_transcript_status")
+}
+
+enum WebinarScenarioStatus {
+  NOT_AVAILABLE @map("not_available")
+  DRAFT         @map("draft")
+  PUBLISHED     @map("published")
+
+  @@map("webinar_scenario_status")
+}
+
+enum WebinarSourceType {
+  REGULATION            @map("regulation")
+  STATUTE_PROVISION     @map("statute_provision")
+  COURT_DECISION        @map("court_decision")
+  OFFICIAL_GUIDANCE     @map("official_guidance")
+  OFFICIAL_SOURCE       @map("official_source")
+  TEMPLATE_OR_CHECKLIST @map("template_or_checklist")
+  OTHER                 @map("other")
+
+  @@map("webinar_source_type")
+}
+
+enum WebinarSessionLifecycleStatus {
+  SCHEDULED @map("scheduled")
+  ROOM_OPEN @map("room_open")
+  LIVE      @map("live")
+  REPLAY    @map("replay")
+  CLOSED    @map("closed")
+  CANCELLED @map("cancelled")
+
+  @@map("webinar_session_lifecycle_status")
+}
+
 model User {
   id                           String                   @id @default(cuid())
   emailNormalized              String                   @unique @map("email_normalized")
@@ -102,6 +204,7 @@ model User {
   invitationsAccepted          OrganizationInvitation[] @relation("OrganizationInvitationAcceptor")
   authorProfiles               AuthorProfile[]
   authorVerificationsSubmitted AuthorVerification[]     @relation("AuthorVerificationSubmitter")
+  webinarCommands              WebinarCommand[]
 
   @@index([status])
   @@index([kind])
@@ -122,6 +225,10 @@ model Organization {
   activeSessions  UserSession[]            @relation("UserSessionActiveOrganization")
   invitations     OrganizationInvitation[]
   authorProfiles  AuthorProfile[]
+  webinars        Webinar[]
+  webinarAliases  WebinarSlugAlias[]
+  webinarSources  WebinarSource[]
+  webinarCommands WebinarCommand[]
 
   @@index([status])
   @@map("organizations")
@@ -284,6 +391,7 @@ model AuthorProfile {
   user                     User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
   verifications            AuthorVerification[]
   evidence                 AuthorVerificationEvidence[]
+  webinars                 Webinar[]
 
   @@unique([organizationId, userId])
   @@unique([id, organizationId])
@@ -335,6 +443,160 @@ model AuthorVerificationEvidence {
   @@index([profileId, createdAt])
   @@index([organizationId, verificationId])
   @@map("author_verification_evidence")
+}
+
+model LegalPracticeArea {
+  id         String                @id @default(cuid())
+  parentId   String?               @map("parent_id")
+  slug       String                @unique
+  name       String
+  status     TaxonomyStatus        @default(ACTIVE)
+  orderIndex Int                   @default(0) @map("order_index")
+  createdAt  DateTime              @default(now()) @map("created_at")
+  updatedAt  DateTime              @updatedAt @map("updated_at")
+  parent     LegalPracticeArea?    @relation("PracticeAreaTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children   LegalPracticeArea[]   @relation("PracticeAreaTree")
+  webinars   WebinarPracticeArea[]
+
+  @@index([parentId, status, orderIndex])
+  @@index([status, orderIndex])
+  @@map("legal_practice_areas")
+}
+
+model Jurisdiction {
+  id        String         @id @default(cuid())
+  parentId  String?        @map("parent_id")
+  code      String         @unique
+  name      String
+  status    TaxonomyStatus @default(ACTIVE)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+  parent    Jurisdiction?  @relation("JurisdictionTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  Jurisdiction[] @relation("JurisdictionTree")
+  webinars  Webinar[]
+
+  @@index([parentId, status])
+  @@index([status, name])
+  @@map("jurisdictions")
+}
+
+model Webinar {
+  id                    String                  @id @default(cuid())
+  organizationId        String                  @map("organization_id")
+  authorProfileId       String?                 @map("author_profile_id")
+  jurisdictionId        String?                 @map("jurisdiction_id")
+  slug                  String
+  title                 String
+  description           String?
+  outcomeDescription    String?                 @map("outcome_description")
+  contentStatus         WebinarContentStatus    @default(DRAFT) @map("content_status")
+  visibility            WebinarVisibility       @default(PRIVATE)
+  freshnessStatus       WebinarFreshnessStatus  @default(UNKNOWN) @map("freshness_status")
+  audienceLevel         WebinarAudienceLevel?   @map("audience_level")
+  targetAudience        String?                 @map("target_audience")
+  format                WebinarFormat?
+  durationMinutes       Int?                    @map("duration_minutes")
+  language              String                  @default("ru")
+  currentAsOf           DateTime?               @map("current_as_of") @db.Date
+  disclaimer            String?
+  syntheticDisclosure   String?                 @map("synthetic_disclosure")
+  mediaStatus           WebinarMediaStatus      @default(NOT_UPLOADED) @map("media_status")
+  transcriptStatus      WebinarTranscriptStatus @default(NOT_AVAILABLE) @map("transcript_status")
+  scenarioStatus        WebinarScenarioStatus   @default(NOT_AVAILABLE) @map("scenario_status")
+  contentVersion        Int                     @default(1) @map("content_version")
+  supersededByWebinarId String?                 @map("superseded_by_webinar_id")
+  legacyCompatibility   Boolean                 @default(false) @map("legacy_compatibility")
+  publishedAt           DateTime?               @map("published_at")
+  archivedAt            DateTime?               @map("archived_at")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+  organization          Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  authorProfile         AuthorProfile?          @relation(fields: [authorProfileId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  jurisdiction          Jurisdiction?           @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+  supersededBy          Webinar?                @relation("WebinarSupersession", fields: [supersededByWebinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supersedes            Webinar[]               @relation("WebinarSupersession")
+  practiceAreas         WebinarPracticeArea[]
+  sources               WebinarSource[]
+  slugAliases           WebinarSlugAlias[]
+  sessions              WebinarSession[]
+  commands              WebinarCommand[]
+
+  @@unique([organizationId, slug])
+  @@unique([id, organizationId])
+  @@index([organizationId, contentStatus, updatedAt])
+  @@index([authorProfileId, contentStatus])
+  @@index([jurisdictionId, contentStatus])
+  @@index([visibility, contentStatus, publishedAt])
+  @@index([supersededByWebinarId])
+  @@map("webinars")
+}
+
+model WebinarPracticeArea {
+  webinarId      String            @map("webinar_id")
+  organizationId String            @map("organization_id")
+  practiceAreaId String            @map("practice_area_id")
+  isPrimary      Boolean           @default(false) @map("is_primary")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  webinar        Webinar           @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  practiceArea   LegalPracticeArea @relation(fields: [practiceAreaId], references: [id], onDelete: Restrict)
+
+  @@id([webinarId, practiceAreaId])
+  @@index([organizationId, practiceAreaId])
+  @@index([practiceAreaId, isPrimary])
+  @@map("webinar_practice_areas")
+}
+
+model WebinarSource {
+  id             String            @id @default(cuid())
+  webinarId      String            @map("webinar_id")
+  organizationId String            @map("organization_id")
+  type           WebinarSourceType
+  title          String
+  url            String?
+  accessedAt     DateTime?         @map("accessed_at") @db.Date
+  note           String?
+  orderIndex     Int               @default(0) @map("order_index")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  webinar        Webinar           @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([webinarId, orderIndex])
+  @@index([organizationId, type])
+  @@map("webinar_sources")
+}
+
+model WebinarSlugAlias {
+  id             String       @id @default(cuid())
+  webinarId      String       @map("webinar_id")
+  organizationId String       @map("organization_id")
+  slug           String
+  createdAt      DateTime     @default(now()) @map("created_at")
+  webinar        Webinar      @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, slug])
+  @@index([webinarId, createdAt])
+  @@map("webinar_slug_aliases")
+}
+
+model WebinarCommand {
+  id             String       @id @default(cuid())
+  webinarId      String       @map("webinar_id")
+  organizationId String       @map("organization_id")
+  requestedById  String       @map("requested_by_id")
+  action         String
+  idempotencyKey String       @map("idempotency_key")
+  resultStatus   String       @map("result_status")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  webinar        Webinar      @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  requestedBy    User         @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, action, idempotencyKey])
+  @@index([webinarId, action, createdAt])
+  @@index([requestedById, createdAt])
+  @@map("webinar_commands")
 }
 
 model AdminUser {
@@ -445,21 +707,24 @@ model Lead {
 }
 
 model WebinarSession {
-  id                    String                 @id @default(cuid())
+  id                    String                        @id @default(cuid())
+  webinarId             String                        @default("webinar_aspb_legacy") @map("webinar_id")
   title                 String
-  scheduledAt           DateTime               @map("scheduled_at")
-  durationMinutes       Int                    @default(65) @map("duration_minutes")
-  videoUrl              String?                @map("video_url")
-  posterUrl             String?                @map("poster_url")
-  videoDurationSeconds  Int                    @default(3860) @map("video_duration_seconds")
-  roomOpenBeforeMinutes Int                    @default(15) @map("room_open_before_minutes")
-  replayAvailableHours  Int                    @default(168) @map("replay_available_hours")
-  replayEnabled         Boolean                @default(true) @map("replay_enabled")
-  liveMode              String                 @default("simulated") @map("live_mode")
-  status                String                 @default("scheduled")
-  organizationId        String                 @default("org_aspb") @map("organization_id")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
+  scheduledAt           DateTime                      @map("scheduled_at")
+  timezone              String                        @default("Europe/Moscow")
+  lifecycleStatus       WebinarSessionLifecycleStatus @default(SCHEDULED) @map("lifecycle_status")
+  durationMinutes       Int                           @default(65) @map("duration_minutes")
+  videoUrl              String?                       @map("video_url")
+  posterUrl             String?                       @map("poster_url")
+  videoDurationSeconds  Int                           @default(3860) @map("video_duration_seconds")
+  roomOpenBeforeMinutes Int                           @default(15) @map("room_open_before_minutes")
+  replayAvailableHours  Int                           @default(168) @map("replay_available_hours")
+  replayEnabled         Boolean                       @default(true) @map("replay_enabled")
+  liveMode              String                        @default("simulated") @map("live_mode")
+  status                String                        @default("scheduled")
+  organizationId        String                        @default("org_aspb") @map("organization_id")
+  createdAt             DateTime                      @default(now()) @map("created_at")
+  updatedAt             DateTime                      @updatedAt @map("updated_at")
   registrations         Registration[]
   questions             Question[]
   events                Event[]
@@ -468,10 +733,12 @@ model WebinarSession {
   chatMessages          WebinarChatMessage[]
   emailOutboxJobs       EmailOutboxJob[]
   recordings            WebinarRecording[]
-  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar               Webinar                       @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization          Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  @@unique([scheduledAt])
+  @@unique([webinarId, scheduledAt])
   @@index([organizationId, scheduledAt])
+  @@index([webinarId, lifecycleStatus, scheduledAt])
   @@index([status])
   @@map("webinar_sessions")
 }

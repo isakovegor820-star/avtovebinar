@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
-describe('TEN-001/TEN-004/TEN-005/TEN-008/AUT additive tenant migrations', () => {
+describe('TEN/AUT/WEB additive platform migrations', () => {
   it('backfills a non-empty legacy schema and adds empty auth tables without changing history', () => {
     const guard = spawnSync(process.execPath, ['scripts/assert-test-database.mjs'], {
       cwd: process.cwd(),

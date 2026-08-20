@@ -485,6 +485,183 @@ paths:
           description: Public profile without email, internal notes or verification documents
         '404':
           description: Profile is absent, unverified, suspended or inactive
+  /api/v1/creator/reference-data:
+    get:
+      summary: List active legal practice areas and jurisdictions for the authenticated creator
+      security:
+        - userSessionCookie: []
+      responses:
+        '200':
+          description: Active reference data without tenant or personal data
+        '403':
+          description: Active membership is not OWNER or AUTHOR
+        '404':
+          description: Creator dashboard feature flag is disabled
+  /api/v1/creator/webinars:
+    get:
+      summary: List Webinars in the server-selected tenant
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [DRAFT, NEEDS_REVIEW, READY, IN_MODERATION, PUBLISHED, ARCHIVED]
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 191
+      responses:
+        '200':
+          description: Cursor page scoped to the active tenant and author policy
+        '403':
+          description: Active membership is not OWNER or AUTHOR
+    post:
+      summary: Create a tenant-scoped Webinar draft for the authenticated author
+      security:
+        - userSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorWebinarCreate'
+      responses:
+        '201':
+          description: Draft created and audited; independent media, transcript and scenario states start empty
+        '400':
+          description: Strict payload or reference validation failed
+        '409':
+          description: Author profile is missing or slug is already reserved by a current URL or alias
+  /api/v1/creator/webinars/{webinarId}:
+    get:
+      summary: Read one Webinar through tenant and author scope
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      responses:
+        '200':
+          description: Webinar draft with legal metadata, sources and independent session summaries
+        '404':
+          description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
+    patch:
+      summary: Update editable Webinar content and preserve a changed slug as an alias
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorWebinarDraft'
+      responses:
+        '200':
+          description: Draft updated atomically and audited
+        '400':
+          description: Strict payload or reference validation failed
+        '404':
+          description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
+        '409':
+          description: Webinar state is not editable or slug conflicts with a current URL or alias
+  /api/v1/creator/webinars/{webinarId}/sources:
+    post:
+      summary: Add one HTTPS legal source to an editable Webinar
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebinarSourceCreate'
+      responses:
+        '201':
+          description: Tenant-scoped source created and audited
+        '404':
+          description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
+        '409':
+          description: Webinar state is not editable
+  /api/v1/creator/webinars/{webinarId}/sources/{sourceId}:
+    delete:
+      summary: Remove one source from an editable Webinar
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/WebinarSourceId'
+      responses:
+        '200':
+          description: Source removed and mutation audited
+        '404':
+          description: Unknown, unauthorized and cross-tenant sources are intentionally indistinguishable
+        '409':
+          description: Webinar state is not editable
+  /api/v1/creator/webinars/{webinarId}/preview:
+    get:
+      summary: Read a side-effect-free creator preview
+      description: Does not create registrations, Leads, CRM events, email jobs or Telegram jobs.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      responses:
+        '200':
+          description: Preview projection marked as non-production and side-effect free
+        '404':
+          description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
+  /api/v1/creator/webinars/{webinarId}/submit:
+    post:
+      summary: Submit complete legal Webinar metadata to moderation
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Webinar moved from draft or needs-review to in-moderation exactly once
+        '403':
+          description: Author is not verified and active
+        '409':
+          description: Required metadata is missing or transition is invalid
+  /api/v1/creator/webinars/{webinarId}/publish:
+    post:
+      summary: Publish a moderation-ready Webinar
+      description: >-
+        Author verification is checked before workflow readiness, so an unverified or suspended
+        author receives 403 author_verification_required even when calling the API directly.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Ready Webinar published exactly once and audited
+        '403':
+          description: Author is not verified and active
+        '409':
+          description: Legal metadata, media, transcript, scenario or state is not publication-ready
+  /api/v1/creator/webinars/{webinarId}/archive:
+    post:
+      summary: Archive a published Webinar without deleting sessions, registrations or analytics
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Published Webinar archived exactly once and audited
+        '409':
+          description: Webinar transition is invalid
   /api/v1/platform/author-verifications:
     get:
       summary: List author verification submissions for platform review
@@ -663,6 +840,31 @@ components:
       schema:
         type: string
         pattern: '^author-[0-9a-f]{24}$'
+    WebinarId:
+      name: webinarId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 191
+    WebinarSourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 191
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 191
+        pattern: '^[A-Za-z0-9._:-]+$'
   schemas:
     OneTimeTokenRequest:
       type: object
@@ -776,6 +978,134 @@ components:
           nullable: true
           minLength: 1
           maxLength: 4000
+    CreatorWebinarCreate:
+      allOf:
+        - $ref: '#/components/schemas/CreatorWebinarDraft'
+        - type: object
+          required: [title, slug]
+    CreatorWebinarDraft:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 240
+        slug:
+          type: string
+          minLength: 3
+          maxLength: 120
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+        description:
+          type: string
+          nullable: true
+          minLength: 20
+          maxLength: 10000
+        outcomeDescription:
+          type: string
+          nullable: true
+          minLength: 10
+          maxLength: 2000
+        jurisdictionId:
+          type: string
+          nullable: true
+          maxLength: 191
+        practiceAreas:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [practiceAreaId, isPrimary]
+            properties:
+              practiceAreaId:
+                type: string
+                maxLength: 191
+              isPrimary:
+                type: boolean
+        visibility:
+          type: string
+          enum: [PUBLIC, UNLISTED, PRIVATE]
+        freshnessStatus:
+          type: string
+          enum: [CURRENT, REVIEW_DUE, OUTDATED, SUPERSEDED, UNKNOWN]
+        audienceLevel:
+          type: string
+          nullable: true
+          enum: [INTRODUCTORY, PRACTITIONER, ADVANCED, ALL_LEVELS]
+        targetAudience:
+          type: string
+          nullable: true
+          maxLength: 1000
+        format:
+          type: string
+          nullable: true
+          enum: [RECORDED, PREMIERE, ON_DEMAND]
+        durationMinutes:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 180
+        language:
+          type: string
+          minLength: 2
+          maxLength: 20
+        currentAsOf:
+          type: string
+          format: date
+          nullable: true
+        disclaimer:
+          type: string
+          nullable: true
+          minLength: 20
+          maxLength: 2000
+        syntheticDisclosure:
+          type: string
+          nullable: true
+          minLength: 10
+          maxLength: 2000
+        supersededByWebinarId:
+          type: string
+          nullable: true
+          maxLength: 191
+    WebinarSourceCreate:
+      type: object
+      additionalProperties: false
+      required: [type, title, url]
+      properties:
+        type:
+          type: string
+          enum:
+            [
+              REGULATION,
+              STATUTE_PROVISION,
+              COURT_DECISION,
+              OFFICIAL_GUIDANCE,
+              OFFICIAL_SOURCE,
+              TEMPLATE_OR_CHECKLIST,
+              OTHER,
+            ]
+        title:
+          type: string
+          minLength: 2
+          maxLength: 500
+        url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2000
+        accessedAt:
+          type: string
+          format: date
+          nullable: true
+        note:
+          type: string
+          nullable: true
+          maxLength: 4000
+        orderIndex:
+          type: integer
+          minimum: 0
+          maximum: 10000
   securitySchemes:
     metricsBearer:
       type: http

@@ -77,6 +77,7 @@ const envSchema = z.object({
   // passwordless user-session flow is ready; legacy /admin is independent.
   PLATFORM_ACCOUNTS_ENABLED: z.enum(['on', 'off']).default('off'),
   PLATFORM_TENANCY_ENFORCEMENT: z.enum(['on', 'off']).default('off'),
+  CREATOR_DASHBOARD_ENABLED: z.enum(['on', 'off']).default('off'),
   // Имя и роль модератора эфира: показываются участникам в чате (приветствие +
   // ручные ответы из админки). Настраиваются без правки кода — поменять в .env.
   MODERATOR_NAME: z.string().trim().min(2).max(80).default('Юлия, модератор АСПБ'),
@@ -84,8 +85,11 @@ const envSchema = z.object({
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
-type ProductionSecurityConfig = Omit<EnvConfig, 'PLATFORM_ACCOUNTS_ENABLED' | 'PLATFORM_TENANCY_ENFORCEMENT'> &
-  Partial<Pick<EnvConfig, 'PLATFORM_ACCOUNTS_ENABLED' | 'PLATFORM_TENANCY_ENFORCEMENT'>>;
+type ProductionSecurityConfig = Omit<
+  EnvConfig,
+  'PLATFORM_ACCOUNTS_ENABLED' | 'PLATFORM_TENANCY_ENFORCEMENT' | 'CREATOR_DASHBOARD_ENABLED'
+> &
+  Partial<Pick<EnvConfig, 'PLATFORM_ACCOUNTS_ENABLED' | 'PLATFORM_TENANCY_ENFORCEMENT' | 'CREATOR_DASHBOARD_ENABLED'>>;
 
 export const ASPB_PARTICIPANT_BOT_USERNAME = 'jwjefgwreqfe_bot';
 
@@ -291,6 +295,7 @@ function runtimeEnv() {
     TRUST_PROXY: process.env.TRUST_PROXY ?? 'false',
     PLATFORM_ACCOUNTS_ENABLED: process.env.PLATFORM_ACCOUNTS_ENABLED ?? 'off',
     PLATFORM_TENANCY_ENFORCEMENT: process.env.PLATFORM_TENANCY_ENFORCEMENT ?? 'off',
+    CREATOR_DASHBOARD_ENABLED: process.env.CREATOR_DASHBOARD_ENABLED ?? 'off',
   };
 }
 

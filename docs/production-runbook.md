@@ -144,7 +144,8 @@ Concurrent-index script идемпотентен для уже valid indexes. Е
 остаются `off`.
 
 До отдельного controlled switch держите
-`PLATFORM_ACCOUNTS_ENABLED=off` и `PLATFORM_TENANCY_ENFORCEMENT=off`. Это
+`PLATFORM_ACCOUNTS_ENABLED=off`, `PLATFORM_TENANCY_ENFORCEMENT=off` и
+`CREATOR_DASHBOARD_ENABLED=off`. Это
 оставляет legacy registration, room, replay, CRM, email, Telegram и `/admin`
 на прежнем маршруте, но новые scoped services уже обязаны использовать
 server-resolved tenant context.
@@ -212,6 +213,47 @@ Telegram и `admin_users` не изменяются. До открытия autho
 Application rollback — `PLATFORM_ACCOUNTS_ENABLED=off`. Миграцию не
 откатывайте и не удаляйте профили/документы: это требует отдельного
 утверждённого retention/erasure process.
+
+Webinar domain добавлен additive migration
+`20260820190000_webinar_domain`. Она создаёт новые справочники и content
+таблицы, затем привязывает каждую существующую `webinar_sessions` к одному
+deterministic compatibility-Webinar своей организации. Для АСПБ используется
+стабильный `webinar_aspb_legacy`; записи session/recording/registration/CRM и
+delivery history не удаляются.
+
+Перед migration сохраните вывод read-only проверки рядом со свежим verified
+backup:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820190000_webinar_domain_preflight.sql
+```
+
+Lock profile: создание новых таблиц не блокирует legacy writes; `ADD COLUMN`,
+`SET NOT NULL` и замена unique index требуют lock на `webinar_sessions`, а
+backfill пишет одну новую ссылку на строку. Штатный deploy перед migrations уже
+останавливает API и webinar worker. `lock_timeout=5s` прерывает rollout при
+неожиданном внешнем writer; не увеличивайте timeout без отдельного maintenance
+решения. На большой таблице оцените размер из preflight и длительность полного
+index scan на восстановленной production-копии.
+
+После deploy и до запуска creator-флага выполните:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820190000_webinar_domain_postflight.sql
+npm run prisma:deploy
+```
+
+Postflight обязан подтвердить composite tenant FK, отсутствие session orphan,
+valid/ready unique index `(webinar_id, scheduled_at)`, отсутствие прежней
+глобальной уникальности `scheduled_at` и неизменные legacy counts. Повторный
+deploy должен сообщить `No pending migrations to apply`. Application rollback
+выполняется `CREATOR_DASHBOARD_ENABLED=off`; новые таблицы/колонки и backfill не
+откатываются. Старый image допустим только пока creator flag ни разу не включался
+и новые Webinar/session timestamps не создавались.
 
 Seed нужен только при первичной подготовке demo/default данных:
 

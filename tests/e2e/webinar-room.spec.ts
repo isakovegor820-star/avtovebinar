@@ -6,17 +6,34 @@ import { encryptMfaSecret, generateTotp } from '../../src/lib/mfa.js';
 import { buildUnsubscribeToken } from '../../src/lib/unsubscribe.js';
 import { TELEGRAM_BINDING_VERSION } from '../../src/lib/roomLinks.js';
 import { runEmailOutboxJobOnce } from '../../src/lib/emailOutbox.js';
-import { DEFAULT_ORGANIZATION_ID, DEFAULT_SYSTEM_OWNER_USER_ID } from '../../src/lib/tenancy/constants.js';
+import {
+  DEFAULT_ORGANIZATION_ID,
+  DEFAULT_SYSTEM_OWNER_USER_ID,
+  DEFAULT_WEBINAR_ID,
+} from '../../src/lib/tenancy/constants.js';
 
 async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, user_auth_tokens, user_sessions, user_auth_email_jobs, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, user_auth_tokens, user_sessions, user_auth_email_jobs, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
   );
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
   });
   await prisma.organization.deleteMany({ where: { id: { not: DEFAULT_ORGANIZATION_ID } } });
   await prisma.user.deleteMany({ where: { id: { not: DEFAULT_SYSTEM_OWNER_USER_ID } } });
+  await prisma.webinar.create({
+    data: {
+      id: DEFAULT_WEBINAR_ID,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      slug: 'legacy-webinar',
+      title: 'Ежедневный вебинар АСПБ',
+      contentStatus: 'PUBLISHED',
+      visibility: 'UNLISTED',
+      legacyCompatibility: true,
+      mediaStatus: 'READY',
+      scenarioStatus: 'PUBLISHED',
+    },
+  });
 }
 
 async function createExchangeRegistration(email: string) {

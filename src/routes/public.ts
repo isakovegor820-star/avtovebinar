@@ -9,6 +9,7 @@ import { sendCsrfToken } from '../lib/csrf.js';
 import { getReadiness } from '../lib/health.js';
 import { platformAuthRouter } from './platformAuth.js';
 import { authorPlatformRouter } from './authorPlatform.js';
+import { creatorWebinarsRouter } from './creatorWebinars.js';
 
 export const publicRouter = Router();
 
@@ -35,6 +36,7 @@ publicRouter.get('/health/ready', async (_req, res, next) => {
 publicRouter.get('/csrf', sendCsrfToken);
 publicRouter.use('/v1', platformAuthRouter);
 publicRouter.use('/v1', authorPlatformRouter);
+publicRouter.use('/v1', creatorWebinarsRouter);
 
 // Sub-routers (all paths are defined inside each module)
 publicRouter.use(registrationRouter);

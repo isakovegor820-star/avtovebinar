@@ -240,6 +240,7 @@ app.use('/api/v1/auth/passwordless/request', platformMutationLimiter);
 app.use('/api/v1/auth/passwordless/consume', tokenReadLimiter);
 app.use('/api/v1/auth', platformMutationLimiter);
 app.use('/api/v1/organization', platformMutationLimiter);
+app.use('/api/v1/creator', platformMutationLimiter);
 app.use('/api/questions', formLimiter);
 app.use('/api/partner-application', formLimiter);
 app.use('/api/events', eventLimiter);

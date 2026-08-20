@@ -43,6 +43,7 @@ rollout-флага остаются выключены:
 ```text
 PLATFORM_ACCOUNTS_ENABLED=off
 PLATFORM_TENANCY_ENFORCEMENT=off
+CREATOR_DASHBOARD_ENABLED=off
 ```
 
 Это сохраняет действующие registration/room/replay/CRM/email/Telegram и
@@ -60,8 +61,17 @@ AUT-001–AUT-005 добавляют tenant-scoped профиль автора �
 принять, отклонить или приостановить профиль; внутренняя причина никогда
 не возвращается автору. Публичный endpoint видит только `verified`
 активного автора с действующим membership. Прямой publish guard уже
-централизован в service policy и будет подключён к реальному Webinar publish API
-на этапе 2.
+централизован в service policy и подключён к tenant-scoped Webinar publish API.
+
+Этап 2 разворачивается отдельным флагом `CREATOR_DASHBOARD_ENABLED`. Additive
+migration `20260820190000_webinar_domain` разделяет `Webinar` и
+`WebinarSession`, создаёт стабильный compatibility-Webinar для старой воронки
+АСПБ, сохраняет прежние сессии и разрешает одинаковое время запуска у разных
+вебинаров. Creator API хранит юридические метаданные и HTTPS-источники,
+сохраняет прежний slug в алиасах, предоставляет side-effect-free preview и
+проверяет tenant, роль, авторскую верификацию и state machine внутри service
+layer. Флаг остаётся `off`, пока базовый кабинет, sessions/recurrence и private
+access grants не пройдут свой gate.
 
 ## Быстрый запуск
 
@@ -191,6 +201,17 @@ POST /api/v1/author-verification/evidence
 GET  /api/v1/author-verification/evidence/:evidenceId
 DELETE /api/v1/author-verification/evidence/:evidenceId
 GET  /api/v1/catalog/authors/:slug
+GET  /api/v1/creator/reference-data
+GET  /api/v1/creator/webinars
+POST /api/v1/creator/webinars
+GET  /api/v1/creator/webinars/:webinarId
+PATCH /api/v1/creator/webinars/:webinarId
+POST /api/v1/creator/webinars/:webinarId/sources
+DELETE /api/v1/creator/webinars/:webinarId/sources/:sourceId
+GET  /api/v1/creator/webinars/:webinarId/preview
+POST /api/v1/creator/webinars/:webinarId/submit
+POST /api/v1/creator/webinars/:webinarId/publish
+POST /api/v1/creator/webinars/:webinarId/archive
 ```
 
 Admin:

@@ -255,6 +255,44 @@ deploy должен сообщить `No pending migrations to apply`. Applicati
 откатываются. Старый image допустим только пока creator flag ни разу не включался
 и новые Webinar/session timestamps не создавались.
 
+Session recurrence добавлена additive migration
+`20260820193000_webinar_sessions_recurrence`. Она не создаёт расписания из
+legacy data: прежние sessions сохраняют exact timestamps, получают
+`schedule_version=1`, а `schedule_id` остаётся `NULL`. Существующие
+reminder jobs получают ту же версию; history доставки не меняется.
+
+До migration сохраните read-only snapshot:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820193000_webinar_sessions_recurrence_preflight.sql
+```
+
+`ALTER TABLE` берёт краткий lock на `webinar_sessions` и
+`email_outbox_jobs`; замена reminder uniqueness index сканирует outbox.
+Штатный deploy уже останавливает API и worker. `lock_timeout=5s`
+останавливает rollout при неожиданном writer; размер outbox и
+время index build нужно замерить на restored production backup.
+
+После deploy, но до включения creator-флага:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820193000_webinar_sessions_recurrence_postflight.sql
+npm run prisma:deploy
+```
+
+Postflight обязан подтвердить schedule tenant FK, cancellation
+invariants, `schedule_version` и valid/ready versioned reminder index; legacy
+counts сверяются с preflight. Повторный deploy не должен иметь
+pending migrations. До первого session change schema rollback совместим;
+после появления `webinar_session_rescheduled/cancelled` jobs не запускайте
+старый worker: он не знает их service-notification contract. Откатывайтесь
+только на image с поддержкой этой migration или оставляйте worker
+остановленным до forward-fix.
+
 Seed нужен только при первичной подготовке demo/default данных:
 
 ```bash

@@ -17,6 +17,12 @@ import {
   runCreatorWebinarCommand,
   updateCreatorWebinar,
 } from '../lib/tenancy/webinarContent.js';
+import {
+  cancelCreatorWebinarSession,
+  createCreatorWebinarSchedule,
+  listCreatorWebinarSessions,
+  updateCreatorWebinarSession,
+} from '../lib/tenancy/webinarSessions.js';
 
 export const creatorWebinarsRouter = Router();
 
@@ -27,6 +33,7 @@ const sourceParamsSchema = z
     sourceId: z.string().trim().min(1).max(191),
   })
   .strict();
+const sessionParamsSchema = z.object({ sessionId: z.string().trim().min(1).max(191) }).strict();
 const emptyBodySchema = z.object({}).strict();
 
 function requireCreatorDashboard() {
@@ -109,6 +116,51 @@ creatorWebinarsRouter.patch(
     const context = await tenantContextFromRequest(req);
     const webinar = await updateCreatorWebinar(prisma, context, params.webinarId, req.body);
     res.json({ ok: true, webinar, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.get(
+  '/creator/webinars/:webinarId/sessions',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = webinarParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const sessions = await listCreatorWebinarSessions(prisma, context, params.webinarId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, sessions, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.post(
+  '/creator/webinars/:webinarId/sessions',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = webinarParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const result = await createCreatorWebinarSchedule(prisma, context, params.webinarId, req.body);
+    res.status(201).json({ ok: true, ...result, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.patch(
+  '/creator/sessions/:sessionId',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = sessionParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const result = await updateCreatorWebinarSession(prisma, context, params.sessionId, req.body);
+    res.json({ ok: true, ...result, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.delete(
+  '/creator/sessions/:sessionId',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = sessionParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const result = await cancelCreatorWebinarSession(prisma, context, params.sessionId, req.body);
+    res.json({ ok: true, ...result, correlationId: correlationId() });
   }),
 );
 

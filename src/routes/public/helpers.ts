@@ -116,6 +116,10 @@ export async function findRegistrationByToken(token: string) {
     return null;
   }
 
+  if (tokenRecord.registration.webinarSession.lifecycleStatus === 'CANCELLED') {
+    return null;
+  }
+
   return tokenRecord.registration;
 }
 
@@ -142,6 +146,10 @@ export async function findRegistrationBySessionToken(token: string) {
   }
 
   if (!isParticipantRegistrationActive(tokenRecord.registration)) {
+    return null;
+  }
+
+  if (tokenRecord.registration.webinarSession.lifecycleStatus === 'CANCELLED') {
     return null;
   }
 

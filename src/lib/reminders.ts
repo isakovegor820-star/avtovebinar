@@ -143,6 +143,7 @@ async function claimTelegramDelivery(input: {
       [input.fields.sent]: null,
       OR: [{ [input.fields.claimedUntil]: null }, { [input.fields.claimedUntil]: { lte: claimNow } }],
       lead: leadWhere,
+      webinarSession: { lifecycleStatus: { not: 'CANCELLED' } },
     } as Prisma.RegistrationWhereInput,
     data: { [input.fields.claimedUntil]: leaseUntil } as Prisma.RegistrationUpdateManyMutationInput,
   });
@@ -175,7 +176,8 @@ async function createRoomUrlForActiveRegistration(registrationId: string, expect
     if (
       !activeRegistration ||
       activeRegistration.leadId !== expectedLeadId ||
-      !isParticipantRegistrationActive(activeRegistration)
+      !isParticipantRegistrationActive(activeRegistration) ||
+      activeRegistration.webinarSession.lifecycleStatus === 'CANCELLED'
     ) {
       return null;
     }
@@ -418,6 +420,7 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
           email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
         },
         webinarSession: {
+          lifecycleStatus: { not: 'CANCELLED' },
           scheduledAt: {
             gt: now,
             lte: new Date(now.getTime() + 24 * 60 * 60 * 1000),
@@ -445,9 +448,11 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
     // уже поставлены для регистраций этого батча. Ключ — `registrationId:reminderKind`.
     const existingJobs = await prisma.emailOutboxJob.findMany({
       where: { registrationId: { in: registrations.map(item => item.id) }, type: EMAIL_JOB_REMINDER },
-      select: { registrationId: true, reminderKind: true },
+      select: { registrationId: true, reminderKind: true, sessionScheduleVersion: true },
     });
-    const existingReminderKeys = new Set(existingJobs.map(job => `${job.registrationId}:${job.reminderKind}`));
+    const existingReminderKeys = new Set(
+      existingJobs.map(job => `${job.registrationId}:${job.reminderKind}:${job.sessionScheduleVersion}`),
+    );
 
     for (const registration of registrations) {
       onProgress?.();
@@ -456,7 +461,7 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
         continue;
       }
 
-      if (existingReminderKeys.has(`${registration.id}:${kind}`)) {
+      if (existingReminderKeys.has(`${registration.id}:${kind}:${registration.webinarSession.scheduleVersion}`)) {
         continue;
       }
 
@@ -470,6 +475,7 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
           !activeRegistration ||
           activeRegistration.leadId !== registration.leadId ||
           !isParticipantRegistrationActive(activeRegistration) ||
+          activeRegistration.webinarSession.lifecycleStatus === 'CANCELLED' ||
           getDueReminderKind(activeRegistration, now) !== kind
         ) {
           return 0;
@@ -482,6 +488,7 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
           toEmail: activeRegistration.lead.email,
           toName: activeRegistration.lead.name,
           scheduledAt: activeRegistration.webinarSession.scheduledAt,
+          scheduleVersion: activeRegistration.webinarSession.scheduleVersion,
         });
       });
       // createMany(skipDuplicates) вернёт 0, если напоминание уже было поставлено гонкой —
@@ -518,6 +525,7 @@ export async function runTelegramReminderJobOnce(now = new Date(), onProgress?: 
           email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
         },
         webinarSession: {
+          lifecycleStatus: { not: 'CANCELLED' },
           scheduledAt: {
             gt: now,
             lte: new Date(now.getTime() + 24 * 60 * 60 * 1000),
@@ -644,7 +652,10 @@ export async function runTelegramLiveJobOnce(now = new Date(), onProgress?: () =
         personalDataConsentRevokedAt: null,
         email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
       },
-      webinarSession: { scheduledAt: { lte: now, gt: new Date(now.getTime() - TELEGRAM_LIVE_WINDOW_MS) } },
+      webinarSession: {
+        lifecycleStatus: { not: 'CANCELLED' },
+        scheduledAt: { lte: now, gt: new Date(now.getTime() - TELEGRAM_LIVE_WINDOW_MS) },
+      },
     },
     include: { lead: true, webinarSession: true },
     orderBy: { id: 'asc' },
@@ -722,6 +733,7 @@ export async function runTelegramFollowupJobOnce(now = new Date(), onProgress?: 
         marketingTelegramRevokedAt: null,
       },
       webinarSession: {
+        lifecycleStatus: { not: 'CANCELLED' },
         scheduledAt: { lt: now, gt: new Date(now.getTime() - TELEGRAM_FOLLOWUP_WINDOW_MS - 6 * 60 * 60 * 1000) },
       },
     },

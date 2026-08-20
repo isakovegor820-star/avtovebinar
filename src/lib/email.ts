@@ -11,6 +11,7 @@ type BaseEmailInput = {
   scheduledAt: Date;
   webinarUrl: string;
   partnerUrl?: string;
+  timezone?: string;
 };
 
 type PasswordlessLoginEmailInput = {
@@ -26,6 +27,12 @@ type OrganizationInvitationEmailInput = {
   roleLabel: string;
   invitationUrl: string;
   expiresInDays: number;
+};
+
+type SessionChangeEmailInput = BaseEmailInput & {
+  kind: 'rescheduled' | 'cancelled';
+  timezone: string;
+  webinarTitle: string;
 };
 
 export type ReminderKind = '24h' | '3h' | '30m';
@@ -100,17 +107,17 @@ function maskEmail(_value: string) {
   return '[redacted-email]';
 }
 
-function formatScheduled(date: Date) {
+function formatScheduled(date: Date, timezone = 'Europe/Moscow') {
   return new Intl.DateTimeFormat('ru-RU', {
-    timeZone: 'Europe/Moscow',
+    timeZone: timezone,
     dateStyle: 'long',
     timeStyle: 'short',
   }).format(date);
 }
 
-function moscowDateKey(date: Date) {
+function timezoneDateKey(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Moscow',
+    timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -119,41 +126,46 @@ function moscowDateKey(date: Date) {
   return `${map.year}-${map.month}-${map.day}`;
 }
 
-function addDaysKey(dateKey: string, days: number) {
+function addDaysKey(dateKey: string, days: number, timezone: string) {
   const [year, month, day] = dateKey.split('-').map(Number);
-  return moscowDateKey(new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0)));
+  return timezoneDateKey(new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0)), timezone);
 }
 
-function formatRelativeScheduled(date: Date, now = new Date()) {
-  const scheduledKey = moscowDateKey(date);
-  const todayKey = moscowDateKey(now);
+function timezoneLabel(timezone: string) {
+  return timezone === 'Europe/Moscow' ? 'МСК' : timezone;
+}
+
+function formatRelativeScheduled(date: Date, timezone: string, now = new Date()) {
+  const scheduledKey = timezoneDateKey(date, timezone);
+  const todayKey = timezoneDateKey(now, timezone);
   const day =
     scheduledKey === todayKey
       ? 'сегодня'
-      : scheduledKey === addDaysKey(todayKey, 1)
+      : scheduledKey === addDaysKey(todayKey, 1, timezone)
         ? 'завтра'
         : new Intl.DateTimeFormat('ru-RU', {
-            timeZone: 'Europe/Moscow',
+            timeZone: timezone,
             day: '2-digit',
             month: 'long',
           }).format(date);
   const time = new Intl.DateTimeFormat('ru-RU', {
-    timeZone: 'Europe/Moscow',
+    timeZone: timezone,
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
-  return `${day} в ${time} МСК`;
+  return `${day} в ${time} (${timezoneLabel(timezone)})`;
 }
 
 function buildEmailText(input: BaseEmailInput, intro: string) {
-  const scheduled = formatScheduled(input.scheduledAt);
+  const timezone = input.timezone ?? 'Europe/Moscow';
+  const scheduled = formatScheduled(input.scheduledAt, timezone);
   const telegramUrl = buildTelegramStartUrl() ?? env.TELEGRAM_GROUP_URL;
 
   return [
     `${input.name}, ${intro}`,
     '',
     'Тема: Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности',
-    `Начало: ${scheduled} МСК`,
+    `Начало: ${scheduled} (${timezoneLabel(timezone)})`,
     `Ваша персональная ссылка на комнату: ${input.webinarUrl}`,
     `Telegram-уведомления: ${telegramUrl}`,
     input.partnerUrl ? `Заявка на партнерский договор: ${input.partnerUrl}` : '',
@@ -297,14 +309,15 @@ export async function sendRegistrationEmail(input: BaseEmailInput) {
 
 export async function sendParticipantLoginEmail(input: BaseEmailInput) {
   const subject = 'Ваша ссылка для входа в Мой доступ АСПБ';
-  const scheduled = formatScheduled(input.scheduledAt);
+  const timezone = input.timezone ?? 'Europe/Moscow';
+  const scheduled = formatScheduled(input.scheduledAt, timezone);
   const text = [
     `${input.name}, вы запросили вход в Мой доступ АСПБ.`,
     '',
     'Откройте одноразовую ссылку, чтобы восстановить доступ на этом устройстве:',
     input.webinarUrl,
     '',
-    `Ближайший вебинар: ${scheduled} МСК`,
+    `Ближайший вебинар: ${scheduled} (${timezoneLabel(timezone)})`,
     'Если вы не запрашивали вход, просто проигнорируйте это письмо.',
     '',
     'АСПБ — Антикризисная служба помощи бизнесу',
@@ -314,25 +327,60 @@ export async function sendParticipantLoginEmail(input: BaseEmailInput) {
 }
 
 export async function sendReminderEmail(input: BaseEmailInput & { kind: ReminderKind }) {
+  const timezone = input.timezone ?? 'Europe/Moscow';
   const scheduled = new Intl.DateTimeFormat('ru-RU', {
-    timeZone: 'Europe/Moscow',
+    timeZone: timezone,
     dateStyle: 'long',
     timeStyle: 'short',
   }).format(input.scheduledAt);
 
   const labelByKind: Record<ReminderKind, string> = {
-    '24h': `премьера записи начнётся ${formatRelativeScheduled(input.scheduledAt)}`,
-    '3h': `премьера записи начнётся ${formatRelativeScheduled(input.scheduledAt)}`,
-    '30m': `премьера записи начнётся ${formatRelativeScheduled(input.scheduledAt)}`,
+    '24h': `премьера записи начнётся ${formatRelativeScheduled(input.scheduledAt, timezone)}`,
+    '3h': `премьера записи начнётся ${formatRelativeScheduled(input.scheduledAt, timezone)}`,
+    '30m': `премьера записи начнётся ${formatRelativeScheduled(input.scheduledAt, timezone)}`,
   };
 
-  const subject = `Напоминание АСПБ: премьера записи ${scheduled} МСК`;
+  const subject = `Напоминание АСПБ: премьера записи ${scheduled} (${timezoneLabel(timezone)})`;
   const text = buildEmailText(
     input,
     `${labelByKind[input.kind]}. Сохраните персональную ссылку и зайдите в комнату вовремя.`,
   );
 
   return deliverEmail({ ...input, subject, text });
+}
+
+export async function sendSessionChangeEmail(input: SessionChangeEmailInput) {
+  const scheduled = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: input.timezone,
+    dateStyle: 'long',
+    timeStyle: 'short',
+  }).format(input.scheduledAt);
+  const timezoneLabel = input.timezone.replaceAll('_', ' ');
+  const rescheduled = input.kind === 'rescheduled';
+  const subject = rescheduled ? 'Изменилось время вебинара АСПБ' : 'Вебинар АСПБ отменён';
+  const text = [
+    `${input.name},`,
+    '',
+    `Вебинар: ${input.webinarTitle}`,
+    rescheduled
+      ? `Время вебинара изменилось. Новое начало: ${scheduled} (${timezoneLabel}).`
+      : `Вебинар, назначенный на ${scheduled} (${timezoneLabel}), отменён.`,
+    rescheduled ? `Ваша персональная ссылка на комнату: ${input.webinarUrl}` : '',
+    '',
+    'Это сервисное уведомление об изменении вашей регистрации.',
+    'АСПБ — Антикризисная служба помощи бизнесу',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return deliverEmail({
+    to: input.to,
+    subject,
+    text,
+    scheduledAt: input.scheduledAt,
+    webinarUrl: rescheduled ? input.webinarUrl : undefined,
+    includeUnsubscribe: false,
+  });
 }
 
 export async function sendReplayEmail(input: BaseEmailInput) {

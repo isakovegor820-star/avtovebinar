@@ -220,6 +220,9 @@ async function exchangeRegistrationToken(
     if (!isPendingRegistrationConfirmation && !isParticipantRegistrationActive(activeTokenRecord.registration)) {
       throw new AppError(404, 'Registration not found');
     }
+    if (activeTokenRecord.registration.webinarSession.lifecycleStatus === 'CANCELLED') {
+      throw new AppError(404, 'Registration not found');
+    }
 
     // ВАЖНО (защита от double-spend): это compare-and-swap. deleteMany с условием
     // по tokenHash атомарно «забирает» токен — две параллельные транзакции под
@@ -827,6 +830,7 @@ async function findRestorableRegistrationByEmail(email: string) {
     include: {
       registrations: {
         where: {
+          webinarSession: { lifecycleStatus: { not: 'CANCELLED' } },
           OR: [
             { status: 'registered', emailVerifiedAt: { not: null } },
             { status: 'pending_verification', emailVerifiedAt: null },
@@ -879,7 +883,8 @@ async function queueParticipantLoginForEmail(email: string, req: Request) {
     if (
       !currentRegistration ||
       currentRegistration.leadId !== registration.leadId ||
-      currentRegistration.lead.email.toLowerCase() !== email
+      currentRegistration.lead.email.toLowerCase() !== email ||
+      currentRegistration.webinarSession.lifecycleStatus === 'CANCELLED'
     ) {
       return null;
     }

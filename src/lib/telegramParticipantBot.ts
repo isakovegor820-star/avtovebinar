@@ -153,9 +153,13 @@ async function createRoomUrl(registrationId: string, purpose = 'telegram_room') 
     await acquireLeadSecurityLock(tx, registrationRef.leadId);
     const activeRegistration = await tx.registration.findUnique({
       where: { id: registrationId },
-      include: { lead: true },
+      include: { lead: true, webinarSession: true },
     });
-    if (!activeRegistration || !isParticipantRegistrationActive(activeRegistration)) {
+    if (
+      !activeRegistration ||
+      !isParticipantRegistrationActive(activeRegistration) ||
+      activeRegistration.webinarSession.lifecycleStatus === 'CANCELLED'
+    ) {
       logger.warn({ registrationId, purpose }, 'Telegram room link skipped for inactive registration');
       return null;
     }
@@ -172,6 +176,7 @@ async function findLatestRegistrationByChat(chatId: string) {
     where: {
       status: 'registered',
       emailVerifiedAt: { not: null },
+      webinarSession: { lifecycleStatus: { not: 'CANCELLED' } },
       lead: {
         telegramChatId: chatId,
         telegramBindingVersion: TELEGRAM_BINDING_VERSION,

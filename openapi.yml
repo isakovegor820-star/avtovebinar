@@ -568,6 +568,80 @@ paths:
           description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
         '409':
           description: Webinar state is not editable or slug conflicts with a current URL or alias
+  /api/v1/creator/webinars/{webinarId}/sessions:
+    get:
+      summary: List timezone-aware session instances for one scoped Webinar
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      responses:
+        '200':
+          description: Sessions with server-computed lifecycle state ordered by UTC start time
+        '404':
+          description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
+    post:
+      summary: Create one bounded once, daily or weekly schedule and its independent session instances
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorWebinarScheduleCreate'
+      responses:
+        '201':
+          description: Bounded recurrence created in the authenticated tenant and audited
+        '400':
+          description: Strict payload, timezone, date or DST wall-clock validation failed
+        '404':
+          description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
+        '409':
+          description: Webinar is archived, already has a schedule or contains a colliding instance
+  /api/v1/creator/sessions/{sessionId}:
+    patch:
+      summary: Reschedule or update an editable session with registered-participant safeguards
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorWebinarSessionUpdate'
+      responses:
+        '200':
+          description: Session version incremented; stale reminders cancelled; service notices queued and audit written atomically
+        '400':
+          description: Strict payload, UTC timestamp or timezone validation failed
+        '404':
+          description: Unknown, unauthorized and cross-tenant sessions are intentionally indistinguishable
+        '409':
+          description: Registered change is unconfirmed, the session is no longer editable or time conflicts
+    delete:
+      summary: Cancel a session without deleting registrations or history
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorWebinarSessionCancel'
+      responses:
+        '200':
+          description: Session marked cancelled; reminders revoked; service notices queued and audit written atomically
+        '404':
+          description: Unknown, unauthorized and cross-tenant sessions are intentionally indistinguishable
+        '409':
+          description: Registered cancellation is unconfirmed or the session is no longer editable
   /api/v1/creator/webinars/{webinarId}/sources:
     post:
       summary: Add one HTTPS legal source to an editable Webinar
@@ -856,6 +930,14 @@ components:
         type: string
         minLength: 1
         maxLength: 191
+    WebinarSessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 191
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1106,6 +1188,92 @@ components:
           type: integer
           minimum: 0
           maximum: 10000
+    CreatorWebinarScheduleCreate:
+      type: object
+      additionalProperties: false
+      required: [recurrenceType, timezone, localStartTime, startsOn, durationMinutes]
+      properties:
+        recurrenceType:
+          type: string
+          enum: [ONCE, DAILY, WEEKLY]
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Europe/Amsterdam
+        localStartTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: '09:00'
+        startsOn:
+          type: string
+          format: date
+        endsOn:
+          type: string
+          format: date
+          nullable: true
+        maxFutureInstances:
+          type: integer
+          minimum: 1
+          maximum: 90
+        durationMinutes:
+          type: integer
+          minimum: 1
+          maximum: 180
+        roomOpenBeforeMinutes:
+          type: integer
+          minimum: 0
+          maximum: 180
+        replayAvailableHours:
+          type: integer
+          minimum: 0
+          maximum: 8760
+        replayEnabled:
+          type: boolean
+    CreatorWebinarSessionUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        scheduledAt:
+          type: string
+          format: date-time
+          description: Explicit UTC or offset-bearing timestamp; the server persists UTC.
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 100
+        durationMinutes:
+          type: integer
+          minimum: 1
+          maximum: 180
+        roomOpenBeforeMinutes:
+          type: integer
+          minimum: 0
+          maximum: 180
+        replayAvailableHours:
+          type: integer
+          minimum: 0
+          maximum: 8760
+        replayEnabled:
+          type: boolean
+        confirmRegisteredChange:
+          type: boolean
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 2000
+    CreatorWebinarSessionCancel:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        confirmRegisteredChange:
+          type: boolean
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 2000
   securitySchemes:
     metricsBearer:
       type: http

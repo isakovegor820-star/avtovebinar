@@ -1,7 +1,7 @@
 # АСПБ Legal Platform — статус реализации
 
 Дата: 20 августа 2026 года
-Текущий этап: этап 2, Webinar domain; backend batch WEB-001–WEB-004 и AUT-003 прошёл gate, кабинет/sessions/private access продолжаются
+Текущий этап: этап 2, Webinar domain; backend batches WEB-001–WEB-004, AUT-003 и SES-001–SES-006 прошли gate, кабинет/private access продолжаются
 
 ## Требования
 
@@ -31,8 +31,12 @@
 | WEB-008 | `in_progress` | Tenant-scoped `supersededByWebinarId` и validation реализованы; публичное уведомление/ссылка появятся вместе с catalog page |
 | WEB-009 | `implemented` | Publish→archive выполняется state machine, timestamp и audit без delete; acceptance сохранения CRM/analytics будет добавлен с catalog/CRM data path |
 | WEB-010 | `not_started` | Private invite/access-grant lifecycle ещё не реализован |
-| SES-001 | `in_progress` | Session теперь хранит mandatory Webinar relation, timezone и отдельный lifecycle; legacy room status compatibility сохранён |
-| SES-002–SES-006 | `not_started` | Creator session CRUD, bounded recurrence, DST tests и notification-confirmed reschedule/cancel — следующий batch |
+| SES-001 | `verified` | Session хранит mandatory Webinar relation, UTC `scheduledAt`, IANA timezone, duration, room-open/replay policy; creator API возвращает server-computed state, legacy room contract сохранён |
+| SES-002 | `verified` | Strict creator API создаёт bounded `ONCE/DAILY/WEEKLY` schedule и независимые session instances; migration сняла global `scheduledAt` uniqueness, integration проверяет одинаковое время разных Webinar |
+| SES-003 | `verified` | `SCHEDULED/ROOM_OPEN/LIVE/REPLAY/CLOSED/CANCELLED` считаются общей server policy; boundary unit tests, creator API и room cancellation acceptance проходят. Cancelled session исключена из room exchange/current access, email reminders и Telegram reminder/live/follow-up |
+| SES-004 | `verified` | Перенос/отмена с registered participants без `confirmRegisteredChange` и причины даёт 409 без mutation/audit/outbox; confirmed change атомарно increment-ит version, отзывает stale reminders, пишет audit и durable service notices; integration проверяет exact counts/delivery |
+| SES-005 | `verified` | UTC persistence + explicit timezone в API/email; Amsterdam DST tests подтверждают сохранение 09:00 при смене offset, reject nonexistent 02:30 и deterministic earlier instant для repeated hour |
+| SES-006 | `verified` | `endsOn` и `maxFutureInstances` ограничивают генерацию; API max 90, DB constraints max 366, generator guard 1000; unit/integration проверяют period/max bounds |
 
 ## Ключевые изменения
 
@@ -42,6 +46,7 @@
 - Owner MFA: `prisma/migrations/20260820170000_user_owner_mfa/migration.sql`, `src/lib/tenancy/userMfa.ts`; существующий `src/lib/mfa.ts` использован без смены AdminUser encryption contract.
 - Author verification: `prisma/migrations/20260820180000_author_verification/migration.sql`, `src/lib/tenancy/authorVerification.ts`, `src/routes/authorPlatform.ts`, platform-admin routes в `src/routes/admin.ts`.
 - Webinar domain/backfill: `prisma/migrations/20260820190000_webinar_domain/migration.sql`, preflight/postflight в `prisma/checks/20260820190000_webinar_domain_*`, `src/lib/tenancy/webinarContent.ts`, `src/routes/creatorWebinars.ts`; старый session helper/seed используют стабильный `webinar_aspb_legacy`.
+- Sessions/recurrence: `prisma/migrations/20260820193000_webinar_sessions_recurrence/migration.sql`, deploy checks `prisma/checks/20260820193000_webinar_sessions_recurrence_*`, `src/lib/sessionScheduling.ts`, `src/lib/tenancy/webinarSessions.ts`; versioned durable notices и cancellation guards подключены к email/Telegram/room contours.
 - Authenticated API/UI: `src/routes/platformAuth.ts`, `crisis_premium/platform-access.html`, `crisis_premium/js/platform-access.js`, `crisis_premium/platform-access.css`, `openapi.yml`.
 - Author/reviewer UI: `crisis_premium/author-profile.html`, `crisis_premium/js/author-profile.js`, `crisis_premium/admin.html`, `crisis_premium/admin.js`, `crisis_premium/admin-verification.css`.
 - Monitoring/retention: `src/lib/health.ts`, `src/lib/metrics.ts`, `src/lib/reminders.ts`, `docs/RETENTION-MATRIX-2026-07-30.md`, `docs/production-runbook.md`.
@@ -56,6 +61,7 @@
 - Invitation and User auth outboxes run through the existing durable reminders worker and are visible in protected health/Prometheus metrics.
 - Author verification таблицы пусты после legacy backfill; данные появляются только в новом flow и полностью скрываются флагом `PLATFORM_ACCOUNTS_ENABLED=off`.
 - Каждая legacy session получает один Webinar своей организации. Для АСПБ это стабильный `webinar_aspb_legacy`; исходные session/recording/registration/token/CRM/delivery строки не переписываются и не удаляются.
+- Legacy sessions не получают искусственное schedule: exact timestamps сохранены, `scheduleVersion=1`, nullable `scheduleId`; existing reminder history только versioned. До creator switch старый flow продолжает работать через stable Webinar.
 
 ## Quality gate
 
@@ -63,18 +69,20 @@
 | --- | --- |
 | `npx prisma validate` | passed |
 | `npx prisma generate` | passed: Prisma Client 6.19.3 |
-| Fresh `npm test` migration deploy | passed: all migrations through `20260820190000_webinar_domain` |
-| `DATABASE_URL=... NODE_ENV=test npx vitest run tests/tenantMigration.test.ts` | passed: 1 test; non-empty legacy counts/relations/tokens/CRM/delivery/AdminUser/audit preserved; sessions attached to compatibility Webinar without orphans |
+| Fresh `npm test` migration deploy | passed: all 40 migrations through `20260820193000_webinar_sessions_recurrence` |
+| `DATABASE_URL=... NODE_ENV=test npx vitest run tests/tenantMigration.test.ts` | passed: 1 test; non-empty legacy counts/relations/tokens/CRM/delivery/AdminUser/audit preserved; sessions attached to compatibility Webinar, session timestamps unchanged, reminder history versioned, schedules empty |
 | Webinar preflight/postflight + repeated `npx prisma migrate deploy` | passed on local `schema=test`; no orphan, composite unique index valid/ready, second deploy reports no pending migrations |
 | Targeted author integration | passed: strict draft/submit, 5 МиБ limit, MIME signature, review transitions, comment separation, safe projection, cross-tenant read/delete and publish policy |
 | Targeted Webinar integration | passed: creator CRUD/source/preview, slug alias, strict forged-tenant rejection, same safe 404 for cross-tenant read/write/source/preview/publish, AUT-003, state machine/idempotency and multi-Webinar session uniqueness |
-| Targeted safety/migration | passed: 3 files, 11 tests |
+| Targeted session integration | passed: 2 tests; strict forged-tenant rejection, same safe 404 for list/create/update/cancel, bounded DST recurrence, rejection without side effects, confirmed reschedule/cancel audit + exact durable delivery, cancelled room/email/Telegram exclusion |
+| Targeted session/safety/migration | passed: 5 files, 85 tests, including 11 timezone/lifecycle cases |
+| Session preflight/postflight + repeated `npx prisma migrate deploy` | passed on local `schema=test`; schedule tenant FK/cancellation/version/index invariants valid, second deploy reports no pending migrations |
 | `npm run lint` | passed |
 | `npm run build` | passed |
-| `npm test` | passed: 22 files, 222 tests |
+| `npm test` | passed: 23 files, 235 tests |
 | `npm run e2e` | passed: 16 Chromium tests; author 320px flow and platform-admin MFA/review included |
 | Consolidated interface review | passed in six domains: labelled native forms, accessible names asserted, announced errors/status, keyboard/focus handling, reduced-motion, 320px author reflow/no overflow, CSP-safe self-hosted styles, established typography/colors/layout |
-| OpenAPI YAML parse | passed: OpenAPI 3.0.3, 50 paths |
+| OpenAPI YAML parse | passed: OpenAPI 3.0.3, 52 paths |
 | `npm audit --omit=dev` | passed: 0 production vulnerabilities |
 | `node scripts/assert-ci-deploy-contract.mjs` | passed |
 | `git diff --check` | passed |
@@ -83,7 +91,8 @@
 ## Известные риски
 
 - Legacy CRM `Lead` глобален и не опубликован через tenant API. Перенос в tenant-scoped `CRMContact` выполняется на этапе CRM с one-to-one mapping действующей партнёрской воронки.
-- Creator dashboard остаётся выключен: текущий batch не включает UI, bounded recurrence, real preview-room navigation и private access grants.
+- Creator dashboard остаётся выключен: backend bounded recurrence завершён, но текущий этап ещё не включает базовый creator UI, real preview-room navigation и private access grants.
+- После первого reschedule/cancel outbox job нельзя откатывать worker на image до migration `20260820193000`: старый dispatcher не знает новые service-notification types. Схема additive, но application rollback должен оставаться на compatible image.
 - Полный production observation одного webinar/reminder/replay/CRM цикла не выполнен локально; rollout flags должны включаться по runbook независимо.
 - В старой migration history остаётся документированный schema drift manual GIN/token/id-status indexes и default `telegram_broadcast_recipients.updated_at`; новые migrations его не удаляют и не маскируют.
 - Реальный SMTP delivery и внешний deploy требуют production credentials/approval. До SMTP verify используется честный degraded `EMAIL_MODE=log`.
@@ -93,11 +102,11 @@
 
 ## Deploy verdict
 
-`ready` для controlled additive deploy identity/author/Webinar expand migrations со всеми rollout flags `off` и условиями runbook. Creator dashboard включать ещё нельзя до завершения текущего stage-2 gate. Публичный author onboarding остаётся `blocked` юридическим утверждением profile/retention rules. Внешний deploy остаётся `blocked` отсутствующими GitHub deployment secrets; локальная реализация не меняет production state.
+`ready` для controlled additive deploy identity/author/Webinar/session expand migrations со всеми rollout flags `off` и условиями runbook. Creator dashboard включать ещё нельзя до завершения текущего stage-2 gate. Публичный author onboarding остаётся `blocked` юридическим утверждением profile/retention rules. Внешний deploy остаётся `blocked` отсутствующими GitHub deployment secrets; локальная реализация не меняет production state.
 
 ## Следующий минимальный batch
 
-1. SES-001–SES-003/SES-005/SES-006: tenant-scoped session CRUD, bounded one-time/daily/weekly recurrence и DST/date-boundary tests.
-2. SES-004: confirmed reschedule/cancel after registrations with audit and durable notification outbox.
-3. WEB-007/WEB-010: idempotent duplicate draft, private Webinar invitation/access grants and immediate revoke enforcement.
-4. WEB-002/WEB-003/WEB-006: базовый creator UI с полными loading/empty/error/permission/narrow states и side-effect-free room preview; затем stage-2 full gate.
+1. WEB-007: idempotent duplicate draft с разрешёнными content/source/scenario данными без analytics/registrations/history.
+2. WEB-010: private Webinar invitation/access-grant lifecycle, hash-only token и immediate revoke enforcement с cross-tenant/expired/replay tests.
+3. WEB-002/WEB-003/WEB-006: базовый creator UI с полными loading/empty/error/permission/narrow states и side-effect-free room preview.
+4. Stage-2 full gate: browser acceptance creator draft→schedule→preview, consolidated interface review в full mode и только затем переход к MED-001+.

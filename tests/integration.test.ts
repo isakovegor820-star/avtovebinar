@@ -13,11 +13,13 @@ import { hashPassword } from '../src/lib/passwords.js';
 import { createAccessToken, hashToken } from '../src/lib/tokens.js';
 import {
   EMAIL_JOB_REMINDER,
+  EMAIL_JOB_SESSION_CANCELLED,
+  EMAIL_JOB_SESSION_RESCHEDULED,
   enqueueRegistrationEmail,
   enqueueReminderEmail,
   runEmailOutboxJobOnce,
 } from '../src/lib/emailOutbox.js';
-import { runReplayFollowupJobOnce, runTelegramLiveJobOnce } from '../src/lib/reminders.js';
+import { runReminderJobOnce, runReplayFollowupJobOnce, runTelegramLiveJobOnce } from '../src/lib/reminders.js';
 import { handleParticipantTelegramUpdate } from '../src/lib/telegramParticipantBot.js';
 import { runTelegramNewsJobOnce } from '../src/lib/telegramNews.js';
 import { getDailyBroadcastDate } from '../src/lib/time.js';
@@ -80,6 +82,7 @@ async function deliverPendingEmails(now = new Date()) {
     sendRegistrationEmail: capture('registration'),
     sendParticipantLoginEmail: capture('participant_login'),
     sendReminderEmail: capture('reminder'),
+    sendSessionChangeEmail: capture('session_change'),
   });
   return { deliveries, result };
 }
@@ -294,7 +297,7 @@ beforeEach(async () => {
   });
   // Truncate tables to guarantee absolute test isolation
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
   );
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
@@ -4698,6 +4701,376 @@ describe('critical path integration scenarios', () => {
       1,
     );
     await expect(prisma.webinarCommand.count({ where: { webinarId: webinar.id, action: 'publish' } })).resolves.toBe(1);
+  });
+
+  it('creates bounded timezone-aware recurrence and hides every foreign session operation', async () => {
+    const tenantA = await createTenantFixture({
+      slug: 'session-scope-a',
+      email: 'session-scope-a@example.test',
+      role: 'AUTHOR',
+    });
+    const tenantB = await createTenantFixture({
+      slug: 'session-scope-b',
+      email: 'session-scope-b@example.test',
+      role: 'AUTHOR',
+    });
+    const [profileA, profileB] = await Promise.all([
+      prisma.authorProfile.create({
+        data: {
+          organizationId: tenantA.organization.id,
+          userId: tenantA.user.id,
+          slug: 'session-scope-a',
+          publicName: 'Автор сессий А',
+          verificationStatus: 'VERIFIED',
+        },
+      }),
+      prisma.authorProfile.create({
+        data: {
+          organizationId: tenantB.organization.id,
+          userId: tenantB.user.id,
+          slug: 'session-scope-b',
+          publicName: 'Автор сессий Б',
+          verificationStatus: 'VERIFIED',
+        },
+      }),
+    ]);
+    const [webinarA, webinarB] = await Promise.all([
+      prisma.webinar.create({
+        data: {
+          organizationId: tenantA.organization.id,
+          authorProfileId: profileA.id,
+          slug: 'session-scope-webinar-a',
+          title: 'Расписание организации А',
+        },
+      }),
+      prisma.webinar.create({
+        data: {
+          organizationId: tenantB.organization.id,
+          authorProfileId: profileB.id,
+          slug: 'session-scope-webinar-b',
+          title: 'Расписание организации Б',
+        },
+      }),
+    ]);
+    const scheduleB = await prisma.webinarSchedule.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        webinarId: webinarB.id,
+        createdById: tenantB.user.id,
+        recurrenceType: 'ONCE',
+        timezone: 'Europe/Amsterdam',
+        localStartTime: '09:00',
+        startsOn: new Date('2026-03-28T00:00:00.000Z'),
+        maxFutureInstances: 1,
+      },
+    });
+    const foreignSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        webinarId: webinarB.id,
+        scheduleId: scheduleB.id,
+        title: webinarB.title,
+        scheduledAt: new Date('2026-03-28T08:00:00.000Z'),
+        timezone: 'Europe/Amsterdam',
+        durationMinutes: 60,
+      },
+    });
+    const platformSession = await loginPlatformUser(tenantA.user.id);
+    setTestNow(new Date('2026-03-27T00:00:00.000Z'));
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    const scheduleInput = {
+      recurrenceType: 'DAILY',
+      timezone: 'Europe/Amsterdam',
+      localStartTime: '09:00',
+      startsOn: '2026-03-28',
+      endsOn: '2026-04-30',
+      maxFutureInstances: 3,
+      durationMinutes: 60,
+      roomOpenBeforeMinutes: 20,
+      replayAvailableHours: 48,
+      replayEnabled: true,
+    };
+
+    const missingList = await platformSession.agent.get('/api/v1/creator/webinars/missing-webinar/sessions');
+    const foreignList = await platformSession.agent.get(`/api/v1/creator/webinars/${webinarB.id}/sessions`);
+    expect(missingList.status).toBe(404);
+    expect(foreignList.status).toBe(404);
+    expect(foreignList.body).toMatchObject({ code: 'webinar_not_found', error: missingList.body.error });
+
+    const countsBeforeForeignWrites = await Promise.all([
+      prisma.webinarSchedule.count(),
+      prisma.webinarSession.count(),
+      prisma.auditLog.count(),
+    ]);
+    const foreignCreate = await platformSession.agent
+      .post(`/api/v1/creator/webinars/${webinarB.id}/sessions`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send(scheduleInput);
+    const foreignUpdate = await platformSession.agent
+      .patch(`/api/v1/creator/sessions/${foreignSession.id}`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send({ scheduledAt: '2026-03-29T07:30:00.000Z' });
+    const foreignCancel = await platformSession.agent
+      .delete(`/api/v1/creator/sessions/${foreignSession.id}`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send({ reason: 'Тестовая попытка отмены чужой сессии.' });
+    for (const response of [foreignCreate, foreignUpdate, foreignCancel]) {
+      expect(response.status).toBe(404);
+    }
+    await expect(
+      Promise.all([prisma.webinarSchedule.count(), prisma.webinarSession.count(), prisma.auditLog.count()]),
+    ).resolves.toEqual(countsBeforeForeignWrites);
+
+    const forgedTenant = await platformSession.agent
+      .post(`/api/v1/creator/webinars/${webinarA.id}/sessions`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send({ ...scheduleInput, organizationId: tenantB.organization.id });
+    expect(forgedTenant.status).toBe(400);
+    expect(forgedTenant.body.code).toBe('validation_failed');
+
+    const created = await platformSession.agent
+      .post(`/api/v1/creator/webinars/${webinarA.id}/sessions`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send(scheduleInput);
+    expect(created.status).toBe(201);
+    expect(created.body.schedule).toMatchObject({
+      recurrenceType: 'DAILY',
+      timezone: 'Europe/Amsterdam',
+      maxFutureInstances: 3,
+    });
+    expect(created.body.sessions.map((session: { scheduledAt: string }) => session.scheduledAt)).toEqual([
+      '2026-03-28T08:00:00.000Z',
+      '2026-03-29T07:00:00.000Z',
+      '2026-03-30T07:00:00.000Z',
+    ]);
+    expect(
+      created.body.sessions.every((session: { lifecycleStatus: string }) => session.lifecycleStatus === 'SCHEDULED'),
+    ).toBe(true);
+    await expect(
+      prisma.auditLog.count({
+        where: { organizationId: tenantA.organization.id, action: 'webinar_schedule.created' },
+      }),
+    ).resolves.toBe(1);
+  });
+
+  it('requires confirmed registered changes, versions reminders, audits and notifies without reopening cancellation', async () => {
+    setTestNow(new Date('2030-01-01T00:00:00.000Z'));
+    const tenant = await createTenantFixture({
+      slug: 'session-change-notices',
+      email: 'session-change-notices@example.test',
+      role: 'AUTHOR',
+    });
+    const profile = await prisma.authorProfile.create({
+      data: {
+        organizationId: tenant.organization.id,
+        userId: tenant.user.id,
+        slug: 'session-change-notices',
+        publicName: 'Автор изменений',
+        verificationStatus: 'VERIFIED',
+      },
+    });
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'session-change-notices',
+        title: 'Вебинар с уведомлениями',
+      },
+    });
+    const platformSession = await loginPlatformUser(tenant.user.id);
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    const created = await platformSession.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/sessions`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send({
+        recurrenceType: 'ONCE',
+        timezone: 'Europe/Amsterdam',
+        localStartTime: '09:00',
+        startsOn: '2031-01-15',
+        maxFutureInstances: 1,
+        durationMinutes: 60,
+      });
+    expect(created.status).toBe(201);
+    const sessionId = created.body.sessions[0].id as string;
+
+    const registrations: Array<{
+      lead: { id: string; email: string; name: string };
+      registration: { id: string };
+    }> = [];
+    for (const index of [1, 2]) {
+      const lead = await prisma.lead.create({
+        data: {
+          name: `Участник ${index}`,
+          phone: `+7999000010${index}`,
+          email: `session-change-${index}@example.test`,
+          consent: true,
+          ...(index === 1
+            ? {
+                telegramChatId: 'session-change-chat-1',
+                telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+                telegramSubscribedAt: new Date(),
+                marketingTelegramConsent: true,
+              }
+            : {}),
+        },
+      });
+      const registration = await prisma.registration.create({
+        data: {
+          leadId: lead.id,
+          webinarSessionId: sessionId,
+          accessTokenHash: hashToken(createAccessToken()),
+          status: 'registered',
+          emailVerifiedAt: new Date(),
+        },
+      });
+      registrations.push({ lead, registration });
+      await prisma.$transaction(tx =>
+        enqueueReminderEmail(tx, {
+          kind: '24h',
+          registrationId: registration.id,
+          webinarSessionId: sessionId,
+          toEmail: lead.email,
+          toName: lead.name,
+          scheduledAt: new Date('2031-01-15T08:00:00.000Z'),
+          scheduleVersion: 1,
+        }),
+      );
+    }
+
+    const rejectedSnapshot = await Promise.all([
+      prisma.webinarSession.findUniqueOrThrow({ where: { id: sessionId } }),
+      prisma.emailOutboxJob.count(),
+      prisma.auditLog.count({ where: { entityId: sessionId } }),
+    ]);
+    const unconfirmed = await platformSession.agent
+      .patch(`/api/v1/creator/sessions/${sessionId}`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send({ scheduledAt: '2031-01-16T08:00:00.000Z' });
+    expect(unconfirmed.status).toBe(409);
+    expect(unconfirmed.body).toMatchObject({ code: 'session_registered_change_confirmation_required' });
+    await expect(prisma.webinarSession.findUniqueOrThrow({ where: { id: sessionId } })).resolves.toMatchObject({
+      scheduledAt: rejectedSnapshot[0].scheduledAt,
+      scheduleVersion: 1,
+    });
+    await expect(prisma.emailOutboxJob.count()).resolves.toBe(rejectedSnapshot[1]);
+    await expect(prisma.auditLog.count({ where: { entityId: sessionId } })).resolves.toBe(rejectedSnapshot[2]);
+
+    const rescheduled = await platformSession.agent
+      .patch(`/api/v1/creator/sessions/${sessionId}`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send({
+        scheduledAt: '2031-01-16T08:00:00.000Z',
+        timezone: 'Europe/Amsterdam',
+        confirmRegisteredChange: true,
+        reason: 'Спикер попросил перенести эфир на следующий день.',
+      });
+    expect(rescheduled.status).toBe(200);
+    expect(rescheduled.body).toMatchObject({
+      registrationCount: 2,
+      notificationsQueued: 2,
+      session: { scheduleVersion: 2, lifecycleStatus: 'SCHEDULED', timezone: 'Europe/Amsterdam' },
+    });
+    await expect(
+      prisma.emailOutboxJob.count({ where: { type: EMAIL_JOB_REMINDER, status: 'cancelled' } }),
+    ).resolves.toBe(2);
+    await expect(
+      prisma.emailOutboxJob.count({
+        where: { type: EMAIL_JOB_SESSION_RESCHEDULED, sessionScheduleVersion: 2, status: 'pending' },
+      }),
+    ).resolves.toBe(2);
+
+    const rescheduleDelivery = await deliverPendingEmails();
+    expect(rescheduleDelivery.result).toMatchObject({ sent: 2, failed: 0 });
+    expect(rescheduleDelivery.deliveries).toHaveLength(2);
+    expect(rescheduleDelivery.deliveries.every(item => item.kind === 'session_change')).toBe(true);
+    expect(
+      rescheduleDelivery.deliveries.every(
+        item => item.input.kind === 'rescheduled' && item.input.timezone === 'Europe/Amsterdam',
+      ),
+    ).toBe(true);
+
+    const roomSessionToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registrations[0].registration.id,
+        tokenHash: hashToken(roomSessionToken),
+        purpose: ROOM_SESSION_TOKEN_PURPOSE,
+        expiresAt: new Date('2031-01-20T00:00:00.000Z'),
+      },
+    });
+    await prisma.$transaction(tx =>
+      enqueueReminderEmail(tx, {
+        kind: '3h',
+        registrationId: registrations[0].registration.id,
+        webinarSessionId: sessionId,
+        toEmail: registrations[0].lead.email,
+        toName: registrations[0].lead.name,
+        scheduledAt: new Date('2031-01-16T08:00:00.000Z'),
+        scheduleVersion: 2,
+      }),
+    );
+    const cancelRejectedCounts = await Promise.all([
+      prisma.emailOutboxJob.count(),
+      prisma.auditLog.count({ where: { entityId: sessionId, action: 'webinar_session.cancelled' } }),
+    ]);
+    const unconfirmedCancel = await platformSession.agent
+      .delete(`/api/v1/creator/sessions/${sessionId}`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send({ reason: 'Отмена по запросу спикера без подтверждения.' });
+    expect(unconfirmedCancel.status).toBe(409);
+    await expect(prisma.emailOutboxJob.count()).resolves.toBe(cancelRejectedCounts[0]);
+    await expect(
+      prisma.auditLog.count({ where: { entityId: sessionId, action: 'webinar_session.cancelled' } }),
+    ).resolves.toBe(cancelRejectedCounts[1]);
+
+    const cancelled = await platformSession.agent
+      .delete(`/api/v1/creator/sessions/${sessionId}`)
+      .set('x-csrf-token', platformSession.csrfToken)
+      .send({
+        confirmRegisteredChange: true,
+        reason: 'Спикер не сможет провести эфир; сессия отменена окончательно.',
+      });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body).toMatchObject({
+      registrationCount: 2,
+      notificationsQueued: 2,
+      session: { lifecycleStatus: 'CANCELLED', scheduleVersion: 3 },
+    });
+    await expect(
+      prisma.emailOutboxJob.findFirstOrThrow({
+        where: { type: EMAIL_JOB_REMINDER, reminderKind: '3h', sessionScheduleVersion: 2 },
+      }),
+    ).resolves.toMatchObject({ status: 'cancelled' });
+    await expect(
+      prisma.auditLog.findFirstOrThrow({ where: { entityId: sessionId, action: 'webinar_session.cancelled' } }),
+    ).resolves.toMatchObject({ organizationId: tenant.organization.id, userId: tenant.user.id });
+
+    const tokenCountBeforeCancellationDelivery = await prisma.registrationToken.count();
+    const cancellationDelivery = await deliverPendingEmails();
+    expect(cancellationDelivery.result).toMatchObject({ sent: 2, failed: 0 });
+    expect(
+      cancellationDelivery.deliveries.every(
+        item => item.kind === 'session_change' && item.input.kind === 'cancelled' && item.input.webinarUrl === '',
+      ),
+    ).toBe(true);
+    await expect(prisma.registrationToken.count()).resolves.toBe(tokenCountBeforeCancellationDelivery);
+    await expect(
+      prisma.emailOutboxJob.count({
+        where: { type: EMAIL_JOB_SESSION_CANCELLED, sessionScheduleVersion: 3, status: 'sent' },
+      }),
+    ).resolves.toBe(2);
+    const cancelledOutboxCount = await prisma.emailOutboxJob.count();
+    await expect(runReminderJobOnce(new Date('2031-01-15T08:00:00.000Z'))).resolves.toMatchObject({
+      checked: 0,
+      sent: 0,
+    });
+    await expect(runTelegramLiveJobOnce(new Date('2031-01-16T08:05:00.000Z'))).resolves.toEqual({ sent: 0 });
+    await expect(prisma.emailOutboxJob.count()).resolves.toBe(cancelledOutboxCount);
+
+    const cancelledRoomAccess = await request(app)
+      .get('/api/participant/access/current')
+      .set('Cookie', `aspb_room_token=${roomSessionToken}`);
+    expect(cancelledRoomAccess.status).toBe(401);
   });
 
   it('allows the same start time for different webinars and keeps session edits isolated', async () => {

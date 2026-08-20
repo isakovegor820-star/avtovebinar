@@ -82,11 +82,15 @@ CREATE TABLE "events" (
 
 CREATE TABLE "email_outbox_jobs" (
   "id" TEXT NOT NULL PRIMARY KEY,
+  "type" TEXT NOT NULL,
   "registration_id" TEXT REFERENCES "registrations"("id") ON DELETE SET NULL,
   "webinar_session_id" TEXT REFERENCES "webinar_sessions"("id") ON DELETE SET NULL,
+  "reminder_kind" TEXT,
   "status" TEXT NOT NULL,
   "sent_at" TIMESTAMP(3)
 );
+CREATE UNIQUE INDEX "email_outbox_jobs_registration_id_type_reminder_kind_key"
+  ON "email_outbox_jobs"("registration_id", "type", "reminder_kind");
 
 CREATE TABLE "telegram_broadcast_jobs" (
   "id" TEXT NOT NULL PRIMARY KEY,
@@ -154,8 +158,13 @@ INSERT INTO "webinar_chat_messages" (
 INSERT INTO "events" ("id", "lead_id", "registration_id", "webinar_session_id", "event_name")
 VALUES ('legacy-event-1', 'legacy-lead-1', 'legacy-registration-1', 'legacy-session-1', 'room_entered');
 
-INSERT INTO "email_outbox_jobs" ("id", "registration_id", "webinar_session_id", "status", "sent_at")
-VALUES ('legacy-email-job-1', 'legacy-registration-1', 'legacy-session-1', 'sent', '2026-08-19T10:00:00.000Z');
+INSERT INTO "email_outbox_jobs" (
+  "id", "type", "registration_id", "webinar_session_id", "reminder_kind", "status", "sent_at"
+)
+VALUES (
+  'legacy-email-job-1', 'webinar_reminder', 'legacy-registration-1', 'legacy-session-1', '24h',
+  'sent', '2026-08-19T10:00:00.000Z'
+);
 
 INSERT INTO "telegram_broadcast_jobs" (
   "id", "initiated_by_id", "status", "recipient_snapshot", "completed_at"
@@ -202,6 +211,7 @@ INSERT INTO "legacy_row_counts" ("table_name", "row_count") VALUES
 \ir ../../prisma/migrations/20260820170000_user_owner_mfa/migration.sql
 \ir ../../prisma/migrations/20260820180000_author_verification/migration.sql
 \ir ../../prisma/migrations/20260820190000_webinar_domain/migration.sql
+\ir ../../prisma/migrations/20260820193000_webinar_sessions_recurrence/migration.sql
 
 DO $$
 DECLARE
@@ -220,8 +230,27 @@ BEGIN
       WHERE "organization_id" = 'org_aspb'
         AND "webinar_id" = 'webinar_aspb_legacy'
         AND "timezone" = 'Europe/Moscow'
-        AND "lifecycle_status" = 'scheduled') <> 2 THEN
+        AND "lifecycle_status" = 'scheduled'
+        AND "schedule_version" = 1
+        AND "schedule_id" IS NULL
+        AND "cancelled_at" IS NULL
+        AND "rescheduled_at" IS NULL) <> 2 THEN
     RAISE EXCEPTION 'legacy webinar sessions were not fully scoped to org_aspb';
+  END IF;
+
+  IF (SELECT COUNT(*) FROM "webinar_schedules") <> 0 THEN
+    RAISE EXCEPTION 'SES expand migration unexpectedly created recurrence data';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM "email_outbox_jobs"
+    WHERE "id" = 'legacy-email-job-1'
+      AND "session_schedule_version" = 1
+      AND "type" = 'webinar_reminder'
+      AND "reminder_kind" = '24h'
+      AND "sent_at" = '2026-08-19T10:00:00.000Z'
+  ) THEN
+    RAISE EXCEPTION 'legacy reminder history was not safely versioned';
   END IF;
 
   IF (SELECT COUNT(*) FROM "webinars"

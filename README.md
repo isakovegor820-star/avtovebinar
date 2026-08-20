@@ -70,8 +70,18 @@ migration `20260820190000_webinar_domain` разделяет `Webinar` и
 вебинаров. Creator API хранит юридические метаданные и HTTPS-источники,
 сохраняет прежний slug в алиасах, предоставляет side-effect-free preview и
 проверяет tenant, роль, авторскую верификацию и state machine внутри service
-layer. Флаг остаётся `off`, пока базовый кабинет, sessions/recurrence и private
-access grants не пройдут свой gate.
+layer. Флаг остаётся `off`, пока базовый кабинет и private access
+grants не пройдут свой gate.
+
+Migration `20260820193000_webinar_sessions_recurrence` добавляет
+tenant-scoped разовые, ежедневные и еженедельные расписания.
+Каждый запуск создаётся как отдельная session с UTC timestamp и явной IANA
+timezone; DST wall-clock валидируется сервером, а число будущих
+instances ограничено. Перенос или отмена после регистраций
+требуют явного подтверждения и причины, атомарно пишут audit,
+отзывают устаревшие reminders и ставят service notices в durable email
+outbox. Отменённая session не выдаёт room access и не попадает в
+email/Telegram reminders.
 
 ## Быстрый запуск
 
@@ -206,6 +216,10 @@ GET  /api/v1/creator/webinars
 POST /api/v1/creator/webinars
 GET  /api/v1/creator/webinars/:webinarId
 PATCH /api/v1/creator/webinars/:webinarId
+GET  /api/v1/creator/webinars/:webinarId/sessions
+POST /api/v1/creator/webinars/:webinarId/sessions
+PATCH /api/v1/creator/sessions/:sessionId
+DELETE /api/v1/creator/sessions/:sessionId
 POST /api/v1/creator/webinars/:webinarId/sources
 DELETE /api/v1/creator/webinars/:webinarId/sources/:sourceId
 GET  /api/v1/creator/webinars/:webinarId/preview

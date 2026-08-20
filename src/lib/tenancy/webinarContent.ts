@@ -8,6 +8,7 @@ import type {
 } from '@prisma/client';
 import { z } from 'zod';
 import { AppError } from '../http.js';
+import { getSessionLifecycleStatus } from '../sessionScheduling.js';
 import { assertAuthorCanPublish } from './authorVerification.js';
 import type { TenantContext } from './context.js';
 import { requireTenantRole } from './context.js';
@@ -182,6 +183,8 @@ const webinarInclude = {
       timezone: true,
       lifecycleStatus: true,
       durationMinutes: true,
+      roomOpenBeforeMinutes: true,
+      replayAvailableHours: true,
       replayEnabled: true,
     },
   },
@@ -250,7 +253,10 @@ function webinarProjection(webinar: WebinarWithRelations) {
       createdAt: source.createdAt,
       updatedAt: source.updatedAt,
     })),
-    sessions: webinar.sessions,
+    sessions: webinar.sessions.map(session => ({
+      ...session,
+      lifecycleStatus: getSessionLifecycleStatus(session),
+    })),
   };
 }
 

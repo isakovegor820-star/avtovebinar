@@ -182,6 +182,14 @@ enum WebinarSessionLifecycleStatus {
   @@map("webinar_session_lifecycle_status")
 }
 
+enum WebinarRecurrenceType {
+  ONCE   @map("once")
+  DAILY  @map("daily")
+  WEEKLY @map("weekly")
+
+  @@map("webinar_recurrence_type")
+}
+
 model User {
   id                           String                   @id @default(cuid())
   emailNormalized              String                   @unique @map("email_normalized")
@@ -205,6 +213,7 @@ model User {
   authorProfiles               AuthorProfile[]
   authorVerificationsSubmitted AuthorVerification[]     @relation("AuthorVerificationSubmitter")
   webinarCommands              WebinarCommand[]
+  webinarSchedulesCreated      WebinarSchedule[]        @relation("WebinarScheduleCreator")
 
   @@index([status])
   @@index([kind])
@@ -212,23 +221,24 @@ model User {
 }
 
 model Organization {
-  id              String                   @id @default(cuid())
-  name            String
-  slug            String                   @unique
-  status          OrganizationStatus       @default(ACTIVE)
-  settingsJson    Json?                    @map("settings_json")
-  createdAt       DateTime                 @default(now()) @map("created_at")
-  updatedAt       DateTime                 @updatedAt @map("updated_at")
-  memberships     OrganizationMembership[]
-  webinarSessions WebinarSession[]
-  auditLogs       AuditLog[]
-  activeSessions  UserSession[]            @relation("UserSessionActiveOrganization")
-  invitations     OrganizationInvitation[]
-  authorProfiles  AuthorProfile[]
-  webinars        Webinar[]
-  webinarAliases  WebinarSlugAlias[]
-  webinarSources  WebinarSource[]
-  webinarCommands WebinarCommand[]
+  id               String                   @id @default(cuid())
+  name             String
+  slug             String                   @unique
+  status           OrganizationStatus       @default(ACTIVE)
+  settingsJson     Json?                    @map("settings_json")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  memberships      OrganizationMembership[]
+  webinarSessions  WebinarSession[]
+  auditLogs        AuditLog[]
+  activeSessions   UserSession[]            @relation("UserSessionActiveOrganization")
+  invitations      OrganizationInvitation[]
+  authorProfiles   AuthorProfile[]
+  webinars         Webinar[]
+  webinarAliases   WebinarSlugAlias[]
+  webinarSources   WebinarSource[]
+  webinarCommands  WebinarCommand[]
+  webinarSchedules WebinarSchedule[]
 
   @@index([status])
   @@map("organizations")
@@ -519,6 +529,7 @@ model Webinar {
   sources               WebinarSource[]
   slugAliases           WebinarSlugAlias[]
   sessions              WebinarSession[]
+  schedules             WebinarSchedule[]
   commands              WebinarCommand[]
 
   @@unique([organizationId, slug])
@@ -597,6 +608,32 @@ model WebinarCommand {
   @@index([webinarId, action, createdAt])
   @@index([requestedById, createdAt])
   @@map("webinar_commands")
+}
+
+model WebinarSchedule {
+  id                 String                @id @default(cuid())
+  webinarId          String                @map("webinar_id")
+  organizationId     String                @map("organization_id")
+  createdById        String                @map("created_by_id")
+  recurrenceType     WebinarRecurrenceType @map("recurrence_type")
+  timezone           String
+  localStartTime     String                @map("local_start_time")
+  startsOn           DateTime              @map("starts_on") @db.Date
+  endsOn             DateTime?             @map("ends_on") @db.Date
+  maxFutureInstances Int                   @default(30) @map("max_future_instances")
+  active             Boolean               @default(true)
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  webinar            Webinar               @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdBy          User                  @relation("WebinarScheduleCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  sessions           WebinarSession[]
+
+  @@unique([webinarId])
+  @@unique([id, organizationId])
+  @@index([organizationId, active, startsOn])
+  @@index([createdById, createdAt])
+  @@map("webinar_schedules")
 }
 
 model AdminUser {
@@ -709,10 +746,15 @@ model Lead {
 model WebinarSession {
   id                    String                        @id @default(cuid())
   webinarId             String                        @default("webinar_aspb_legacy") @map("webinar_id")
+  scheduleId            String?                       @map("schedule_id")
   title                 String
   scheduledAt           DateTime                      @map("scheduled_at")
   timezone              String                        @default("Europe/Moscow")
   lifecycleStatus       WebinarSessionLifecycleStatus @default(SCHEDULED) @map("lifecycle_status")
+  scheduleVersion       Int                           @default(1) @map("schedule_version")
+  cancelledAt           DateTime?                     @map("cancelled_at")
+  cancellationReason    String?                       @map("cancellation_reason")
+  rescheduledAt         DateTime?                     @map("rescheduled_at")
   durationMinutes       Int                           @default(65) @map("duration_minutes")
   videoUrl              String?                       @map("video_url")
   posterUrl             String?                       @map("poster_url")
@@ -734,11 +776,13 @@ model WebinarSession {
   emailOutboxJobs       EmailOutboxJob[]
   recordings            WebinarRecording[]
   webinar               Webinar                       @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  schedule              WebinarSchedule?              @relation(fields: [scheduleId, organizationId], references: [id, organizationId], onDelete: Restrict)
   organization          Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@unique([webinarId, scheduledAt])
   @@index([organizationId, scheduledAt])
   @@index([webinarId, lifecycleStatus, scheduledAt])
+  @@index([scheduleId, scheduledAt])
   @@index([status])
   @@map("webinar_sessions")
 }
@@ -841,31 +885,31 @@ model RegistrationToken {
 }
 
 model EmailOutboxJob {
-  id               String          @id @default(cuid())
-  type             String
-  status           String          @default("pending")
-  registrationId   String?         @map("registration_id")
-  webinarSessionId String?         @map("webinar_session_id")
-  toEmail          String          @map("to_email")
-  toName           String          @map("to_name")
-  scheduledAt      DateTime        @map("scheduled_at")
-  webinarUrl       String          @map("webinar_url")
-  partnerUrl       String?         @map("partner_url")
-  reminderKind     String?         @map("reminder_kind")
-  attempts         Int             @default(0)
-  lastError        String?         @map("last_error")
-  nextAttemptAt    DateTime?       @map("next_attempt_at")
-  sentAt           DateTime?       @map("sent_at")
-  claimToken       String?         @unique @map("claim_token")
-  createdAt        DateTime        @default(now()) @map("created_at")
-  updatedAt        DateTime        @updatedAt @map("updated_at")
-  registration     Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
-  webinarSession   WebinarSession? @relation(fields: [webinarSessionId], references: [id], onDelete: SetNull)
+  id                     String          @id @default(cuid())
+  type                   String
+  status                 String          @default("pending")
+  registrationId         String?         @map("registration_id")
+  webinarSessionId       String?         @map("webinar_session_id")
+  toEmail                String          @map("to_email")
+  toName                 String          @map("to_name")
+  scheduledAt            DateTime        @map("scheduled_at")
+  webinarUrl             String          @map("webinar_url")
+  partnerUrl             String?         @map("partner_url")
+  reminderKind           String?         @map("reminder_kind")
+  sessionScheduleVersion Int?            @map("session_schedule_version")
+  attempts               Int             @default(0)
+  lastError              String?         @map("last_error")
+  nextAttemptAt          DateTime?       @map("next_attempt_at")
+  sentAt                 DateTime?       @map("sent_at")
+  claimToken             String?         @unique @map("claim_token")
+  createdAt              DateTime        @default(now()) @map("created_at")
+  updatedAt              DateTime        @updatedAt @map("updated_at")
+  registration           Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  webinarSession         WebinarSession? @relation(fields: [webinarSessionId], references: [id], onDelete: SetNull)
 
-  // Идемпотентность напоминаний: не больше одной email-джобы на (регистрация, тип, вид
-  // напоминания). NULL reminder_kind (не-reminder джобы) в Postgres считаются различными,
-  // поэтому ограничение реально дедупит только напоминания (24h/3h/30m).
-  @@unique([registrationId, type, reminderKind])
+  // Не больше одной email-джобы на registration/type/kind/версию расписания.
+  // NULL в reminderKind/version для прочих legacy jobs не меняет их прежнюю семантику Postgres.
+  @@unique([registrationId, type, reminderKind, sessionScheduleVersion])
   @@index([status, nextAttemptAt, createdAt])
   @@index([registrationId])
   @@index([webinarSessionId])

@@ -460,6 +460,15 @@ test('exchange token is removed from URL and daily room stays cookie-only', asyn
   await expect(page).toHaveURL(/webinar\.html$/);
   expect(page.url()).not.toContain('token=');
 
+  // The banner is intentionally above page controls until the visitor makes a
+  // choice. Resolve it explicitly so this test exercises the player rather
+  // than depending on whether the banner happens to overlap a control.
+  const cookieBanner = page.getByRole('dialog', { name: 'Уведомление об использовании cookie' });
+  if (await cookieBanner.isVisible()) {
+    await cookieBanner.getByRole('button', { name: 'Отклонить' }).click();
+    await expect(cookieBanner).toHaveCount(0);
+  }
+
   const access = await expectDailyRoomState(page);
   expect(access.testMode).toBe(true);
 
@@ -542,6 +551,10 @@ test('exchange token is removed from URL and daily room stays cookie-only', asyn
     const videoTimeBeforePause = await page
       .locator('#webinarVideo')
       .evaluate((node: HTMLVideoElement) => node.currentTime);
+    // Controls auto-hide after inactivity. Re-open them before the real
+    // pointer click instead of bypassing hit testing with force: true.
+    await page.locator('#videoPlayerContainer').hover();
+    await expect(page.locator('#customPlayerControls')).toHaveClass(/pointer-events-auto/);
     await page.locator('#customPlayPauseBtn').click();
     await expect
       .poll(async () => page.locator('#webinarVideo').evaluate((node: HTMLVideoElement) => node.paused))

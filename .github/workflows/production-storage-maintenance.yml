@@ -49,6 +49,7 @@ jobs:
           missing=0
           for name in PRODUCTION_SSH_HOST PRODUCTION_SSH_USER PRODUCTION_SSH_KEY PRODUCTION_DEPLOY_PATH; do
             if [[ -z "${!name:-}" ]]; then
+              echo "::error title=Missing production setting::$name is unavailable to the maintenance job"
               echo "Missing production maintenance setting: $name" >&2
               missing=1
             fi

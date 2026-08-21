@@ -906,6 +906,7 @@ npm run e2e
 - [ ] `EMAIL_MODE=send` и SMTP verify обязательны перед открытием публичной формы; `EMAIL_MODE=log` не выдаёт pending-пользователю доступ.
 - [ ] SMTP протестирован перед переключением в `send`.
 - [ ] `WEBINAR_VIDEO_HLS_URL` или `WEBINAR_VIDEO_URL` задан на внешний private origin с token либо на same-origin файл из read-only mount; прямой public media path закрыт; poster доступен по HTTPS.
+- [ ] `LEGACY_MEDIA_PATH` указывает на существующий выделенный абсолютный каталог с прежними replay/HLS/poster файлами; оба production compose монтируют его только для чтения в `/app/crisis_premium/assets/media`.
 - [ ] `VIDEO_ENV_FILE=.env.production bash scripts/check-video.sh` подтверждает настроенный источник и длительность 3860 секунд.
 - [ ] Telegram participant bot протестирован.
 - [ ] Telegram admin bot протестирован.

@@ -122,6 +122,31 @@ if ! git ls-files --error-unmatch -- "$COMPOSE_FILE" >/dev/null 2>&1; then
   exit 1
 fi
 
+legacy_media_path="$(awk -F= '
+  $1 == "LEGACY_MEDIA_PATH" {
+    sub(/^[^=]*=/, "")
+    gsub(/^['"'"']|['"'"']$/, "")
+    print
+    exit
+  }
+' "$COMPOSE_ENV_FILE")"
+if [[ -z "$legacy_media_path" || "$legacy_media_path" != /* || ! -d "$legacy_media_path" ]]; then
+  echo "LEGACY_MEDIA_PATH must be an existing absolute directory" >&2
+  exit 1
+fi
+legacy_media_path="$(realpath -- "$legacy_media_path")"
+case "$legacy_media_path" in
+  /|/etc|/home|/opt|/root|/srv|/usr|/var)
+    echo "LEGACY_MEDIA_PATH must be a dedicated directory, not a broad system root: $legacy_media_path" >&2
+    exit 1
+    ;;
+esac
+if [[ ! -r "$legacy_media_path" ]]; then
+  echo "LEGACY_MEDIA_PATH is not readable: $legacy_media_path" >&2
+  exit 1
+fi
+export LEGACY_MEDIA_PATH="$legacy_media_path"
+
 deploy_database_mode=docker
 if [[ "$COMPOSE_FILE" == "docker-compose.native-postgres.yml" ]]; then
   deploy_database_mode=native

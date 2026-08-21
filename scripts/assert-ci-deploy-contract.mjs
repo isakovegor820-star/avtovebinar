@@ -96,6 +96,13 @@ for (const [name, compose] of [
 ]) {
   const count = compose.split('BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}').length - 1;
   if (count !== 2) throw new Error(`${name} must pass BUILD_COMMIT_SHA to exactly two application services`);
+  requireText(
+    compose,
+    '${LEGACY_MEDIA_PATH:?LEGACY_MEDIA_PATH is required}:/app/crisis_premium/assets/media:ro',
+    `${name} read-only legacy media compatibility mount`,
+  );
 }
+requireText(deploy, 'LEGACY_MEDIA_PATH must be an existing absolute directory', 'legacy media directory validation');
+requireText(deploy, 'LEGACY_MEDIA_PATH must be a dedicated directory', 'broad legacy media path refusal');
 
 console.log('CI immutable-image deploy contract is complete.');

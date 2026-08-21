@@ -24,6 +24,8 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:5174:5174"
+    volumes:
+      - ${LEGACY_MEDIA_PATH:?LEGACY_MEDIA_PATH is required}:/app/crisis_premium/assets/media:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$${PORT:-5174}/health/ready || exit 1"]
       interval: 30s

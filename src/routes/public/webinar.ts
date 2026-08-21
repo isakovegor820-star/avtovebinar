@@ -120,6 +120,31 @@ async function sendTimeline(req: Request, res: Response) {
 
   const videoConfig = getWebinarVideoConfig(access.webinarSession);
   const mediaBase = `/api/media/webinar/${encodeURIComponent(access.webinarSession.id)}`;
+  const currentMediaAsset =
+    registration.webinarSessionId === access.webinarSession.id
+      ? (
+          await prisma.webinar.findFirst({
+            where: {
+              id: access.webinarSession.webinarId,
+              organizationId: access.webinarSession.organizationId,
+            },
+            select: {
+              currentMediaAsset: {
+                select: {
+                  id: true,
+                  status: true,
+                  manifestStorageKey: true,
+                  posterStorageKey: true,
+                  durationSeconds: true,
+                },
+              },
+            },
+          })
+        )?.currentMediaAsset
+      : null;
+  const versionedMediaReady = Boolean(
+    currentMediaAsset?.status === 'READY' && currentMediaAsset.manifestStorageKey && currentMediaAsset.posterStorageKey,
+  );
 
   const dbEvents = await getTimelineEvents(access.webinarSession.id, access.webinarSession.videoDurationSeconds);
 
@@ -140,15 +165,15 @@ async function sendTimeline(req: Request, res: Response) {
   res.json({
     ...basePayload,
     video: {
-      src: videoConfig.src ? `${mediaBase}/video` : null,
-      hlsSrc: videoConfig.hlsSrc ? `${mediaBase}/hls` : null,
-      provider: videoConfig.provider,
-      durationSeconds: access.webinarSession.videoDurationSeconds,
-      poster: videoConfig.poster,
+      src: versionedMediaReady ? null : videoConfig.src ? `${mediaBase}/video` : null,
+      hlsSrc: versionedMediaReady ? `${mediaBase}/manifest` : videoConfig.hlsSrc ? `${mediaBase}/hls` : null,
+      provider: versionedMediaReady ? 'versioned_private' : videoConfig.provider,
+      durationSeconds: currentMediaAsset?.durationSeconds ?? access.webinarSession.videoDurationSeconds,
+      poster: versionedMediaReady ? `${mediaBase}/poster` : videoConfig.poster,
       fallbackAllowed: videoConfig.fallbackAllowed,
       localFallbackAllowed: videoConfig.localFallbackAllowed,
-      externalMp4Allowed: Boolean(videoConfig.src),
-      expected: Boolean(videoConfig.hlsSrc || videoConfig.src),
+      externalMp4Allowed: versionedMediaReady ? false : Boolean(videoConfig.src),
+      expected: versionedMediaReady || Boolean(videoConfig.hlsSrc || videoConfig.src),
     },
     timeline,
   });

@@ -8,6 +8,10 @@ const roleLabels = {
   ANALYST: 'Аналитик',
   AUDITOR: 'Аудитор',
 };
+const WEBINAR_INVITE_STORAGE_KEY = 'aspb.pendingWebinarInvite';
+const OPAQUE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+let pendingWebinarInviteMemory = '';
+let acceptedWebinarAccess = null;
 
 function node(id) {
   return document.getElementById(id);
@@ -29,11 +33,46 @@ function fragmentTokens() {
   const tokens = {
     loginToken: params.get('token') || '',
     invitationToken: params.get('invite') || '',
+    webinarInvitationToken: params.get('webinarInvite') || '',
   };
   if (window.location.hash) {
     window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
   }
   return tokens;
+}
+
+function storePendingWebinarInvitation(token) {
+  if (!OPAQUE_TOKEN_PATTERN.test(token)) return false;
+  pendingWebinarInviteMemory = token;
+  try {
+    window.sessionStorage.setItem(WEBINAR_INVITE_STORAGE_KEY, token);
+  } catch {
+    // The in-memory copy still supports an already authenticated session.
+  }
+  return true;
+}
+
+function pendingWebinarInvitation() {
+  if (pendingWebinarInviteMemory) return pendingWebinarInviteMemory;
+  try {
+    const stored = window.sessionStorage.getItem(WEBINAR_INVITE_STORAGE_KEY) || '';
+    if (OPAQUE_TOKEN_PATTERN.test(stored)) {
+      pendingWebinarInviteMemory = stored;
+      return stored;
+    }
+  } catch {
+    // Storage can be disabled; keep the safe empty fallback.
+  }
+  return '';
+}
+
+function clearPendingWebinarInvitation() {
+  pendingWebinarInviteMemory = '';
+  try {
+    window.sessionStorage.removeItem(WEBINAR_INVITE_STORAGE_KEY);
+  } catch {
+    // Nothing else is required when storage is unavailable.
+  }
 }
 
 function isDisabled(error) {
@@ -56,6 +95,42 @@ function renderError(error) {
       : 'Сервис временно недоступен. Повторите попытку через несколько секунд.');
   }
   showMode('error', 'platformErrorTitle');
+}
+
+function renderWebinarInvitationError(error) {
+  if (error?.status === 401) {
+    renderLogin(true);
+    return;
+  }
+  setText('platformErrorTitle', 'Приглашение недоступно');
+  setText(
+    'platformErrorText',
+    error?.status === 404
+      ? 'Ссылка истекла, уже использована или вы вошли с другим email. Войдите с адресом, на который пришло приглашение, или запросите новую ссылку.'
+      : 'Не удалось принять приглашение. Проверьте соединение и повторите.',
+  );
+  const retry = node('platformRetryButton');
+  retry.hidden = false;
+  retry.textContent = 'Войти другим адресом';
+  showMode('error', 'platformErrorTitle');
+}
+
+function renderLogin(forWebinarInvitation = false) {
+  setText('platformLoginTitle', forWebinarInvitation ? 'Войдите, чтобы принять приглашение' : 'Войти по одноразовой ссылке');
+  setText(
+    'platformLoginDescription',
+    forWebinarInvitation
+      ? 'Укажите email, на который пришло приглашение. После защищённого входа доступ к вебинару откроется автоматически.'
+      : 'Укажите рабочий email. Если для него есть активный аккаунт, мы отправим ссылку со сроком действия 20 минут.',
+  );
+  setText(
+    'platformEmailHint',
+    forWebinarInvitation
+      ? 'Используйте точно тот адрес, куда было отправлено приглашение.'
+      : 'Используйте адрес, на который вас пригласили в организацию.',
+  );
+  node('platformContinueInviteButton').hidden = !forWebinarInvitation;
+  showMode('login', 'platformEmail');
 }
 
 function renderMfaChallenge() {
@@ -113,23 +188,55 @@ function renderSession(session) {
   setText('platformOrganizationName', membership.organization.name);
   setText('platformRole', roleLabels[membership.role] || membership.role);
   node('platformAuthorProfileLink').hidden = !['OWNER', 'AUTHOR'].includes(membership.role);
+  node('platformCreatorWebinarsLink').hidden = !['OWNER', 'AUTHOR'].includes(membership.role);
   renderMfaSettings(session, membership);
+  const webinarAccess = node('platformWebinarAccess');
+  webinarAccess.hidden = !acceptedWebinarAccess;
+  if (acceptedWebinarAccess) {
+    setText('platformWebinarAccessName', acceptedWebinarAccess.webinar.title);
+    const expiresAt = new Intl.DateTimeFormat('ru-RU', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(acceptedWebinarAccess.expiresAt));
+    setText('platformWebinarAccessExpiry', `Приглашение действует до ${expiresAt}.`);
+  }
   showMode('ready', 'platformUserName');
+}
+
+async function renderAuthenticatedSession(session) {
+  if (session.mfaRequired) {
+    renderMfaChallenge();
+    return;
+  }
+  const webinarInvitationToken = pendingWebinarInvitation();
+  if (webinarInvitationToken) {
+    try {
+      acceptedWebinarAccess = await post('/v1/webinar-invitations/accept', { token: webinarInvitationToken });
+      clearPendingWebinarInvitation();
+    } catch (error) {
+      renderWebinarInvitationError(error);
+      return;
+    }
+  }
+  renderSession(session);
 }
 
 async function hydrateSession() {
   const session = await getJson('/v1/auth/session');
-  renderSession(session);
+  await renderAuthenticatedSession(session);
 }
 
 async function consumeToken(token) {
   const session = await post('/v1/auth/passwordless/consume', { token });
-  renderSession(session);
+  await renderAuthenticatedSession(session);
 }
 
 async function consumeInvitation(token) {
   const session = await post('/v1/organization/invitations/accept', { token });
-  renderSession(session);
+  await renderAuthenticatedSession(session);
 }
 
 function bindLoginForm() {
@@ -154,13 +261,37 @@ function bindLoginForm() {
     button.textContent = 'Отправляем…';
     try {
       const response = await post('/v1/auth/passwordless/request', { email });
-      setText('platformLoginStatus', response.message || 'Если аккаунт доступен, мы отправим ссылку для входа.');
+      setText(
+        'platformLoginStatus',
+        pendingWebinarInvitation()
+          ? 'Если аккаунт доступен, мы отправим ссылку. Откройте её в этом браузере. Если вошли в другой вкладке, вернитесь сюда и нажмите «Продолжить после входа».'
+          : response.message || 'Если аккаунт доступен, мы отправим ссылку для входа.',
+      );
     } catch (error) {
       if (isDisabled(error)) renderError(error);
       else setText('platformLoginStatus', 'Не удалось отправить запрос. Проверьте соединение и повторите.');
     } finally {
       button.disabled = false;
       button.textContent = 'Получить ссылку';
+    }
+  });
+}
+
+function bindWebinarInvitationContinuation() {
+  node('platformContinueInviteButton').addEventListener('click', async () => {
+    const button = node('platformContinueInviteButton');
+    button.disabled = true;
+    setText('platformLoginStatus', 'Проверяем вход и приглашение…');
+    try {
+      await hydrateSession();
+    } catch (error) {
+      if (error?.status === 401) {
+        setText('platformLoginStatus', 'Сначала откройте одноразовую ссылку из письма, затем повторите.');
+      } else {
+        renderWebinarInvitationError(error);
+      }
+    } finally {
+      button.disabled = false;
     }
   });
 }
@@ -206,7 +337,7 @@ function bindMfaChallenge() {
     button.textContent = 'Проверяем…';
     setText('platformMfaStatus', '');
     try {
-      renderSession(await post('/v1/auth/mfa/verify', { otp }));
+      await renderAuthenticatedSession(await post('/v1/auth/mfa/verify', { otp }));
     } catch (error) {
       if (error?.payload?.code === 'user_mfa_code_invalid') {
         input.setAttribute('aria-invalid', 'true');
@@ -313,7 +444,7 @@ function bindMfaSettings() {
 }
 
 function bindActions() {
-  node('platformRetryButton').addEventListener('click', () => showMode('login', 'platformEmail'));
+  node('platformRetryButton').addEventListener('click', () => renderLogin(Boolean(pendingWebinarInvitation())));
   node('platformLogoutButton').addEventListener('click', async () => {
     const button = node('platformLogoutButton');
     button.disabled = true;
@@ -329,15 +460,14 @@ function bindActions() {
   });
 }
 
-async function start() {
-  bindLoginForm();
-  bindOrganizationForm();
-  bindMfaChallenge();
-  bindMfaSettings();
-  bindActions();
-
-  const { loginToken, invitationToken } = fragmentTokens();
+async function processLocationFragment() {
+  const { loginToken, invitationToken, webinarInvitationToken } = fragmentTokens();
   try {
+    if (webinarInvitationToken && !storePendingWebinarInvitation(webinarInvitationToken)) {
+      const invalidLink = new Error('Недействительная ссылка');
+      invalidLink.status = 404;
+      throw invalidLink;
+    }
     if (loginToken && invitationToken) {
       const invalidLink = new Error('Недействительная ссылка');
       invalidLink.status = 401;
@@ -347,9 +477,21 @@ async function start() {
     else if (loginToken) await consumeToken(loginToken);
     else await hydrateSession();
   } catch (error) {
-    if (!loginToken && !invitationToken && error?.status === 401) showMode('login', 'platformEmail');
+    if (!loginToken && !invitationToken && error?.status === 401) renderLogin(Boolean(pendingWebinarInvitation()));
+    else if (pendingWebinarInvitation()) renderWebinarInvitationError(error);
     else renderError(error);
   }
+}
+
+async function start() {
+  bindLoginForm();
+  bindWebinarInvitationContinuation();
+  bindOrganizationForm();
+  bindMfaChallenge();
+  bindMfaSettings();
+  bindActions();
+  window.addEventListener('hashchange', () => void processLocationFragment());
+  await processLocationFragment();
 }
 
 void start();

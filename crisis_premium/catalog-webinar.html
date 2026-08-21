@@ -1,0 +1,67 @@
+<!doctype html>
+<html class="light" lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta name="description" content="Юридический вебинар АСПБ" />
+    <title>Вебинар | АСПБ</title>
+    <link rel="stylesheet" href="css/styles.css?v=catalog-2" />
+    <link rel="stylesheet" href="fonts.css?v=self-2" />
+    <link rel="stylesheet" href="platform-access.css?v=catalog-2" />
+    <link rel="stylesheet" href="catalog.css?v=catalog-3" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  </head>
+  <body class="min-h-screen bg-background text-on-surface" data-detail-mode="loading">
+    <a class="platform-skip-link" href="#catalogDetailMain">К основному содержанию</a>
+    <header class="catalog-header">
+      <div class="catalog-header-inner">
+        <a class="catalog-brand" href="index.html"><span class="catalog-brand-mark">АСПБ</span><span class="catalog-brand-name">Антикризисная служба помощи бизнесу</span></a>
+        <nav class="catalog-nav" aria-label="Основная навигация"><a href="catalog.html">Каталог</a><a href="platform-access.html">Войти</a></nav>
+      </div>
+    </header>
+    <main id="catalogDetailMain" class="catalog-main catalog-detail-main" tabindex="-1">
+      <section id="detailLoading" class="detail-mode platform-panel catalog-state" aria-live="polite"><div class="platform-spinner" aria-hidden="true"></div><p>Загружаем вебинар…</p></section>
+      <section id="detailError" class="detail-mode platform-panel catalog-state" role="alert">
+        <h1>Вебинар недоступен</h1>
+        <p id="detailErrorText">Материал не найден, снят с публикации или доступен только по приглашению.</p>
+        <a class="platform-primary-button" href="catalog.html">Вернуться в каталог</a>
+      </section>
+      <div id="detailContent" class="detail-mode">
+        <aside id="detailFreshnessNotice" class="catalog-notice" role="status" hidden>
+          <strong id="detailFreshnessTitle"></strong>
+          <span id="detailFreshnessText"></span>
+          <a id="detailSuccessorLink" href="#" hidden>Открыть актуальную версию</a>
+        </aside>
+        <article class="catalog-detail-hero platform-panel" aria-labelledby="detailTitle">
+          <div class="catalog-detail-copy">
+            <p id="detailMetaLine" class="catalog-eyebrow"></p>
+            <h1 id="detailTitle" tabindex="-1"></h1>
+            <p id="detailDescription" class="catalog-detail-description"></p>
+            <dl class="catalog-facts">
+              <div><dt>Автор</dt><dd id="detailAuthor"></dd></div>
+              <div><dt>Отрасль</dt><dd id="detailArea"></dd></div>
+              <div><dt>Юрисдикция</dt><dd id="detailJurisdiction"></dd></div>
+              <div><dt>Актуальность</dt><dd id="detailFreshness"></dd></div>
+              <div><dt>Формат</dt><dd id="detailFormat"></dd></div>
+              <div><dt>Длительность</dt><dd id="detailDuration"></dd></div>
+            </dl>
+          </div>
+          <aside class="catalog-registration-panel" aria-labelledby="detailAccessHeading">
+            <h2 id="detailAccessHeading">Доступ к вебинару</h2>
+            <p id="detailNextSession"></p>
+            <button id="detailRegistrationButton" class="platform-primary-button" type="button" disabled>Регистрация скоро откроется</button>
+            <p id="detailRegistrationHint">Регистрация для этого каталога ещё подключается. Кнопка отключена и не отправляет заявку.</p>
+          </aside>
+        </article>
+        <div class="catalog-detail-grid">
+          <section class="platform-panel catalog-detail-section" aria-labelledby="detailProgramHeading"><h2 id="detailProgramHeading">Что вы получите</h2><p id="detailOutcome"></p><h3>Для кого</h3><p id="detailAudience"></p></section>
+          <section class="platform-panel catalog-detail-section" aria-labelledby="detailAuthorHeading"><h2 id="detailAuthorHeading">Об авторе</h2><p id="detailAuthorName" class="catalog-author-name"></p><p id="detailAuthorBio"></p><p id="detailAuthorCredentials"></p></section>
+          <section class="platform-panel catalog-detail-section" aria-labelledby="detailSessionsHeading"><h2 id="detailSessionsHeading">Ближайшие запуски</h2><ul id="detailSessions" class="catalog-detail-list"></ul><p id="detailSessionsEmpty" hidden>Новые даты ещё не назначены.</p></section>
+          <section class="platform-panel catalog-detail-section" aria-labelledby="detailSourcesHeading"><h2 id="detailSourcesHeading">Источники</h2><ul id="detailSources" class="catalog-detail-list"></ul><p id="detailSourcesEmpty" hidden>Источники не опубликованы.</p></section>
+          <section class="platform-panel catalog-detail-section catalog-legal-section" aria-labelledby="detailLegalHeading"><h2 id="detailLegalHeading">Правовая информация</h2><p id="detailCurrentAsOf"></p><p id="detailDisclaimer"></p><p id="detailSyntheticDisclosure"></p></section>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="js/catalog-webinar.js?v=catalog-2"></script>
+  </body>
+</html>

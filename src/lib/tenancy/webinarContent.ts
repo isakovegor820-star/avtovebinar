@@ -163,6 +163,12 @@ export const idempotencyKeySchema = z
   .regex(/^[A-Za-z0-9._:-]+$/);
 export const webinarIdSchema = idSchema;
 export const webinarSourceIdSchema = idSchema;
+export const duplicateCreatorWebinarSchema = z
+  .object({
+    slug: slugSchema.optional(),
+    title: z.string().trim().min(3).max(240).optional(),
+  })
+  .strict();
 
 const webinarInclude = {
   authorProfile: {
@@ -174,6 +180,19 @@ const webinarInclude = {
     include: { practiceArea: { select: { id: true, parentId: true, slug: true, name: true, status: true } } },
   },
   sources: { orderBy: [{ orderIndex: 'asc' as const }, { createdAt: 'asc' as const }] },
+  currentMediaAsset: {
+    select: {
+      id: true,
+      version: true,
+      status: true,
+      progressPercent: true,
+      originalFileName: true,
+      durationSeconds: true,
+      failureCode: true,
+      readyAt: true,
+      updatedAt: true,
+    },
+  },
   sessions: {
     orderBy: [{ scheduledAt: 'asc' as const }],
     select: {
@@ -220,6 +239,7 @@ function webinarProjection(webinar: WebinarWithRelations) {
     disclaimer: webinar.disclaimer,
     syntheticDisclosure: webinar.syntheticDisclosure,
     mediaStatus: webinar.mediaStatus,
+    currentMediaAsset: webinar.currentMediaAsset,
     transcriptStatus: webinar.transcriptStatus,
     scenarioStatus: webinar.scenarioStatus,
     contentVersion: webinar.contentVersion,
@@ -604,6 +624,160 @@ export async function getCreatorWebinarPreview(db: PrismaClient, context: Tenant
     notice: 'Предпросмотр не создаёт регистрацию, CRM-события и сообщения.',
     webinar: webinarProjection(webinar),
   };
+}
+
+export async function duplicateCreatorWebinar(
+  db: PrismaClient,
+  context: TenantContext,
+  webinarIdInput: unknown,
+  input: unknown,
+  idempotencyKeyInput: unknown,
+) {
+  const webinarId = webinarIdSchema.parse(webinarIdInput);
+  const data = duplicateCreatorWebinarSchema.parse(input);
+  const idempotencyKey = idempotencyKeySchema.parse(idempotencyKeyInput);
+  return db.$transaction(async tx => {
+    await lockCommandScope(tx, context.organizationId, 'duplicate', idempotencyKey);
+    const prior = await tx.webinarCommand.findUnique({
+      where: {
+        organizationId_action_idempotencyKey: {
+          organizationId: context.organizationId,
+          action: 'duplicate',
+          idempotencyKey,
+        },
+      },
+    });
+    if (prior && prior.webinarId !== webinarId) {
+      throw new AppError(409, 'Idempotency key уже использован', undefined, 'idempotency_key_reused');
+    }
+    const role = await requireCurrentCreatorMembership(tx as unknown as PrismaClient, context);
+    if (prior) {
+      const replay = await tx.webinar.findFirst({
+        where: { id: prior.resultStatus, organizationId: context.organizationId },
+        include: webinarInclude,
+      });
+      if (!replay) {
+        throw new AppError(409, 'Результат прежней команды недоступен', undefined, 'idempotency_result_unavailable');
+      }
+      return { webinar: webinarProjection(replay), replayed: true };
+    }
+    await lockWebinar(tx, context, webinarId);
+    const source = await findScopedWebinar(tx as unknown as PrismaClient, context, role, webinarId);
+    const sourceScenario = await tx.chatScenario.findFirst({
+      where: { organizationId: context.organizationId, webinarId },
+      orderBy: { version: 'desc' },
+      include: { messages: { orderBy: { orderIndex: 'asc' } } },
+    });
+    const authorProfile = await tx.authorProfile.findFirst({
+      where: { organizationId: context.organizationId, userId: context.userId },
+      select: { id: true },
+    });
+    if (!authorProfile) {
+      throw new AppError(409, 'Сначала создайте профиль автора', undefined, 'author_profile_required');
+    }
+    const duplicateSlug = data.slug ?? createDuplicateSlug(source.slug);
+    const duplicateTitleSuffix = ' — копия';
+    const duplicateTitle =
+      data.title ?? `${source.title.slice(0, 240 - duplicateTitleSuffix.length)}${duplicateTitleSuffix}`;
+    await lockSlugScope(tx, context.organizationId);
+    await assertSlugAvailable(tx, context.organizationId, duplicateSlug);
+    const created = await tx.webinar.create({
+      data: {
+        organizationId: context.organizationId,
+        authorProfileId: authorProfile.id,
+        jurisdictionId: source.jurisdictionId,
+        slug: duplicateSlug,
+        title: duplicateTitle,
+        description: source.description,
+        outcomeDescription: source.outcomeDescription,
+        contentStatus: 'DRAFT',
+        visibility: source.visibility,
+        freshnessStatus: source.freshnessStatus,
+        audienceLevel: source.audienceLevel,
+        targetAudience: source.targetAudience,
+        format: source.format,
+        durationMinutes: source.durationMinutes,
+        language: source.language,
+        currentAsOf: source.currentAsOf,
+        disclaimer: source.disclaimer,
+        syntheticDisclosure: source.syntheticDisclosure,
+        mediaStatus: 'NOT_UPLOADED',
+        transcriptStatus: 'NOT_AVAILABLE',
+        scenarioStatus: sourceScenario ? 'DRAFT' : 'NOT_AVAILABLE',
+        contentVersion: 1,
+      },
+    });
+    if (source.practiceAreas.length > 0) {
+      await tx.webinarPracticeArea.createMany({
+        data: source.practiceAreas.map(item => ({
+          organizationId: context.organizationId,
+          webinarId: created.id,
+          practiceAreaId: item.practiceAreaId,
+          isPrimary: item.isPrimary,
+        })),
+      });
+    }
+    if (source.sources.length > 0) {
+      await tx.webinarSource.createMany({
+        data: source.sources.map(item => ({
+          organizationId: context.organizationId,
+          webinarId: created.id,
+          type: item.type,
+          title: item.title,
+          url: item.url,
+          accessedAt: item.accessedAt,
+          note: item.note,
+          orderIndex: item.orderIndex,
+        })),
+      });
+    }
+    if (sourceScenario) {
+      const duplicatedScenario = await tx.chatScenario.create({
+        data: {
+          organizationId: context.organizationId,
+          webinarId: created.id,
+          version: 1,
+          status: 'DRAFT',
+          createdById: context.userId,
+        },
+      });
+      if (sourceScenario.messages.length > 0) {
+        await tx.chatScenarioMessage.createMany({
+          data: sourceScenario.messages.map(message => ({
+            organizationId: context.organizationId,
+            scenarioId: duplicatedScenario.id,
+            orderIndex: message.orderIndex,
+            offsetSeconds: message.offsetSeconds,
+            kind: message.kind,
+            text: message.text,
+            authorLabel: message.authorLabel,
+            isSynthetic: true,
+          })),
+        });
+      }
+    }
+    await tx.webinarCommand.create({
+      data: {
+        organizationId: context.organizationId,
+        webinarId,
+        requestedById: context.userId,
+        action: 'duplicate',
+        idempotencyKey,
+        resultStatus: created.id,
+      },
+    });
+    await createWebinarAudit(tx, context, 'webinar.duplicated', created.id, undefined, {
+      sourceWebinarId: webinarId,
+      copiedPracticeAreaCount: source.practiceAreas.length,
+      copiedSourceCount: source.sources.length,
+      copiedScenarioMessageCount: sourceScenario?.messages.length ?? 0,
+      copiedSessionCount: 0,
+      copiedRegistrationCount: 0,
+      copiedAnalyticsCount: 0,
+    });
+    const duplicate = await tx.webinar.findUniqueOrThrow({ where: { id: created.id }, include: webinarInclude });
+    return { webinar: webinarProjection(duplicate), replayed: false };
+  });
 }
 
 export function transitionWebinarContentStatus(

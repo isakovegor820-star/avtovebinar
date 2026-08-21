@@ -4,6 +4,12 @@ import { z } from 'zod';
 
 const optionalUrl = z.preprocess(value => (value === '' ? undefined : value), z.string().url().optional());
 const optionalEmail = z.preprocess(value => (value === '' ? undefined : value), z.string().email().optional());
+const optionalSecret = z.preprocess(value => (value === '' ? undefined : value), z.string().min(32).optional());
+const optionalProviderValue = (minimumLength: number) =>
+  z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().trim().min(minimumLength).optional(),
+  );
 const optionalTelegramUsername = z.preprocess(
   value => {
     if (value === '') return undefined;
@@ -28,8 +34,52 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z.string().min(12),
   ADMIN_COOKIE_SECRET: z.string().min(32),
   IP_HASH_SECRET: z.string().min(32),
+  WEBINAR_ACCESS_HASH_SECRET: optionalSecret,
   METRICS_TOKEN: z.string().optional(),
   EMAIL_MODE: z.enum(['send', 'log']),
+  // Allows deterministic outbox assertions without enabling SMTP. The
+  // registration layer activates it only under NODE_ENV=test.
+  E2E_EMAIL_OUTBOX_ENABLED: z.enum(['on', 'off']).default('off'),
+  MEDIA_STORAGE_PROVIDER: z.enum(['unconfigured', 's3', 'test_fake']).default('unconfigured'),
+  MEDIA_S3_ENDPOINT: optionalUrl,
+  MEDIA_S3_REGION: z.string().trim().min(1).default('ru-central1'),
+  MEDIA_S3_BUCKET: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z
+      .string()
+      .trim()
+      .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/)
+      .optional(),
+  ),
+  MEDIA_S3_ACCESS_KEY_ID: optionalProviderValue(3),
+  MEDIA_S3_SECRET_ACCESS_KEY: optionalProviderValue(16),
+  MEDIA_S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('false'),
+  MEDIA_SIGNED_OPERATION_TTL_SECONDS: z.coerce.number().int().min(60).max(3_600).default(900),
+  MEDIA_TRANSCODE_TIMEOUT_SECONDS: z.coerce.number().int().min(60).max(21_600).default(7_200),
+  MEDIA_HLS_SEGMENT_SECONDS: z.coerce.number().int().min(2).max(20).default(6),
+  MEDIA_FFMPEG_PATH: z.string().trim().min(1).default('ffmpeg'),
+  MEDIA_FFPROBE_PATH: z.string().trim().min(1).default('ffprobe'),
+  STT_PROVIDER: z.enum(['unconfigured', 'yandex_speechkit', 'test_fake']).default('unconfigured'),
+  STT_YANDEX_API_KEY: optionalProviderValue(16),
+  STT_YANDEX_FOLDER_ID: optionalProviderValue(3),
+  STT_YANDEX_ENDPOINT: z.string().url().default('https://stt.api.cloud.yandex.net/stt/v3/recognizeFileAsync'),
+  STT_YANDEX_OPERATION_ENDPOINT: z.string().url().default('https://stt.api.cloud.yandex.net/operations'),
+  STT_YANDEX_RESULT_ENDPOINT: z.string().url().default('https://stt.api.cloud.yandex.net/stt/v3/getRecognition'),
+  STT_YANDEX_DELETE_ENDPOINT: z.string().url().default('https://stt.api.cloud.yandex.net/stt/v3/deleteRecognition'),
+  STT_YANDEX_AUDIO_URI_PREFIX: optionalUrl,
+  STT_YANDEX_MODEL: z.string().trim().min(1).default('general'),
+  STT_YANDEX_POLL_INTERVAL_MS: z.coerce.number().int().min(500).max(30_000).default(3_000),
+  STT_YANDEX_TIMEOUT_SECONDS: z.coerce.number().int().min(30).max(21_600).default(7_200),
+  AI_ENRICHMENT_PROVIDER: z.enum(['unconfigured', 'yandex_foundation_models', 'test_fake']).default('unconfigured'),
+  AI_YANDEX_API_KEY: optionalProviderValue(16),
+  AI_YANDEX_FOLDER_ID: optionalProviderValue(3),
+  AI_YANDEX_MODEL_URI: optionalProviderValue(3),
+  AI_YANDEX_ENDPOINT: z.string().url().default('https://llm.api.cloud.yandex.net/foundationModels/v1/completion'),
+  AI_YANDEX_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(600).default(120),
+  MEDIA_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(4_294_967_296),
+  MEDIA_MAX_DURATION_SECONDS: z.coerce.number().int().positive().default(10_800),
+  MEDIA_PART_SIZE_BYTES: z.coerce.number().int().min(5_242_880).default(8_388_608),
+  MEDIA_UPLOAD_CSP_ORIGINS: z.string().default(''),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_USER: z.string().optional(),
@@ -78,6 +128,7 @@ const envSchema = z.object({
   PLATFORM_ACCOUNTS_ENABLED: z.enum(['on', 'off']).default('off'),
   PLATFORM_TENANCY_ENFORCEMENT: z.enum(['on', 'off']).default('off'),
   CREATOR_DASHBOARD_ENABLED: z.enum(['on', 'off']).default('off'),
+  PUBLIC_CATALOG_ENABLED: z.enum(['on', 'off']).default('off'),
   // Имя и роль модератора эфира: показываются участникам в чате (приветствие +
   // ручные ответы из админки). Настраиваются без правки кода — поменять в .env.
   MODERATOR_NAME: z.string().trim().min(2).max(80).default('Юлия, модератор АСПБ'),
@@ -85,11 +136,45 @@ const envSchema = z.object({
 });
 
 type EnvConfig = z.infer<typeof envSchema>;
+type DefaultedProviderConfigKey =
+  | 'MEDIA_S3_REGION'
+  | 'MEDIA_S3_FORCE_PATH_STYLE'
+  | 'MEDIA_SIGNED_OPERATION_TTL_SECONDS'
+  | 'MEDIA_TRANSCODE_TIMEOUT_SECONDS'
+  | 'MEDIA_HLS_SEGMENT_SECONDS'
+  | 'MEDIA_FFMPEG_PATH'
+  | 'MEDIA_FFPROBE_PATH'
+  | 'STT_YANDEX_ENDPOINT'
+  | 'STT_YANDEX_OPERATION_ENDPOINT'
+  | 'STT_YANDEX_RESULT_ENDPOINT'
+  | 'STT_YANDEX_DELETE_ENDPOINT'
+  | 'STT_YANDEX_MODEL'
+  | 'STT_YANDEX_POLL_INTERVAL_MS'
+  | 'STT_YANDEX_TIMEOUT_SECONDS'
+  | 'AI_YANDEX_ENDPOINT'
+  | 'AI_YANDEX_TIMEOUT_SECONDS';
 type ProductionSecurityConfig = Omit<
   EnvConfig,
-  'PLATFORM_ACCOUNTS_ENABLED' | 'PLATFORM_TENANCY_ENFORCEMENT' | 'CREATOR_DASHBOARD_ENABLED'
+  | 'PLATFORM_ACCOUNTS_ENABLED'
+  | 'PLATFORM_TENANCY_ENFORCEMENT'
+  | 'CREATOR_DASHBOARD_ENABLED'
+  | 'PUBLIC_CATALOG_ENABLED'
+  | 'STT_PROVIDER'
+  | 'AI_ENRICHMENT_PROVIDER'
+  | DefaultedProviderConfigKey
 > &
-  Partial<Pick<EnvConfig, 'PLATFORM_ACCOUNTS_ENABLED' | 'PLATFORM_TENANCY_ENFORCEMENT' | 'CREATOR_DASHBOARD_ENABLED'>>;
+  Partial<
+    Pick<
+      EnvConfig,
+      | 'PLATFORM_ACCOUNTS_ENABLED'
+      | 'PLATFORM_TENANCY_ENFORCEMENT'
+      | 'CREATOR_DASHBOARD_ENABLED'
+      | 'PUBLIC_CATALOG_ENABLED'
+      | 'STT_PROVIDER'
+      | 'AI_ENRICHMENT_PROVIDER'
+      | DefaultedProviderConfigKey
+    >
+  >;
 
 export const ASPB_PARTICIPANT_BOT_USERNAME = 'jwjefgwreqfe_bot';
 
@@ -166,6 +251,86 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
   if (config.EMAIL_MODE === 'send' && (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS)) {
     errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required when EMAIL_MODE="send" in production');
   }
+  if (config.E2E_EMAIL_OUTBOX_ENABLED === 'on') {
+    errors.push('E2E_EMAIL_OUTBOX_ENABLED must be "off" in production');
+  }
+  if (config.MEDIA_STORAGE_PROVIDER === 'test_fake') {
+    errors.push('MEDIA_STORAGE_PROVIDER=test_fake is forbidden in production');
+  }
+  if (config.STT_PROVIDER === 'test_fake') {
+    errors.push('STT_PROVIDER=test_fake is forbidden in production');
+  }
+  if (config.AI_ENRICHMENT_PROVIDER === 'test_fake') {
+    errors.push('AI_ENRICHMENT_PROVIDER=test_fake is forbidden in production');
+  }
+  if (config.MEDIA_STORAGE_PROVIDER === 's3') {
+    if (
+      !config.MEDIA_S3_ENDPOINT ||
+      !config.MEDIA_S3_BUCKET ||
+      !config.MEDIA_S3_ACCESS_KEY_ID ||
+      !config.MEDIA_S3_SECRET_ACCESS_KEY
+    ) {
+      errors.push(
+        'MEDIA_S3_ENDPOINT, MEDIA_S3_BUCKET, MEDIA_S3_ACCESS_KEY_ID and MEDIA_S3_SECRET_ACCESS_KEY are required when MEDIA_STORAGE_PROVIDER="s3"',
+      );
+    }
+    if (
+      config.MEDIA_S3_ENDPOINT &&
+      (!config.MEDIA_S3_ENDPOINT.startsWith('https://') || isLocalhostUrl(config.MEDIA_S3_ENDPOINT))
+    ) {
+      errors.push('MEDIA_S3_ENDPOINT must use non-local HTTPS in production');
+    }
+  }
+  if (
+    config.STT_PROVIDER === 'yandex_speechkit' &&
+    (!config.STT_YANDEX_API_KEY || !config.STT_YANDEX_FOLDER_ID || !config.STT_YANDEX_AUDIO_URI_PREFIX)
+  ) {
+    errors.push(
+      'STT_YANDEX_API_KEY, STT_YANDEX_FOLDER_ID and STT_YANDEX_AUDIO_URI_PREFIX are required when STT_PROVIDER="yandex_speechkit"',
+    );
+  }
+  if (config.STT_PROVIDER === 'yandex_speechkit') {
+    const endpoints = [
+      ['STT_YANDEX_ENDPOINT', config.STT_YANDEX_ENDPOINT],
+      ['STT_YANDEX_OPERATION_ENDPOINT', config.STT_YANDEX_OPERATION_ENDPOINT],
+      ['STT_YANDEX_RESULT_ENDPOINT', config.STT_YANDEX_RESULT_ENDPOINT],
+      ['STT_YANDEX_DELETE_ENDPOINT', config.STT_YANDEX_DELETE_ENDPOINT],
+      ['STT_YANDEX_AUDIO_URI_PREFIX', config.STT_YANDEX_AUDIO_URI_PREFIX],
+    ] as const;
+    for (const [name, value] of endpoints) {
+      if (!value || !value.startsWith('https://') || isLocalhostUrl(value)) {
+        errors.push(`${name} must use non-local HTTPS when STT_PROVIDER="yandex_speechkit"`);
+      }
+    }
+  }
+  if (
+    config.AI_ENRICHMENT_PROVIDER === 'yandex_foundation_models' &&
+    (!config.AI_YANDEX_API_KEY || !config.AI_YANDEX_FOLDER_ID || !config.AI_YANDEX_MODEL_URI)
+  ) {
+    errors.push(
+      'AI_YANDEX_API_KEY, AI_YANDEX_FOLDER_ID and AI_YANDEX_MODEL_URI are required when AI_ENRICHMENT_PROVIDER="yandex_foundation_models"',
+    );
+  }
+  if (
+    config.AI_ENRICHMENT_PROVIDER === 'yandex_foundation_models' &&
+    (!config.AI_YANDEX_ENDPOINT ||
+      !config.AI_YANDEX_ENDPOINT.startsWith('https://') ||
+      isLocalhostUrl(config.AI_YANDEX_ENDPOINT))
+  ) {
+    errors.push('AI_YANDEX_ENDPOINT must use non-local HTTPS when AI_ENRICHMENT_PROVIDER="yandex_foundation_models"');
+  }
+  for (const origin of parseOrigins(config.MEDIA_UPLOAD_CSP_ORIGINS)) {
+    try {
+      const url = new URL(origin);
+      if (url.origin !== origin || url.protocol !== 'https:' || isLocalhostUrl(origin)) {
+        errors.push('MEDIA_UPLOAD_CSP_ORIGINS must contain comma-separated HTTPS origins without paths');
+        break;
+      }
+    } catch {
+      errors.push('MEDIA_UPLOAD_CSP_ORIGINS must contain valid origins');
+      break;
+    }
+  }
   const needsTelegramAdmin =
     config.TELEGRAM_NOTIFY_MODE === 'send' ||
     config.TELEGRAM_ADMIN_BOT_POLLING === 'on' ||
@@ -205,16 +370,18 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
   if (config.WEBINAR_PREVIEW_MODE === 'on') {
     errors.push('WEBINAR_PREVIEW_MODE must be "off" in production');
   }
-  if (!config.WEBINAR_VIDEO_HLS_URL && !config.WEBINAR_VIDEO_URL) {
+  const usesVersionedMediaAssets = config.MEDIA_STORAGE_PROVIDER === 's3';
+  if (!usesVersionedMediaAssets && !config.WEBINAR_VIDEO_HLS_URL && !config.WEBINAR_VIDEO_URL) {
     errors.push('WEBINAR_VIDEO_HLS_URL or WEBINAR_VIDEO_URL is required in production');
   }
   if (
+    !usesVersionedMediaAssets &&
     (config.WEBINAR_VIDEO_PROVIDER === 'hls' || config.WEBINAR_VIDEO_PROVIDER === 'streaming') &&
     !config.WEBINAR_VIDEO_HLS_URL
   ) {
     errors.push('WEBINAR_VIDEO_HLS_URL is required for hls/streaming video providers');
   }
-  if (!config.WEBINAR_POSTER_URL) {
+  if (!usesVersionedMediaAssets && !config.WEBINAR_POSTER_URL) {
     errors.push('WEBINAR_POSTER_URL is required in production');
   }
   const remoteMediaSources = [config.WEBINAR_VIDEO_HLS_URL, config.WEBINAR_VIDEO_URL].filter(
@@ -266,6 +433,14 @@ function runtimeEnv() {
     IP_HASH_SECRET: process.env.IP_HASH_SECRET ?? crypto.randomBytes(32).toString('hex'),
     METRICS_TOKEN: process.env.METRICS_TOKEN,
     EMAIL_MODE: process.env.EMAIL_MODE ?? 'log',
+    E2E_EMAIL_OUTBOX_ENABLED: process.env.E2E_EMAIL_OUTBOX_ENABLED ?? 'off',
+    MEDIA_STORAGE_PROVIDER: process.env.MEDIA_STORAGE_PROVIDER ?? 'unconfigured',
+    STT_PROVIDER: process.env.STT_PROVIDER ?? 'unconfigured',
+    AI_ENRICHMENT_PROVIDER: process.env.AI_ENRICHMENT_PROVIDER ?? 'unconfigured',
+    MEDIA_MAX_UPLOAD_BYTES: process.env.MEDIA_MAX_UPLOAD_BYTES ?? '4294967296',
+    MEDIA_MAX_DURATION_SECONDS: process.env.MEDIA_MAX_DURATION_SECONDS ?? '10800',
+    MEDIA_PART_SIZE_BYTES: process.env.MEDIA_PART_SIZE_BYTES ?? '8388608',
+    MEDIA_UPLOAD_CSP_ORIGINS: process.env.MEDIA_UPLOAD_CSP_ORIGINS ?? '',
     SMTP_PORT: process.env.SMTP_PORT ?? '587',
     EMAIL_FROM: process.env.EMAIL_FROM ?? 'АСПБ <no-reply@test.local>',
     EMAIL_REPLY_TO: process.env.EMAIL_REPLY_TO,
@@ -296,6 +471,7 @@ function runtimeEnv() {
     PLATFORM_ACCOUNTS_ENABLED: process.env.PLATFORM_ACCOUNTS_ENABLED ?? 'off',
     PLATFORM_TENANCY_ENFORCEMENT: process.env.PLATFORM_TENANCY_ENFORCEMENT ?? 'off',
     CREATOR_DASHBOARD_ENABLED: process.env.CREATOR_DASHBOARD_ENABLED ?? 'off',
+    PUBLIC_CATALOG_ENABLED: process.env.PUBLIC_CATALOG_ENABLED ?? 'off',
   };
 }
 

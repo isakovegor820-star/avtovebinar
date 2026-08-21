@@ -287,6 +287,26 @@ paths:
           description: Membership created or reactivated and HttpOnly User session issued
         '401':
           description: Invitation is unknown, expired, revoked or already consumed
+  /api/v1/webinar-invitations/accept:
+    post:
+      summary: Accept an email-bound private Webinar invitation
+      security:
+        - userSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OneTimeTokenRequest'
+      responses:
+        '200':
+          description: Single-use token consumed and the authenticated verified User bound to the grant
+        '400':
+          description: Strict token payload validation failed
+        '401':
+          description: User session is missing, expired or MFA-challenged
+        '404':
+          description: Unknown, wrong-email, expired, revoked and already-used invitations are intentionally indistinguishable
   /api/v1/organization/invitations:
     post:
       summary: Create an invitation in the server-selected organization
@@ -475,6 +495,80 @@ paths:
           description: Unknown and cross-tenant evidence are intentionally indistinguishable
         '409':
           description: Submitted evidence is immutable
+  /api/v1/catalog/webinars:
+    get:
+      summary: List eligible public legal Webinars
+      description: Returns only published PUBLIC Webinars of verified active authors with an active OWNER/AUTHOR membership. UNLISTED, PRIVATE, draft and archived records are excluded.
+      parameters:
+        - { in: query, name: q, schema: { type: string, maxLength: 160 } }
+        - { in: query, name: practiceArea, schema: { type: string } }
+        - { in: query, name: specialization, schema: { type: string } }
+        - { in: query, name: jurisdiction, schema: { type: string } }
+        - { in: query, name: level, schema: { type: string, enum: [INTRODUCTORY, PRACTITIONER, ADVANCED, ALL_LEVELS] } }
+        - { in: query, name: format, schema: { type: string, enum: [RECORDED, PREMIERE, ON_DEMAND] } }
+        - { in: query, name: availability, schema: { type: string, enum: [ALL, UPCOMING, RECORDING], default: ALL } }
+        - { in: query, name: dateFrom, schema: { type: string, format: date } }
+        - { in: query, name: dateTo, schema: { type: string, format: date } }
+        - { in: query, name: sort, schema: { type: string, enum: [RELEVANCE, UPCOMING, NEWEST, UPDATED], default: UPCOMING } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 100, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 24, default: 12 } }
+      responses:
+        '200':
+          description: Redacted public catalog projection and pagination
+        '400':
+          description: Query validation failed
+        '404':
+          description: Public catalog rollout flag is disabled
+  /api/v1/catalog/search:
+    get:
+      summary: Search eligible public legal Webinars
+      description: Alias of the catalog list contract; closed content is never searched or returned.
+      responses:
+        '200':
+          description: Redacted public search results
+        '400':
+          description: Query validation failed
+        '404':
+          description: Public catalog rollout flag is disabled
+  /api/v1/catalog/webinars/{slug}:
+    get:
+      summary: Read a PUBLIC or direct-link UNLISTED Webinar page
+      description: PRIVATE, draft and archived records deliberately return the same safe 404 as an unknown slug. Organization slug disambiguates tenant-local Webinar slugs.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string, minLength: 2, maxLength: 120 }
+        - in: query
+          name: organization
+          required: true
+          schema: { type: string, minLength: 2, maxLength: 120 }
+      responses:
+        '200':
+          description: Public legal Webinar projection; old aliases identify their canonical slug and superseded records may link to an eligible successor
+        '400':
+          description: Path or query validation failed
+        '404':
+          description: Unknown, closed, archived or ineligible Webinar
+  /api/v1/catalog/practice-areas:
+    get:
+      summary: List active public legal practice-area taxonomy
+      responses:
+        '200': { description: Active practice areas and specializations }
+        '404': { description: Public catalog rollout flag is disabled }
+  /api/v1/catalog/jurisdictions:
+    get:
+      summary: List active public jurisdiction taxonomy
+      responses:
+        '200': { description: Active jurisdictions }
+        '404': { description: Public catalog rollout flag is disabled }
+  /sitemap.xml:
+    get:
+      summary: Sitemap of catalog and eligible PUBLIC Webinar pages
+      description: UNLISTED, PRIVATE, draft, archived and author-ineligible records and old slug aliases are excluded.
+      responses:
+        '200': { description: XML sitemap }
+        '404': { description: Public catalog rollout flag is disabled }
   /api/v1/catalog/authors/{authorSlug}:
     get:
       summary: Read the public projection of a verified active author
@@ -568,6 +662,144 @@ paths:
           description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
         '409':
           description: Webinar state is not editable or slug conflicts with a current URL or alias
+  /api/v1/creator/webinars/{webinarId}/duplicate:
+    post:
+      summary: Duplicate currently representable legal Webinar data into a new isolated draft
+      description: >-
+        Copies legal metadata, taxonomy, sources and the latest scenario as a new unapproved draft.
+        Publication, media, transcript, sessions, registrations, analytics, access grants and
+        command history are reset or omitted.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorWebinarDuplicate'
+      responses:
+        '200':
+          description: Previously completed idempotent duplicate command replayed
+        '201':
+          description: New isolated draft created and audited atomically
+        '400':
+          description: Strict payload or idempotency key validation failed
+        '404':
+          description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
+        '409':
+          description: Generated or supplied slug is already reserved
+  /api/v1/creator/webinars/{webinarId}/access-grants:
+    get:
+      summary: List redacted access grants for one private Webinar
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      responses:
+        '200':
+          description: Owner-only tenant-scoped grant list without recipient email or hash
+        '403':
+          description: Active selected membership is not OWNER
+        '404':
+          description: Unknown, non-private and cross-tenant Webinars are intentionally indistinguishable
+    post:
+      summary: Create an expiring email-bound private Webinar VIEW grant
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebinarAccessGrantCreate'
+      responses:
+        '201':
+          description: Grant and durable invitation delivery job created atomically; recipient identifiers are redacted
+        '400':
+          description: Strict email, purpose or expiry validation failed
+        '403':
+          description: Active selected membership is not OWNER
+        '404':
+          description: Unknown, non-private and cross-tenant Webinars are intentionally indistinguishable
+  /api/v1/creator/webinars/{webinarId}/access-grants/{grantId}:
+    delete:
+      summary: Revoke a private Webinar grant and invalidate outstanding tokens immediately
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/WebinarAccessGrantId'
+      responses:
+        '200':
+          description: Grant revoked, pending delivery cancelled and all active room checks fail closed
+        '403':
+          description: Active selected membership is not OWNER
+        '404':
+          description: Unknown and cross-tenant grants are intentionally indistinguishable
+  /api/v1/creator/webinars/{webinarId}/chat-scenario:
+    get:
+      summary: Read the latest tenant-scoped prepared chat scenario
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      responses:
+        '200':
+          description: Latest draft/published scenario or null, with every message explicitly synthetic
+        '403':
+          description: Active membership is not OWNER or the assigned AUTHOR
+        '404':
+          description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
+    patch:
+      summary: Replace the current scenario draft messages atomically
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorChatScenarioSave'
+      responses:
+        '200':
+          description: Draft saved, Webinar scenario state/version updated and audit written
+        '400':
+          description: Strict payload validation failed; clients cannot supply isSynthetic or tenant fields
+        '404':
+          description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
+        '409':
+          description: Webinar content is no longer editable
+  /api/v1/creator/webinars/{webinarId}/chat-scenario/publish:
+    post:
+      summary: Publish a non-empty prepared chat scenario idempotently
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Scenario published or the completed idempotent result replayed
+        '400':
+          description: Empty body or idempotency key contract failed
+        '404':
+          description: Webinar/scenario is unavailable without cross-tenant disclosure
+        '409':
+          description: Scenario is empty, Webinar is not editable or synthetic disclosure is missing
   /api/v1/creator/webinars/{webinarId}/sessions:
     get:
       summary: List timezone-aware session instances for one scoped Webinar
@@ -839,6 +1071,52 @@ paths:
           description: Timeline and live state
         '401':
           description: Missing room cookie
+  /api/media/webinar/{sessionId}/manifest:
+    get:
+      summary: Read the authorized HLS manifest for one exact WebinarSession
+      description: Revalidates participant registration, tenant, Webinar, private grant and replay policy. Storage keys, bucket and permanent origin URL are never returned; every manifest URI is rewritten to the protected resource route.
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+      responses:
+        '200':
+          description: Private no-store HLS manifest with protected resource paths
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+        '404': { description: Same safe absence for unknown, unauthorized, cross-tenant, wrong-session, revoked or expired media }
+  /api/media/webinar/{sessionId}/segment/{resource}:
+    get:
+      summary: Read one authorized opaque HLS resource with optional Range
+      description: Repeats the exact WebinarSession access decision for every variant/segment request. The resource is an opaque server-generated reference, not a storage key.
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+        - name: resource
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 2048, pattern: '^[A-Za-z0-9_-]+$' }
+        - name: Range
+          in: header
+          required: false
+          schema: { type: string, pattern: '^bytes=[0-9]+-[0-9]*$' }
+      responses:
+        '200': { description: Full private HLS resource }
+        '206': { description: Authorized byte range with Content-Range }
+        '404': { description: Same safe absence for invalid resource or denied session access }
+        '416': { description: Invalid or unsatisfiable Range }
+  /api/media/webinar/{sessionId}/poster:
+    get:
+      summary: Read the authorized poster for one exact WebinarSession
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+      responses:
+        '200': { description: Private no-store poster image }
+        '404': { description: Same safe absence for unknown, unauthorized, cross-tenant, wrong-session, revoked or expired media }
   /api/webinar/chat/session/current:
     get:
       summary: Cookie-backed webinar chat
@@ -873,8 +1151,337 @@ paths:
       responses:
         '202':
           description: Broadcast job queued
+  /api/v1/creator/webinars/{webinarId}/uploads:
+    post:
+      summary: Create a private resumable multipart video upload
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fileName, mimeType, sizeBytes]
+              properties:
+                fileName: { type: string, maxLength: 240 }
+                mimeType: { type: string, enum: [video/mp4, video/quicktime, video/webm] }
+                sizeBytes: { type: string, pattern: '^\\d{1,13}$' }
+                checksumSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+      responses:
+        '201': { description: Asset and temporary signed part operations created; origin key is not returned }
+        '400': { description: Invalid type, size or request contract }
+        '404': { description: Webinar is unavailable in the active tenant }
+        '503': { description: Private object storage adapter is not configured }
+  /api/v1/creator/uploads/{uploadId}/complete:
+    post:
+      summary: Idempotently complete a private multipart upload and enqueue validation
+      description: Replays a provider-committed completion safely by verifying the object metadata before persisting one deduplicated job.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [parts]
+              properties:
+                parts:
+                  type: array
+                  minItems: 1
+                  maxItems: 1000
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [partNumber, etag]
+                    properties:
+                      partNumber: { type: integer, minimum: 1, maximum: 10000 }
+                      etag: { type: string, minLength: 1, maxLength: 256 }
+      responses:
+        '200': { description: Upload completed and one deduplicated media job exists }
+        '404': { description: Upload is unavailable in the active tenant }
+        '422': { description: Trusted signature, MIME, integrity or duration validation failed }
+  /api/v1/creator/uploads/{uploadId}/parts:
+    post:
+      summary: Idempotently record one directly uploaded multipart part
+      description: Stores only the provider ETag and part number; video bytes never pass through Express.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [partNumber, etag]
+              properties:
+                partNumber: { type: integer, minimum: 1, maximum: 10000 }
+                etag: { type: string, minLength: 1, maxLength: 256 }
+      responses:
+        '200': { description: Part checkpoint recorded and safe progress returned }
+        '404': { description: Upload is unavailable in the active tenant }
+        '409': { description: Upload is expired, completed or cancelled }
+  /api/v1/creator/uploads/{uploadId}/resume:
+    post:
+      summary: Resume a multipart upload without retransmitting completed parts
+      description: Returns fresh temporary operations only for missing parts and never returns the storage key. If the provider already committed completion, trusted server checkpoints are returned so the client can replay complete safely.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '200': { description: Completed checkpoints and newly signed missing-part operations returned }
+        '404': { description: Upload is unavailable in the active tenant }
+        '409': { description: Upload is expired, completed, cancelled or belongs to another provider }
+  /api/v1/creator/media/{assetId}/status:
+    get:
+      summary: Read safe tenant-scoped media processing status
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200': { description: Safe status without storage keys or origin URLs }
+        '404': { description: Asset is unavailable in the active tenant }
+  /api/v1/creator/media/{assetId}/retry:
+    post:
+      summary: Retry a failed media job with audit
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200': { description: Retry scheduled }
+        '409': { description: Retry is not allowed or attempts are exhausted }
+  /api/v1/creator/media/{assetId}/cancel:
+    post:
+      summary: Cancel an upload or not-yet-started media job with audit
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200': { description: Processing cancelled }
+        '409': { description: Processing has already started or asset is active }
+  /api/v1/creator/media/{assetId}/activate:
+    post:
+      summary: Atomically switch a Webinar to a READY media version
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200': { description: READY version activated; prior version stayed active until this switch }
+        '409': { description: Asset is not READY }
+  /api/v1/creator/webinars/{webinarId}/transcript:
+    post:
+      summary: Enqueue idempotent transcript generation from the active READY media version
+      description: The worker supplies the private media reference and tenant dictionary to the configured STT adapter. Storage keys are never accepted or returned.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '202': { description: One deduplicated durable TRANSCRIBE job is pending, running or already complete }
+        '404': { description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable }
+        '409': { description: Active media is absent, not READY or changed during transcription }
+    get:
+      summary: Read the latest creator-visible transcript version
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      responses:
+        '200': { description: Latest version, timed segments and non-secret provenance }
+        '404': { description: Unknown, absent, unauthorized and cross-tenant transcripts are intentionally indistinguishable }
+    patch:
+      summary: Atomically replace segments with optimistic concurrency and explicit review state
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranscriptUpdate'
+      responses:
+        '200': { description: Draft or reviewed version updated; editing a published version creates a new draft version }
+        '400': { description: Strict payload validation failed }
+        '404': { description: Unknown, unauthorized and cross-tenant transcripts are intentionally indistinguishable }
+        '409': { description: Revision or latest-version conflict }
+        '422': { description: Segments overlap, exceed media duration or contain invalid timing/text }
+  /api/v1/creator/webinars/{webinarId}/transcript/publish:
+    post:
+      summary: Atomically publish the latest reviewed transcript version
+      description: Any prior published version is removed from the public projection in the same transaction. AI output never publishes itself.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranscriptReference'
+      responses:
+        '200': { description: Reviewed version published and audited, or already-published current revision returned idempotently }
+        '400': { description: Strict payload validation failed }
+        '404': { description: Unknown, unauthorized and cross-tenant transcripts are intentionally indistinguishable }
+        '409': { description: Review is missing or optimistic revision is stale }
+  /api/v1/creator/content-jobs/{jobId}/status:
+    get:
+      summary: Read safe tenant-scoped STT or AI enrichment job status
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 191 }
+      responses:
+        '200': { description: Durable state, bounded attempts, safe error code and result reference without provider secrets }
+        '404': { description: Unknown and cross-tenant jobs are intentionally indistinguishable }
+  /api/v1/creator/webinars/{webinarId}/transcript/export:
+    get:
+      summary: Export the published transcript version as TXT or WebVTT
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - name: format
+          in: query
+          required: true
+          schema: { type: string, enum: [txt, vtt] }
+      responses:
+        '200': { description: Private no-store attachment containing only the published version }
+        '404': { description: Published transcript is absent or unavailable in the active tenant }
+  /api/v1/creator/term-dictionary:
+    get:
+      summary: List terms in the server-selected organization
+      security:
+        - userSessionCookie: []
+      responses:
+        '200': { description: Tenant-only ordered dictionary }
+    post:
+      summary: Add a tenant-only STT/AI dictionary term
+      security:
+        - userSessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationTermInput' }
+      responses:
+        '201': { description: Term created and audited }
+        '409': { description: Normalized term already exists in this organization }
+  /api/v1/creator/term-dictionary/{termId}:
+    patch:
+      summary: Update a tenant-only dictionary term
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: termId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationTermInput' }
+      responses:
+        '200': { description: Term updated and audited }
+        '404': { description: Unknown and cross-tenant terms are intentionally indistinguishable }
+    delete:
+      summary: Delete a tenant-only dictionary term
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: termId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Term deleted and audited }
+        '404': { description: Unknown and cross-tenant terms are intentionally indistinguishable }
+  /api/v1/creator/webinars/{webinarId}/ai-suggestions:
+    post:
+      summary: Enqueue provider-neutral AI enrichment for a reviewed transcript revision
+      description: Creates durable suggestions only. It never changes freshness, content publication or transcript publication state.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '202': { description: Deduplicated AI_ENRICH job accepted }
+        '404': { description: Unknown and cross-tenant Webinars are intentionally indistinguishable }
+        '409': { description: Reviewed or published transcript is absent }
+    get:
+      summary: List pending and reviewed AI suggestions without secret provider inputs
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+      responses:
+        '200': { description: 'Title, description, chapter, tag and prepared-question suggestions with review states' }
+        '404': { description: Unknown and cross-tenant Webinars are intentionally indistinguishable }
+  /api/v1/creator/webinars/{webinarId}/ai-suggestions/{suggestionId}:
+    patch:
+      summary: Accept, edit-and-accept or reject one suggestion with optimistic concurrency
+      description: Only this explicit human action may copy suggestion content into Webinar, chapters, tags or a visibly synthetic prepared question.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - { name: suggestionId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AiSuggestionReview' }
+      responses:
+        '200': { description: Suggestion reviewed, side effect and audit committed atomically }
+        '404': { description: Unknown and cross-tenant suggestions are intentionally indistinguishable }
+        '409': { description: Suggestion is already reviewed or its revision is stale }
 components:
   parameters:
+    AssetId:
+      name: assetId
+      in: path
+      required: true
+      schema:
+        type: string
     MembershipId:
       name: membershipId
       in: path
@@ -938,6 +1545,14 @@ components:
         type: string
         minLength: 1
         maxLength: 191
+    WebinarAccessGrantId:
+      name: grantId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 191
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -948,6 +1563,57 @@ components:
         maxLength: 191
         pattern: '^[A-Za-z0-9._:-]+$'
   schemas:
+    OrganizationTermInput:
+      type: object
+      additionalProperties: false
+      required: [term]
+      properties:
+        term: { type: string, minLength: 1, maxLength: 160 }
+        expansion: { type: string, minLength: 1, maxLength: 500 }
+    AiSuggestionReview:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [action, expectedRevision]
+          properties:
+            action: { type: string, enum: [REJECT] }
+            expectedRevision: { type: integer, minimum: 1 }
+        - type: object
+          additionalProperties: false
+          required: [action, expectedRevision]
+          properties:
+            action: { type: string, enum: [ACCEPT] }
+            expectedRevision: { type: integer, minimum: 1 }
+            content: { type: object, description: Strictly revalidated against the stored suggestion type }
+    TranscriptReference:
+      type: object
+      additionalProperties: false
+      required: [transcriptId, expectedRevision]
+      properties:
+        transcriptId: { type: string, minLength: 1, maxLength: 191 }
+        expectedRevision: { type: integer, minimum: 1, maximum: 1000000 }
+    TranscriptSegmentInput:
+      type: object
+      additionalProperties: false
+      required: [startMs, endMs, text]
+      properties:
+        startMs: { type: integer, minimum: 0, maximum: 86400000 }
+        endMs: { type: integer, minimum: 1, maximum: 86400000 }
+        speaker: { type: string, minLength: 1, maxLength: 120 }
+        text: { type: string, minLength: 1, maxLength: 10000 }
+    TranscriptUpdate:
+      allOf:
+        - $ref: '#/components/schemas/TranscriptReference'
+        - type: object
+          additionalProperties: false
+          required: [status, segments]
+          properties:
+            status: { type: string, enum: [DRAFT, REVIEWED] }
+            segments:
+              type: array
+              minItems: 1
+              maxItems: 5000
+              items: { $ref: '#/components/schemas/TranscriptSegmentInput' }
     OneTimeTokenRequest:
       type: object
       additionalProperties: false
@@ -1065,6 +1731,19 @@ components:
         - $ref: '#/components/schemas/CreatorWebinarDraft'
         - type: object
           required: [title, slug]
+    CreatorWebinarDuplicate:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 240
+        slug:
+          type: string
+          minLength: 3
+          maxLength: 120
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
     CreatorWebinarDraft:
       type: object
       additionalProperties: false
@@ -1188,6 +1867,50 @@ components:
           type: integer
           minimum: 0
           maximum: 10000
+    WebinarAccessGrantCreate:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        purpose:
+          type: string
+          enum: [VIEW]
+        expiresInDays:
+          type: integer
+          minimum: 1
+          maximum: 30
+    CreatorChatScenarioSave:
+      type: object
+      additionalProperties: false
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            required: [offsetSeconds, kind, text, authorLabel]
+            properties:
+              offsetSeconds:
+                type: integer
+                minimum: 0
+                maximum: 10800
+              kind:
+                type: string
+                enum: [PREPARED_QUESTION, MODERATOR_NOTICE, AUTHOR_PROMPT]
+              text:
+                type: string
+                minLength: 1
+                maxLength: 1000
+              authorLabel:
+                type: string
+                minLength: 2
+                maxLength: 120
     CreatorWebinarScheduleCreate:
       type: object
       additionalProperties: false
@@ -1282,6 +2005,10 @@ components:
       type: apiKey
       in: cookie
       name: aspb_user_session
+    participantSessionCookie:
+      type: apiKey
+      in: cookie
+      name: aspb_room_token
     adminSessionCookie:
       type: apiKey
       in: cookie

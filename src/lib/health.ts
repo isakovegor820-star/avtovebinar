@@ -9,6 +9,10 @@ import {
   ORGANIZATION_INVITATION_EMAIL_DUE_PENDING_SLA_MS,
   ORGANIZATION_INVITATION_EMAIL_STALE_SENDING_MS,
 } from './tenancy/organizationInvitationEmailOutbox.js';
+import {
+  WEBINAR_ACCESS_EMAIL_DUE_PENDING_SLA_MS,
+  WEBINAR_ACCESS_EMAIL_STALE_SENDING_MS,
+} from './tenancy/webinarAccessInvitationEmailOutbox.js';
 
 type HealthCheck = {
   ok: boolean;
@@ -200,6 +204,45 @@ export async function checkOrganizationInvitationEmailOutbox(now = new Date()): 
   }
 }
 
+export async function checkWebinarAccessInvitationEmailOutbox(now = new Date()): Promise<HealthCheck> {
+  try {
+    const staleBefore = new Date(now.getTime() - WEBINAR_ACCESS_EMAIL_STALE_SENDING_MS);
+    const [pending, failed, deadLetter, sending, staleSending, oldestDue] = await withTimeout(
+      Promise.all([
+        prisma.webinarAccessInvitationEmailJob.count({ where: { status: 'PENDING' } }),
+        prisma.webinarAccessInvitationEmailJob.count({ where: { status: 'FAILED' } }),
+        prisma.webinarAccessInvitationEmailJob.count({ where: { status: 'DEAD_LETTER' } }),
+        prisma.webinarAccessInvitationEmailJob.count({ where: { status: 'SENDING' } }),
+        prisma.webinarAccessInvitationEmailJob.count({ where: { status: 'SENDING', claimedAt: { lt: staleBefore } } }),
+        prisma.webinarAccessInvitationEmailJob.findFirst({
+          where: { status: { in: ['PENDING', 'FAILED'] }, nextAttemptAt: { lte: now } },
+          orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          select: { nextAttemptAt: true },
+        }),
+      ]),
+      DEPENDENCY_DATA_TIMEOUT_MS,
+      'webinar access invitation email outbox health',
+    );
+    const oldestDuePendingAt = oldestDue?.nextAttemptAt ?? null;
+    const oldestDuePendingAgeMs = oldestDuePendingAt ? Math.max(0, now.getTime() - oldestDuePendingAt.getTime()) : null;
+    const duePendingOverSla =
+      oldestDuePendingAgeMs !== null && oldestDuePendingAgeMs > WEBINAR_ACCESS_EMAIL_DUE_PENDING_SLA_MS;
+    return {
+      ok: failed === 0 && deadLetter === 0 && staleSending === 0 && !duePendingOverSla,
+      pending,
+      failed,
+      deadLetter,
+      sending,
+      staleSending,
+      oldestDuePendingAt,
+      oldestDuePendingAgeMs,
+      duePendingSlaMs: WEBINAR_ACCESS_EMAIL_DUE_PENDING_SLA_MS,
+    };
+  } catch (error) {
+    return { ok: false, error: normalizeError(error) };
+  }
+}
+
 type WorkerSubsystem = 'reminders' | 'broadcast' | 'news' | 'botAdmin' | 'botParticipant' | 'botConsultant';
 
 type WorkerSubsystemHealthCheck = HealthCheck & {
@@ -284,6 +327,7 @@ export async function getDependencyStatus() {
     emailOutboxQueue,
     userAuthEmailOutboxQueue,
     organizationInvitationEmailOutboxQueue,
+    webinarAccessInvitationEmailOutboxQueue,
     workerSubsystems,
   ] = await Promise.all([
     checkSmtp(),
@@ -291,6 +335,7 @@ export async function getDependencyStatus() {
     checkEmailOutbox(),
     checkUserAuthEmailOutbox(),
     checkOrganizationInvitationEmailOutbox(),
+    checkWebinarAccessInvitationEmailOutbox(),
     checkWorkerSubsystems(),
   ]);
   const expectedTelegramSubsystems = (workerSubsystems.expected ?? []).filter(subsystem => subsystem !== 'reminders');
@@ -310,12 +355,17 @@ export async function getDependencyStatus() {
     ...organizationInvitationEmailOutboxQueue,
     ok: organizationInvitationEmailOutboxQueue.ok && workerSubsystemsAreHealthy(workerSubsystems, ['reminders']),
   };
+  const webinarAccessInvitationEmailOutbox = {
+    ...webinarAccessInvitationEmailOutboxQueue,
+    ok: webinarAccessInvitationEmailOutboxQueue.ok && workerSubsystemsAreHealthy(workerSubsystems, ['reminders']),
+  };
   const checks = {
     smtp,
     telegram,
     emailOutbox,
     userAuthEmailOutbox,
     organizationInvitationEmailOutbox,
+    webinarAccessInvitationEmailOutbox,
     workerSubsystems,
   };
   return {

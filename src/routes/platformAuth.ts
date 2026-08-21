@@ -32,6 +32,7 @@ import {
   startOwnerMfaEnrollment,
   verifyUserMfa,
 } from '../lib/tenancy/userMfa.js';
+import { acceptWebinarAccessInvitation } from '../lib/tenancy/webinarAccess.js';
 
 export const platformAuthRouter = Router();
 
@@ -181,6 +182,17 @@ platformAuthRouter.post(
       expiresAt: accepted.sessionExpiresAt.toISOString(),
       correlationId: correlationId(),
     });
+  }),
+);
+
+platformAuthRouter.post(
+  '/webinar-invitations/accept',
+  asyncHandler(async (req, res) => {
+    requirePlatformAccounts();
+    const session = await requireAuthenticatedUserSession(prisma, req);
+    const accepted = await acceptWebinarAccessInvitation(prisma, session.userId, req.body);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, ...accepted, correlationId: correlationId() });
   }),
 );
 

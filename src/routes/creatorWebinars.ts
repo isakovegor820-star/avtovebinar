@@ -7,9 +7,15 @@ import { getRequestContext } from '../lib/requestContext.js';
 import { resolveTenantContext } from '../lib/tenancy/context.js';
 import { requireAuthenticatedUserSession } from '../lib/tenancy/userAuth.js';
 import {
+  getCreatorChatScenario,
+  publishCreatorChatScenario,
+  saveCreatorChatScenario,
+} from '../lib/tenancy/chatScenario.js';
+import {
   addCreatorWebinarSource,
   createCreatorWebinar,
   deleteCreatorWebinarSource,
+  duplicateCreatorWebinar,
   getCreatorReferenceData,
   getCreatorWebinar,
   getCreatorWebinarPreview,
@@ -23,6 +29,11 @@ import {
   listCreatorWebinarSessions,
   updateCreatorWebinarSession,
 } from '../lib/tenancy/webinarSessions.js';
+import {
+  createWebinarAccessGrant,
+  listWebinarAccessGrants,
+  revokeWebinarAccessGrant,
+} from '../lib/tenancy/webinarAccess.js';
 
 export const creatorWebinarsRouter = Router();
 
@@ -34,6 +45,12 @@ const sourceParamsSchema = z
   })
   .strict();
 const sessionParamsSchema = z.object({ sessionId: z.string().trim().min(1).max(191) }).strict();
+const accessGrantParamsSchema = z
+  .object({
+    webinarId: z.string().trim().min(1).max(191),
+    grantId: z.string().trim().min(1).max(191),
+  })
+  .strict();
 const emptyBodySchema = z.object({}).strict();
 
 function requireCreatorDashboard() {
@@ -164,6 +181,41 @@ creatorWebinarsRouter.delete(
   }),
 );
 
+creatorWebinarsRouter.get(
+  '/creator/webinars/:webinarId/access-grants',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = webinarParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const grants = await listWebinarAccessGrants(prisma, context, params.webinarId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, grants, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.post(
+  '/creator/webinars/:webinarId/access-grants',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = webinarParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const grant = await createWebinarAccessGrant(prisma, context, params.webinarId, req.body);
+    res.status(201).json({ ok: true, grant, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.delete(
+  '/creator/webinars/:webinarId/access-grants/:grantId',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = accessGrantParamsSchema.parse(req.params);
+    emptyBodySchema.parse(req.body ?? {});
+    const context = await tenantContextFromRequest(req);
+    const grant = await revokeWebinarAccessGrant(prisma, context, params.webinarId, params.grantId);
+    res.json({ ok: true, grant, correlationId: correlationId() });
+  }),
+);
+
 creatorWebinarsRouter.post(
   '/creator/webinars/:webinarId/sources',
   asyncHandler(async (req, res) => {
@@ -196,6 +248,58 @@ creatorWebinarsRouter.get(
     const preview = await getCreatorWebinarPreview(prisma, context, params.webinarId);
     res.setHeader('Cache-Control', 'no-store');
     res.json({ ok: true, ...preview, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.post(
+  '/creator/webinars/:webinarId/duplicate',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = webinarParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const result = await duplicateCreatorWebinar(
+      prisma,
+      context,
+      params.webinarId,
+      req.body ?? {},
+      idempotencyKey(req),
+    );
+    res.status(result.replayed ? 200 : 201).json({ ok: true, ...result, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.get(
+  '/creator/webinars/:webinarId/chat-scenario',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = webinarParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const scenario = await getCreatorChatScenario(prisma, context, params.webinarId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, scenario, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.patch(
+  '/creator/webinars/:webinarId/chat-scenario',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = webinarParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const scenario = await saveCreatorChatScenario(prisma, context, params.webinarId, req.body);
+    res.json({ ok: true, scenario, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.post(
+  '/creator/webinars/:webinarId/chat-scenario/publish',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = webinarParamsSchema.parse(req.params);
+    emptyBodySchema.parse(req.body ?? {});
+    const context = await tenantContextFromRequest(req);
+    const result = await publishCreatorChatScenario(prisma, context, params.webinarId, idempotencyKey(req));
+    res.json({ ok: true, ...result, correlationId: correlationId() });
   }),
 );
 

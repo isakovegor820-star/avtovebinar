@@ -45,6 +45,7 @@ import {
   isLeadIdentityActive,
   isParticipantRegistrationActive,
 } from '../../lib/leadSecurity.js';
+import { canAccessRegisteredWebinar } from '../../lib/tenancy/webinarAccess.js';
 import { getEmailDeliveryReadiness } from '../../lib/health.js';
 
 export const registrationRouter = Router();
@@ -96,6 +97,10 @@ function isPrismaUniqueConstraintError(error: unknown) {
 }
 
 class LeadIdentityChangedError extends Error {}
+
+function shouldEnqueueEmailOutbox() {
+  return env.EMAIL_MODE === 'send' || (env.NODE_ENV === 'test' && env.E2E_EMAIL_OUTBOX_ENABLED === 'on');
+}
 
 type PublicEmailReadiness = Awaited<ReturnType<typeof getEmailDeliveryReadiness>>;
 
@@ -221,6 +226,9 @@ async function exchangeRegistrationToken(
       throw new AppError(404, 'Registration not found');
     }
     if (activeTokenRecord.registration.webinarSession.lifecycleStatus === 'CANCELLED') {
+      throw new AppError(404, 'Registration not found');
+    }
+    if (!(await canAccessRegisteredWebinar(tx as unknown as typeof prisma, activeTokenRecord.registration, now))) {
       throw new AppError(404, 'Registration not found');
     }
 
@@ -671,7 +679,7 @@ registrationRouter.post(
           });
         }
 
-        if (env.EMAIL_MODE === 'send') {
+        if (shouldEnqueueEmailOutbox()) {
           await enqueueRegistrationEmail(tx, {
             registrationId: registration.id,
             webinarSessionId: session.id,
@@ -863,7 +871,7 @@ async function findRestorableRegistrationByEmail(email: string) {
 
 async function queueParticipantLoginForEmail(email: string, req: Request) {
   const registration = await findRestorableRegistrationByEmail(email);
-  if (!registration || env.EMAIL_MODE !== 'send') {
+  if (!registration || !shouldEnqueueEmailOutbox()) {
     return false;
   }
 
@@ -886,6 +894,9 @@ async function queueParticipantLoginForEmail(email: string, req: Request) {
       currentRegistration.lead.email.toLowerCase() !== email ||
       currentRegistration.webinarSession.lifecycleStatus === 'CANCELLED'
     ) {
+      return null;
+    }
+    if (!(await canAccessRegisteredWebinar(tx as unknown as typeof prisma, currentRegistration, now))) {
       return null;
     }
 

@@ -26,6 +26,7 @@ import { logger } from '../../lib/logger.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import { getVisitorId, hasAnalyticsConsent } from '../../lib/visitor.js';
 import { acquireLeadSecurityLock, isParticipantRegistrationActive } from '../../lib/leadSecurity.js';
+import { canAccessRegisteredWebinar } from '../../lib/tenancy/webinarAccess.js';
 
 export {
   buildFrontendUrl,
@@ -120,6 +121,10 @@ export async function findRegistrationByToken(token: string) {
     return null;
   }
 
+  if (!(await canAccessRegisteredWebinar(prisma, tokenRecord.registration))) {
+    return null;
+  }
+
   return tokenRecord.registration;
 }
 
@@ -150,6 +155,10 @@ export async function findRegistrationBySessionToken(token: string) {
   }
 
   if (tokenRecord.registration.webinarSession.lifecycleStatus === 'CANCELLED') {
+    return null;
+  }
+
+  if (!(await canAccessRegisteredWebinar(prisma, tokenRecord.registration))) {
     return null;
   }
 

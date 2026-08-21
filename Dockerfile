@@ -31,7 +31,8 @@ LABEL com.aspb.image.scope="autowebinar" \
 
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --omit=dev --ignore-scripts \
+RUN apk add --no-cache ffmpeg \
+  && npm ci --omit=dev --ignore-scripts \
   && npx prisma generate \
   && npm cache clean --force
 

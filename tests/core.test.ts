@@ -263,6 +263,14 @@ describe('security configuration', () => {
       IP_HASH_SECRET: 'unit-test-ip-hash-secret-with-32-chars',
       METRICS_TOKEN: 'unit-test-metrics-token-with-32-chars',
       EMAIL_MODE: 'send',
+      E2E_EMAIL_OUTBOX_ENABLED: 'off',
+      MEDIA_STORAGE_PROVIDER: 'unconfigured',
+      STT_PROVIDER: 'unconfigured',
+      AI_ENRICHMENT_PROVIDER: 'unconfigured',
+      MEDIA_MAX_UPLOAD_BYTES: 4_294_967_296,
+      MEDIA_MAX_DURATION_SECONDS: 10_800,
+      MEDIA_PART_SIZE_BYTES: 8_388_608,
+      MEDIA_UPLOAD_CSP_ORIGINS: '',
       SMTP_HOST: 'smtp.example.com',
       SMTP_PORT: 587,
       SMTP_USER: 'smtp-user',
@@ -316,6 +324,14 @@ describe('security configuration', () => {
         ADMIN_COOKIE_SECRET: 'short-admin-cookie-secret',
         IP_HASH_SECRET: 'short-ip-hash-secret',
         EMAIL_MODE: 'log',
+        E2E_EMAIL_OUTBOX_ENABLED: 'off',
+        MEDIA_STORAGE_PROVIDER: 'unconfigured',
+        STT_PROVIDER: 'unconfigured',
+        AI_ENRICHMENT_PROVIDER: 'unconfigured',
+        MEDIA_MAX_UPLOAD_BYTES: 4_294_967_296,
+        MEDIA_MAX_DURATION_SECONDS: 10_800,
+        MEDIA_PART_SIZE_BYTES: 8_388_608,
+        MEDIA_UPLOAD_CSP_ORIGINS: '',
         SMTP_HOST: '',
         SMTP_PORT: 587,
         SMTP_USER: '',
@@ -385,6 +401,121 @@ describe('security configuration', () => {
         }),
       ),
     ).toThrow(/SMTP_HOST.*SMTP_USER.*SMTP_PASS/);
+  });
+
+  it('rejects the fake E2E email outbox switch in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          E2E_EMAIL_OUTBOX_ENABLED: 'on',
+        }),
+      ),
+    ).toThrow(/E2E_EMAIL_OUTBOX_ENABLED/);
+  });
+
+  it('rejects the fake media storage adapter in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'test_fake',
+        }),
+      ),
+    ).toThrow(/MEDIA_STORAGE_PROVIDER/);
+  });
+
+  it('rejects the fake speech-to-text adapter in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          STT_PROVIDER: 'test_fake',
+        }),
+      ),
+    ).toThrow(/STT_PROVIDER/);
+  });
+
+  it('rejects the fake AI enrichment adapter in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          AI_ENRICHMENT_PROVIDER: 'test_fake',
+        }),
+      ),
+    ).toThrow(/AI_ENRICHMENT_PROVIDER/);
+  });
+
+  it('requires complete S3 storage configuration and allows the versioned pipeline to replace legacy media URLs', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 's3',
+          MEDIA_S3_ENDPOINT: 'https://storage.example.com',
+          MEDIA_S3_BUCKET: undefined,
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+        }),
+      ),
+    ).toThrow(/MEDIA_S3_BUCKET/);
+
+    expect(
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 's3',
+          MEDIA_S3_ENDPOINT: 'https://storage.example.com',
+          MEDIA_S3_BUCKET: 'aspb-private-media',
+          MEDIA_S3_ACCESS_KEY_ID: 'access-key',
+          MEDIA_S3_SECRET_ACCESS_KEY: 'secret-access-key-value',
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+          WEBINAR_MEDIA_ORIGIN_TOKEN: '',
+        }),
+      ).MEDIA_STORAGE_PROVIDER,
+    ).toBe('s3');
+  });
+
+  it('requires provider-specific credentials when real STT or AI adapters are selected', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          STT_PROVIDER: 'yandex_speechkit',
+        }),
+      ),
+    ).toThrow(/STT_YANDEX_API_KEY.*STT_YANDEX_FOLDER_ID.*STT_YANDEX_AUDIO_URI_PREFIX/);
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          AI_ENRICHMENT_PROVIDER: 'yandex_foundation_models',
+        }),
+      ),
+    ).toThrow(/AI_YANDEX_API_KEY.*AI_YANDEX_FOLDER_ID.*AI_YANDEX_MODEL_URI/);
+
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          STT_PROVIDER: 'yandex_speechkit',
+          STT_YANDEX_API_KEY: 'speechkit-api-key-value',
+          STT_YANDEX_FOLDER_ID: 'folder-id',
+          STT_YANDEX_AUDIO_URI_PREFIX: 'http://localhost/private-audio',
+          STT_YANDEX_ENDPOINT: 'https://stt.example.com/recognize',
+          STT_YANDEX_OPERATION_ENDPOINT: 'https://stt.example.com/operations',
+          STT_YANDEX_RESULT_ENDPOINT: 'https://stt.example.com/result',
+          STT_YANDEX_DELETE_ENDPOINT: 'https://stt.example.com/delete',
+        }),
+      ),
+    ).toThrow(/STT_YANDEX_AUDIO_URI_PREFIX must use non-local HTTPS/);
+
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          AI_ENRICHMENT_PROVIDER: 'yandex_foundation_models',
+          AI_YANDEX_API_KEY: 'foundation-models-api-key',
+          AI_YANDEX_FOLDER_ID: 'folder-id',
+          AI_YANDEX_MODEL_URI: 'gpt://folder-id/model/latest',
+          AI_YANDEX_ENDPOINT: 'http://localhost/completion',
+        }),
+      ),
+    ).toThrow(/AI_YANDEX_ENDPOINT must use non-local HTTPS/);
   });
 
   it('requires the expected participant bot username in production', () => {

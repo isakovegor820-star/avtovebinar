@@ -44,6 +44,7 @@ rollout-флага остаются выключены:
 PLATFORM_ACCOUNTS_ENABLED=off
 PLATFORM_TENANCY_ENFORCEMENT=off
 CREATOR_DASHBOARD_ENABLED=off
+PUBLIC_CATALOG_ENABLED=off
 ```
 
 Это сохраняет действующие registration/room/replay/CRM/email/Telegram и
@@ -82,6 +83,80 @@ instances ограничено. Перенос или отмена после р
 отзывают устаревшие reminders и ставят service notices в durable email
 outbox. Отменённая session не выдаёт room access и не попадает в
 email/Telegram reminders.
+
+Migration `20260820200000_private_webinar_access` добавляет owner-only
+приглашения на private Webinar. Email нормализуется и сохраняется только как
+HMAC в grant; raw одноразовая ссылка существует только в памяти worker, а в БД
+остаётся SHA-256 hash токена. Принять приглашение может только вошедший и
+подтвердивший email User; grant ограничен организацией, конкретным Webinar,
+purpose и сроком. Отзыв немедленно закрывает новые room/replay access, email и
+Telegram delivery. Cross-tenant read/write возвращают тот же safe `404`, что и
+неизвестный объект. Перед включением creator flow задайте отдельный стабильный
+`WEBINAR_ACCESS_HASH_SECRET` длиной не менее 32 символов: compatibility fallback
+на `ADMIN_COOKIE_SECRET` оставлен только для безопасного additive deploy с
+выключенными флагами.
+
+Creator API также поддерживает идемпотентное дублирование Webinar в новый
+`DRAFT`: копируются только разрешённые legal/content/taxonomy/source поля, а
+последняя версия `ChatScenario` копируется как новый неподтверждённый draft.
+Sessions, registrations, analytics, access grants, media, approval и история
+команд не копируются. Сценарий редактируется через tenant-scoped API; клиент не
+может снять `isSynthetic`, а публикация требует явной маркировки подготовленных
+сообщений.
+
+Кабинет организации доступен по `/crisis_premium/creator-webinars.html` только
+при включённых platform/creator flags. Он показывает независимые content,
+media, transcript, scenario и session статусы, позволяет заполнить юридические
+метаданные, HTTPS-источники, подготовленный чат, расписание и private grants.
+Отдельный `/crisis_premium/creator-webinar-preview.html` не создаёт Lead,
+registration, CRM event или delivery и честно сообщает, если READY media ещё
+нет.
+
+Публичный каталог включается независимо через `PUBLIC_CATALOG_ENABLED=on`:
+`/crisis_premium/catalog.html` и `/crisis_premium/catalog-webinar.html`.
+Server-side projection и `/sitemap.xml` включают только published PUBLIC
+Webinar проверенных активных авторов. UNLISTED доступен только по полной прямой
+ссылке и получает `noindex`; PRIVATE, draft и archived возвращают тот же 404,
+что неизвестный объект. Регистрация из нового каталога пока намеренно отключена
+до отдельной tenant-scoped REG vertical; действующая legacy-регистрация не
+подменяется и не получает фиктивных заявок.
+
+Migration `20260821090000_media_pipeline_foundation` добавляет versioned
+`MediaAsset`, resumable `MediaUpload` и durable `MediaJob`. Creator API выдаёт
+временные multipart operations, но не проксирует video bytes и не возвращает
+storage keys/origin URL. Без выбранного provider безопасный default
+`MEDIA_STORAGE_PROVIDER=unconfigured` отвечает `503`; `test_fake` работает
+только при `NODE_ENV=test` и запрещён production guard. Лимиты задаются
+`MEDIA_MAX_UPLOAD_BYTES` (4 ГБ), `MEDIA_MAX_DURATION_SECONDS` (180 минут) и
+`MEDIA_PART_SIZE_BYTES`. Активация разрешена только для READY asset и не
+переключает опубликованную версию раньше явного запроса.
+Завершённые parts фиксируются на сервере по `partNumber`/ETag; resume выдаёт fresh
+15-minute operations только для недостающих частей. Browser хранит только
+upload ID и identity файла, а не signed URLs. Для direct PUT origins нужно явно задать
+comma-separated HTTPS origins в `MEDIA_UPLOAD_CSP_ORIGINS`.
+S3-compatible adapter (`MEDIA_STORAGE_PROVIDER=s3`) добавляет provider ListParts,
+private object reads, magic-byte/ffprobe checks, ffmpeg HLS/poster и OGG/Opus rendition для STT.
+`MediaJob` использует возобновляемый lease: после падения worker зависший `RUNNING` claim
+возвращается в очередь либо попадает в dead-letter на исчерпанном лимите. Manifest,
+каждый segment/poster и Range проходят повторную cookie/session/WebinarSession/replay/grant
+проверку через application gateway; storage keys и origin URL наружу не выдаются.
+Техническая рекомендация и ограничения CDN зафиксированы в
+[`docs/DEC-05-MEDIA-STORAGE-CDN-TRANSCODER.md`](docs/DEC-05-MEDIA-STORAGE-CDN-TRANSCODER.md).
+До legal/budget/provider acceptance credentials и provider не включаются; полный env-контракт
+указан в `.env.production.example`.
+
+Migrations `20260821100000_transcript_foundation` и
+`20260821110000_transcript_enrichment` добавляют versioned transcript segments,
+tenant dictionary, durable STT/AI jobs, provenance, suggestions, chapters, tags и prepared
+questions. `STT_PROVIDER=unconfigured` и `AI_ENRICHMENT_PROVIDER=unconfigured` fail closed;
+`test_fake` допустим только в test. Creator редактирует segments с optimistic
+revision, явно review/publish-ит транскрипт и отдельно принимает/отклоняет
+каждое AI suggestion. В каталог и TXT/VTT export попадает только опубликованная
+версия.
+Optional adapters `yandex_speechkit` и `yandex_foundation_models` реализуют
+async STT submit/poll/result/delete и structured AI suggestions. Они остаются
+`unconfigured` до data-processing/no-training acceptance; decision matrix находится в
+[`docs/DEC-06-STT-AI-PROVIDERS.md`](docs/DEC-06-STT-AI-PROVIDERS.md).
 
 ## Быстрый запуск
 

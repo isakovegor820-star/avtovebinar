@@ -24,6 +24,15 @@ import { handleParticipantTelegramUpdate } from '../src/lib/telegramParticipantB
 import { runTelegramNewsJobOnce } from '../src/lib/telegramNews.js';
 import { getDailyBroadcastDate } from '../src/lib/time.js';
 import { findOrCreateWebinarSession } from '../src/lib/webinarSessions.js';
+import {
+  cleanupExpiredMediaUploads,
+  completeMediaUpload,
+  recordMediaUploadPart,
+  resumeMediaUpload,
+  runMediaJobOnce,
+} from '../src/lib/tenancy/mediaPipeline.js';
+import { SafeMediaProviderError } from '../src/lib/mediaStorageS3.js';
+import { getPublishedTranscript, runContentJobOnce } from '../src/lib/tenancy/transcripts.js';
 import { encryptMfaSecret, generateTotp } from '../src/lib/mfa.js';
 import {
   MARKETING_EMAIL_CONSENT,
@@ -56,6 +65,8 @@ import {
   updateTenantWebinarSessionTitle,
 } from '../src/lib/tenancy/webinarSessionRepository.js';
 import { assertAuthorCanPublish } from '../src/lib/tenancy/authorVerification.js';
+import { runWebinarAccessInvitationEmailOutboxJobOnce } from '../src/lib/tenancy/webinarAccessInvitationEmailOutbox.js';
+import { cleanupExpiredWebinarAccessGrants, hashWebinarAccessEmail } from '../src/lib/tenancy/webinarAccess.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -270,6 +281,7 @@ async function ensureLegalTaxonomyFixture() {
 }
 
 beforeAll(async () => {
+  if (process.env.ASPB_SKIP_TEST_MIGRATION_DEPLOY === 'on' && process.env.NODE_ENV === 'test') return;
   // Guard the target and verify that the test schema is reproducible from committed migrations.
   execSync('node scripts/assert-test-database.mjs', {
     env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
@@ -294,10 +306,14 @@ beforeEach(async () => {
     PLATFORM_ACCOUNTS_ENABLED: 'off',
     PLATFORM_TENANCY_ENFORCEMENT: 'off',
     CREATOR_DASHBOARD_ENABLED: 'off',
+    PUBLIC_CATALOG_ENABLED: 'off',
+    MEDIA_STORAGE_PROVIDER: 'unconfigured',
+    STT_PROVIDER: 'unconfigured',
+    AI_ENRICHMENT_PROVIDER: 'unconfigured',
   });
   // Truncate tables to guarantee absolute test isolation
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
+    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
   );
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
@@ -4703,6 +4719,332 @@ describe('critical path integration scenarios', () => {
     await expect(prisma.webinarCommand.count({ where: { webinarId: webinar.id, action: 'publish' } })).resolves.toBe(1);
   });
 
+  it('publishes only eligible catalog projections and hides unlisted, private, draft and archived records', async () => {
+    const taxonomy = await ensureLegalTaxonomyFixture();
+    const tenant = await createTenantFixture({
+      slug: 'catalog-tenant',
+      email: 'catalog-author@example.test',
+      role: 'AUTHOR',
+    });
+    const otherTenant = await createTenantFixture({
+      slug: 'catalog-other-tenant',
+      email: 'catalog-other-author@example.test',
+      role: 'AUTHOR',
+    });
+    const [profile, otherProfile] = await Promise.all([
+      prisma.authorProfile.create({
+        data: {
+          organizationId: tenant.organization.id,
+          userId: tenant.user.id,
+          slug: 'catalog-author-profile',
+          publicName: 'Анна Каталогова',
+          bio: 'Проверенный автор каталога.',
+          verificationStatus: 'VERIFIED',
+        },
+      }),
+      prisma.authorProfile.create({
+        data: {
+          organizationId: otherTenant.organization.id,
+          userId: otherTenant.user.id,
+          slug: 'catalog-other-author-profile',
+          publicName: 'Другой проверенный автор',
+          verificationStatus: 'VERIFIED',
+        },
+      }),
+    ]);
+    const common = {
+      jurisdictionId: taxonomy.jurisdiction.id,
+      description: 'Подробное описание публичного юридического вебинара для каталога.',
+      outcomeDescription: 'Слушатель получит проверяемый практический результат.',
+      freshnessStatus: 'CURRENT' as const,
+      audienceLevel: 'PRACTITIONER' as const,
+      targetAudience: 'Практикующие юристы и руководители',
+      format: 'PREMIERE' as const,
+      durationMinutes: 60,
+      currentAsOf: new Date('2026-08-21T00:00:00.000Z'),
+      disclaimer: 'Материал носит информационный характер и не заменяет индивидуальную консультацию.',
+      publishedAt: new Date('2026-08-21T10:00:00.000Z'),
+    };
+    const { freshnessStatus: _currentFreshness, ...commonWithoutFreshness } = common;
+    const publicWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'catalog-public-webinar',
+        title: 'Публичный договорный вебинар',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        ...common,
+        practiceAreas: {
+          create: [
+            { practiceAreaId: taxonomy.root.id, isPrimary: true },
+            { practiceAreaId: taxonomy.specialization.id, isPrimary: false },
+          ],
+        },
+        sources: {
+          create: {
+            type: 'OFFICIAL_SOURCE',
+            title: 'Официальный источник каталога',
+            url: 'https://example.test/catalog-source',
+          },
+        },
+      },
+    });
+    const successor = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'catalog-current-version',
+        title: 'Актуальная версия вебинара',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        ...common,
+      },
+    });
+    const superseded = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'catalog-old-version',
+        title: 'Предыдущая версия вебинара',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        freshnessStatus: 'SUPERSEDED',
+        supersededByWebinarId: successor.id,
+        ...commonWithoutFreshness,
+        slugAliases: { create: { slug: 'catalog-old-alias' } },
+      },
+    });
+    const unlisted = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'catalog-unlisted-webinar',
+        title: 'Вебинар только по ссылке',
+        contentStatus: 'PUBLISHED',
+        visibility: 'UNLISTED',
+        ...common,
+      },
+    });
+    const privateWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'catalog-private-webinar',
+        title: 'Закрытый вебинар',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PRIVATE',
+        ...common,
+      },
+    });
+    const draft = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'catalog-draft-webinar',
+        title: 'Черновик вебинара',
+        contentStatus: 'DRAFT',
+        visibility: 'PUBLIC',
+      },
+    });
+    const archived = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'catalog-archived-webinar',
+        title: 'Архивный вебинар',
+        contentStatus: 'ARCHIVED',
+        visibility: 'PUBLIC',
+        archivedAt: new Date(),
+        ...common,
+      },
+    });
+    await prisma.webinar.create({
+      data: {
+        organizationId: otherTenant.organization.id,
+        authorProfileId: otherProfile.id,
+        slug: publicWebinar.slug,
+        title: 'Одноимённый вебинар другой организации',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        ...common,
+      },
+    });
+    const scheduledAt = new Date('2032-01-15T16:30:00.000Z');
+    const session = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: publicWebinar.id,
+        title: publicWebinar.title,
+        scheduledAt,
+        timezone: 'Europe/Moscow',
+        durationMinutes: 60,
+      },
+    });
+
+    const disabled = await request(app).get('/api/v1/catalog/webinars');
+    expect(disabled.status).toBe(404);
+    expect(disabled.body.code).toBe('public_catalog_disabled');
+    env.PUBLIC_CATALOG_ENABLED = 'on';
+
+    const catalog = await request(app).get('/api/v1/catalog/webinars').query({
+      q: 'договорный',
+      practiceArea: taxonomy.root.slug,
+      specialization: taxonomy.specialization.slug,
+      jurisdiction: taxonomy.jurisdiction.code,
+      level: 'PRACTITIONER',
+      format: 'PREMIERE',
+      availability: 'UPCOMING',
+      sort: 'UPCOMING',
+    });
+    expect(catalog.status).toBe(200);
+    expect(catalog.body.items).toEqual([
+      expect.objectContaining({
+        slug: publicWebinar.slug,
+        title: publicWebinar.title,
+        visibility: 'PUBLIC',
+        author: { slug: profile.slug, publicName: profile.publicName },
+        organization: { slug: tenant.organization.slug, name: tenant.organization.name },
+        jurisdiction: { code: taxonomy.jurisdiction.code, name: taxonomy.jurisdiction.name },
+        practiceArea: { slug: taxonomy.root.slug, name: taxonomy.root.name },
+        specialization: { slug: taxonomy.specialization.slug, name: taxonomy.specialization.name },
+        nextSession: expect.objectContaining({ scheduledAt: scheduledAt.toISOString(), timezone: 'Europe/Moscow' }),
+      }),
+    ]);
+    const recordingBeforeReady = await request(app).get('/api/v1/catalog/webinars').query({
+      q: 'договорный',
+      availability: 'RECORDING',
+    });
+    expect(recordingBeforeReady.body.items).toHaveLength(0);
+    await prisma.webinar.update({ where: { id: publicWebinar.id }, data: { mediaStatus: 'READY' } });
+    const recordingAfterReady = await request(app).get('/api/v1/catalog/webinars').query({
+      q: 'договорный',
+      availability: 'RECORDING',
+      dateFrom: '2032-01-01',
+      dateTo: '2032-01-31',
+    });
+    expect(recordingAfterReady.body.items).toEqual([expect.objectContaining({ slug: publicWebinar.slug })]);
+    const allCatalog = await request(app).get('/api/v1/catalog/webinars').query({ sort: 'UPDATED', pageSize: 24 });
+    expect(allCatalog.status).toBe(200);
+    const listedPaths = allCatalog.body.items.map((item: { canonicalPath: string }) => item.canonicalPath);
+    expect(listedPaths).toContain(
+      `/crisis_premium/catalog-webinar.html?organization=${tenant.organization.slug}&webinar=${publicWebinar.slug}`,
+    );
+    expect(listedPaths).toContain(
+      `/crisis_premium/catalog-webinar.html?organization=${otherTenant.organization.slug}&webinar=${publicWebinar.slug}`,
+    );
+    for (const hiddenSlug of [unlisted.slug, privateWebinar.slug, draft.slug, archived.slug]) {
+      expect(allCatalog.body.items).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ slug: hiddenSlug })]),
+      );
+    }
+
+    const publicDetail = await request(app)
+      .get(`/api/v1/catalog/webinars/${publicWebinar.slug}`)
+      .query({ organization: tenant.organization.slug });
+    expect(publicDetail.status).toBe(200);
+    expect(publicDetail.body.webinar).toMatchObject({
+      slug: publicWebinar.slug,
+      canonicalSlug: publicWebinar.slug,
+      wasAlias: false,
+      sources: [{ title: 'Официальный источник каталога', url: 'https://example.test/catalog-source' }],
+    });
+    const aliasDetail = await request(app)
+      .get('/api/v1/catalog/webinars/catalog-old-alias')
+      .query({ organization: tenant.organization.slug });
+    expect(aliasDetail.status).toBe(200);
+    expect(aliasDetail.body.webinar).toMatchObject({
+      slug: superseded.slug,
+      canonicalSlug: superseded.slug,
+      requestedSlug: 'catalog-old-alias',
+      wasAlias: true,
+      freshnessStatus: 'SUPERSEDED',
+      supersededBy: {
+        title: successor.title,
+        canonicalPath: `/crisis_premium/catalog-webinar.html?organization=${tenant.organization.slug}&webinar=${successor.slug}`,
+      },
+    });
+    const unlistedDetail = await request(app)
+      .get(`/api/v1/catalog/webinars/${unlisted.slug}`)
+      .query({ organization: tenant.organization.slug });
+    expect(unlistedDetail.status).toBe(200);
+    expect(unlistedDetail.headers['x-robots-tag']).toContain('noindex');
+    const sitemap = await request(app).get('/sitemap.xml');
+    expect(sitemap.status).toBe(200);
+    expect(sitemap.headers['content-type']).toContain('application/xml');
+    expect(sitemap.text).toContain(`organization=${tenant.organization.slug}`);
+    expect(sitemap.text).toContain(`webinar=${publicWebinar.slug}`);
+    for (const hiddenSlug of [unlisted.slug, privateWebinar.slug, draft.slug, archived.slug, 'catalog-old-alias']) {
+      expect(sitemap.text).not.toContain(`webinar=${hiddenSlug}`);
+    }
+
+    const unknown = await request(app)
+      .get('/api/v1/catalog/webinars/missing-webinar')
+      .query({ organization: tenant.organization.slug });
+    for (const hidden of [privateWebinar, draft, archived]) {
+      const response = await request(app)
+        .get(`/api/v1/catalog/webinars/${hidden.slug}`)
+        .query({ organization: tenant.organization.slug });
+      expect(response.status).toBe(404);
+      expect(response.body).toMatchObject({ code: 'catalog_webinar_not_found', error: unknown.body.error });
+    }
+
+    const lead = await prisma.lead.create({
+      data: { name: 'Исторический зритель каталога', phone: '+79990000877', email: 'catalog-history@example.test' },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        accessTokenHash: hashToken(createAccessToken()),
+        emailVerifiedAt: new Date(),
+      },
+    });
+    await prisma.event.create({
+      data: {
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: session.id,
+        eventName: 'catalog_history',
+      },
+    });
+    const historyBeforeArchive = await Promise.all([
+      prisma.registration.count({ where: { webinarSessionId: session.id } }),
+      prisma.event.count({ where: { webinarSessionId: session.id } }),
+    ]);
+    await prisma.webinar.update({
+      where: { id: publicWebinar.id },
+      data: { contentStatus: 'ARCHIVED', archivedAt: new Date() },
+    });
+    const afterArchive = await request(app)
+      .get(`/api/v1/catalog/webinars/${publicWebinar.slug}`)
+      .query({ organization: tenant.organization.slug });
+    expect(afterArchive.status).toBe(404);
+    const sitemapAfterArchive = await request(app).get('/sitemap.xml');
+    expect(sitemapAfterArchive.text).not.toContain(
+      `organization=${tenant.organization.slug}&amp;webinar=${publicWebinar.slug}`,
+    );
+    await expect(
+      Promise.all([
+        prisma.registration.count({ where: { webinarSessionId: session.id } }),
+        prisma.event.count({ where: { webinarSessionId: session.id } }),
+      ]),
+    ).resolves.toEqual(historyBeforeArchive);
+
+    await prisma.organizationMembership.update({
+      where: {
+        organizationId_userId: { organizationId: otherTenant.organization.id, userId: otherTenant.user.id },
+      },
+      data: { status: 'SUSPENDED' },
+    });
+    const afterMembershipSuspension = await request(app).get('/api/v1/catalog/webinars').query({ pageSize: 24 });
+    expect(afterMembershipSuspension.body.items).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ organization: expect.objectContaining({ slug: otherTenant.organization.slug }) }),
+      ]),
+    );
+  });
+
   it('creates bounded timezone-aware recurrence and hides every foreign session operation', async () => {
     const tenantA = await createTenantFixture({
       slug: 'session-scope-a',
@@ -4875,6 +5217,7 @@ describe('critical path integration scenarios', () => {
         authorProfileId: profile.id,
         slug: 'session-change-notices',
         title: 'Вебинар с уведомлениями',
+        visibility: 'PUBLIC',
       },
     });
     const platformSession = await loginPlatformUser(tenant.user.id);
@@ -5073,6 +5416,588 @@ describe('critical path integration scenarios', () => {
     expect(cancelledRoomAccess.status).toBe(401);
   });
 
+  it('duplicates only allowed Webinar draft data and replays the command without copying history', async () => {
+    const taxonomy = await ensureLegalTaxonomyFixture();
+    const tenant = await createTenantFixture({
+      slug: 'duplicate-webinar',
+      email: 'duplicate-webinar@example.test',
+      role: 'AUTHOR',
+    });
+    const foreignTenant = await createTenantFixture({
+      slug: 'duplicate-webinar-foreign',
+      email: 'duplicate-webinar-foreign@example.test',
+      role: 'AUTHOR',
+    });
+    const [profile, foreignProfile] = await Promise.all([
+      prisma.authorProfile.create({
+        data: {
+          organizationId: tenant.organization.id,
+          userId: tenant.user.id,
+          slug: 'duplicate-webinar-author',
+          publicName: 'Автор дубликата',
+          verificationStatus: 'VERIFIED',
+        },
+      }),
+      prisma.authorProfile.create({
+        data: {
+          organizationId: foreignTenant.organization.id,
+          userId: foreignTenant.user.id,
+          slug: 'duplicate-webinar-foreign-author',
+          publicName: 'Чужой автор',
+          verificationStatus: 'VERIFIED',
+        },
+      }),
+    ]);
+    const source = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        jurisdictionId: taxonomy.jurisdiction.id,
+        slug: 'duplicate-source',
+        title: 'Исходный юридический вебинар',
+        description: 'Описание, которое должно перейти в новый черновик без истории.',
+        outcomeDescription: 'Практический результат исходного материала.',
+        contentStatus: 'PUBLISHED',
+        visibility: 'UNLISTED',
+        freshnessStatus: 'CURRENT',
+        audienceLevel: 'PRACTITIONER',
+        targetAudience: 'Юристы и руководители',
+        format: 'PREMIERE',
+        durationMinutes: 70,
+        currentAsOf: new Date('2026-08-20T00:00:00.000Z'),
+        disclaimer: 'Материал носит информационный характер и не заменяет консультацию.',
+        syntheticDisclosure: 'Подготовленные сообщения всегда помечены и не являются сообщениями реальных зрителей.',
+        mediaStatus: 'READY',
+        transcriptStatus: 'PUBLISHED',
+        scenarioStatus: 'PUBLISHED',
+        practiceAreas: {
+          create: [
+            { practiceAreaId: taxonomy.root.id, isPrimary: true },
+            {
+              practiceAreaId: taxonomy.specialization.id,
+              isPrimary: false,
+            },
+          ],
+        },
+        sources: {
+          create: {
+            type: 'OFFICIAL_SOURCE',
+            title: 'Исходный официальный источник',
+            url: 'https://example.test/duplicate-source',
+          },
+        },
+      },
+    });
+    const sourceScenario = await prisma.chatScenario.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: source.id,
+        version: 1,
+        status: 'PUBLISHED',
+        createdById: tenant.user.id,
+        approvedById: tenant.user.id,
+        approvedAt: new Date('2026-08-20T10:00:00.000Z'),
+        messages: {
+          create: [
+            {
+              orderIndex: 0,
+              offsetSeconds: 90,
+              kind: 'PREPARED_QUESTION',
+              text: 'Какие документы нужно подготовить до начала процедуры?',
+              authorLabel: 'Подготовленный вопрос',
+              isSynthetic: true,
+            },
+            {
+              orderIndex: 1,
+              offsetSeconds: 180,
+              kind: 'MODERATOR_NOTICE',
+              text: 'Это подготовленное сообщение, а не реплика реального участника.',
+              authorLabel: 'Модератор',
+              isSynthetic: true,
+            },
+          ],
+        },
+      },
+    });
+    const sourceSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: source.id,
+        title: source.title,
+        scheduledAt: new Date('2032-01-01T10:00:00.000Z'),
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: { name: 'Исторический зритель', phone: '+79990000901', email: 'duplicate-history@example.test' },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: sourceSession.id,
+        accessTokenHash: hashToken(createAccessToken()),
+        emailVerifiedAt: new Date(),
+      },
+    });
+    await prisma.event.create({
+      data: {
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: sourceSession.id,
+        eventName: 'source_history_only',
+      },
+    });
+    const foreignWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: foreignTenant.organization.id,
+        authorProfileId: foreignProfile.id,
+        slug: 'foreign-duplicate-source',
+        title: 'Чужой исходник',
+      },
+    });
+    const creator = await loginPlatformUser(tenant.user.id);
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+
+    const foreignAttempt = await creator.agent
+      .post(`/api/v1/creator/webinars/${foreignWebinar.id}/duplicate`)
+      .set('x-csrf-token', creator.csrfToken)
+      .set('idempotency-key', 'duplicate-foreign-001')
+      .send({ slug: 'must-not-exist' });
+    expect(foreignAttempt.status).toBe(404);
+    const forgedTenant = await creator.agent
+      .post(`/api/v1/creator/webinars/${source.id}/duplicate`)
+      .set('x-csrf-token', creator.csrfToken)
+      .set('idempotency-key', 'duplicate-forged-001')
+      .send({ slug: 'forged-duplicate', organizationId: foreignTenant.organization.id });
+    expect(forgedTenant.status).toBe(400);
+
+    const duplicated = await creator.agent
+      .post(`/api/v1/creator/webinars/${source.id}/duplicate`)
+      .set('x-csrf-token', creator.csrfToken)
+      .set('idempotency-key', 'duplicate-source-001')
+      .send({ slug: 'duplicate-target', title: 'Новый черновик вебинара' });
+    expect(duplicated.status).toBe(201);
+    expect(duplicated.body).toMatchObject({
+      replayed: false,
+      webinar: {
+        slug: 'duplicate-target',
+        title: 'Новый черновик вебинара',
+        contentStatus: 'DRAFT',
+        visibility: 'UNLISTED',
+        mediaStatus: 'NOT_UPLOADED',
+        transcriptStatus: 'NOT_AVAILABLE',
+        scenarioStatus: 'DRAFT',
+      },
+    });
+    const duplicateId = duplicated.body.webinar.id as string;
+    expect(duplicated.body.webinar.practiceAreas).toHaveLength(2);
+    expect(duplicated.body.webinar.sources).toHaveLength(1);
+    expect(duplicated.body.webinar.sessions).toHaveLength(0);
+    const duplicatedScenario = await prisma.chatScenario.findFirstOrThrow({
+      where: { organizationId: tenant.organization.id, webinarId: duplicateId },
+      include: { messages: { orderBy: { orderIndex: 'asc' } } },
+    });
+    expect(duplicatedScenario).toMatchObject({
+      version: 1,
+      status: 'DRAFT',
+      approvedById: null,
+      approvedAt: null,
+      createdById: tenant.user.id,
+    });
+    expect(duplicatedScenario.id).not.toBe(sourceScenario.id);
+    expect(duplicatedScenario.messages).toEqual([
+      expect.objectContaining({
+        orderIndex: 0,
+        offsetSeconds: 90,
+        kind: 'PREPARED_QUESTION',
+        text: 'Какие документы нужно подготовить до начала процедуры?',
+        authorLabel: 'Подготовленный вопрос',
+        isSynthetic: true,
+      }),
+      expect.objectContaining({
+        orderIndex: 1,
+        offsetSeconds: 180,
+        kind: 'MODERATOR_NOTICE',
+        text: 'Это подготовленное сообщение, а не реплика реального участника.',
+        authorLabel: 'Модератор',
+        isSynthetic: true,
+      }),
+    ]);
+    await expect(prisma.registration.count({ where: { webinarSession: { webinarId: duplicateId } } })).resolves.toBe(0);
+    await expect(prisma.event.count({ where: { webinarSession: { webinarId: duplicateId } } })).resolves.toBe(0);
+
+    const foreignCreator = await loginPlatformUser(foreignTenant.user.id);
+    const foreignScenarioRead = await foreignCreator.agent.get(`/api/v1/creator/webinars/${duplicateId}/chat-scenario`);
+    expect(foreignScenarioRead.status).toBe(404);
+    const foreignScenarioWrite = await foreignCreator.agent
+      .patch(`/api/v1/creator/webinars/${duplicateId}/chat-scenario`)
+      .set('x-csrf-token', foreignCreator.csrfToken)
+      .send({ messages: [] });
+    expect(foreignScenarioWrite.status).toBe(404);
+
+    const forgedScenarioScope = await creator.agent
+      .patch(`/api/v1/creator/webinars/${duplicateId}/chat-scenario`)
+      .set('x-csrf-token', creator.csrfToken)
+      .send({ organizationId: foreignTenant.organization.id, messages: [] });
+    expect(forgedScenarioScope.status).toBe(400);
+
+    const falseSynthetic = await creator.agent
+      .patch(`/api/v1/creator/webinars/${duplicateId}/chat-scenario`)
+      .set('x-csrf-token', creator.csrfToken)
+      .send({
+        messages: [
+          {
+            offsetSeconds: 120,
+            kind: 'PREPARED_QUESTION',
+            text: 'Не должно сохраниться',
+            authorLabel: 'Участник',
+            isSynthetic: false,
+          },
+        ],
+      });
+    expect(falseSynthetic.status).toBe(400);
+
+    const savedScenario = await creator.agent
+      .patch(`/api/v1/creator/webinars/${duplicateId}/chat-scenario`)
+      .set('x-csrf-token', creator.csrfToken)
+      .send({
+        messages: [
+          {
+            offsetSeconds: 120,
+            kind: 'AUTHOR_PROMPT',
+            text: 'Подготовленный переход к следующей теме.',
+            authorLabel: 'Автор',
+          },
+        ],
+      });
+    expect(savedScenario.status).toBe(200);
+    expect(savedScenario.body.scenario).toMatchObject({
+      id: duplicatedScenario.id,
+      version: 1,
+      status: 'DRAFT',
+      messages: [
+        {
+          id: expect.any(String),
+          orderIndex: 0,
+          offsetSeconds: 120,
+          kind: 'AUTHOR_PROMPT',
+          text: 'Подготовленный переход к следующей теме.',
+          authorLabel: 'Автор',
+          isSynthetic: true,
+        },
+      ],
+    });
+    const publishedScenario = await creator.agent
+      .post(`/api/v1/creator/webinars/${duplicateId}/chat-scenario/publish`)
+      .set('x-csrf-token', creator.csrfToken)
+      .set('idempotency-key', 'publish-duplicate-scenario-001')
+      .send({});
+    expect(publishedScenario.status).toBe(200);
+    expect(publishedScenario.body).toMatchObject({ replayed: false, scenario: { status: 'PUBLISHED' } });
+    const replayedScenarioPublish = await creator.agent
+      .post(`/api/v1/creator/webinars/${duplicateId}/chat-scenario/publish`)
+      .set('x-csrf-token', creator.csrfToken)
+      .set('idempotency-key', 'publish-duplicate-scenario-001')
+      .send({});
+    expect(replayedScenarioPublish.status).toBe(200);
+    expect(replayedScenarioPublish.body).toMatchObject({
+      replayed: true,
+      scenario: { id: publishedScenario.body.scenario.id, status: 'PUBLISHED' },
+    });
+
+    const replay = await creator.agent
+      .post(`/api/v1/creator/webinars/${source.id}/duplicate`)
+      .set('x-csrf-token', creator.csrfToken)
+      .set('idempotency-key', 'duplicate-source-001')
+      .send({ slug: 'ignored-on-replay' });
+    expect(replay.status).toBe(200);
+    expect(replay.body).toMatchObject({ replayed: true, webinar: { id: duplicateId } });
+    await expect(prisma.webinar.count({ where: { organizationId: tenant.organization.id } })).resolves.toBe(2);
+    await expect(
+      prisma.auditLog.count({ where: { entityId: duplicateId, action: 'webinar.duplicated' } }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          entityId: duplicatedScenario.id,
+          action: { in: ['chat_scenario.saved', 'chat_scenario.published'] },
+        },
+      }),
+    ).resolves.toBe(2);
+  });
+
+  it('keeps private Webinar grants hash-bound, tenant-isolated, single-use and immediately revocable', async () => {
+    const ownerTenant = await createTenantFixture({
+      slug: 'private-access-owner',
+      email: 'private-access-owner@example.test',
+      role: 'OWNER',
+    });
+    const foreignTenant = await createTenantFixture({
+      slug: 'private-access-foreign',
+      email: 'private-access-foreign@example.test',
+      role: 'OWNER',
+    });
+    const privateWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: ownerTenant.organization.id,
+        slug: 'private-invited-webinar',
+        title: 'Закрытый вебинар',
+        visibility: 'PRIVATE',
+      },
+    });
+    const foreignPrivateWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: foreignTenant.organization.id,
+        slug: 'foreign-private-invited-webinar',
+        title: 'Чужой закрытый вебинар',
+        visibility: 'PRIVATE',
+      },
+    });
+    const owner = await loginPlatformUser(ownerTenant.user.id);
+    const foreignOwner = await loginPlatformUser(foreignTenant.user.id);
+    const tenantAuthorUser = await prisma.user.create({
+      data: {
+        emailNormalized: 'private-access-author@example.test',
+        displayName: 'Автор без owner-прав',
+        emailVerifiedAt: new Date(),
+        memberships: {
+          create: { organizationId: ownerTenant.organization.id, role: 'AUTHOR', status: 'ACTIVE' },
+        },
+      },
+    });
+    const tenantAuthor = await loginPlatformUser(tenantAuthorUser.id);
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    const invitedEmail = 'invited-private-viewer@example.test';
+
+    const missingList = await foreignOwner.agent.get('/api/v1/creator/webinars/missing-private/access-grants');
+    const foreignList = await foreignOwner.agent.get(`/api/v1/creator/webinars/${privateWebinar.id}/access-grants`);
+    expect(missingList.status).toBe(404);
+    expect(foreignList.status).toBe(404);
+    expect(foreignList.body.error).toBe(missingList.body.error);
+    const foreignCreate = await foreignOwner.agent
+      .post(`/api/v1/creator/webinars/${privateWebinar.id}/access-grants`)
+      .set('x-csrf-token', foreignOwner.csrfToken)
+      .send({ email: invitedEmail, purpose: 'VIEW', expiresInDays: 7 });
+    expect(foreignCreate.status).toBe(404);
+    const authorList = await tenantAuthor.agent.get(`/api/v1/creator/webinars/${privateWebinar.id}/access-grants`);
+    expect(authorList.status).toBe(403);
+
+    const created = await owner.agent
+      .post(`/api/v1/creator/webinars/${privateWebinar.id}/access-grants`)
+      .set('x-csrf-token', owner.csrfToken)
+      .send({ email: invitedEmail, purpose: 'VIEW', expiresInDays: 7 });
+    expect(created.status).toBe(201);
+    expect(created.body.grant).toMatchObject({
+      purpose: 'VIEW',
+      status: 'PENDING',
+      recipientType: 'EMAIL',
+      delivery: { status: 'PENDING', attempts: 0 },
+    });
+    expect(JSON.stringify(created.body)).not.toContain(invitedEmail);
+    expect(JSON.stringify(created.body)).not.toContain('emailHash');
+    const grantId = created.body.grant.id as string;
+    const storedGrant = await prisma.webinarAccessGrant.findUniqueOrThrow({ where: { id: grantId } });
+    expect(storedGrant.emailHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(storedGrant.emailHash).not.toContain(invitedEmail);
+
+    let invitationUrl = '';
+    const delivery = await runWebinarAccessInvitationEmailOutboxJobOnce(new Date(), {
+      sendWebinarAccessInvitationEmail: async input => {
+        invitationUrl = input.invitationUrl;
+        expect(input).toMatchObject({
+          to: invitedEmail,
+          webinarTitle: privateWebinar.title,
+          organizationName: ownerTenant.organization.name,
+        });
+        return { sent: true, mode: 'send' as const };
+      },
+    });
+    expect(delivery).toMatchObject({ checked: 1, sent: 1, failed: 0 });
+    const invitationToken = new URLSearchParams(new URL(invitationUrl).hash.slice(1)).get('webinarInvite');
+    expect(invitationToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    if (!invitationToken) throw new Error('Expected private Webinar invitation token');
+    const storedToken = await prisma.webinarAccessGrantToken.findFirstOrThrow({ where: { grantId } });
+    expect(storedToken.tokenHash).toBe(hashToken(invitationToken));
+    expect(JSON.stringify(storedToken)).not.toContain(invitationToken);
+
+    const wrongUser = await prisma.user.create({
+      data: {
+        emailNormalized: 'wrong-private-viewer@example.test',
+        displayName: 'Неверный зритель',
+        emailVerifiedAt: new Date(),
+        memberships: {
+          create: { organizationId: foreignTenant.organization.id, role: 'AUDITOR', status: 'ACTIVE' },
+        },
+      },
+    });
+    const wrongSession = await loginPlatformUser(wrongUser.id);
+    const wrongAccept = await wrongSession.agent
+      .post('/api/v1/webinar-invitations/accept')
+      .set('x-csrf-token', wrongSession.csrfToken)
+      .send({ token: invitationToken });
+    expect(wrongAccept.status).toBe(404);
+    await expect(
+      prisma.webinarAccessGrantToken.findUniqueOrThrow({ where: { id: storedToken.id } }),
+    ).resolves.toMatchObject({
+      consumedAt: null,
+      invalidatedAt: null,
+    });
+
+    const invitedUser = await prisma.user.create({
+      data: {
+        emailNormalized: invitedEmail,
+        displayName: 'Приглашённый зритель',
+        emailVerifiedAt: new Date(),
+        memberships: {
+          create: { organizationId: foreignTenant.organization.id, role: 'AUDITOR', status: 'ACTIVE' },
+        },
+      },
+    });
+    const invitedSession = await loginPlatformUser(invitedUser.id);
+    const accepted = await invitedSession.agent
+      .post('/api/v1/webinar-invitations/accept')
+      .set('x-csrf-token', invitedSession.csrfToken)
+      .send({ token: invitationToken });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toMatchObject({ webinar: { id: privateWebinar.id, visibility: 'PRIVATE' } });
+    const replay = await invitedSession.agent
+      .post('/api/v1/webinar-invitations/accept')
+      .set('x-csrf-token', invitedSession.csrfToken)
+      .send({ token: invitationToken });
+    expect(replay.status).toBe(404);
+
+    const privateSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: ownerTenant.organization.id,
+        webinarId: privateWebinar.id,
+        title: privateWebinar.title,
+        scheduledAt: new Date('2032-02-01T10:00:00.000Z'),
+      },
+    });
+    const invitedLead = await prisma.lead.create({
+      data: { name: 'Приглашённый Lead', phone: '+79990000911', email: invitedEmail },
+    });
+    const invitedRegistration = await prisma.registration.create({
+      data: {
+        leadId: invitedLead.id,
+        webinarSessionId: privateSession.id,
+        accessTokenHash: hashToken(createAccessToken()),
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const invitedRoomToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: invitedRegistration.id,
+        tokenHash: hashToken(invitedRoomToken),
+        purpose: ROOM_SESSION_TOKEN_PURPOSE,
+        expiresAt: new Date('2032-02-02T10:00:00.000Z'),
+      },
+    });
+    const allowedRoom = await request(app)
+      .get('/api/participant/access/current')
+      .set('Cookie', `aspb_room_token=${invitedRoomToken}`);
+    expect(allowedRoom.status).toBe(200);
+
+    const outsiderLead = await prisma.lead.create({
+      data: { name: 'Зритель без grant', phone: '+79990000912', email: 'private-outsider@example.test' },
+    });
+    const outsiderRegistration = await prisma.registration.create({
+      data: {
+        leadId: outsiderLead.id,
+        webinarSessionId: privateSession.id,
+        accessTokenHash: hashToken(createAccessToken()),
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const outsiderRoomToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: outsiderRegistration.id,
+        tokenHash: hashToken(outsiderRoomToken),
+        purpose: ROOM_SESSION_TOKEN_PURPOSE,
+        expiresAt: new Date('2032-02-02T10:00:00.000Z'),
+      },
+    });
+    const deniedRoom = await request(app)
+      .get('/api/participant/access/current')
+      .set('Cookie', `aspb_room_token=${outsiderRoomToken}`);
+    expect(deniedRoom.status).toBe(401);
+
+    const foreignRevokeCounts = await Promise.all([
+      prisma.webinarAccessGrant.count(),
+      prisma.auditLog.count({ where: { entityId: grantId } }),
+    ]);
+    const foreignRevoke = await foreignOwner.agent
+      .delete(`/api/v1/creator/webinars/${foreignPrivateWebinar.id}/access-grants/${grantId}`)
+      .set('x-csrf-token', foreignOwner.csrfToken)
+      .send({});
+    expect(foreignRevoke.status).toBe(404);
+    await expect(
+      Promise.all([prisma.webinarAccessGrant.count(), prisma.auditLog.count({ where: { entityId: grantId } })]),
+    ).resolves.toEqual(foreignRevokeCounts);
+
+    const revoked = await owner.agent
+      .delete(`/api/v1/creator/webinars/${privateWebinar.id}/access-grants/${grantId}`)
+      .set('x-csrf-token', owner.csrfToken)
+      .send({});
+    expect(revoked.status).toBe(200);
+    expect(revoked.body.grant.status).toBe('REVOKED');
+    const revokedRoom = await request(app)
+      .get('/api/participant/access/current')
+      .set('Cookie', `aspb_room_token=${invitedRoomToken}`);
+    expect(revokedRoom.status).toBe(401);
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          entityId: grantId,
+          action: {
+            in: ['webinar_access_grant.created', 'webinar_access_grant.accepted', 'webinar_access_grant.revoked'],
+          },
+        },
+      }),
+    ).resolves.toBe(3);
+
+    const ownerList = await owner.agent.get(`/api/v1/creator/webinars/${privateWebinar.id}/access-grants`);
+    expect(ownerList.status).toBe(200);
+    expect(ownerList.body.grants).toEqual([expect.objectContaining({ id: grantId, status: 'REVOKED' })]);
+    expect(JSON.stringify(ownerList.body)).not.toContain(invitedEmail);
+    expect(JSON.stringify(ownerList.body)).not.toContain(storedGrant.emailHash);
+
+    const retentionNow = new Date('2032-06-01T00:00:00.000Z');
+    const expiredGrant = await prisma.webinarAccessGrant.create({
+      data: {
+        organizationId: ownerTenant.organization.id,
+        webinarId: privateWebinar.id,
+        emailHash: hashWebinarAccessEmail('expired-private-viewer@example.test'),
+        purpose: 'VIEW',
+        createdAt: new Date('2032-05-01T00:00:00.000Z'),
+        expiresAt: new Date('2032-05-20T00:00:00.000Z'),
+        invitedByUserId: ownerTenant.user.id,
+        tokens: {
+          create: {
+            tokenHash: hashToken(createAccessToken()),
+            createdAt: new Date('2032-05-01T00:00:00.000Z'),
+            expiresAt: new Date('2032-05-20T00:00:00.000Z'),
+          },
+        },
+        emailJob: {
+          create: {
+            toEmail: 'expired-private-viewer@example.test',
+            status: 'CANCELLED',
+            createdAt: new Date('2032-01-01T00:00:00.000Z'),
+            updatedAt: new Date('2032-01-01T00:00:00.000Z'),
+          },
+        },
+      },
+    });
+    await expect(cleanupExpiredWebinarAccessGrants(prisma, retentionNow)).resolves.toBe(1);
+    await expect(prisma.webinarAccessGrant.findUnique({ where: { id: expiredGrant.id } })).resolves.not.toBeNull();
+    await expect(prisma.webinarAccessGrantToken.count({ where: { grantId: expiredGrant.id } })).resolves.toBe(0);
+    await expect(prisma.webinarAccessInvitationEmailJob.count({ where: { grantId: expiredGrant.id } })).resolves.toBe(
+      0,
+    );
+  });
+
   it('allows the same start time for different webinars and keeps session edits isolated', async () => {
     const tenant = await createTenantFixture({
       slug: 'multi-session-webinars',
@@ -5111,5 +6036,916 @@ describe('critical path integration scenarios', () => {
     await expect(prisma.webinar.findUniqueOrThrow({ where: { id: secondWebinar.id } })).resolves.toMatchObject({
       title: 'Второй вебинар',
     });
+  });
+
+  it('keeps resumable media uploads tenant-scoped, idempotent and version-switched only after READY', async () => {
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    env.MEDIA_STORAGE_PROVIDER = 'test_fake';
+    const tenantA = await createTenantFixture({ slug: 'media-a', email: 'media-a@example.test', role: 'OWNER' });
+    const tenantB = await createTenantFixture({ slug: 'media-b', email: 'media-b@example.test', role: 'OWNER' });
+    const webinar = await prisma.webinar.create({
+      data: { organizationId: tenantA.organization.id, slug: 'media-pipeline', title: 'Медиапайплайн' },
+    });
+    const sessionA = await loginPlatformUser(tenantA.user.id);
+    const sessionB = await loginPlatformUser(tenantB.user.id);
+    const unrelatedAuthor = await prisma.user.create({
+      data: {
+        emailNormalized: 'media-unrelated-author@example.test',
+        displayName: 'Другой автор организации',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    await prisma.organizationMembership.create({
+      data: { organizationId: tenantA.organization.id, userId: unrelatedAuthor.id, role: 'AUTHOR', status: 'ACTIVE' },
+    });
+    const unrelatedAuthorSession = await loginPlatformUser(unrelatedAuthor.id);
+
+    const forged = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({
+        fileName: 'legal.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: '16777216',
+        organizationId: tenantB.organization.id,
+      });
+    expect(forged.status).toBe(400);
+
+    const created = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ fileName: 'legal.mp4', mimeType: 'video/mp4', sizeBytes: '16777216' });
+    expect(created.status).toBe(201);
+    expect(created.body.asset).toMatchObject({ version: 1, status: 'UPLOADING', mimeType: 'video/mp4' });
+    expect(created.body.parts).toHaveLength(2);
+    expect(JSON.stringify(created.body)).not.toContain('organizations/');
+    const assetId = created.body.asset.id as string;
+    const uploadId = created.body.uploadId as string;
+
+    const crossRead = await sessionB.agent.get(`/api/v1/creator/media/${assetId}/status`);
+    const recordedPart = await sessionA.agent
+      .post(`/api/v1/creator/uploads/${uploadId}/parts`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ partNumber: 1, etag: 'a' });
+    expect(recordedPart.status).toBe(200);
+    expect(recordedPart.body).toMatchObject({ partCount: 2, completedParts: [{ partNumber: 1, etag: 'a' }] });
+    const repeatedPart = await sessionA.agent
+      .post(`/api/v1/creator/uploads/${uploadId}/parts`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ partNumber: 1, etag: 'a' });
+    expect(repeatedPart.body.idempotent).toBe(true);
+    const crossResume = await sessionB.agent
+      .post(`/api/v1/creator/uploads/${uploadId}/resume`)
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({});
+    const crossRecordPart = await sessionB.agent
+      .post(`/api/v1/creator/uploads/${uploadId}/parts`)
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({ partNumber: 2, etag: 'foreign' });
+    expect(crossResume.status).toBe(404);
+    expect(crossRecordPart.status).toBe(404);
+    const resumed = await sessionA.agent
+      .post(`/api/v1/creator/uploads/${uploadId}/resume`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(resumed.status).toBe(200);
+    expect(resumed.body).toMatchObject({
+      completedParts: [{ partNumber: 1, etag: 'a' }],
+      parts: [{ partNumber: 2 }],
+      asset: { id: assetId, originalFileName: 'legal.mp4', sizeBytes: '16777216' },
+    });
+    expect(JSON.stringify(resumed.body)).not.toContain('organizations/');
+    const tenantContext = await resolveTenantContext(prisma, {
+      userId: tenantA.user.id,
+      activeOrganizationId: tenantA.organization.id,
+      correlationId: 'media-provider-reconciliation-test',
+    });
+    const providerAwareStorage = {
+      name: 'test_fake',
+      listMultipartUploadParts: async () => [
+        { partNumber: 1, etag: 'a' },
+        { partNumber: 2, etag: 'provider-b' },
+      ],
+      signMultipartUploadParts: async () => [],
+    } as any;
+    await expect(
+      recordMediaUploadPart(
+        prisma,
+        tenantContext,
+        uploadId,
+        { partNumber: 1, etag: 'tampered-client-etag' },
+        providerAwareStorage,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'media_upload_part_unconfirmed' });
+    await expect(resumeMediaUpload(prisma, tenantContext, uploadId, providerAwareStorage)).resolves.toMatchObject({
+      completedParts: [
+        { partNumber: 1, etag: 'a' },
+        { partNumber: 2, etag: 'provider-b' },
+      ],
+      parts: [],
+    });
+    await expect(prisma.mediaUpload.findUniqueOrThrow({ where: { id: uploadId } })).resolves.toMatchObject({
+      uploadedPartsJson: [
+        { partNumber: 1, etag: 'a' },
+        { partNumber: 2, etag: 'provider-b' },
+      ],
+      lastReconciledAt: expect.any(Date),
+    });
+    const crossComplete = await sessionB.agent
+      .post(`/api/v1/creator/uploads/${uploadId}/complete`)
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({
+        parts: [
+          { partNumber: 1, etag: 'a' },
+          { partNumber: 2, etag: 'b' },
+        ],
+      });
+    expect(crossRead.status).toBe(404);
+    expect(crossComplete.status).toBe(404);
+    const sameTenantAuthorRead = await unrelatedAuthorSession.agent.get(`/api/v1/creator/media/${assetId}/status`);
+    const sameTenantAuthorComplete = await unrelatedAuthorSession.agent
+      .post(`/api/v1/creator/uploads/${uploadId}/complete`)
+      .set('x-csrf-token', unrelatedAuthorSession.csrfToken)
+      .send({
+        parts: [
+          { partNumber: 1, etag: 'a' },
+          { partNumber: 2, etag: 'b' },
+        ],
+      });
+    expect(sameTenantAuthorRead.status).toBe(404);
+    expect(sameTenantAuthorComplete.status).toBe(404);
+
+    const completeBody = { parts: [{ partNumber: 2, etag: 'b' }] };
+    const completed = await sessionA.agent
+      .post(`/api/v1/creator/uploads/${uploadId}/complete`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send(completeBody);
+    expect(completed.status).toBe(200);
+    expect(completed.body).toMatchObject({ idempotent: false, asset: { status: 'VALIDATING' } });
+    const completedAgain = await sessionA.agent
+      .post(`/api/v1/creator/uploads/${uploadId}/complete`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send(completeBody);
+    expect(completedAgain.status).toBe(200);
+    expect(completedAgain.body.idempotent).toBe(true);
+    await expect(prisma.mediaAsset.count({ where: { webinarId: webinar.id } })).resolves.toBe(1);
+    await expect(prisma.mediaJob.count({ where: { assetId } })).resolves.toBe(1);
+
+    await expect(runMediaJobOnce(prisma)).resolves.toEqual({ checked: 1, ready: 1, failed: 0 });
+    const ready = await sessionA.agent.get(`/api/v1/creator/media/${assetId}/status`);
+    expect(ready.status).toBe(200);
+    expect(ready.body.asset).toMatchObject({ status: 'READY', progressPercent: 100, durationSeconds: 3600 });
+    expect(JSON.stringify(ready.body)).not.toContain('storageKey');
+    await expect(prisma.webinar.findUniqueOrThrow({ where: { id: webinar.id } })).resolves.toMatchObject({
+      currentMediaAssetId: null,
+    });
+
+    const activated = await sessionA.agent
+      .post(`/api/v1/creator/media/${assetId}/activate`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(activated.status).toBe(200);
+    await expect(prisma.webinar.findUniqueOrThrow({ where: { id: webinar.id } })).resolves.toMatchObject({
+      currentMediaAssetId: assetId,
+      mediaStatus: 'READY',
+    });
+    await prisma.webinar.update({ where: { id: webinar.id }, data: { visibility: 'UNLISTED' } });
+
+    const playbackSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        title: 'Защищённая выдача',
+        scheduledAt: new Date(Date.now() - 2 * 60_000),
+        durationMinutes: 60,
+        videoDurationSeconds: 3_600,
+        replayAvailableHours: 168,
+      },
+    });
+    const viewerLead = await prisma.lead.create({
+      data: { name: 'Media Viewer', phone: '+79990003111', email: 'media-viewer@example.test', consent: true },
+    });
+    const viewerRegistration = await prisma.registration.create({
+      data: {
+        leadId: viewerLead.id,
+        webinarSessionId: playbackSession.id,
+        accessTokenHash: hashToken(createAccessToken()),
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const viewerToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: viewerRegistration.id,
+        tokenHash: hashToken(viewerToken),
+        purpose: ROOM_SESSION_TOKEN_PURPOSE,
+        expiresAt: new Date(Date.now() + 8 * 24 * 60 * 60_000),
+      },
+    });
+    const viewerCookie = `aspb_room_token=${viewerToken}`;
+    const timeline = await request(app).get('/api/webinar/timeline/session/current').set('Cookie', viewerCookie);
+    expect(timeline.status).toBe(200);
+    expect(timeline.body.video).toMatchObject({
+      src: null,
+      hlsSrc: `/api/media/webinar/${playbackSession.id}/manifest`,
+      poster: `/api/media/webinar/${playbackSession.id}/poster`,
+      provider: 'versioned_private',
+    });
+
+    const anonymousManifest = await request(app).get(`/api/media/webinar/${playbackSession.id}/manifest`);
+    expect(anonymousManifest.status).toBe(404);
+    expect(anonymousManifest.body.code).toBe('media_not_found');
+    const manifest = await request(app)
+      .get(`/api/media/webinar/${playbackSession.id}/manifest`)
+      .set('Cookie', viewerCookie);
+    expect(manifest.status).toBe(200);
+    expect(manifest.headers['cache-control']).toContain('no-store');
+    expect(manifest.text).toContain(`/api/media/webinar/${playbackSession.id}/segment/`);
+    expect(manifest.text).not.toContain('organizations/');
+    expect(manifest.text).not.toContain('private-storage');
+    const protectedSegmentPath = manifest.text.split('\n').find(line => line.startsWith('/api/media/'));
+    expect(protectedSegmentPath).toBeTruthy();
+    if (!protectedSegmentPath) throw new Error('Expected protected HLS segment');
+    const segment = await request(app).get(protectedSegmentPath).set('Cookie', viewerCookie);
+    expect(segment.status).toBe(200);
+    expect(segment.headers['content-type']).toContain('video/mp2t');
+    const rangedSegment = await request(app)
+      .get(protectedSegmentPath)
+      .set('Cookie', viewerCookie)
+      .set('Range', 'bytes=0-3');
+    expect(rangedSegment.status).toBe(206);
+    expect(rangedSegment.headers['content-range']).toBe('bytes 0-3/16');
+    const poster = await request(app)
+      .get(`/api/media/webinar/${playbackSession.id}/poster`)
+      .set('Cookie', viewerCookie);
+    expect(poster.status).toBe(200);
+    expect(poster.headers['content-type']).toContain('image/jpeg');
+
+    const unrelatedSameTenantSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        title: 'Другая сессия того же вебинара',
+        scheduledAt: new Date(Date.now() - 2 * 60_000),
+        durationMinutes: 60,
+        replayAvailableHours: 168,
+      },
+    });
+    const sameTenantWrongSessionManifest = await request(app)
+      .get(`/api/media/webinar/${unrelatedSameTenantSession.id}/manifest`)
+      .set('Cookie', viewerCookie);
+    expect(sameTenantWrongSessionManifest.status).toBe(404);
+    expect(sameTenantWrongSessionManifest.body).toMatchObject({ code: 'media_not_found' });
+
+    const foreignPlaybackSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        webinarId: (
+          await prisma.webinar.create({
+            data: { organizationId: tenantB.organization.id, slug: 'foreign-media', title: 'Foreign media' },
+          })
+        ).id,
+        title: 'Foreign media',
+        scheduledAt: new Date(Date.now() - 2 * 60_000),
+      },
+    });
+    const crossTenantManifest = await request(app)
+      .get(`/api/media/webinar/${foreignPlaybackSession.id}/manifest`)
+      .set('Cookie', viewerCookie);
+    expect(crossTenantManifest.status).toBe(404);
+    expect(crossTenantManifest.body).toMatchObject({ code: 'media_not_found' });
+
+    await prisma.webinarSession.update({
+      where: { id: playbackSession.id },
+      data: { scheduledAt: new Date(Date.now() - 3 * 60 * 60_000), durationMinutes: 1, replayAvailableHours: 1 },
+    });
+    const expiredManifest = await request(app)
+      .get(`/api/media/webinar/${playbackSession.id}/manifest`)
+      .set('Cookie', viewerCookie);
+    expect(expiredManifest.status).toBe(404);
+    expect(expiredManifest.body).toMatchObject({ code: 'media_not_found' });
+    await prisma.webinarSession.update({
+      where: { id: playbackSession.id },
+      data: { scheduledAt: new Date(Date.now() - 2 * 60_000), durationMinutes: 60, replayAvailableHours: 168 },
+    });
+
+    await prisma.webinar.update({ where: { id: webinar.id }, data: { visibility: 'PRIVATE' } });
+    const privateGrant = await prisma.webinarAccessGrant.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        emailHash: hashWebinarAccessEmail(viewerLead.email),
+        invitedByUserId: tenantA.user.id,
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+      },
+    });
+    const grantedManifest = await request(app)
+      .get(`/api/media/webinar/${playbackSession.id}/manifest`)
+      .set('Cookie', viewerCookie);
+    expect(grantedManifest.status).toBe(200);
+    await prisma.webinarAccessGrant.update({ where: { id: privateGrant.id }, data: { revokedAt: new Date() } });
+    const revokedManifest = await request(app)
+      .get(`/api/media/webinar/${playbackSession.id}/manifest`)
+      .set('Cookie', viewerCookie);
+    expect(revokedManifest.status).toBe(404);
+    expect(revokedManifest.body).toMatchObject({ code: 'media_not_found' });
+    await prisma.webinar.update({ where: { id: webinar.id }, data: { visibility: 'UNLISTED' } });
+
+    const replacement = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ fileName: 'replacement.webm', mimeType: 'video/webm', sizeBytes: '5242880' });
+    expect(replacement.body.asset.version).toBe(2);
+    await expect(prisma.webinar.findUniqueOrThrow({ where: { id: webinar.id } })).resolves.toMatchObject({
+      currentMediaAssetId: assetId,
+    });
+    const cancelled = await sessionA.agent
+      .post(`/api/v1/creator/media/${replacement.body.asset.id}/cancel`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.status).toBe('CANCELLED');
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          organizationId: tenantA.organization.id,
+          action: {
+            in: [
+              'media.upload.created',
+              'media.upload.completed',
+              'media.processing.cancelled',
+              'media.asset.activated',
+            ],
+          },
+        },
+      }),
+    ).resolves.toBe(5);
+
+    const failingAsset = await prisma.mediaAsset.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        createdByUserId: tenantA.user.id,
+        version: 3,
+        status: 'VALIDATING',
+        originalFileName: 'broken.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 5_242_880n,
+        storageKey: `test/${tenantA.organization.id}/broken`,
+      },
+    });
+    const failingJob = await prisma.mediaJob.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        assetId: failingAsset.id,
+        type: 'PROCESS_VIDEO',
+        dedupKey: `media_process:${failingAsset.id}:v1`,
+        nextAttemptAt: new Date(0),
+      },
+    });
+    const failingStorage = {
+      name: 'failing_test',
+      createMultipartUpload: async () => {
+        throw new Error('unused');
+      },
+      signMultipartUploadParts: async () => {
+        throw new Error('unused');
+      },
+      completeMultipartUpload: async () => {
+        throw new Error('unused');
+      },
+      processVideo: async () => {
+        throw new Error('transcoder unavailable');
+      },
+      abortMultipartUpload: async () => undefined,
+    };
+    await expect(runMediaJobOnce(prisma, failingStorage)).resolves.toEqual({ checked: 1, ready: 0, failed: 1 });
+    const retried = await sessionA.agent
+      .post(`/api/v1/creator/media/${failingAsset.id}/retry`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(retried.status).toBe(200);
+    for (let attempt = 2; attempt <= 5; attempt += 1) {
+      await prisma.mediaJob.update({ where: { id: failingJob.id }, data: { nextAttemptAt: new Date(0) } });
+      await runMediaJobOnce(prisma, failingStorage);
+    }
+    await expect(prisma.mediaJob.findUniqueOrThrow({ where: { id: failingJob.id } })).resolves.toMatchObject({
+      status: 'DEAD_LETTER',
+      attempts: 5,
+      lastErrorCode: 'media_processing_failed',
+    });
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          organizationId: tenantA.organization.id,
+          action: 'media.processing.retried',
+          entityId: failingAsset.id,
+        },
+      }),
+    ).resolves.toBe(1);
+
+    const leasedAsset = await prisma.mediaAsset.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        createdByUserId: tenantA.user.id,
+        version: 50,
+        status: 'TRANSCODING',
+        originalFileName: 'worker-restart.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 5_242_880n,
+        storageKey: `test/${tenantA.organization.id}/worker-restart`,
+      },
+    });
+    const leasedJob = await prisma.mediaJob.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        assetId: leasedAsset.id,
+        type: 'PROCESS_VIDEO',
+        status: 'RUNNING',
+        attempts: 1,
+        dedupKey: `media_process:${leasedAsset.id}:v1`,
+        claimedAt: new Date(Date.now() - 3 * 60 * 60_000),
+        claimExpiresAt: new Date(Date.now() - 60_000),
+        claimToken: 'abandoned-worker-claim',
+      },
+    });
+    await expect(runMediaJobOnce(prisma)).resolves.toEqual({ checked: 1, ready: 1, failed: 0 });
+    await expect(prisma.mediaJob.findUniqueOrThrow({ where: { id: leasedJob.id } })).resolves.toMatchObject({
+      status: 'SUCCEEDED',
+      attempts: 2,
+      claimToken: null,
+      claimExpiresAt: null,
+    });
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          organizationId: tenantA.organization.id,
+          action: 'media.provider.lease_recovered',
+          entityId: leasedJob.id,
+        },
+      }),
+    ).resolves.toBe(1);
+
+    const expiredAsset = await prisma.mediaAsset.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        createdByUserId: tenantA.user.id,
+        version: 4,
+        status: 'UPLOADING',
+        originalFileName: 'expired.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 5_242_880n,
+        storageKey: `test/${tenantA.organization.id}/expired`,
+      },
+    });
+    const expiredUpload = await prisma.mediaUpload.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        assetId: expiredAsset.id,
+        provider: 'cleanup_test',
+        providerUploadKey: `cleanup-${expiredAsset.id}`,
+        status: 'UPLOADING',
+        partSizeBytes: 5_242_880,
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+    const abortExpired = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      cleanupExpiredMediaUploads(prisma, {
+        name: 'cleanup_test',
+        abortMultipartUpload: abortExpired,
+      } as any),
+    ).resolves.toEqual({ checked: 1, cancelled: 1, failed: 0 });
+    expect(abortExpired).toHaveBeenCalledWith({
+      providerUploadKey: expiredUpload.providerUploadKey,
+      storageKey: expiredAsset.storageKey,
+    });
+    await expect(prisma.mediaUpload.findUniqueOrThrow({ where: { id: expiredUpload.id } })).resolves.toMatchObject({
+      status: 'CANCELLED',
+      abortAttemptedAt: expect.any(Date),
+    });
+  });
+
+  it('recovers an S3 completion committed before the application transaction', async () => {
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    const tenant = await createTenantFixture({
+      slug: 'media-complete-recovery',
+      email: 'media-complete-recovery@example.test',
+      role: 'OWNER',
+    });
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        slug: 'media-complete-recovery',
+        title: 'Idempotent provider completion',
+      },
+    });
+    const sizeBytes = 5_242_880n;
+    const asset = await prisma.mediaAsset.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        createdByUserId: tenant.user.id,
+        version: 1,
+        status: 'UPLOADING',
+        progressPercent: 15,
+        originalFileName: 'recovered.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes,
+        storageKey: `organizations/${tenant.organization.id}/webinars/${webinar.id}/assets/recovered/source`,
+      },
+    });
+    const upload = await prisma.mediaUpload.create({
+      data: {
+        organizationId: tenant.organization.id,
+        assetId: asset.id,
+        provider: 's3',
+        providerUploadKey: 'provider-already-committed',
+        status: 'UPLOADING',
+        partSizeBytes: Number(sizeBytes),
+        uploadedPartsJson: [{ partNumber: 1, etag: 'trusted-etag' }],
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const context = await resolveTenantContext(prisma, {
+      userId: tenant.user.id,
+      activeOrganizationId: tenant.organization.id,
+      correlationId: 'media-complete-recovery',
+    });
+    const completeMultipartUpload = vi.fn(async () => ({ mimeType: 'video/mp4', sizeBytes }));
+    const signMultipartUploadParts = vi.fn(async () => []);
+    const storage = {
+      name: 's3',
+      listMultipartUploadParts: async () => {
+        throw new SafeMediaProviderError('media_upload_already_completed');
+      },
+      signMultipartUploadParts,
+      completeMultipartUpload,
+    } as any;
+
+    await expect(resumeMediaUpload(prisma, context, upload.id, storage)).resolves.toMatchObject({
+      completedParts: [{ partNumber: 1, etag: 'trusted-etag' }],
+      parts: [],
+    });
+    expect(signMultipartUploadParts).toHaveBeenCalledWith(expect.objectContaining({ partNumbers: [] }));
+    await expect(
+      completeMediaUpload(prisma, context, upload.id, [{ partNumber: 1, etag: 'trusted-etag' }], storage),
+    ).resolves.toMatchObject({ idempotent: false, asset: { status: 'VALIDATING' } });
+    expect(completeMultipartUpload).toHaveBeenCalledTimes(1);
+    await expect(prisma.mediaUpload.findUniqueOrThrow({ where: { id: upload.id } })).resolves.toMatchObject({
+      status: 'COMPLETED',
+      completedAt: expect.any(Date),
+    });
+    await expect(prisma.mediaJob.count({ where: { assetId: asset.id } })).resolves.toBe(1);
+    await expect(
+      completeMediaUpload(prisma, context, upload.id, [{ partNumber: 1, etag: 'trusted-etag' }], storage),
+    ).resolves.toMatchObject({ idempotent: true });
+    expect(completeMultipartUpload).toHaveBeenCalledTimes(1);
+  });
+
+  it('generates, reviews, versions and publishes transcripts without cross-tenant disclosure', async () => {
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    env.STT_PROVIDER = 'test_fake';
+    env.AI_ENRICHMENT_PROVIDER = 'test_fake';
+    const tenantA = await createTenantFixture({
+      slug: 'transcript-a',
+      email: 'transcript-a@example.test',
+      role: 'OWNER',
+    });
+    const tenantB = await createTenantFixture({
+      slug: 'transcript-b',
+      email: 'transcript-b@example.test',
+      role: 'OWNER',
+    });
+    const authorProfile = await prisma.authorProfile.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        userId: tenantA.user.id,
+        slug: `author-${'c'.repeat(24)}`,
+        publicName: 'Автор расшифровки',
+        verificationStatus: 'VERIFIED',
+      },
+    });
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        authorProfileId: authorProfile.id,
+        slug: 'transcript-pipeline',
+        title: 'Расшифровка вебинара',
+        contentStatus: 'DRAFT',
+        freshnessStatus: 'CURRENT',
+      },
+    });
+    const asset = await prisma.mediaAsset.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        createdByUserId: tenantA.user.id,
+        version: 1,
+        status: 'READY',
+        progressPercent: 100,
+        originalFileName: 'ready.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 5_242_880n,
+        checksumSha256: 'a'.repeat(64),
+        storageKey: `organizations/${tenantA.organization.id}/webinars/${webinar.id}/source`,
+        manifestStorageKey: `organizations/${tenantA.organization.id}/webinars/${webinar.id}/manifest`,
+        posterStorageKey: `organizations/${tenantA.organization.id}/webinars/${webinar.id}/poster`,
+        audioStorageKey: `organizations/${tenantA.organization.id}/webinars/${webinar.id}/speech.ogg`,
+        durationSeconds: 90,
+        readyAt: new Date(),
+      },
+    });
+    await prisma.webinar.update({
+      where: { id: webinar.id },
+      data: { currentMediaAssetId: asset.id, mediaStatus: 'READY' },
+    });
+    const sessionA = await loginPlatformUser(tenantA.user.id);
+    const sessionB = await loginPlatformUser(tenantB.user.id);
+
+    const createdTerm = await sessionA.agent
+      .post('/api/v1/creator/term-dictionary')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ term: 'АСПБ', expansion: 'Ассоциация содействия правовой безопасности' });
+    expect(createdTerm.status).toBe(201);
+    const termId = createdTerm.body.term.id as string;
+    const tenantBTerms = await sessionB.agent.get('/api/v1/creator/term-dictionary');
+    expect(tenantBTerms.body.terms).toEqual([]);
+    const crossTermUpdate = await sessionB.agent
+      .patch(`/api/v1/creator/term-dictionary/${termId}`)
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({ term: 'Чужой термин' });
+    expect(crossTermUpdate.status).toBe(404);
+
+    const crossGenerate = await sessionB.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/transcript`)
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({});
+    const crossRead = await sessionB.agent.get(`/api/v1/creator/webinars/${webinar.id}/transcript`);
+    expect(crossGenerate.status).toBe(404);
+    expect(crossRead.status).toBe(404);
+
+    const enqueued = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/transcript`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(enqueued.status).toBe(202);
+    expect(enqueued.body).toMatchObject({ idempotent: false, job: { type: 'TRANSCRIBE', status: 'PENDING' } });
+    expect(JSON.stringify(enqueued.body)).not.toContain('storageKey');
+    const jobId = enqueued.body.job.id as string;
+    const crossJob = await sessionB.agent.get(`/api/v1/creator/content-jobs/${jobId}/status`);
+    expect(crossJob.status).toBe(404);
+    await expect(prisma.transcript.count({ where: { webinarId: webinar.id } })).resolves.toBe(0);
+    await expect(runContentJobOnce(prisma)).resolves.toEqual({ checked: 1, succeeded: 1, failed: 0 });
+    const jobStatus = await sessionA.agent.get(`/api/v1/creator/content-jobs/${jobId}/status`);
+    expect(jobStatus.body.job).toMatchObject({ status: 'SUCCEEDED', attempts: 1 });
+    const generated = await sessionA.agent.get(`/api/v1/creator/webinars/${webinar.id}/transcript`);
+    expect(generated.body).toMatchObject({
+      transcript: {
+        version: 1,
+        revision: 1,
+        status: 'DRAFT',
+        provenance: [
+          {
+            operationType: 'speech_to_text',
+            providerId: 'test_fake',
+            modelId: 'deterministic-stt-v1',
+            templateVersion: 'transcript-v1',
+            status: 'succeeded',
+            reviewStatus: 'pending',
+            inputRefs: { dictionaryEntries: 1 },
+          },
+        ],
+      },
+    });
+    expect(generated.body.transcript.segments).toHaveLength(3);
+    expect(generated.body.transcript.segments[0]).toMatchObject({ startMs: 0, speaker: 'Спикер' });
+    expect(JSON.stringify(generated.body)).not.toContain('storageKey');
+    expect(JSON.stringify(generated.body)).not.toContain('/source');
+    const transcriptId = generated.body.transcript.id as string;
+    const originalSegments = generated.body.transcript.segments.map((segment: any) => ({
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+      speaker: segment.speaker ?? undefined,
+      text: segment.text,
+    }));
+    expect(await getPublishedTranscript(prisma, tenantA.organization.id, webinar.id)).toBeNull();
+
+    const injectedTenant = await sessionA.agent
+      .patch(`/api/v1/creator/webinars/${webinar.id}/transcript`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({
+        transcriptId,
+        expectedRevision: 1,
+        status: 'REVIEWED',
+        segments: originalSegments,
+        organizationId: tenantB.organization.id,
+      });
+    expect(injectedTenant.status).toBe(400);
+
+    const reviewedSegments = originalSegments.map((segment: any, index: number) => ({
+      ...segment,
+      text: index === 0 ? 'Проверенное введение в тему.' : segment.text,
+    }));
+    const reviewed = await sessionA.agent
+      .patch(`/api/v1/creator/webinars/${webinar.id}/transcript`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ transcriptId, expectedRevision: 1, status: 'REVIEWED', segments: reviewedSegments });
+    expect(reviewed.status).toBe(200);
+    expect(reviewed.body.transcript).toMatchObject({ id: transcriptId, revision: 2, status: 'REVIEWED' });
+
+    const stale = await sessionA.agent
+      .patch(`/api/v1/creator/webinars/${webinar.id}/transcript`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ transcriptId, expectedRevision: 1, status: 'DRAFT', segments: originalSegments });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('transcript_revision_conflict');
+    await expect(
+      prisma.transcriptSegment.findFirstOrThrow({
+        where: { transcriptId, orderIndex: 0 },
+      }),
+    ).resolves.toMatchObject({ text: 'Проверенное введение в тему.' });
+
+    const crossPublish = await sessionB.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/transcript/publish`)
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({ transcriptId, expectedRevision: 2 });
+    expect(crossPublish.status).toBe(404);
+    const published = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/transcript/publish`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ transcriptId, expectedRevision: 2 });
+    expect(published.status).toBe(200);
+    expect(published.body).toMatchObject({
+      idempotent: false,
+      transcript: { id: transcriptId, version: 1, revision: 3, status: 'PUBLISHED' },
+    });
+    const repeatedPublish = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/transcript/publish`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ transcriptId, expectedRevision: 3 });
+    expect(repeatedPublish.body.idempotent).toBe(true);
+    const publicTranscript = await getPublishedTranscript(prisma, tenantA.organization.id, webinar.id);
+    expect(publicTranscript).toMatchObject({ id: transcriptId, version: 1 });
+    expect(publicTranscript?.segments[0]?.text).toBe('Проверенное введение в тему.');
+
+    const aiEnqueued = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/ai-suggestions`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(aiEnqueued.status).toBe(202);
+    expect(aiEnqueued.body.job).toMatchObject({ type: 'AI_ENRICH', status: 'PENDING' });
+    await expect(runContentJobOnce(prisma)).resolves.toEqual({ checked: 1, succeeded: 1, failed: 0 });
+    const aiJob = await sessionA.agent.get(`/api/v1/creator/content-jobs/${aiEnqueued.body.job.id}/status`);
+    expect(aiJob.body.job).toMatchObject({ type: 'AI_ENRICH', status: 'SUCCEEDED', attempts: 1 });
+    const suggestionsResponse = await sessionA.agent.get(`/api/v1/creator/webinars/${webinar.id}/ai-suggestions`);
+    expect(suggestionsResponse.status).toBe(200);
+    const suggestions = suggestionsResponse.body.suggestions as Array<any>;
+    expect(suggestions).toHaveLength(7);
+    expect([...new Set(suggestions.map(item => item.type))].sort()).toEqual([
+      'CHAPTER',
+      'DESCRIPTION',
+      'PREPARED_QUESTION',
+      'TAG',
+      'TITLE',
+    ]);
+    await expect(prisma.webinar.findUniqueOrThrow({ where: { id: webinar.id } })).resolves.toMatchObject({
+      title: 'Расшифровка вебинара',
+      freshnessStatus: 'CURRENT',
+      contentStatus: 'DRAFT',
+      transcriptStatus: 'PUBLISHED',
+    });
+    await expect(prisma.webinarChapter.count({ where: { webinarId: webinar.id } })).resolves.toBe(0);
+    await expect(prisma.webinarTag.count({ where: { webinarId: webinar.id } })).resolves.toBe(0);
+    await expect(
+      prisma.chatScenarioMessage.count({ where: { organizationId: tenantA.organization.id } }),
+    ).resolves.toBe(0);
+    const crossSuggestions = await sessionB.agent.get(`/api/v1/creator/webinars/${webinar.id}/ai-suggestions`);
+    expect(crossSuggestions.status).toBe(404);
+
+    for (const suggestion of suggestions) {
+      const action = suggestion.type === 'DESCRIPTION' ? 'REJECT' : 'ACCEPT';
+      const body =
+        action === 'ACCEPT'
+          ? {
+              action,
+              expectedRevision: suggestion.revision,
+              content:
+                suggestion.type === 'TITLE'
+                  ? { text: 'Принятое человеком название' }
+                  : suggestion.type === 'TAG' && suggestion.orderIndex === 0
+                    ? { name: 'метка-комплаенс' }
+                    : suggestion.content,
+            }
+          : { action, expectedRevision: suggestion.revision };
+      const reviewedSuggestion = await sessionA.agent
+        .patch(`/api/v1/creator/webinars/${webinar.id}/ai-suggestions/${suggestion.id}`)
+        .set('x-csrf-token', sessionA.csrfToken)
+        .send(body);
+      expect(reviewedSuggestion.status).toBe(200);
+      expect(reviewedSuggestion.body.suggestion.status).toBe(action === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED');
+    }
+    const crossSuggestionWrite = await sessionB.agent
+      .patch(`/api/v1/creator/webinars/${webinar.id}/ai-suggestions/${suggestions[0].id}`)
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({ action: 'REJECT', expectedRevision: 1 });
+    expect(crossSuggestionWrite.status).toBe(404);
+    await expect(prisma.webinar.findUniqueOrThrow({ where: { id: webinar.id } })).resolves.toMatchObject({
+      title: 'Принятое человеком название',
+      description: null,
+      freshnessStatus: 'CURRENT',
+      contentStatus: 'DRAFT',
+      transcriptStatus: 'PUBLISHED',
+      scenarioStatus: 'DRAFT',
+    });
+    await expect(prisma.webinarChapter.count({ where: { webinarId: webinar.id } })).resolves.toBe(2);
+    await expect(prisma.webinarTag.count({ where: { webinarId: webinar.id } })).resolves.toBe(2);
+    await expect(
+      prisma.chatScenarioMessage.findFirstOrThrow({
+        where: { organizationId: tenantA.organization.id },
+      }),
+    ).resolves.toMatchObject({
+      kind: 'PREPARED_QUESTION',
+      authorLabel: 'Подготовленный AI-вопрос',
+      isSynthetic: true,
+    });
+    await expect(
+      prisma.aiOperationProvenance.findFirstOrThrow({
+        where: { organizationId: tenantA.organization.id, operationType: 'content_enrichment', status: 'succeeded' },
+      }),
+    ).resolves.toMatchObject({
+      providerId: 'test_fake',
+      modelId: 'deterministic-enrichment-v1',
+      templateVersion: 'legal-enrichment-v1',
+      reviewStatus: 'accepted',
+      inputRefsJson: expect.objectContaining({ dictionaryEntries: 1, transcriptId }),
+    });
+
+    const txtExport = await sessionA.agent.get(`/api/v1/creator/webinars/${webinar.id}/transcript/export?format=txt`);
+    expect(txtExport.status).toBe(200);
+    expect(txtExport.headers['content-type']).toContain('text/plain');
+    expect(txtExport.text).toContain('[00:00:00,000] Спикер: Проверенное введение');
+    const vttExport = await sessionA.agent.get(`/api/v1/creator/webinars/${webinar.id}/transcript/export?format=vtt`);
+    expect(vttExport.status).toBe(200);
+    expect(vttExport.text).toContain('WEBVTT\n\n1\n00:00:00.000 --> 00:00:30.000');
+    const crossExport = await sessionB.agent.get(`/api/v1/creator/webinars/${webinar.id}/transcript/export?format=txt`);
+    expect(crossExport.status).toBe(404);
+
+    const newDraft = await sessionA.agent
+      .patch(`/api/v1/creator/webinars/${webinar.id}/transcript`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ transcriptId, expectedRevision: 3, status: 'DRAFT', segments: reviewedSegments });
+    expect(newDraft.status).toBe(200);
+    expect(newDraft.body.transcript).toMatchObject({ version: 2, revision: 1, status: 'DRAFT' });
+    expect(newDraft.body.transcript.id).not.toBe(transcriptId);
+    await expect(getPublishedTranscript(prisma, tenantA.organization.id, webinar.id)).resolves.toMatchObject({
+      id: transcriptId,
+    });
+    await expect(prisma.webinar.findUniqueOrThrow({ where: { id: webinar.id } })).resolves.toMatchObject({
+      transcriptStatus: 'PUBLISHED',
+      freshnessStatus: 'CURRENT',
+      contentStatus: 'DRAFT',
+    });
+    const draftTranscriptId = newDraft.body.transcript.id as string;
+    await prisma.transcriptSegment.updateMany({
+      where: { transcriptId: draftTranscriptId, orderIndex: 0 },
+      data: { text: 'Закрытыйчерновик виден только автору.' },
+    });
+    await prisma.webinar.update({
+      where: { id: webinar.id },
+      data: { contentStatus: 'PUBLISHED', visibility: 'PUBLIC', publishedAt: new Date() },
+    });
+    env.PUBLIC_CATALOG_ENABLED = 'on';
+    const transcriptSearch = await request(app).get('/api/v1/catalog/search').query({
+      q: 'Проверенное',
+      sort: 'RELEVANCE',
+      pageSize: 12,
+    });
+    expect(transcriptSearch.status).toBe(200);
+    expect(transcriptSearch.body.items).toHaveLength(1);
+    expect(transcriptSearch.body.items[0]).toMatchObject({
+      slug: webinar.slug,
+      transcriptMatch: { startMs: 0, endMs: 30_000, snippet: expect.stringContaining('Проверенное') },
+    });
+    const tagSearch = await request(app).get('/api/v1/catalog/search').query({ q: 'метка-комплаенс', pageSize: 12 });
+    expect(tagSearch.body.items.map((item: any) => item.slug)).toContain(webinar.slug);
+    const draftOnlySearch = await request(app)
+      .get('/api/v1/catalog/search')
+      .query({ q: 'Закрытыйчерновик', pageSize: 12 });
+    expect(draftOnlySearch.body.items).toEqual([]);
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          organizationId: tenantA.organization.id,
+          action: { in: ['transcript.generated', 'transcript.reviewed', 'transcript.published', 'transcript.updated'] },
+        },
+      }),
+    ).resolves.toBe(4);
   });
 });

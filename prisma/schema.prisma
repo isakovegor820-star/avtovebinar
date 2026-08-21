@@ -142,6 +142,40 @@ enum WebinarMediaStatus {
   @@map("webinar_media_status")
 }
 
+enum MediaAssetStatus {
+  CREATED      @map("created")
+  UPLOADING    @map("uploading")
+  VALIDATING   @map("validating")
+  TRANSCODING  @map("transcoding")
+  TRANSCRIBING @map("transcribing")
+  ENRICHING    @map("enriching")
+  READY        @map("ready")
+  FAILED       @map("failed")
+  CANCELLED    @map("cancelled")
+
+  @@map("media_asset_status")
+}
+
+enum MediaUploadStatus {
+  CREATED   @map("created")
+  UPLOADING @map("uploading")
+  COMPLETED @map("completed")
+  CANCELLED @map("cancelled")
+
+  @@map("media_upload_status")
+}
+
+enum MediaJobStatus {
+  PENDING     @map("pending")
+  RUNNING     @map("running")
+  SUCCEEDED   @map("succeeded")
+  FAILED      @map("failed")
+  DEAD_LETTER @map("dead_letter")
+  CANCELLED   @map("cancelled")
+
+  @@map("media_job_status")
+}
+
 enum WebinarTranscriptStatus {
   NOT_AVAILABLE @map("not_available")
   DRAFT         @map("draft")
@@ -151,12 +185,38 @@ enum WebinarTranscriptStatus {
   @@map("webinar_transcript_status")
 }
 
+enum AiSuggestionType {
+  TITLE             @map("title")
+  DESCRIPTION       @map("description")
+  CHAPTER           @map("chapter")
+  TAG               @map("tag")
+  PREPARED_QUESTION @map("prepared_question")
+
+  @@map("ai_suggestion_type")
+}
+
+enum AiSuggestionStatus {
+  PENDING  @map("pending")
+  ACCEPTED @map("accepted")
+  REJECTED @map("rejected")
+
+  @@map("ai_suggestion_status")
+}
+
 enum WebinarScenarioStatus {
   NOT_AVAILABLE @map("not_available")
   DRAFT         @map("draft")
   PUBLISHED     @map("published")
 
   @@map("webinar_scenario_status")
+}
+
+enum ChatScenarioMessageKind {
+  PREPARED_QUESTION @map("prepared_question")
+  MODERATOR_NOTICE  @map("moderator_notice")
+  AUTHOR_PROMPT     @map("author_prompt")
+
+  @@map("chat_scenario_message_kind")
 }
 
 enum WebinarSourceType {
@@ -190,6 +250,12 @@ enum WebinarRecurrenceType {
   @@map("webinar_recurrence_type")
 }
 
+enum WebinarAccessPurpose {
+  VIEW @map("view")
+
+  @@map("webinar_access_purpose")
+}
+
 model User {
   id                           String                   @id @default(cuid())
   emailNormalized              String                   @unique @map("email_normalized")
@@ -214,6 +280,16 @@ model User {
   authorVerificationsSubmitted AuthorVerification[]     @relation("AuthorVerificationSubmitter")
   webinarCommands              WebinarCommand[]
   webinarSchedulesCreated      WebinarSchedule[]        @relation("WebinarScheduleCreator")
+  webinarAccessGrants          WebinarAccessGrant[]     @relation("WebinarAccessGrantUser")
+  webinarAccessGrantsInvited   WebinarAccessGrant[]     @relation("WebinarAccessGrantInviter")
+  chatScenariosCreated         ChatScenario[]           @relation("ChatScenarioCreator")
+  chatScenariosApproved        ChatScenario[]           @relation("ChatScenarioApprover")
+  mediaAssetsCreated           MediaAsset[]             @relation("MediaAssetCreator")
+  transcriptsCreated           Transcript[]             @relation("TranscriptCreator")
+  transcriptsReviewed          Transcript[]             @relation("TranscriptReviewer")
+  contentJobsRequested         ContentJob[]             @relation("ContentJobRequester")
+  organizationTermsCreated     OrganizationTerm[]       @relation("OrganizationTermCreator")
+  aiSuggestionsReviewed        AiSuggestion[]           @relation("AiSuggestionReviewer")
 
   @@index([status])
   @@index([kind])
@@ -221,24 +297,37 @@ model User {
 }
 
 model Organization {
-  id               String                   @id @default(cuid())
-  name             String
-  slug             String                   @unique
-  status           OrganizationStatus       @default(ACTIVE)
-  settingsJson     Json?                    @map("settings_json")
-  createdAt        DateTime                 @default(now()) @map("created_at")
-  updatedAt        DateTime                 @updatedAt @map("updated_at")
-  memberships      OrganizationMembership[]
-  webinarSessions  WebinarSession[]
-  auditLogs        AuditLog[]
-  activeSessions   UserSession[]            @relation("UserSessionActiveOrganization")
-  invitations      OrganizationInvitation[]
-  authorProfiles   AuthorProfile[]
-  webinars         Webinar[]
-  webinarAliases   WebinarSlugAlias[]
-  webinarSources   WebinarSource[]
-  webinarCommands  WebinarCommand[]
-  webinarSchedules WebinarSchedule[]
+  id                   String                   @id @default(cuid())
+  name                 String
+  slug                 String                   @unique
+  status               OrganizationStatus       @default(ACTIVE)
+  settingsJson         Json?                    @map("settings_json")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+  memberships          OrganizationMembership[]
+  webinarSessions      WebinarSession[]
+  auditLogs            AuditLog[]
+  activeSessions       UserSession[]            @relation("UserSessionActiveOrganization")
+  invitations          OrganizationInvitation[]
+  authorProfiles       AuthorProfile[]
+  webinars             Webinar[]
+  webinarAliases       WebinarSlugAlias[]
+  webinarSources       WebinarSource[]
+  webinarCommands      WebinarCommand[]
+  webinarSchedules     WebinarSchedule[]
+  webinarAccessGrants  WebinarAccessGrant[]
+  chatScenarios        ChatScenario[]
+  chatScenarioMessages ChatScenarioMessage[]
+  mediaAssets          MediaAsset[]
+  mediaUploads         MediaUpload[]
+  transcripts          Transcript[]
+  transcriptSegments   TranscriptSegment[]
+  aiOperations         AiOperationProvenance[]
+  contentJobs          ContentJob[]
+  organizationTerms    OrganizationTerm[]
+  aiSuggestions        AiSuggestion[]
+  webinarChapters      WebinarChapter[]
+  webinarTags          WebinarTag[]
 
   @@index([status])
   @@map("organizations")
@@ -531,6 +620,17 @@ model Webinar {
   sessions              WebinarSession[]
   schedules             WebinarSchedule[]
   commands              WebinarCommand[]
+  accessGrants          WebinarAccessGrant[]
+  chatScenarios         ChatScenario[]
+  currentMediaAssetId   String?                 @map("current_media_asset_id")
+  currentMediaAsset     MediaAsset?             @relation("WebinarCurrentMedia", fields: [currentMediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  mediaAssets           MediaAsset[]            @relation("WebinarMediaAssets")
+  transcripts           Transcript[]
+  aiOperations          AiOperationProvenance[]
+  contentJobs           ContentJob[]
+  aiSuggestions         AiSuggestion[]
+  chapters              WebinarChapter[]
+  tags                  WebinarTag[]
 
   @@unique([organizationId, slug])
   @@unique([id, organizationId])
@@ -540,6 +640,295 @@ model Webinar {
   @@index([visibility, contentStatus, publishedAt])
   @@index([supersededByWebinarId])
   @@map("webinars")
+}
+
+model MediaAsset {
+  id                     String                  @id @default(cuid())
+  organizationId         String                  @map("organization_id")
+  webinarId              String                  @map("webinar_id")
+  createdByUserId        String                  @map("created_by_user_id")
+  version                Int
+  status                 MediaAssetStatus        @default(CREATED)
+  progressPercent        Int?                    @map("progress_percent")
+  originalFileName       String                  @map("original_file_name")
+  mimeType               String                  @map("mime_type")
+  sizeBytes              BigInt                  @map("size_bytes")
+  expectedChecksumSha256 String?                 @map("expected_checksum_sha256")
+  checksumSha256         String?                 @map("checksum_sha256")
+  containerFormat        String?                 @map("container_format")
+  videoCodec             String?                 @map("video_codec")
+  audioCodec             String?                 @map("audio_codec")
+  width                  Int?
+  height                 Int?
+  integrityVerifiedAt    DateTime?               @map("integrity_verified_at")
+  storageKey             String                  @unique @map("storage_key")
+  audioStorageKey        String?                 @unique @map("audio_storage_key")
+  manifestStorageKey     String?                 @unique @map("manifest_storage_key")
+  posterStorageKey       String?                 @unique @map("poster_storage_key")
+  durationSeconds        Int?                    @map("duration_seconds")
+  failureCode            String?                 @map("failure_code")
+  readyAt                DateTime?               @map("ready_at")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar                Webinar                 @relation("WebinarMediaAssets", fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdBy              User                    @relation("MediaAssetCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  currentForWebinars     Webinar[]               @relation("WebinarCurrentMedia")
+  uploads                MediaUpload[]
+  jobs                   MediaJob[]
+  transcripts            Transcript[]
+  aiOperations           AiOperationProvenance[]
+  contentJobs            ContentJob[]
+
+  @@unique([id, organizationId])
+  @@unique([webinarId, version])
+  @@index([organizationId, status, updatedAt])
+  @@index([webinarId, status, version])
+  @@map("media_assets")
+}
+
+model MediaUpload {
+  id                String            @id @default(cuid())
+  organizationId    String            @map("organization_id")
+  assetId           String            @map("asset_id")
+  provider          String
+  providerUploadKey String            @unique @map("provider_upload_key")
+  status            MediaUploadStatus @default(CREATED)
+  partSizeBytes     Int               @map("part_size_bytes")
+  uploadedPartsJson Json?             @map("uploaded_parts_json")
+  expiresAt         DateTime          @map("expires_at")
+  lastReconciledAt  DateTime?         @map("last_reconciled_at")
+  abortAttemptedAt  DateTime?         @map("abort_attempted_at")
+  completedAt       DateTime?         @map("completed_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  asset             MediaAsset        @relation(fields: [assetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([organizationId, status, expiresAt])
+  @@index([assetId, status])
+  @@map("media_uploads")
+}
+
+model MediaJob {
+  id             String         @id @default(cuid())
+  organizationId String         @map("organization_id")
+  assetId        String         @map("asset_id")
+  type           String
+  status         MediaJobStatus @default(PENDING)
+  attempts       Int            @default(0)
+  maxAttempts    Int            @default(5) @map("max_attempts")
+  dedupKey       String         @unique @map("dedup_key")
+  nextAttemptAt  DateTime       @default(now()) @map("next_attempt_at")
+  claimedAt      DateTime?      @map("claimed_at")
+  claimExpiresAt DateTime?      @map("claim_expires_at")
+  claimToken     String?        @map("claim_token")
+  lastErrorCode  String?        @map("last_error_code")
+  completedAt    DateTime?      @map("completed_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  asset          MediaAsset     @relation(fields: [assetId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@index([organizationId, status, nextAttemptAt])
+  @@index([status, claimExpiresAt])
+  @@index([assetId, status])
+  @@map("media_jobs")
+}
+
+model Transcript {
+  id               String                  @id @default(cuid())
+  organizationId   String                  @map("organization_id")
+  webinarId        String                  @map("webinar_id")
+  mediaAssetId     String                  @map("media_asset_id")
+  createdByUserId  String                  @map("created_by_user_id")
+  reviewedByUserId String?                 @map("reviewed_by_user_id")
+  version          Int
+  revision         Int                     @default(1)
+  status           WebinarTranscriptStatus @default(DRAFT)
+  language         String                  @default("ru")
+  reviewedAt       DateTime?               @map("reviewed_at")
+  publishedAt      DateTime?               @map("published_at")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+  organization     Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar          Webinar                 @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  mediaAsset       MediaAsset              @relation(fields: [mediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdBy        User                    @relation("TranscriptCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  reviewedBy       User?                   @relation("TranscriptReviewer", fields: [reviewedByUserId], references: [id], onDelete: Restrict)
+  segments         TranscriptSegment[]
+  aiOperations     AiOperationProvenance[]
+  contentJobs      ContentJob[]
+  aiSuggestions    AiSuggestion[]
+  chapters         WebinarChapter[]
+
+  @@unique([id, organizationId])
+  @@unique([webinarId, version])
+  @@index([organizationId, status, updatedAt])
+  @@index([mediaAssetId, version])
+  @@map("transcripts")
+}
+
+model TranscriptSegment {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  transcriptId   String       @map("transcript_id")
+  orderIndex     Int          @map("order_index")
+  startMs        Int          @map("start_ms")
+  endMs          Int          @map("end_ms")
+  speaker        String?
+  text           String
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  transcript     Transcript   @relation(fields: [transcriptId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([transcriptId, orderIndex])
+  @@index([organizationId, transcriptId, startMs])
+  @@map("transcript_segments")
+}
+
+model AiOperationProvenance {
+  id              String         @id @default(cuid())
+  organizationId  String         @map("organization_id")
+  webinarId       String         @map("webinar_id")
+  mediaAssetId    String?        @map("media_asset_id")
+  transcriptId    String?        @map("transcript_id")
+  operationType   String         @map("operation_type")
+  providerId      String         @map("provider_id")
+  modelId         String         @map("model_id")
+  templateVersion String         @map("template_version")
+  inputRefsJson   Json           @map("input_refs_json")
+  status          String
+  reviewStatus    String         @default("pending") @map("review_status")
+  startedAt       DateTime       @default(now()) @map("started_at")
+  completedAt     DateTime?      @map("completed_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar         Webinar        @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  mediaAsset      MediaAsset?    @relation(fields: [mediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  transcript      Transcript?    @relation(fields: [transcriptId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  suggestions     AiSuggestion[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, operationType, createdAt])
+  @@index([webinarId, createdAt])
+  @@index([transcriptId, createdAt])
+  @@map("ai_operation_provenance")
+}
+
+model ContentJob {
+  id                String         @id @default(cuid())
+  organizationId    String         @map("organization_id")
+  webinarId         String         @map("webinar_id")
+  mediaAssetId      String?        @map("media_asset_id")
+  transcriptId      String?        @map("transcript_id")
+  requestedByUserId String         @map("requested_by_user_id")
+  correlationId     String?        @map("correlation_id")
+  type              String
+  status            MediaJobStatus @default(PENDING)
+  attempts          Int            @default(0)
+  maxAttempts       Int            @default(5) @map("max_attempts")
+  dedupKey          String         @unique @map("dedup_key")
+  nextAttemptAt     DateTime       @default(now()) @map("next_attempt_at")
+  claimedAt         DateTime?      @map("claimed_at")
+  claimToken        String?        @map("claim_token")
+  lastErrorCode     String?        @map("last_error_code")
+  resultRefId       String?        @map("result_ref_id")
+  completedAt       DateTime?      @map("completed_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar           Webinar        @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  mediaAsset        MediaAsset?    @relation(fields: [mediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  transcript        Transcript?    @relation(fields: [transcriptId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  requestedBy       User           @relation("ContentJobRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, nextAttemptAt])
+  @@index([webinarId, type, createdAt])
+  @@index([transcriptId, type, createdAt])
+  @@map("content_jobs")
+}
+
+model OrganizationTerm {
+  id              String       @id @default(cuid())
+  organizationId  String       @map("organization_id")
+  normalizedTerm  String       @map("normalized_term")
+  term            String
+  expansion       String?
+  createdByUserId String       @map("created_by_user_id")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy       User         @relation("OrganizationTermCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, normalizedTerm])
+  @@index([organizationId, updatedAt])
+  @@map("organization_terms")
+}
+
+model AiSuggestion {
+  id                String                @id @default(cuid())
+  organizationId    String                @map("organization_id")
+  webinarId         String                @map("webinar_id")
+  transcriptId      String                @map("transcript_id")
+  provenanceId      String                @map("provenance_id")
+  type              AiSuggestionType
+  status            AiSuggestionStatus    @default(PENDING)
+  revision          Int                   @default(1)
+  orderIndex        Int                   @default(0) @map("order_index")
+  contentJson       Json                  @map("content_json")
+  editedContentJson Json?                 @map("edited_content_json")
+  reviewedByUserId  String?               @map("reviewed_by_user_id")
+  reviewedAt        DateTime?             @map("reviewed_at")
+  targetEntityType  String?               @map("target_entity_type")
+  targetEntityId    String?               @map("target_entity_id")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar           Webinar               @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  transcript        Transcript            @relation(fields: [transcriptId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  provenance        AiOperationProvenance @relation(fields: [provenanceId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  reviewedBy        User?                 @relation("AiSuggestionReviewer", fields: [reviewedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([provenanceId, type, orderIndex])
+  @@index([organizationId, webinarId, status, type])
+  @@index([transcriptId, status])
+  @@map("ai_suggestions")
+}
+
+model WebinarChapter {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  webinarId      String       @map("webinar_id")
+  transcriptId   String       @map("transcript_id")
+  startMs        Int          @map("start_ms")
+  title          String
+  description    String?
+  orderIndex     Int          @map("order_index")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar        Webinar      @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  transcript     Transcript   @relation(fields: [transcriptId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([webinarId, transcriptId, orderIndex])
+  @@index([organizationId, webinarId, startMs])
+  @@map("webinar_chapters")
+}
+
+model WebinarTag {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  webinarId      String       @map("webinar_id")
+  normalizedName String       @map("normalized_name")
+  name           String
+  createdAt      DateTime     @default(now()) @map("created_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar        Webinar      @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([webinarId, normalizedName])
+  @@index([organizationId, normalizedName])
+  @@map("webinar_tags")
 }
 
 model WebinarPracticeArea {
@@ -575,6 +964,51 @@ model WebinarSource {
   @@index([webinarId, orderIndex])
   @@index([organizationId, type])
   @@map("webinar_sources")
+}
+
+model ChatScenario {
+  id             String                @id @default(cuid())
+  webinarId      String                @map("webinar_id")
+  organizationId String                @map("organization_id")
+  version        Int
+  status         WebinarScenarioStatus @default(DRAFT)
+  createdById    String                @map("created_by_id")
+  approvedById   String?               @map("approved_by_id")
+  approvedAt     DateTime?             @map("approved_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+  webinar        Webinar               @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdBy      User                  @relation("ChatScenarioCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy     User?                 @relation("ChatScenarioApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  messages       ChatScenarioMessage[]
+
+  @@unique([webinarId, version])
+  @@unique([id, organizationId])
+  @@index([organizationId, webinarId, status, version])
+  @@index([createdById, createdAt])
+  @@index([approvedById, approvedAt])
+  @@map("chat_scenarios")
+}
+
+model ChatScenarioMessage {
+  id             String                  @id @default(cuid())
+  scenarioId     String                  @map("scenario_id")
+  organizationId String                  @map("organization_id")
+  orderIndex     Int                     @map("order_index")
+  offsetSeconds  Int                     @map("offset_seconds")
+  kind           ChatScenarioMessageKind
+  text           String
+  authorLabel    String                  @map("author_label")
+  isSynthetic    Boolean                 @default(true) @map("is_synthetic")
+  metadataJson   Json?                   @map("metadata_json")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  scenario       ChatScenario            @relation(fields: [scenarioId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([scenarioId, orderIndex])
+  @@index([organizationId, scenarioId, offsetSeconds])
+  @@map("chat_scenario_messages")
 }
 
 model WebinarSlugAlias {
@@ -634,6 +1068,68 @@ model WebinarSchedule {
   @@index([organizationId, active, startsOn])
   @@index([createdById, createdAt])
   @@map("webinar_schedules")
+}
+
+model WebinarAccessGrant {
+  id              String                           @id @default(cuid())
+  webinarId       String                           @map("webinar_id")
+  organizationId  String                           @map("organization_id")
+  userId          String?                          @map("user_id")
+  emailHash       String                           @map("email_hash")
+  purpose         WebinarAccessPurpose             @default(VIEW)
+  expiresAt       DateTime                         @map("expires_at")
+  acceptedAt      DateTime?                        @map("accepted_at")
+  revokedAt       DateTime?                        @map("revoked_at")
+  invitedByUserId String                           @map("invited_by_user_id")
+  createdAt       DateTime                         @default(now()) @map("created_at")
+  updatedAt       DateTime                         @updatedAt @map("updated_at")
+  webinar         Webinar                          @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization    Organization                     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user            User?                            @relation("WebinarAccessGrantUser", fields: [userId], references: [id], onDelete: Restrict)
+  invitedBy       User                             @relation("WebinarAccessGrantInviter", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+  tokens          WebinarAccessGrantToken[]
+  emailJob        WebinarAccessInvitationEmailJob?
+
+  @@unique([id, organizationId])
+  @@index([organizationId, webinarId, revokedAt, expiresAt])
+  @@index([emailHash, revokedAt, expiresAt])
+  @@index([userId, revokedAt, expiresAt])
+  @@index([invitedByUserId, createdAt])
+  @@map("webinar_access_grants")
+}
+
+model WebinarAccessGrantToken {
+  id            String             @id @default(cuid())
+  grantId       String             @map("grant_id")
+  tokenHash     String             @unique @map("token_hash")
+  expiresAt     DateTime           @map("expires_at")
+  consumedAt    DateTime?          @map("consumed_at")
+  invalidatedAt DateTime?          @map("invalidated_at")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  grant         WebinarAccessGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+
+  @@index([grantId, expiresAt])
+  @@index([expiresAt])
+  @@map("webinar_access_grant_tokens")
+}
+
+model WebinarAccessInvitationEmailJob {
+  id            String                 @id @default(cuid())
+  grantId       String                 @unique @map("grant_id")
+  toEmail       String                 @map("to_email")
+  status        UserAuthEmailJobStatus @default(PENDING)
+  attempts      Int                    @default(0)
+  nextAttemptAt DateTime               @default(now()) @map("next_attempt_at")
+  claimedAt     DateTime?              @map("claimed_at")
+  claimToken    String?                @map("claim_token")
+  sentAt        DateTime?              @map("sent_at")
+  lastError     String?                @map("last_error")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+  grant         WebinarAccessGrant     @relation(fields: [grantId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@map("webinar_access_invitation_email_jobs")
 }
 
 model AdminUser {

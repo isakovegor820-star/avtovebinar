@@ -26,6 +26,10 @@ import { cleanupExpiredUserAuth } from './tenancy/userAuth.js';
 import { runUserAuthEmailOutboxJobOnce } from './tenancy/userAuthEmailOutbox.js';
 import { runOrganizationInvitationEmailOutboxJobOnce } from './tenancy/organizationInvitationEmailOutbox.js';
 import { cleanupOrganizationInvitations } from './tenancy/organizationInvitations.js';
+import { canAccessRegisteredWebinar, cleanupExpiredWebinarAccessGrants } from './tenancy/webinarAccess.js';
+import { runWebinarAccessInvitationEmailOutboxJobOnce } from './tenancy/webinarAccessInvitationEmailOutbox.js';
+import { cleanupExpiredMediaUploads, runMediaJobOnce } from './tenancy/mediaPipeline.js';
+import { runContentJobOnce } from './tenancy/transcripts.js';
 
 type ReminderCandidate = {
   id: string;
@@ -179,6 +183,9 @@ async function createRoomUrlForActiveRegistration(registrationId: string, expect
       !isParticipantRegistrationActive(activeRegistration) ||
       activeRegistration.webinarSession.lifecycleStatus === 'CANCELLED'
     ) {
+      return null;
+    }
+    if (!(await canAccessRegisteredWebinar(tx as unknown as typeof prisma, activeRegistration))) {
       return null;
     }
     return createRoomExchangeUrl(tx, {
@@ -874,6 +881,14 @@ async function runReminderCycle() {
         runOrganizationInvitationEmailOutboxJobOnce(new Date(), {}, reportProgress),
       ),
     );
+    results.push(
+      await runStep('[ASPБ Webinar access invitation email outbox]', () =>
+        runWebinarAccessInvitationEmailOutboxJobOnce(new Date(), {}, reportProgress),
+      ),
+    );
+    results.push(await runStep('[ASPБ media pipeline]', () => runMediaJobOnce(prisma, undefined, reportProgress)));
+    results.push(await runStep('[ASPБ media upload cleanup]', () => cleanupExpiredMediaUploads(prisma)));
+    results.push(await runStep('[ASPБ content pipeline]', () => runContentJobOnce(prisma)));
     results.push(await runStep('[ASPБ telegram live]', () => runTelegramLiveJobOnce(new Date(), reportProgress)));
     results.push(
       await runStep('[ASPБ telegram reminders]', () => runTelegramReminderJobOnce(new Date(), reportProgress)),
@@ -884,6 +899,7 @@ async function runReminderCycle() {
     results.push(await runStep('[ASPБ token cleanup]', cleanupExpiredRegistrationTokens));
     results.push(await runStep('[ASPБ user auth cleanup]', () => cleanupExpiredUserAuth(prisma)));
     results.push(await runStep('[ASPБ organization invitation cleanup]', () => cleanupOrganizationInvitations(prisma)));
+    results.push(await runStep('[ASPБ Webinar access cleanup]', () => cleanupExpiredWebinarAccessGrants(prisma)));
     results.push(await runStep('[ASPБ retention]', () => runRetentionSweepThrottled(new Date(), reportProgress)));
     const healthy = results.every(Boolean);
     if (healthy) {

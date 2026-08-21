@@ -97,6 +97,9 @@ export async function renderPrometheusMetrics() {
     invitationEmailPending,
     invitationEmailFailed,
     invitationEmailDeadLetters,
+    webinarAccessEmailPending,
+    webinarAccessEmailFailed,
+    webinarAccessEmailDeadLetters,
     broadcastPending,
     broadcastDeadLetters,
   ] = await Promise.all([
@@ -108,6 +111,9 @@ export async function renderPrometheusMetrics() {
     prisma.organizationInvitationEmailJob.count({ where: { status: { in: ['PENDING', 'FAILED', 'SENDING'] } } }),
     prisma.organizationInvitationEmailJob.count({ where: { status: 'FAILED' } }),
     prisma.organizationInvitationEmailJob.count({ where: { status: 'DEAD_LETTER' } }),
+    prisma.webinarAccessInvitationEmailJob.count({ where: { status: { in: ['PENDING', 'FAILED', 'SENDING'] } } }),
+    prisma.webinarAccessInvitationEmailJob.count({ where: { status: 'FAILED' } }),
+    prisma.webinarAccessInvitationEmailJob.count({ where: { status: 'DEAD_LETTER' } }),
     prisma.telegramBroadcastJob.count({
       where: { status: { in: ['pending', 'failed', 'sending'] }, completedAt: null },
     }),
@@ -127,6 +133,11 @@ export async function renderPrometheusMetrics() {
   lines.push(
     metricLine('aspb_queue_depth', { queue: 'invitation_email_outbox_dead_letter' }, invitationEmailDeadLetters),
   );
+  lines.push(metricLine('aspb_queue_depth', { queue: 'webinar_access_email_outbox' }, webinarAccessEmailPending));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'webinar_access_email_outbox_failed' }, webinarAccessEmailFailed));
+  lines.push(
+    metricLine('aspb_queue_depth', { queue: 'webinar_access_email_outbox_dead_letter' }, webinarAccessEmailDeadLetters),
+  );
   lines.push(metricLine('aspb_queue_depth', { queue: 'telegram_broadcast' }, broadcastPending));
   lines.push(metricLine('aspb_queue_depth', { queue: 'telegram_broadcast_dead_letter' }, broadcastDeadLetters));
   lines.push('# HELP aspb_alert_state Boolean alert states.');
@@ -145,6 +156,13 @@ export async function renderPrometheusMetrics() {
       'aspb_alert_state',
       { alert: 'invitation_email_failed_or_dead_letter_jobs' },
       invitationEmailFailed > 0 || invitationEmailDeadLetters > 0 ? 1 : 0,
+    ),
+  );
+  lines.push(
+    metricLine(
+      'aspb_alert_state',
+      { alert: 'webinar_access_email_failed_or_dead_letter_jobs' },
+      webinarAccessEmailFailed > 0 || webinarAccessEmailDeadLetters > 0 ? 1 : 0,
     ),
   );
   lines.push(

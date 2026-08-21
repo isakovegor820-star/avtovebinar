@@ -60,11 +60,11 @@ export async function csrfHeaders() {
   return token ? { 'x-csrf-token': token } : {};
 }
 
-export async function post(path, body) {
+export async function post(path, body, headers = {}) {
   const response = await fetchWithTimeout(`${API}${path}`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
+    headers: { 'Content-Type': 'application/json', ...headers, ...(await csrfHeaders()) },
     body: JSON.stringify(body)
   });
 

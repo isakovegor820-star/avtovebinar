@@ -1,10 +1,30 @@
 # АСПБ: актуальный production-readiness audit
 
-Дата обновления: 3 июня 2026
+Дата обновления: 21 августа 2026
 
 Этот документ заменяет исторический аудит от 26 мая 2026. Старые пункты про постоянный `webinar.html?token=...`, production-хранение room token в `localStorage`, отсутствие integration/e2e и прямую зависимость регистрации от SMTP больше не актуальны.
 
 ## Текущий статус
+
+Дополнение от 21 августа 2026: tenant foundation, passwordless User auth,
+organization invitations/MFA, author verification, Webinar/session domain,
+private grants, creator UI/preview и read-only public catalog реализованы
+additive и скрыты независимыми rollout-флагами. Полный актуальный requirement
+ledger находится в `docs/ASPB-LEGAL-PLATFORM-IMPLEMENTATION-STATUS.md`.
+`PUBLIC_CATALOG_ENABLED` остаётся `off` до tenant-scoped registration vertical:
+новый detail честно не отправляет заявку, а legacy single-Webinar registration
+не используется для другого Webinar. Полный локальный gate текущего checkout
+проходит; внешний выпуск всё равно требует CI и условий runbook.
+
+Provider-neutral media foundation и real S3/ffmpeg adapter добавлены additive
+migrations. Production остаётся fail-closed с
+`MEDIA_STORAGE_PROVIDER=unconfigured`; test fake запрещён production guard.
+[DEC-05](./DEC-05-MEDIA-STORAGE-CDN-TRANSCODER.md) рекомендует Yandex Object
+Storage + self-hosted ffmpeg + application authorization gateway, а
+[DEC-06](./DEC-06-STT-AI-PROVIDERS.md) — Yandex SpeechKit/Foundation Models.
+Рекомендации не являются закупкой или DPA approval: реальный switch блокируют
+юридическое/финансовое утверждение и staging provider acceptance, но legacy
+room/replay delivery не меняется.
 
 Платформа перешла на cookie-only доступ в вебинарную комнату:
 
@@ -79,6 +99,25 @@ Alert states есть в `/metrics`, но отправка в PagerDuty/Telegram
 ### P2. Admin UX
 
 CRM полезна, но требует дальнейшего polish: массовые действия, фильтры, SLA/next contact workflow, outbox visibility.
+
+### P0. Внешний media/STT/AI provider acceptance
+
+Real S3 multipart/ListParts/complete/abort/private read, streaming source
+validation, ffprobe/ffmpeg HLS/poster/audio, recoverable leases, protected
+manifest/segment/poster/Range gateway и Yandex STT/AI adapters реализованы и
+покрыты local contract/integration tests. Production providers намеренно
+остаются `unconfigured`; test fake запрещён production guard, а upload/STT/AI
+endpoints fail closed.
+
+Не подтверждены: договор/DPA/no-training/retention, реальный bucket CORS и
+lifecycle, provider quotas/SLA/cost alerts, worker benchmark, STT corpus quality,
+provider timeout/malformed-response recovery и CDN/Node gateway load profile.
+MED-004/MED-005/TRN-001 поэтому остаются `implemented`, не `verified`.
+
+Следующий шаг: получить явное legal/budget approval DEC-05/DEC-06, выдать
+отдельные staging credentials, задать exact `MEDIA_UPLOAD_CSP_ORIGINS`, пройти
+failure/load matrix того же SHA и только после этого включать provider/creator
+rollout flags для одной тестовой организации.
 
 ## Проверки перед production deploy
 

@@ -5,14 +5,17 @@ import { pipeline } from 'node:stream/promises';
 import { Router, type Request, type Response } from 'express';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
+import { getPrivateMediaStorageAdapter, type MediaObjectResponse } from '../../lib/mediaStorage.js';
 import { prisma } from '../../lib/prisma.js';
 import { getWebinarVideoConfig } from '../../lib/webinarVideo.js';
-import { buildDailyRoomAccessPayload, findRegistrationForRequest } from './helpers.js';
+import { canAccessRegisteredWebinar } from '../../lib/tenancy/webinarAccess.js';
+import { buildAccessPayload, buildDailyRoomAccessPayload, findRegistrationForRequest } from './helpers.js';
 
 export const mediaRouter = Router();
 
 const frontendDir = path.resolve(process.cwd(), 'crisis_premium');
 const MEDIA_FETCH_TIMEOUT_MS = 15_000;
+const MAX_MANIFEST_BYTES = 1_048_576;
 
 type MediaContext = {
   resourcePath: (encoded: string) => string;
@@ -44,6 +47,13 @@ function setPrivateMediaHeaders(res: Response) {
   res.setHeader('Cache-Control', 'private, max-age=300');
   res.setHeader('Vary', 'Cookie, Range');
   res.setHeader('Content-Disposition', 'inline');
+}
+
+function setVersionedMediaHeaders(res: Response) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Vary', 'Cookie, Range');
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('Accept-Ranges', 'bytes');
 }
 
 async function sendLocalMedia(res: Response, filePath: string) {
@@ -124,6 +134,131 @@ function decodeMediaUrl(value: string) {
   }
 }
 
+function versionedMediaUnavailable(): never {
+  throw new AppError(404, 'Media not found', undefined, 'media_not_found');
+}
+
+async function requireCurrentVersionedMedia(req: Request) {
+  const sessionId = routeParam(req.params.sessionId, 'session id');
+  const registration = await findRegistrationForRequest(req);
+  if (!registration || registration.webinarSessionId !== sessionId) versionedMediaUnavailable();
+  const access = buildAccessPayload(registration, new Date());
+  if (!access.canEnterRoom || access.webinarSession.id !== sessionId) versionedMediaUnavailable();
+  const session = await prisma.webinarSession.findFirst({
+    where: {
+      id: sessionId,
+      organizationId: registration.webinarSession.organizationId,
+      webinarId: registration.webinarSession.webinarId,
+      lifecycleStatus: { not: 'CANCELLED' },
+    },
+    select: {
+      webinar: {
+        select: {
+          currentMediaAsset: {
+            select: {
+              id: true,
+              organizationId: true,
+              webinarId: true,
+              status: true,
+              manifestStorageKey: true,
+              posterStorageKey: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  const asset = session?.webinar.currentMediaAsset;
+  if (
+    !asset ||
+    asset.status !== 'READY' ||
+    asset.organizationId !== registration.webinarSession.organizationId ||
+    asset.webinarId !== registration.webinarSession.webinarId ||
+    !asset.manifestStorageKey ||
+    !asset.posterStorageKey
+  ) {
+    versionedMediaUnavailable();
+  }
+  const storage = getPrivateMediaStorageAdapter();
+  if (!storage.readObject) versionedMediaUnavailable();
+  return { asset, storage };
+}
+
+function validRangeHeader(req: Request) {
+  const range = req.get('range');
+  if (!range) return undefined;
+  if (!/^bytes=(?:\d+-\d*|-\d+)$/.test(range)) {
+    throw new AppError(416, 'Invalid media range', undefined, 'media_range_invalid');
+  }
+  return range;
+}
+
+async function readVersionedObject(
+  storage: NonNullable<ReturnType<typeof getPrivateMediaStorageAdapter>>,
+  storageKey: string,
+  range?: string,
+) {
+  if (!storage.readObject) versionedMediaUnavailable();
+  try {
+    return await storage.readObject({ storageKey, range });
+  } catch (error) {
+    if (error instanceof AppError && error.statusCode === 416) throw error;
+    return versionedMediaUnavailable();
+  }
+}
+
+async function mediaObjectText(object: MediaObjectResponse) {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const value of object.body) {
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    total += chunk.length;
+    if (total > MAX_MANIFEST_BYTES) versionedMediaUnavailable();
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function safeHlsRelativePath(value: string) {
+  if (!value || value.includes('://') || value.startsWith('/') || value.includes('\\')) versionedMediaUnavailable();
+  const normalized = path.posix.normalize(value);
+  if (normalized === '..' || normalized.startsWith('../')) versionedMediaUnavailable();
+  return normalized;
+}
+
+function versionedSegmentPath(sessionId: string, relativePath: string) {
+  return `/api/media/webinar/${encodeURIComponent(sessionId)}/segment/${encodeMediaUrl(relativePath)}`;
+}
+
+function rewriteVersionedManifest(manifest: string, sessionId: string, basePath = '') {
+  if (!manifest.startsWith('#EXTM3U')) versionedMediaUnavailable();
+  const rewrite = (value: string) =>
+    versionedSegmentPath(sessionId, safeHlsRelativePath(path.posix.join(basePath, value)));
+  return manifest
+    .split(/\r?\n/)
+    .map(line => {
+      if (!line.trim()) return line;
+      if (!line.startsWith('#')) return rewrite(line.trim());
+      return line.replace(/URI="([^"]+)"/g, (_match, uri: string) => `URI="${rewrite(uri)}"`);
+    })
+    .join('\n');
+}
+
+async function sendVersionedObject(res: Response, object: MediaObjectResponse) {
+  setVersionedMediaHeaders(res);
+  res.status(object.contentRange ? 206 : 200);
+  res.setHeader('Content-Type', object.contentType);
+  if (object.contentLength !== undefined) res.setHeader('Content-Length', String(object.contentLength));
+  if (object.contentRange) res.setHeader('Content-Range', object.contentRange);
+  if (object.etag) res.setHeader('ETag', object.etag);
+  if (object.lastModified) res.setHeader('Last-Modified', object.lastModified.toUTCString());
+  try {
+    await pipeline(object.body, res);
+  } catch (error) {
+    if (!res.destroyed) throw error;
+  }
+}
+
 function isAllowedHlsResource(resource: string, rootSource: string) {
   const root = mediaSourceUrl(rootSource);
   const target = mediaSourceUrl(resource);
@@ -201,9 +336,28 @@ async function requirePublishedRecording(req: Request) {
       id: routeParam(req.params.recordingId, 'recording id'),
       visible: true,
       publishedAt: { lte: new Date() },
+      webinarSession: {
+        lifecycleStatus: { not: 'CANCELLED' },
+        registrations: {
+          some: {
+            leadId: registration.leadId,
+            status: 'registered',
+            emailVerifiedAt: { not: null },
+          },
+        },
+      },
     },
+    include: { webinarSession: true },
   });
   if (!recording || (!recording.videoUrl && !recording.hlsUrl)) throw new AppError(404, 'Recording not found');
+  if (
+    !(await canAccessRegisteredWebinar(prisma, {
+      lead: registration.lead,
+      webinarSession: recording.webinarSession,
+    }))
+  ) {
+    throw new AppError(404, 'Recording not found');
+  }
   return recording;
 }
 
@@ -214,6 +368,59 @@ function webinarHlsContext(sessionId: string): MediaContext {
 function recordingHlsContext(recordingId: string): MediaContext {
   return { resourcePath: encoded => `/api/media/recording/${encodeURIComponent(recordingId)}/hls-resource/${encoded}` };
 }
+
+mediaRouter.get(
+  '/media/webinar/:sessionId/manifest',
+  asyncHandler(async (req, res) => {
+    const { asset, storage } = await requireCurrentVersionedMedia(req);
+    const manifestKey = asset.manifestStorageKey ?? versionedMediaUnavailable();
+    const object = await readVersionedObject(storage, manifestKey);
+    const manifest = await mediaObjectText(object);
+    setVersionedMediaHeaders(res);
+    res
+      .type('application/vnd.apple.mpegurl')
+      .send(rewriteVersionedManifest(manifest, routeParam(req.params.sessionId, 'session id')));
+  }),
+);
+
+mediaRouter.get(
+  '/media/webinar/:sessionId/segment/:resource',
+  asyncHandler(async (req, res) => {
+    const { asset, storage } = await requireCurrentVersionedMedia(req);
+    const manifestKey = asset.manifestStorageKey ?? versionedMediaUnavailable();
+    const manifestDirectory = path.posix.dirname(manifestKey);
+    const relativePath = safeHlsRelativePath(decodeMediaUrl(routeParam(req.params.resource, 'media resource')));
+    const storageKey = path.posix.join(manifestDirectory, relativePath);
+    if (storageKey !== manifestDirectory && !storageKey.startsWith(`${manifestDirectory}/`)) {
+      versionedMediaUnavailable();
+    }
+    const object = await readVersionedObject(storage, storageKey, validRangeHeader(req));
+    if (relativePath.endsWith('.m3u8')) {
+      const manifest = await mediaObjectText(object);
+      setVersionedMediaHeaders(res);
+      res
+        .type('application/vnd.apple.mpegurl')
+        .send(
+          rewriteVersionedManifest(
+            manifest,
+            routeParam(req.params.sessionId, 'session id'),
+            path.posix.dirname(relativePath) === '.' ? '' : path.posix.dirname(relativePath),
+          ),
+        );
+      return;
+    }
+    await sendVersionedObject(res, object);
+  }),
+);
+
+mediaRouter.get(
+  '/media/webinar/:sessionId/poster',
+  asyncHandler(async (req, res) => {
+    const { asset, storage } = await requireCurrentVersionedMedia(req);
+    const posterKey = asset.posterStorageKey ?? versionedMediaUnavailable();
+    await sendVersionedObject(res, await readVersionedObject(storage, posterKey, validRangeHeader(req)));
+  }),
+);
 
 mediaRouter.get(
   '/media/webinar/:sessionId/video',

@@ -145,7 +145,7 @@ Concurrent-index script идемпотентен для уже valid indexes. Е
 
 До отдельного controlled switch держите
 `PLATFORM_ACCOUNTS_ENABLED=off`, `PLATFORM_TENANCY_ENFORCEMENT=off` и
-`CREATOR_DASHBOARD_ENABLED=off`. Это
+`CREATOR_DASHBOARD_ENABLED=off`, `PUBLIC_CATALOG_ENABLED=off`. Это
 оставляет legacy registration, room, replay, CRM, email, Telegram и `/admin`
 на прежнем маршруте, но новые scoped services уже обязаны использовать
 server-resolved tenant context.
@@ -292,6 +292,185 @@ pending migrations. До первого session change schema rollback совм�
 старый worker: он не знает их service-notification contract. Откатывайтесь
 только на image с поддержкой этой migration или оставляйте worker
 остановленным до forward-fix.
+
+Private Webinar access добавлен additive migration
+`20260820200000_private_webinar_access`. Она создаёт только grant/token/outbox
+таблицы и связи; существующие Webinar, sessions, registrations, CRM и delivery
+history не переписываются. До migration сохраните read-only snapshot:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820200000_private_webinar_access_preflight.sql
+```
+
+Применяйте migration при `PLATFORM_ACCOUNTS_ENABLED=off` и
+`CREATOR_DASHBOARD_ENABLED=off`. Затем выполните:
+
+```bash
+npm run prisma:deploy
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820200000_private_webinar_access_postflight.sql
+npm run prisma:deploy
+```
+
+Postflight обязан подтвердить composite tenant FK, purpose/email/token
+constraints, отсутствие orphan и пустые новые таблицы на legacy-базе; повторный
+deploy не должен иметь pending migrations. До включения creator/private flow:
+
+1. Задайте отдельный стабильный `WEBINAR_ACCESS_HASH_SECRET` длиной не менее
+   32 символов во всех API/worker replicas. Не ротируйте его как обычный cookie
+   secret: смена HMAC нарушит email-bound проверку ранее созданных grants.
+2. Разверните API и reminders worker одного совместимого image. Старый worker
+   не знает `webinar_access_invitation_email_jobs` и не доставит приглашение.
+3. Убедитесь, что protected dependency health
+   `webinarAccessInvitationEmailOutbox` healthy, а Prometheus queues/failed/
+   dead-letter равны ожидаемым значениям.
+4. В `EMAIL_MODE=send` отправьте приглашение на контролируемый адрес, войдите
+   тем же подтверждённым email, примите ссылку один раз и проверьте replay
+   rejection, expiry и немедленный revoke. Raw token/email не должны попадать в
+   application log или API list.
+5. Только после этих проверок включайте platform/creator flags и наблюдайте
+   access-outbox alerts. В `EMAIL_MODE=log` job честно отменяется и письмо не
+   считается отправленным.
+
+Application rollback выполняется обоими флагами `off`; schema и grant/audit
+history не удаляются. Public legacy Webinar остаётся на compatibility path.
+Токены очищаются через 7 дней после expiry, terminal email jobs — через 90
+дней; сами grants автоматически не удаляются до юридического утверждения срока.
+
+Tenant-scoped ChatScenario добавлен additive migration
+`20260820203000_chat_scenario`. Новые таблицы пусты; legacy file-backed
+`webinar-data/agent-chat-scenario.json` и существующие
+`webinar_chat_messages` не мигрируются и продолжают обслуживать старую воронку.
+Migration расширяет допустимые idempotent Webinar commands значением
+`publish_scenario`, не меняя прежние действия.
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820203000_chat_scenario_preflight.sql
+npm run prisma:deploy
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260820203000_chat_scenario_postflight.sql
+npm run prisma:deploy
+```
+
+Сравните counts Webinar/session/legacy chat/commands с preflight. Postflight
+обязан подтвердить composite tenant FK, version/approval constraints и
+`is_synthetic=true` для всех scenario messages. До включения creator flow
+проверьте на контролируемом tenant save→publish→duplicate: duplicate получает
+новый draft/version 1 без approval/history. Cross-tenant GET/PATCH должны
+возвращать тот же safe `404`. Application rollback —
+`CREATOR_DASHBOARD_ENABLED=off`; таблицы и audit не удаляются. Старый image не
+знает новый scenario API, но legacy scripted chat остаётся совместимым.
+
+Public catalog не требует migration и включается отдельным
+`PUBLIC_CATALOG_ENABLED`. До switch держите его `off`: legacy landing скрывает
+ссылку, catalog API и `/sitemap.xml` отвечают 404, registration/room не
+изменяются. Перед включением:
+
+1. Пройдите full CI и targeted catalog integration/browser acceptance на image,
+   который содержит `src/lib/catalog.ts` и `crisis_premium/catalog*.html`.
+2. На staging создайте по одному PUBLIC, UNLISTED, PRIVATE, DRAFT и ARCHIVED
+   Webinar. List и sitemap обязаны содержать только PUBLIC; direct UNLISTED
+   detail должен иметь `X-Robots-Tag: noindex`; остальные закрытые состояния —
+   совпадать по safe 404 с неизвестным slug.
+3. Приостановите membership автора и его organization по очереди: карточка и
+   sitemap entry должны исчезнуть без удаления Webinar, sessions,
+   registrations, CRM events или analytics history.
+4. Проверьте старый slug alias и SUPERSEDED notice. Ссылка на successor
+   разрешена только если successor сам eligible; private successor не должен
+   раскрываться.
+5. Пока tenant-scoped REG vertical не включена, registration CTA остаётся
+   честно disabled. Не перенаправляйте его на legacy single-Webinar форму:
+   это свяжет заявку с неправильным Webinar.
+
+Rollback — только `PUBLIC_CATALOG_ENABLED=off`. Ничего не удаляйте и не меняйте
+visibility существующих Webinar. При отключении sitemap снова отвечает 404, а
+legacy landing продолжает прежнюю воронку.
+
+Media foundation разворачивается со значением
+`MEDIA_STORAGE_PROVIDER=unconfigured`. В этом режиме migration и status data
+безопасны, но новый upload init fail-closed отвечает `503`; legacy room/replay
+media gateway не меняется. `MEDIA_STORAGE_PROVIDER=test_fake` запрещён вне
+test. Creator UI при такой конфигурации показывает честную provider error, а legacy flow
+продолжает работать. Для provider rollout задайте точный comma-separated allowlist HTTPS
+origins в `MEDIA_UPLOAD_CSP_ORIGINS` и отдельно проверьте private multipart origin, server
+part checkpoints/resume, CORS, MIME signature,
+ffprobe duration, checksum, HLS manifest, poster, retry/dead-letter и
+cookie-authorized Range/HLS delivery. Rollback application path — вернуть
+provider в `unconfigured`; таблицы, READY versions и audit не удалять, а
+`current_media_asset_id` не переключать.
+Реальный adapter включается только после acceptance через
+`MEDIA_STORAGE_PROVIDER=s3` и полный набор `MEDIA_S3_*`. API/worker image должен
+содержать `ffmpeg` и `ffprobe`; paths задаются `MEDIA_FFMPEG_PATH` и
+`MEDIA_FFPROBE_PATH`. Перед switch проверьте bucket lifecycle для incomplete multipart,
+provider CORS, worker disk space под source + renditions и outbound access к object storage.
+Отдельно сымитируйте потерю ответа после provider-side
+`CompleteMultipartUpload`: `ListParts` вернёт `NoSuchUpload`, resume должен
+вернуть все trusted checkpoints без новых signed parts, а repeat complete —
+подтвердить object через `HeadObject` и создать ровно один job.
+Техническая рекомендация, сравнительная матрица, цены snapshot и внешняя точка
+legal/budget approval находятся в
+[`DEC-05-MEDIA-STORAGE-CDN-TRANSCODER.md`](./DEC-05-MEDIA-STORAGE-CDN-TRANSCODER.md).
+
+До migrations `20260821120000`–`20260821122000` сохраните вывод трёх read-only
+preflight; после deploy запустите postflight. Все violation counts должны быть
+нулевыми, кроме явно информационных `*_before`/`oldest_*` значений:
+
+```bash
+for version in \
+  20260821120000_media_provider_hardening \
+  20260821121000_media_stt_audio \
+  20260821122000_media_job_leases
+do
+  node scripts/run-libpq-command.mjs psql -v ON_ERROR_STOP=1 \
+    -f "prisma/checks/${version}_preflight.sql"
+done
+
+npm run prisma:deploy
+
+for version in \
+  20260821120000_media_provider_hardening \
+  20260821121000_media_stt_audio \
+  20260821122000_media_job_leases
+do
+  node scripts/run-libpq-command.mjs psql -v ON_ERROR_STOP=1 \
+    -f "prisma/checks/${version}_postflight.sql"
+done
+```
+
+Media worker продлевает DB lease и reminders progress heartbeat каждые 30 секунд.
+После принудительного завершения container дождитесь следующего worker tick:
+abandoned `RUNNING` job должен получить audit `media.provider.lease_recovered`,
+вернуться в `PENDING` и продолжить с новой попытки; при исчерпанном лимите —
+перейти в `DEAD_LETTER`. Не исправляйте status вручную.
+
+Текущая защищённая выдача проверяет participant session, точную регистрацию и
+`WebinarSession`, tenant, private grant и replay expiry перед manifest и каждым
+resource/Range request. Это correctness-first application gateway. Не включайте
+CDN path как production replacement, пока edge-auth/revoke, origin isolation,
+HLS/Range и нагрузочный тест не докажут эквивалентную авторизацию и допустимую
+нагрузку; rollback CDN — вернуть gateway route, не раскрывая S3 origin.
+
+Transcript/AI migrations можно additive-развернуть с
+`STT_PROVIDER=unconfigured` и `AI_ENRICHMENT_PROVIDER=unconfigured`: generation endpoints в этом
+режиме fail closed, а уже сохранённые versions/search/export не повреждаются.
+До письменного утверждения [`DEC-06-STT-AI-PROVIDERS.md`](./DEC-06-STT-AI-PROVIDERS.md)
+не включайте provider. Provider acceptance должен покрыть DPA/регион
+обработки, timeout/retry/idempotency, speaker/timestamp quality, tenant dictionary, provider/model
+provenance, письменный no-training/retention/delete contract, отсутствие
+secrets/signed URLs/PII в логах и явное human review до любой publication.
+Rollback — вернуть provider в `unconfigured`; не удалять transcripts,
+provenance и review decisions.
+После approval активация выполняется через `STT_PROVIDER=yandex_speechkit`
+и/или `AI_ENRICHMENT_PROVIDER=yandex_foundation_models` с `STT_YANDEX_*`/`AI_YANDEX_*`.
+Не переиспользуйте media S3 credentials как API keys. Audio URI prefix должен
+давать SpeechKit доступ только к private speech renditions и иметь отдельный
+provider-side retention/delete policy.
 
 Seed нужен только при первичной подготовке demo/default данных:
 

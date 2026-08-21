@@ -29,6 +29,14 @@ type OrganizationInvitationEmailInput = {
   expiresInDays: number;
 };
 
+type WebinarAccessInvitationEmailInput = {
+  to: string;
+  organizationName: string;
+  webinarTitle: string;
+  invitationUrl: string;
+  expiresAt: Date;
+};
+
 type SessionChangeEmailInput = BaseEmailInput & {
   kind: 'rescheduled' | 'cancelled';
   timezone: string;
@@ -274,6 +282,35 @@ export async function sendOrganizationInvitationEmail(input: OrganizationInvitat
     `Принять приглашение: ${input.invitationUrl}`,
     '',
     `Ссылка действует ${input.expiresInDays} дней и только один раз.`,
+    'Если вы не ожидали приглашение, просто проигнорируйте это письмо.',
+    '',
+    'АСПБ — Антикризисная служба помощи бизнесу',
+  ].join('\n');
+  return deliverEmail({
+    to: input.to,
+    subject,
+    text,
+    webinarUrl: input.invitationUrl,
+    includeUnsubscribe: false,
+  });
+}
+
+export async function sendWebinarAccessInvitationEmail(input: WebinarAccessInvitationEmailInput) {
+  const expires = new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'long',
+    timeStyle: 'short',
+    timeZone: 'Europe/Moscow',
+  }).format(input.expiresAt);
+  const subject = `Приглашение на закрытый вебинар «${input.webinarTitle}»`;
+  const text = [
+    'Здравствуйте,',
+    '',
+    `Организация «${input.organizationName}» пригласила вас на закрытый вебинар:`,
+    input.webinarTitle,
+    `Принять приглашение: ${input.invitationUrl}`,
+    '',
+    `Доступ действует до ${expires} (МСК); ссылка принятия одноразовая.`,
+    'Войдите с тем же email, на который получено пиглашение.',
     'Если вы не ожидали приглашение, просто проигнорируйте это письмо.',
     '',
     'АСПБ — Антикризисная служба помощи бизнесу',

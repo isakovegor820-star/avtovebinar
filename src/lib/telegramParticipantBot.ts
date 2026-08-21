@@ -30,6 +30,7 @@ import {
   isLeadIdentityActive,
   isParticipantRegistrationActive,
 } from './leadSecurity.js';
+import { canAccessRegisteredWebinar } from './tenancy/webinarAccess.js';
 
 // A revocation may wait for one already-started Telegram provider request
 // (20s hard deadline), then takes the short Lead data lock and commits.
@@ -161,6 +162,10 @@ async function createRoomUrl(registrationId: string, purpose = 'telegram_room') 
       activeRegistration.webinarSession.lifecycleStatus === 'CANCELLED'
     ) {
       logger.warn({ registrationId, purpose }, 'Telegram room link skipped for inactive registration');
+      return null;
+    }
+    if (!(await canAccessRegisteredWebinar(tx as unknown as typeof prisma, activeRegistration))) {
+      logger.warn({ registrationId, purpose }, 'Telegram room link skipped for inaccessible Webinar');
       return null;
     }
 

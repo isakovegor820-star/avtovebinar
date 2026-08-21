@@ -24,6 +24,7 @@ import {
 } from './roomLinks.js';
 import { createAccessToken, hashToken } from './tokens.js';
 import { EMAIL_OUTBOX_STALE_SENDING_MS } from './emailOutboxPolicy.js';
+import { canAccessRegisteredWebinar } from './tenancy/webinarAccess.js';
 
 export { EMAIL_OUTBOX_STALE_SENDING_MS } from './emailOutboxPolicy.js';
 
@@ -283,6 +284,9 @@ async function prepareEmailJob(jobId: string, claimToken: string, now: Date): Pr
       currentJob.registration?.status === 'pending_verification' &&
       !currentJob.registration.emailVerifiedAt &&
       isLeadIdentityActive(currentJob.registration.lead);
+    const webinarAccessible = currentJob?.registration
+      ? await canAccessRegisteredWebinar(tx as unknown as typeof prisma, currentJob.registration, now)
+      : false;
     if (
       !currentJob ||
       currentJob.status !== 'sending' ||
@@ -290,6 +294,7 @@ async function prepareEmailJob(jobId: string, claimToken: string, now: Date): Pr
       currentJob.claimToken !== claimToken ||
       !currentJob.registration ||
       currentJob.registration.leadId !== registrationRef.leadId ||
+      !webinarAccessible ||
       (currentJob.type !== EMAIL_JOB_SESSION_CANCELLED &&
         currentJob.registration.webinarSession.lifecycleStatus === 'CANCELLED') ||
       (!pendingConfirmation && !isParticipantRegistrationActive(currentJob.registration))
@@ -449,12 +454,16 @@ async function deliverPreparedEmailJob(prepared: PreparedEmailJob, senders: Emai
         currentJob.registration?.status === 'pending_verification' &&
         !currentJob.registration.emailVerifiedAt &&
         isLeadIdentityActive(currentJob.registration.lead);
+      const webinarAccessible = currentJob?.registration
+        ? await canAccessRegisteredWebinar(tx as unknown as typeof prisma, currentJob.registration, clock())
+        : false;
       const stillDeliverable =
         currentJob?.status === 'sending' &&
         !currentJob.sentAt &&
         currentJob.claimToken === job.claimToken &&
         currentJob.registration?.leadId === registrationRef.leadId &&
         currentJob.toEmail.toLowerCase() === currentJob.registration.lead.email.toLowerCase() &&
+        webinarAccessible &&
         (currentJob.type === EMAIL_JOB_SESSION_CANCELLED ||
           currentJob.registration.webinarSession.lifecycleStatus !== 'CANCELLED') &&
         (pendingConfirmation || isParticipantRegistrationActive(currentJob.registration));

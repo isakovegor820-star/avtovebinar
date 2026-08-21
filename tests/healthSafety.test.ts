@@ -29,6 +29,10 @@ vi.mock('../src/lib/prisma.js', () => ({
       count: vi.fn().mockResolvedValue(0),
       findFirst: vi.fn().mockResolvedValue(null),
     },
+    webinarAccessInvitationEmailJob: {
+      count: vi.fn().mockResolvedValue(0),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
 

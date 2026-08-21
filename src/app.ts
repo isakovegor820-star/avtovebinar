@@ -18,12 +18,17 @@ import { requestContextMiddleware } from './lib/requestContext.js';
 import { metricsMiddleware, renderPrometheusMetrics } from './lib/metrics.js';
 import { getVideoCspOrigins } from './lib/webinarVideo.js';
 import { visitorIdentityMiddleware } from './lib/visitor.js';
+import { getPlatformFeatureFlags } from './lib/featureFlags.js';
+import { listCatalogSitemapEntries } from './lib/catalog.js';
+import { prisma } from './lib/prisma.js';
+import { getMediaUploadCspOrigins } from './lib/mediaStorage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = process.cwd();
 const frontendDir = path.join(rootDir, 'crisis_premium');
 const videoCspOrigins = getVideoCspOrigins();
+const mediaUploadCspOrigins = getMediaUploadCspOrigins();
 
 export const app = express();
 
@@ -97,7 +102,7 @@ app.use(
         fontSrc: ["'self'", 'data:'],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
         mediaSrc: ["'self'", 'blob:', 'data:', ...videoCspOrigins],
-        connectSrc: ["'self'", ...videoCspOrigins],
+        connectSrc: ["'self'", ...videoCspOrigins, ...mediaUploadCspOrigins],
         frameSrc: ["'none'"],
         workerSrc: ["'self'"],
         manifestSrc: ["'self'"],
@@ -318,6 +323,44 @@ app.get('/.well-known/security.txt', (_req, res) => {
 });
 app.get('/openapi.yml', (_req, res) => {
   res.type('application/yaml').sendFile(path.join(rootDir, 'openapi.yml'));
+});
+app.get('/sitemap.xml', async (_req, res, next) => {
+  try {
+    if (!getPlatformFeatureFlags().publicCatalog) {
+      res.status(404).type('text/plain').send('Not found');
+      return;
+    }
+    const entries = await listCatalogSitemapEntries(prisma);
+    const origin = new URL(env.PUBLIC_SITE_URL).origin;
+    const escapeXml = (value: string) =>
+      value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+    const urls = [
+      { path: '/crisis_premium/catalog.html', updatedAt: null as Date | null },
+      ...entries.map(entry => ({
+        path: `/crisis_premium/catalog-webinar.html?${new URLSearchParams({
+          organization: entry.organization_slug,
+          webinar: entry.webinar_slug,
+        }).toString()}`,
+        updatedAt: entry.updated_at,
+      })),
+    ];
+    const body = urls
+      .map(
+        item =>
+          `<url><loc>${escapeXml(new URL(item.path, origin).toString())}</loc>${
+            item.updatedAt ? `<lastmod>${item.updatedAt.toISOString()}</lastmod>` : ''
+          }</url>`,
+      )
+      .join('');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res
+      .type('application/xml')
+      .send(
+        `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${body}</urlset>`,
+      );
+  } catch (error) {
+    next(error);
+  }
 });
 app.get('/docs', (_req, res) => {
   res.type('html').send(`<!doctype html>

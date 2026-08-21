@@ -212,6 +212,8 @@ INSERT INTO "legacy_row_counts" ("table_name", "row_count") VALUES
 \ir ../../prisma/migrations/20260820180000_author_verification/migration.sql
 \ir ../../prisma/migrations/20260820190000_webinar_domain/migration.sql
 \ir ../../prisma/migrations/20260820193000_webinar_sessions_recurrence/migration.sql
+\ir ../../prisma/migrations/20260820200000_private_webinar_access/migration.sql
+\ir ../../prisma/migrations/20260820203000_chat_scenario/migration.sql
 
 DO $$
 DECLARE
@@ -240,6 +242,17 @@ BEGIN
 
   IF (SELECT COUNT(*) FROM "webinar_schedules") <> 0 THEN
     RAISE EXCEPTION 'SES expand migration unexpectedly created recurrence data';
+  END IF;
+
+  IF (SELECT COUNT(*) FROM "webinar_access_grants") <> 0
+    OR (SELECT COUNT(*) FROM "webinar_access_grant_tokens") <> 0
+    OR (SELECT COUNT(*) FROM "webinar_access_invitation_email_jobs") <> 0 THEN
+    RAISE EXCEPTION 'WEB-010 expand migration unexpectedly created private access data';
+  END IF;
+
+  IF (SELECT COUNT(*) FROM "chat_scenarios") <> 0
+    OR (SELECT COUNT(*) FROM "chat_scenario_messages") <> 0 THEN
+    RAISE EXCEPTION 'WEB-007 expand migration unexpectedly created scenario data';
   END IF;
 
   IF NOT EXISTS (

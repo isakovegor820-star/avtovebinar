@@ -14,7 +14,7 @@
     "css:watch": "tailwindcss -c tailwind.config.cjs -i ./crisis_premium/css/input.css -o ./crisis_premium/css/styles.css --watch",
     "test": "DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log TELEGRAM_ADMIN_BOT_POLLING=off TELEGRAM_BOT_POLLING=off TELEGRAM_PARTICIPANT_BOT_POLLING=off TELEGRAM_CONSULTANT_BOT_POLLING=off TELEGRAM_NEWS_BROADCAST=off TELEGRAM_MANUAL_BROADCAST=off NODE_ENV=test node scripts/prepare-test-database.mjs && DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log TELEGRAM_ADMIN_BOT_POLLING=off TELEGRAM_BOT_POLLING=off TELEGRAM_PARTICIPANT_BOT_POLLING=off TELEGRAM_CONSULTANT_BOT_POLLING=off TELEGRAM_NEWS_BROADCAST=off TELEGRAM_MANUAL_BROADCAST=off NODE_ENV=test vitest run",
     "e2e:install": "npx playwright install --with-deps chromium",
-    "e2e": "npm run css:build && DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} NODE_ENV=test node scripts/prepare-test-database.mjs && DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=log TELEGRAM_NOTIFY_MODE=log WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on playwright test",
+    "e2e": "npm run css:build && DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} NODE_ENV=test node scripts/prepare-test-database.mjs && DATABASE_URL=${DATABASE_URL:-postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test} PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=log E2E_EMAIL_OUTBOX_ENABLED=on TELEGRAM_NOTIFY_MODE=log WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on playwright test",
     "lint": "eslint src tests prisma crisis_premium playwright.config.ts --ext .ts,.tsx,.js,.jsx",
     "check": "npm run build && npm test && npm audit --omit=dev",
     "prisma:generate": "prisma generate",
@@ -33,6 +33,8 @@
     ]
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1115.0",
+    "@aws-sdk/s3-request-presigner": "^3.1115.0",
     "@prisma/client": "^6.19.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

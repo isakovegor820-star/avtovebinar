@@ -20,7 +20,7 @@ report не раскрывает автора обращения. Коррекц
 причину, optimistic revision, MFA platform role и audit. Старые writers проходят
 наблюдаемый `schemaVersion=0` compatibility adapter. Все 68 migrations повторно
 применимы без pending changes; targeted ANA/MOD PostgreSQL acceptance проходит.
-Локальные gates: Vitest 318/318, Playwright Chromium 29/29, fresh-schema deploy
+Локальные gates: Vitest 319/319, Playwright Chromium 29/29, fresh-schema deploy
 68/68, четыре analytics/moderation pre/postflight без нарушений и повторный
 deploy без pending migrations. Staging/production migration, provider
 acceptance и реальные отправки не выполнялись.

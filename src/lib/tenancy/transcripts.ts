@@ -1,13 +1,21 @@
 import crypto from 'node:crypto';
 import type { OrganizationMembershipRole, Prisma, PrismaClient, WebinarTranscriptStatus } from '@prisma/client';
+import { env } from '../env.js';
 import { AppError } from '../http.js';
-import { getSpeechToTextAdapter, type SpeechToTextAdapter, type SpeechToTextSegment } from '../speechToText.js';
+import {
+  getSpeechToTextAdapter,
+  SpeechToTextProviderError,
+  type SpeechToTextAdapter,
+  type SpeechToTextInput,
+  type SpeechToTextSegment,
+} from '../speechToText.js';
 import { requireTenantRole, type TenantContext } from './context.js';
 import { processAiEnrichmentJob } from './transcriptEnrichment.js';
 import type { ContentEnrichmentAdapter } from '../contentEnrichment.js';
 
 const CREATOR_ROLES = ['OWNER', 'AUTHOR'] as const satisfies readonly OrganizationMembershipRole[];
 const MAX_SEGMENTS = 5_000;
+const CONTENT_JOB_LEASE_MS = 2 * 60 * 1000;
 
 const transcriptInclude = {
   segments: { orderBy: { orderIndex: 'asc' as const } },
@@ -84,6 +92,7 @@ function publicTranscript(transcript: TranscriptWithDetails) {
       operationType: operation.operationType,
       providerId: operation.providerId,
       modelId: operation.modelId,
+      providerModelVersion: operation.providerModelVersion,
       templateVersion: operation.templateVersion,
       inputRefs: operation.inputRefsJson,
       status: operation.status,
@@ -120,11 +129,12 @@ function normalizeSegments(segments: SpeechToTextSegment[], durationSeconds: num
   });
 }
 
-export async function generateTranscriptDraft(
+async function persistTranscriptDraft(
   db: PrismaClient,
   context: TenantContext,
   webinarId: string,
-  adapter: SpeechToTextAdapter = getSpeechToTextAdapter(),
+  adapter: SpeechToTextAdapter,
+  raw: { segments: SpeechToTextSegment[]; providerModelVersion?: string },
 ) {
   const role = await requireCreator(db, context);
   const webinar = await db.webinar.findFirst({
@@ -161,33 +171,8 @@ export async function generateTranscriptDraft(
     mediaAssetVersion: 'current',
     dictionaryEntries: dictionary.length,
     dictionaryUpdatedAt: dictionary.at(-1)?.updatedAt ?? null,
+    nativeDictionaryApplied: adapter.supportsNativeDictionary && dictionary.length > 0,
   };
-  let raw: Awaited<ReturnType<SpeechToTextAdapter['transcribe']>>;
-  try {
-    raw = await adapter.transcribe({
-      storageKey: asset.audioStorageKey,
-      language: webinar.language,
-      durationSeconds: asset.durationSeconds,
-      dictionary: dictionary.map(({ term, expansion }) => ({ term, expansion })),
-    });
-  } catch (error) {
-    await db.aiOperationProvenance.create({
-      data: {
-        organizationId: context.organizationId,
-        webinarId,
-        mediaAssetId: asset.id,
-        operationType: 'speech_to_text',
-        providerId: adapter.providerId,
-        modelId: adapter.modelId,
-        templateVersion: adapter.templateVersion,
-        inputRefsJson: inputRefs,
-        status: 'failed',
-        reviewStatus: 'not_applicable',
-        completedAt: new Date(),
-      },
-    });
-    throw error;
-  }
   const segments = normalizeSegments(raw.segments, asset.durationSeconds);
 
   const transcript = await db.$transaction(async tx => {
@@ -236,6 +221,7 @@ export async function generateTranscriptDraft(
         providerId: adapter.providerId,
         modelId: adapter.modelId,
         templateVersion: adapter.templateVersion,
+        providerModelVersion: raw.providerModelVersion ?? null,
         inputRefsJson: inputRefs,
         status: 'succeeded',
         reviewStatus: 'pending',
@@ -268,12 +254,20 @@ export async function enqueueTranscriptDraft(db: PrismaClient, context: TenantCo
     where: creatorWebinarWhere(context, role, webinarId),
     select: {
       id: true,
-      currentMediaAsset: { select: { id: true, status: true, durationSeconds: true } },
+      currentMediaAsset: {
+        select: { id: true, status: true, durationSeconds: true, audioStorageKey: true, speechSizeBytes: true },
+      },
     },
   });
   if (!webinar) unavailable();
   const asset = webinar.currentMediaAsset;
-  if (!asset || asset.status !== 'READY' || !asset.durationSeconds) {
+  if (
+    !asset ||
+    asset.status !== 'READY' ||
+    !asset.durationSeconds ||
+    !asset.audioStorageKey ||
+    !asset.speechSizeBytes
+  ) {
     throw new AppError(409, 'Сначала активируйте готовое видео', undefined, 'transcript_media_not_ready');
   }
   const dedupKey = `transcribe:${asset.id}:v1`;
@@ -350,6 +344,40 @@ export async function getContentJobStatus(db: PrismaClient, context: TenantConte
   return { job: publicContentJob(job) };
 }
 
+export async function requestContentJobCancellation(db: PrismaClient, context: TenantContext, jobId: string) {
+  const role = await requireCreator(db, context);
+  const job = await db.contentJob.findFirst({
+    where: {
+      id: jobId,
+      organizationId: context.organizationId,
+      ...(role === 'AUTHOR' ? { webinar: { authorProfile: { userId: context.userId } } } : {}),
+    },
+  });
+  if (!job) unavailable();
+  if (['SUCCEEDED', 'DEAD_LETTER', 'CANCELLED'].includes(job.status)) {
+    return { job: publicContentJob(job), idempotent: true };
+  }
+  const updated = await db.$transaction(async tx => {
+    const next = await tx.contentJob.update({
+      where: { id: job.id },
+      data: { cancelRequestedAt: job.cancelRequestedAt ?? new Date(), nextAttemptAt: new Date() },
+    });
+    await tx.auditLog.create({
+      data: {
+        userId: context.userId,
+        organizationId: context.organizationId,
+        correlationId: context.correlationId,
+        action: 'content.job.cancellation_requested',
+        entityType: 'ContentJob',
+        entityId: job.id,
+        afterJson: { type: job.type, webinarId: job.webinarId },
+      },
+    });
+    return next;
+  });
+  return { job: publicContentJob(updated), idempotent: Boolean(job.cancelRequestedAt) };
+}
+
 async function contextForContentJob(
   db: PrismaClient,
   job: {
@@ -379,74 +407,365 @@ async function contextForContentJob(
   } satisfies TenantContext;
 }
 
+async function speechInputForJob(
+  db: PrismaClient,
+  context: TenantContext,
+  job: { webinarId: string; mediaAssetId: string | null },
+): Promise<SpeechToTextInput> {
+  const role = await requireCreator(db, context);
+  if (!job.mediaAssetId) {
+    throw new AppError(409, 'Media asset is unavailable', undefined, 'transcript_media_not_ready');
+  }
+  const webinar = await db.webinar.findFirst({
+    where: creatorWebinarWhere(context, role, job.webinarId),
+    select: { id: true, language: true, currentMediaAssetId: true },
+  });
+  if (!webinar || webinar.currentMediaAssetId !== job.mediaAssetId) {
+    throw new AppError(409, 'Активное видео изменилось', undefined, 'transcript_media_changed');
+  }
+  const asset = await db.mediaAsset.findFirst({
+    where: {
+      id: job.mediaAssetId,
+      organizationId: context.organizationId,
+      webinarId: job.webinarId,
+      status: 'READY',
+    },
+    select: { audioStorageKey: true, speechSizeBytes: true, durationSeconds: true },
+  });
+  if (!asset?.audioStorageKey || !asset.durationSeconds || !asset.speechSizeBytes) {
+    throw new AppError(409, 'Private speech rendition is unavailable', undefined, 'stt_speech_rendition_unavailable');
+  }
+  const dictionary = await db.organizationTerm.findMany({
+    where: { organizationId: context.organizationId },
+    orderBy: [{ normalizedTerm: 'asc' }],
+    take: 501,
+    select: { term: true, expansion: true },
+  });
+  if (dictionary.length > 500) {
+    throw new AppError(422, 'Словарь превышает допустимый лимит', undefined, 'stt_dictionary_limit_exceeded');
+  }
+  return {
+    storageKey: asset.audioStorageKey,
+    language: webinar.language,
+    durationSeconds: asset.durationSeconds,
+    audioSizeBytes: asset.speechSizeBytes,
+    dictionary,
+  };
+}
+
 export async function runContentJobOnce(
   db: PrismaClient,
   adapters: { speechToText?: SpeechToTextAdapter; contentEnrichment?: ContentEnrichmentAdapter } = {},
 ) {
-  const candidate = await db.contentJob.findFirst({
-    where: { status: 'PENDING', nextAttemptAt: { lte: new Date() } },
-    orderBy: { createdAt: 'asc' },
+  const now = new Date();
+  await db.contentJob.updateMany({
+    where: { status: 'RUNNING', claimExpiresAt: { lte: now } },
+    data: {
+      status: 'PENDING',
+      nextAttemptAt: now,
+      lastErrorCode: 'content_job_lease_expired',
+      claimedAt: null,
+      claimExpiresAt: null,
+      claimToken: null,
+    },
   });
-  if (!candidate) return { checked: 0, succeeded: 0, failed: 0 };
-  const claimToken = crypto.randomUUID();
-  const claimed = await db.contentJob.updateMany({
-    where: { id: candidate.id, status: 'PENDING' },
-    data: { status: 'RUNNING', attempts: { increment: 1 }, claimedAt: new Date(), claimToken },
-  });
-  if (claimed.count !== 1) return { checked: 1, succeeded: 0, failed: 0 };
+  const claim = await (async () => {
+    for (let claimAttempt = 0; claimAttempt < 16; claimAttempt += 1) {
+      const candidate = await db.contentJob.findFirst({
+        where: { status: 'PENDING', nextAttemptAt: { lte: now } },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!candidate) return null;
+      const candidateClaimToken = crypto.randomUUID();
+      const claimed = await db.contentJob.updateMany({
+        where: { id: candidate.id, status: 'PENDING' },
+        data: {
+          status: 'RUNNING',
+          claimedAt: now,
+          claimExpiresAt: new Date(now.getTime() + CONTENT_JOB_LEASE_MS),
+          claimToken: candidateClaimToken,
+        },
+      });
+      if (claimed.count === 1) return candidate;
+    }
+    return null;
+  })();
+  if (!claim) return { checked: 0, succeeded: 0, failed: 0 };
+  const candidate = claim;
   const job = await db.contentJob.findUniqueOrThrow({ where: { id: candidate.id } });
   const context = await contextForContentJob(db, job);
   if (!context) {
-    await db.contentJob.update({
-      where: { id: job.id },
-      data: {
-        status: 'DEAD_LETTER',
-        lastErrorCode: 'content_job_requester_ineligible',
-        claimToken: null,
-        completedAt: new Date(),
-      },
+    let providerDeletedAt: Date | null = null;
+    let failureCode = 'content_job_requester_ineligible';
+    if (job.type === 'TRANSCRIBE' && job.providerJobId) {
+      try {
+        const cleanupAdapter = adapters.speechToText ?? getSpeechToTextAdapter();
+        if (cleanupAdapter.providerId !== job.providerId) {
+          throw new SpeechToTextProviderError('stt_provider_binding_mismatch', false);
+        }
+        await cleanupAdapter.delete(job.providerJobId);
+        providerDeletedAt = new Date();
+      } catch {
+        failureCode = 'stt_provider_cleanup_failed';
+      }
+    }
+    await db.$transaction(async tx => {
+      await tx.contentJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'DEAD_LETTER',
+          lastErrorCode: failureCode,
+          providerState: providerDeletedAt ? 'DELETED' : job.providerState,
+          providerDeletedAt,
+          claimedAt: null,
+          claimExpiresAt: null,
+          claimToken: null,
+          completedAt: new Date(),
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: job.organizationId,
+          correlationId: job.correlationId,
+          action: 'content.provider.dead_lettered',
+          entityType: 'ContentJob',
+          entityId: job.id,
+          afterJson: {
+            provider: job.providerId,
+            failureCode,
+            providerCleanup: providerDeletedAt ? 'deleted' : job.providerJobId ? 'failed' : 'not_submitted',
+          },
+        },
+      });
     });
     return { checked: 1, succeeded: 0, failed: 1 };
   }
+  const releaseClaim = {
+    claimedAt: null,
+    claimExpiresAt: null,
+    claimToken: null,
+  } as const;
+  let adapter: SpeechToTextAdapter | null = null;
   try {
-    let resultRefId: string;
     if (job.type === 'TRANSCRIBE') {
-      const result = await generateTranscriptDraft(
-        db,
-        context,
-        job.webinarId,
-        adapters.speechToText ?? getSpeechToTextAdapter(),
-      );
-      resultRefId = result.transcript.id;
-    } else if (job.type === 'AI_ENRICH') {
-      const result = await processAiEnrichmentJob(db, context, job, adapters.contentEnrichment);
-      resultRefId = result.resultRefId;
-    } else {
-      throw new AppError(500, 'Unsupported content job', undefined, 'content_job_type_unsupported');
+      adapter = adapters.speechToText ?? getSpeechToTextAdapter();
+      if (!adapter) throw new AppError(503, 'STT adapter unavailable', undefined, 'stt_provider_unconfigured');
+      if (adapter.providerId === 'unconfigured') {
+        throw new AppError(503, 'STT adapter unavailable', undefined, 'stt_provider_unconfigured');
+      }
+      const speechAdapter = adapter;
+      if (job.providerId && job.providerId !== speechAdapter.providerId) {
+        throw new SpeechToTextProviderError('stt_provider_binding_mismatch', false);
+      }
+      const input = await speechInputForJob(db, context, job);
+      if (input.audioSizeBytes > speechAdapter.maxAudioSizeBytes) {
+        throw new SpeechToTextProviderError('stt_audio_size_exceeded', false);
+      }
+      if (input.durationSeconds > speechAdapter.maxDurationSeconds) {
+        throw new SpeechToTextProviderError('stt_audio_duration_exceeded', false);
+      }
+      if (job.cancelRequestedAt) {
+        if (job.providerJobId) await speechAdapter.delete(job.providerJobId);
+        await db.$transaction(async tx => {
+          await tx.contentJob.update({
+            where: { id: job.id },
+            data: {
+              status: 'CANCELLED',
+              providerState: 'DELETED',
+              providerDeletedAt: job.providerJobId ? new Date() : null,
+              cancelledAt: new Date(),
+              completedAt: new Date(),
+              lastErrorCode: null,
+              ...releaseClaim,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              organizationId: job.organizationId,
+              correlationId: job.correlationId,
+              action: 'content.provider.cancelled',
+              entityType: 'ContentJob',
+              entityId: job.id,
+              afterJson: {
+                provider: speechAdapter.providerId,
+                providerCleanup: job.providerJobId ? 'deleted' : 'not_submitted',
+              },
+            },
+          });
+        });
+        return { checked: 1, succeeded: 0, failed: 0 };
+      }
+      if (!job.providerJobId) {
+        const submitted = await speechAdapter.submit(input, job.dedupKey);
+        const submittedAt = new Date();
+        await db.$transaction(async tx => {
+          await tx.contentJob.update({
+            where: { id: job.id },
+            data: {
+              status: 'PENDING',
+              providerId: speechAdapter.providerId,
+              providerJobId: submitted.providerJobId,
+              providerModelId: speechAdapter.modelId,
+              providerModelVersion: submitted.providerModelVersion ?? null,
+              providerState: 'SUBMITTED',
+              providerSubmittedAt: submittedAt,
+              providerDeadlineAt: new Date(submittedAt.getTime() + env.STT_YANDEX_TIMEOUT_SECONDS * 1_000),
+              nextAttemptAt: new Date(submittedAt.getTime() + env.STT_YANDEX_POLL_INTERVAL_MS),
+              lastErrorCode: null,
+              ...releaseClaim,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              organizationId: job.organizationId,
+              correlationId: job.correlationId,
+              action: 'content.provider.submitted',
+              entityType: 'ContentJob',
+              entityId: job.id,
+              afterJson: {
+                provider: speechAdapter.providerId,
+                model: speechAdapter.modelId,
+                nativeDictionaryApplied: submitted.dictionaryApplied,
+              },
+            },
+          });
+        });
+        return { checked: 1, succeeded: 0, failed: 0 };
+      }
+      if (!job.providerResultStoredAt && job.providerDeadlineAt && job.providerDeadlineAt <= now) {
+        throw new SpeechToTextProviderError('stt_provider_timeout', false);
+      }
+      let resultRefId = job.resultRefId;
+      if (!job.providerResultStoredAt) {
+        const poll = await speechAdapter.poll(job.providerJobId);
+        if (poll.status === 'pending') {
+          await db.contentJob.update({
+            where: { id: job.id },
+            data: {
+              status: 'PENDING',
+              providerState: 'PENDING',
+              providerModelVersion: poll.providerModelVersion ?? job.providerModelVersion,
+              nextAttemptAt: new Date(Date.now() + env.STT_YANDEX_POLL_INTERVAL_MS),
+              lastErrorCode: null,
+              ...releaseClaim,
+            },
+          });
+          return { checked: 1, succeeded: 0, failed: 0 };
+        }
+        if (poll.status === 'failed') {
+          throw new SpeechToTextProviderError(poll.errorCode, false);
+        }
+        const raw = await speechAdapter.getResult(job.providerJobId);
+        const persisted = await persistTranscriptDraft(db, context, job.webinarId, speechAdapter, {
+          ...raw,
+          providerModelVersion:
+            raw.providerModelVersion ?? poll.providerModelVersion ?? job.providerModelVersion ?? undefined,
+        });
+        resultRefId = persisted.transcript.id;
+        await db.contentJob.update({
+          where: { id: job.id },
+          data: {
+            resultRefId,
+            providerState: 'RESULT_STORED',
+            providerResultStoredAt: new Date(),
+            providerModelVersion: raw.providerModelVersion ?? poll.providerModelVersion ?? job.providerModelVersion,
+          },
+        });
+      }
+      await speechAdapter.delete(job.providerJobId);
+      await db.$transaction(async tx => {
+        await tx.contentJob.update({
+          where: { id: job.id },
+          data: {
+            status: 'SUCCEEDED',
+            resultRefId,
+            providerState: 'DELETED',
+            providerDeletedAt: new Date(),
+            lastErrorCode: null,
+            completedAt: new Date(),
+            ...releaseClaim,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: job.organizationId,
+            correlationId: job.correlationId,
+            action: 'content.provider.deleted',
+            entityType: 'ContentJob',
+            entityId: job.id,
+            afterJson: { provider: speechAdapter.providerId, outcome: 'succeeded' },
+          },
+        });
+      });
+      return { checked: 1, succeeded: 1, failed: 0 };
     }
-    await db.contentJob.update({
-      where: { id: job.id },
-      data: {
-        status: 'SUCCEEDED',
-        resultRefId,
-        lastErrorCode: null,
-        claimToken: null,
-        completedAt: new Date(),
-      },
-    });
-    return { checked: 1, succeeded: 1, failed: 0 };
+    if (job.cancelRequestedAt) {
+      await db.contentJob.update({
+        where: { id: job.id },
+        data: { status: 'CANCELLED', cancelledAt: new Date(), completedAt: new Date(), ...releaseClaim },
+      });
+      return { checked: 1, succeeded: 0, failed: 0 };
+    }
+    if (job.type === 'AI_ENRICH') {
+      const result = await processAiEnrichmentJob(db, context, job, adapters.contentEnrichment);
+      await db.contentJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'SUCCEEDED',
+          resultRefId: result.resultRefId,
+          lastErrorCode: null,
+          completedAt: new Date(),
+          ...releaseClaim,
+        },
+      });
+      return { checked: 1, succeeded: 1, failed: 0 };
+    }
+    throw new AppError(500, 'Unsupported content job', undefined, 'content_job_type_unsupported');
   } catch (error) {
-    const dead = job.attempts >= job.maxAttempts;
-    const safeCode = error instanceof AppError && error.code ? error.code : 'content_job_failed';
-    await db.contentJob.update({
-      where: { id: job.id },
-      data: {
-        status: dead ? 'DEAD_LETTER' : 'PENDING',
-        lastErrorCode: safeCode,
-        nextAttemptAt: new Date(Date.now() + Math.min(60, 2 ** job.attempts) * 60_000),
-        claimToken: null,
-        completedAt: dead ? new Date() : null,
-      },
+    const attempt = job.attempts + 1;
+    const retryable = error instanceof SpeechToTextProviderError ? error.retryable : true;
+    let safeCode = error instanceof AppError && error.code ? error.code : 'content_job_failed';
+    let providerDeletedAt: Date | null = null;
+    const terminal = !retryable || attempt >= job.maxAttempts;
+    if (terminal && adapter && job.providerJobId) {
+      try {
+        await adapter.delete(job.providerJobId);
+        providerDeletedAt = new Date();
+      } catch {
+        safeCode = 'stt_provider_cleanup_failed';
+      }
+    }
+    const dead = terminal && (providerDeletedAt !== null || !job.providerJobId || attempt >= job.maxAttempts);
+    await db.$transaction(async tx => {
+      await tx.contentJob.update({
+        where: { id: job.id },
+        data: {
+          status: dead ? 'DEAD_LETTER' : 'PENDING',
+          attempts: { increment: 1 },
+          lastErrorCode: safeCode,
+          providerState: providerDeletedAt ? 'DELETED' : job.providerState,
+          providerDeletedAt,
+          nextAttemptAt: new Date(Date.now() + Math.min(60, 2 ** attempt) * 60_000),
+          completedAt: dead ? new Date() : null,
+          ...releaseClaim,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: job.organizationId,
+          correlationId: job.correlationId,
+          action: dead ? 'content.provider.dead_lettered' : 'content.provider.retry_scheduled',
+          entityType: 'ContentJob',
+          entityId: job.id,
+          afterJson: {
+            provider: adapter?.providerId ?? null,
+            attempt,
+            maxAttempts: job.maxAttempts,
+            failureCode: safeCode,
+            providerCleanup: providerDeletedAt ? 'deleted' : job.providerJobId ? 'pending' : 'not_submitted',
+          },
+        },
+      });
     });
     return { checked: 1, succeeded: 0, failed: 1 };
   }

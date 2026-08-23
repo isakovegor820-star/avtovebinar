@@ -20,12 +20,14 @@ services:
       WORKER_ROLE: api
       TRUST_PROXY: ${TRUST_PROXY:-1}
       MEDIA_LOCAL_ROOT: /var/lib/aspb/media
+      MEDIA_WORK_ROOT: /var/lib/aspb/media-work
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:5174:5174"
     volumes:
       - aspb_media_native_data:/var/lib/aspb/media
+      - aspb_media_work_native_data:/var/lib/aspb/media-work
       - ${LEGACY_MEDIA_PATH:?LEGACY_MEDIA_PATH is required}:/app/crisis_premium/assets/media:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$${PORT:-5174}/health/ready || exit 1"]
@@ -49,6 +51,7 @@ services:
     environment:
       WORKER_ROLE: webinar
       MEDIA_LOCAL_ROOT: /var/lib/aspb/media
+      MEDIA_WORK_ROOT: /var/lib/aspb/media-work
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -57,7 +60,9 @@ services:
     command: ["node", "scripts/run-worker-with-watchdog.mjs"]
     volumes:
       - aspb_media_native_data:/var/lib/aspb/media
+      - aspb_media_work_native_data:/var/lib/aspb/media-work
     logging: *default-logging
 
 volumes:
   aspb_media_native_data:
+  aspb_media_work_native_data:

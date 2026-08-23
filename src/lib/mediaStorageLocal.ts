@@ -5,7 +5,6 @@ import {
   link,
   lstat,
   mkdir,
-  mkdtemp,
   open,
   readFile,
   readdir,
@@ -15,7 +14,6 @@ import {
   statfs,
   unlink,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import { env } from './env.js';
@@ -29,6 +27,7 @@ import type {
 } from './mediaStorage.js';
 import {
   contentTypeForMediaArtifact,
+  createMediaWorkDirectory,
   prepareMediaRenditions,
   SafeMediaProviderError,
   sha256File,
@@ -307,6 +306,8 @@ export class LocalFilesystemMediaStorage implements PrivateMediaStorageAdapter {
     mimeType: string;
     partCount: number;
     expiresAt: Date;
+    expectedSizeBytes?: bigint;
+    partSizeBytes?: number;
   }) {
     assertApplicationUploadId(input.applicationUploadId);
     const storageSegments = safeStorageSegments(input.storageKey);
@@ -337,6 +338,14 @@ export class LocalFilesystemMediaStorage implements PrivateMediaStorageAdapter {
           partNumber: index + 1,
           url: this.partUrl(input.applicationUploadId, index + 1),
           expiresAt: input.expiresAt,
+          ...(input.expectedSizeBytes !== undefined && input.partSizeBytes
+            ? {
+                expectedSizeBytes:
+                  index + 1 === input.partCount
+                    ? Number(input.expectedSizeBytes) - input.partSizeBytes * index
+                    : input.partSizeBytes,
+              }
+            : {}),
         })),
       };
     } catch (error) {
@@ -352,6 +361,8 @@ export class LocalFilesystemMediaStorage implements PrivateMediaStorageAdapter {
     storageKey: string;
     partNumbers: number[];
     expiresAt: Date;
+    expectedSizeBytes?: bigint;
+    partSizeBytes?: number;
   }) {
     const { metadata } = await this.assertUploadBinding(input);
     if (input.partNumbers.some(part => !Number.isInteger(part) || part < 1 || part > metadata.partCount)) {
@@ -361,6 +372,14 @@ export class LocalFilesystemMediaStorage implements PrivateMediaStorageAdapter {
       partNumber,
       url: this.partUrl(input.applicationUploadId, partNumber),
       expiresAt: input.expiresAt,
+      ...(input.expectedSizeBytes !== undefined && input.partSizeBytes
+        ? {
+            expectedSizeBytes:
+              partNumber === Math.ceil(Number(input.expectedSizeBytes) / input.partSizeBytes)
+                ? Number(input.expectedSizeBytes) - input.partSizeBytes * (partNumber - 1)
+                : input.partSizeBytes,
+          }
+        : {}),
     }));
   }
 
@@ -491,6 +510,8 @@ export class LocalFilesystemMediaStorage implements PrivateMediaStorageAdapter {
     return (await this.listPartsDetailed(input.providerUploadKey, input.storageKey)).map(part => ({
       partNumber: part.partNumber,
       etag: part.etag,
+      sizeBytes: part.sizeBytes,
+      checksumSha256: part.etag,
     }));
   }
 
@@ -661,11 +682,12 @@ export class LocalFilesystemMediaStorage implements PrivateMediaStorageAdapter {
       metadata.contentType !== input.expectedMimeType ||
       BigInt(metadata.sizeBytes) !== input.expectedSizeBytes
     ) {
-      throw new SafeMediaProviderError('media_source_metadata_mismatch');
+      throw new SafeMediaProviderError('media_integrity_failed');
     }
     const source = await this.checkedObjectData(input.storageKey);
-    if (BigInt(source.info.size) !== input.expectedSizeBytes) throw new SafeMediaProviderError('media_size_mismatch');
-    const workDirectory = await mkdtemp(join(tmpdir(), 'aspb-media-local-'));
+    if (BigInt(source.info.size) !== input.expectedSizeBytes)
+      throw new SafeMediaProviderError('media_integrity_failed');
+    const workDirectory = await createMediaWorkDirectory('aspb-media-local-', input.expectedSizeBytes);
     try {
       const output = await prepareMediaRenditions({
         sourcePath: source.dataPath,
@@ -686,6 +708,22 @@ export class LocalFilesystemMediaStorage implements PrivateMediaStorageAdapter {
       const audioStorageKey = `${outputPrefix}/speech.ogg`;
       await this.storeObjectFromFile(posterStorageKey, output.posterPath, 'image/jpeg');
       await this.storeObjectFromFile(audioStorageKey, output.speechAudioPath, 'audio/ogg');
+      for (const artifact of output.renditionsMetadata) {
+        const key = artifact.role.startsWith('hls_')
+          ? `${outputPrefix}/hls/${artifact.relativeName}`
+          : artifact.role === 'poster'
+            ? posterStorageKey
+            : audioStorageKey;
+        const stored = await this.readObjectMetadata(key);
+        if (
+          !stored ||
+          stored.contentType !== artifact.contentType ||
+          Number(stored.sizeBytes) !== artifact.sizeBytes ||
+          stored.checksumSha256 !== artifact.checksumSha256
+        ) {
+          throw new SafeMediaProviderError('media_integrity_failed');
+        }
+      }
       return {
         mimeType: output.mimeType,
         sizeBytes: input.expectedSizeBytes,
@@ -702,6 +740,8 @@ export class LocalFilesystemMediaStorage implements PrivateMediaStorageAdapter {
         manifestStorageKey: `${outputPrefix}/hls/master.m3u8`,
         posterStorageKey,
         manifestValid: true,
+        speechSizeBytes: output.speechSizeBytes,
+        renditionsMetadata: output.renditionsMetadata,
       };
     } finally {
       await rm(workDirectory, { recursive: true, force: true });

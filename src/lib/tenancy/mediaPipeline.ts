@@ -18,6 +18,7 @@ const UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
 const MEDIA_JOB_LEASE_GRACE_MS = 10 * 60 * 1000;
 const MEDIA_JOB_LEASE_RENEW_INTERVAL_MS = 30 * 1000;
+const MEDIA_COMPLETE_CLAIM_MS = 5 * 60 * 1000;
 
 class MediaJobClaimLostError extends Error {
   constructor() {
@@ -100,8 +101,17 @@ function parseCompletedParts(value: Prisma.JsonValue | null): CompletedUploadPar
       if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
       const partNumber = 'partNumber' in item ? item.partNumber : undefined;
       const etag = 'etag' in item ? item.etag : undefined;
+      const sizeBytes = 'sizeBytes' in item ? item.sizeBytes : undefined;
+      const checksumSha256 = 'checksumSha256' in item ? item.checksumSha256 : undefined;
       return Number.isInteger(partNumber) && Number(partNumber) > 0 && typeof etag === 'string'
-        ? [{ partNumber: Number(partNumber), etag }]
+        ? [
+            {
+              partNumber: Number(partNumber),
+              etag,
+              ...(Number.isSafeInteger(sizeBytes) && Number(sizeBytes) > 0 ? { sizeBytes: Number(sizeBytes) } : {}),
+              ...(typeof checksumSha256 === 'string' && checksumSha256.length <= 128 ? { checksumSha256 } : {}),
+            },
+          ]
         : [];
     })
     .sort((left, right) => left.partNumber - right.partNumber);
@@ -109,6 +119,10 @@ function parseCompletedParts(value: Prisma.JsonValue | null): CompletedUploadPar
 
 function normalizeEtag(value: string) {
   return value.trim().replace(/^"|"$/g, '');
+}
+
+function publicCompletedParts(parts: CompletedUploadPart[]) {
+  return parts.map(({ partNumber, etag }) => ({ partNumber, etag }));
 }
 
 function providerErrorCode(error: unknown, fallback: string) {
@@ -166,7 +180,12 @@ async function listProviderParts(
         'media_upload_reconciliation_invalid',
       );
     }
-    byNumber.set(part.partNumber, { partNumber: part.partNumber, etag: normalizeEtag(part.etag) });
+    byNumber.set(part.partNumber, {
+      partNumber: part.partNumber,
+      etag: normalizeEtag(part.etag),
+      ...(part.sizeBytes === undefined ? {} : { sizeBytes: part.sizeBytes }),
+      ...(part.checksumSha256 ? { checksumSha256: part.checksumSha256 } : {}),
+    });
   }
   return [...byNumber.values()].sort((left, right) => left.partNumber - right.partNumber);
 }
@@ -175,9 +194,63 @@ function partCountForUpload(upload: { asset: { sizeBytes: bigint }; partSizeByte
   return Math.ceil(Number(upload.asset.sizeBytes) / upload.partSizeBytes);
 }
 
-function assertUploadActive(upload: { status: string; expiresAt: Date }) {
+function expectedPartSize(upload: { asset: { sizeBytes: bigint }; partSizeBytes: number }, partNumber: number) {
+  const partCount = partCountForUpload(upload);
+  return partNumber === partCount
+    ? Number(upload.asset.sizeBytes) - upload.partSizeBytes * (partCount - 1)
+    : upload.partSizeBytes;
+}
+
+function partsMatch(left: CompletedUploadPart, right: CompletedUploadPart) {
+  return (
+    left.partNumber === right.partNumber &&
+    normalizeEtag(left.etag) === normalizeEtag(right.etag) &&
+    (left.sizeBytes === undefined || right.sizeBytes === undefined || left.sizeBytes === right.sizeBytes) &&
+    (!left.checksumSha256 || !right.checksumSha256 || left.checksumSha256 === right.checksumSha256)
+  );
+}
+
+function reconcileProviderCheckpoint(
+  upload: { asset: { sizeBytes: bigint }; partSizeBytes: number; uploadedPartsJson: Prisma.JsonValue | null },
+  providerParts: CompletedUploadPart[],
+) {
+  const persisted = parseCompletedParts(upload.uploadedPartsJson);
+  const providerByNumber = new Map(providerParts.map(part => [part.partNumber, part]));
+  for (const checkpoint of persisted) {
+    const providerPart = providerByNumber.get(checkpoint.partNumber);
+    if (!providerPart || !partsMatch(checkpoint, providerPart)) {
+      throw new AppError(
+        409,
+        'Состояние загрузки не совпадает с хранилищем',
+        undefined,
+        'media_upload_checkpoint_conflict',
+      );
+    }
+  }
+  for (const part of providerParts) {
+    if (part.sizeBytes !== undefined && part.sizeBytes !== expectedPartSize(upload, part.partNumber)) {
+      throw new AppError(
+        409,
+        'Размер загруженной части не совпадает с ожидаемым',
+        undefined,
+        'media_upload_checkpoint_conflict',
+      );
+    }
+  }
+  return providerParts;
+}
+
+function assertUploadActive(upload: {
+  status: string;
+  expiresAt: Date;
+  completeClaimToken?: string | null;
+  completeClaimExpiresAt?: Date | null;
+}) {
   if (upload.status !== 'UPLOADING' || upload.expiresAt <= new Date()) {
     throw new AppError(409, 'Загрузка больше не активна', undefined, 'media_upload_inactive');
+  }
+  if (upload.completeClaimToken && upload.completeClaimExpiresAt && upload.completeClaimExpiresAt > new Date()) {
+    throw new AppError(409, 'Завершение загрузки уже выполняется', undefined, 'media_upload_completion_in_progress');
   }
 }
 
@@ -186,7 +259,24 @@ export type CreateMediaUploadInput = {
   mimeType: string;
   sizeBytes: bigint;
   checksumSha256?: string;
+  idempotencyKey: string;
 };
+
+function mediaUploadRequestHash(context: TenantContext, webinarId: string, input: CreateMediaUploadInput) {
+  return crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify({
+        organizationId: context.organizationId,
+        webinarId,
+        fileName: input.fileName,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes.toString(),
+        checksumSha256: input.checksumSha256 ?? null,
+      }),
+    )
+    .digest('hex');
+}
 
 export async function createMediaUpload(
   db: MediaDb,
@@ -211,6 +301,43 @@ export async function createMediaUpload(
     select: { id: true },
   });
   if (!webinar) unavailable();
+  const requestHash = mediaUploadRequestHash(context, webinarId, input);
+  const replayExisting = async () => {
+    const existing = await db.mediaUpload.findFirst({
+      where: { organizationId: context.organizationId, idempotencyKey: input.idempotencyKey },
+      include: { asset: true },
+    });
+    if (!existing) return null;
+    if (existing.requestHash !== requestHash || existing.asset.webinarId !== webinarId) {
+      throw new AppError(
+        409,
+        'Ключ идемпотентности уже использован для другого запроса',
+        undefined,
+        'media_upload_idempotency_conflict',
+      );
+    }
+    if (existing.status === 'COMPLETED') {
+      return {
+        asset: publicAsset(existing.asset),
+        uploadId: existing.id,
+        expiresAt: existing.expiresAt,
+        limits: {
+          maxBytes: String(env.MEDIA_MAX_UPLOAD_BYTES),
+          maxDurationSeconds: env.MEDIA_MAX_DURATION_SECONDS,
+          partSizeBytes: existing.partSizeBytes,
+        },
+        parts: [],
+        uploadContract: getMediaUploadBrowserContract(storage.name),
+        idempotent: true,
+      };
+    }
+    if (existing.status !== 'UPLOADING' || existing.expiresAt <= new Date()) {
+      throw new AppError(409, 'Загрузка больше не активна', undefined, 'media_upload_inactive');
+    }
+    return { ...(await resumeMediaUpload(db, context, existing.id, storage)), idempotent: true };
+  };
+  const replay = await replayExisting();
+  if (replay) return replay;
 
   const assetId = crypto.randomUUID();
   const uploadId = crypto.randomUUID();
@@ -227,6 +354,8 @@ export async function createMediaUpload(
       mimeType: input.mimeType,
       partCount,
       expiresAt: partOperationExpiresAt,
+      expectedSizeBytes: input.sizeBytes,
+      partSizeBytes: env.MEDIA_PART_SIZE_BYTES,
     });
   } catch (error) {
     if (error instanceof AppError) throw error;
@@ -274,6 +403,8 @@ export async function createMediaUpload(
           status: 'UPLOADING',
           partSizeBytes: env.MEDIA_PART_SIZE_BYTES,
           expiresAt,
+          idempotencyKey: input.idempotencyKey,
+          requestHash,
         },
       });
       await tx.webinar.updateMany({
@@ -308,6 +439,10 @@ export async function createMediaUpload(
     } catch {
       // The provider lifecycle rule and periodic cleanup remain the final safety net.
     }
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      const concurrentReplay = await replayExisting();
+      if (concurrentReplay) return concurrentReplay;
+    }
     throw error;
   }
   return {
@@ -321,6 +456,7 @@ export async function createMediaUpload(
     },
     parts: signed.partUrls,
     uploadContract: getMediaUploadBrowserContract(storage.name),
+    idempotent: false,
   };
 }
 
@@ -348,7 +484,8 @@ export async function recordMediaUploadPart(
   const providerParts = await listProviderParts(storage, scopedUpload);
   let trustedPart = part;
   if (providerParts) {
-    const providerPart = providerParts.find(item => item.partNumber === part.partNumber);
+    const reconciled = reconcileProviderCheckpoint(scopedUpload, providerParts);
+    const providerPart = reconciled.find(item => item.partNumber === part.partNumber);
     if (!providerPart || normalizeEtag(providerPart.etag) !== normalizeEtag(part.etag)) {
       throw new AppError(409, 'Часть ещё не подтверждена хранилищем', undefined, 'media_upload_part_unconfirmed');
     }
@@ -382,8 +519,16 @@ async function persistMediaUploadPartCheckpoint(
       throw new AppError(400, 'Номер части выходит за пределы загрузки', undefined, 'media_upload_part_invalid');
     }
     const byNumber = new Map(parseCompletedParts(upload.uploadedPartsJson).map(item => [item.partNumber, item]));
-    const idempotent =
-      normalizeEtag(byNumber.get(trustedPart.partNumber)?.etag ?? '') === normalizeEtag(trustedPart.etag);
+    const previous = byNumber.get(trustedPart.partNumber);
+    const idempotent = previous ? partsMatch(previous, trustedPart) : false;
+    if (previous && !idempotent) {
+      throw new AppError(
+        409,
+        'Checkpoint части уже содержит другие метаданные',
+        undefined,
+        'media_upload_checkpoint_conflict',
+      );
+    }
     byNumber.set(trustedPart.partNumber, trustedPart);
     const completedParts = [...byNumber.values()].sort((left, right) => left.partNumber - right.partNumber);
     await tx.mediaUpload.update({
@@ -394,7 +539,7 @@ async function persistMediaUploadPartCheckpoint(
       where: { id: upload.assetId },
       data: { progressPercent: Math.min(15, Math.floor((completedParts.length / partCount) * 15)) },
     });
-    return { uploadId: upload.id, completedParts, partCount, idempotent };
+    return { uploadId: upload.id, completedParts: publicCompletedParts(completedParts), partCount, idempotent };
   });
 }
 
@@ -464,7 +609,12 @@ export async function writeMediaUploadPart(
     context,
     role,
     uploadId,
-    { partNumber, etag: normalizeEtag(written.etag) },
+    {
+      partNumber,
+      etag: normalizeEtag(written.etag),
+      sizeBytes: written.sizeBytes,
+      checksumSha256: normalizeEtag(written.etag),
+    },
     true,
   );
   return { ...checkpoint, etag: normalizeEtag(written.etag), checkpointed: true as const };
@@ -506,7 +656,9 @@ export async function resumeMediaUpload(
       );
     }
   }
-  const completedParts = providerParts ?? parseCompletedParts(upload.uploadedPartsJson);
+  const completedParts = providerParts
+    ? reconcileProviderCheckpoint(upload, providerParts)
+    : parseCompletedParts(upload.uploadedPartsJson);
   if (providerParts) {
     await db.mediaUpload.update({
       where: { id: upload.id },
@@ -527,6 +679,8 @@ export async function resumeMediaUpload(
       storageKey: upload.asset.storageKey,
       partNumbers: missingPartNumbers,
       expiresAt: partOperationExpiresAt,
+      expectedSizeBytes: upload.asset.sizeBytes,
+      partSizeBytes: upload.partSizeBytes,
     });
   } catch (error) {
     throw new AppError(
@@ -560,7 +714,7 @@ export async function resumeMediaUpload(
       maxDurationSeconds: env.MEDIA_MAX_DURATION_SECONDS,
       partSizeBytes: upload.partSizeBytes,
     },
-    completedParts,
+    completedParts: publicCompletedParts(completedParts),
     parts,
     uploadContract: getMediaUploadBrowserContract(storage.name),
   };
@@ -599,13 +753,50 @@ export async function completeMediaUpload(
     // its transaction. The adapter will replay safely and verify via HeadObject.
     providerParts = null;
   }
-  const persistedParts = parseCompletedParts(upload.uploadedPartsJson);
-  const byNumber = new Map(persistedParts.map(part => [part.partNumber, part]));
-  for (const part of parts) byNumber.set(part.partNumber, part);
-  const ordered = providerParts ?? [...byNumber.values()].sort((a, b) => a.partNumber - b.partNumber);
   const expectedPartCount = partCountForUpload(upload);
-  if (ordered.length !== expectedPartCount || ordered.some((part, index) => part.partNumber !== index + 1)) {
+  const clientOrdered = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+  if (
+    clientOrdered.length !== expectedPartCount ||
+    clientOrdered.some((part, index) => part.partNumber !== index + 1)
+  ) {
     throw new AppError(400, 'Список частей загрузки неполон', undefined, 'media_upload_parts_invalid');
+  }
+  const persistedParts = parseCompletedParts(upload.uploadedPartsJson);
+  if (
+    persistedParts.length !== expectedPartCount ||
+    persistedParts.some((part, index) => part.partNumber !== index + 1)
+  ) {
+    throw new AppError(409, 'Server checkpoints загрузки неполны', undefined, 'media_upload_checkpoint_incomplete');
+  }
+  const ordered = providerParts ? reconcileProviderCheckpoint(upload, providerParts) : persistedParts;
+  if (ordered.length !== expectedPartCount || clientOrdered.some((part, index) => !partsMatch(part, ordered[index]))) {
+    throw new AppError(
+      409,
+      'Список частей не совпадает с подтверждённым состоянием',
+      undefined,
+      'media_upload_checkpoint_conflict',
+    );
+  }
+  const completionClaimToken = crypto.randomUUID();
+  const completionClaimedAt = new Date();
+  const completionClaim = await db.mediaUpload.updateMany({
+    where: {
+      id: upload.id,
+      status: 'UPLOADING',
+      OR: [{ completeClaimToken: null }, { completeClaimExpiresAt: { lte: completionClaimedAt } }],
+    },
+    data: {
+      completeClaimToken: completionClaimToken,
+      completeClaimExpiresAt: new Date(completionClaimedAt.getTime() + MEDIA_COMPLETE_CLAIM_MS),
+    },
+  });
+  if (completionClaim.count !== 1) {
+    const current = await db.mediaUpload.findUnique({ where: { id: upload.id }, include: { asset: true } });
+    if (current?.status === 'COMPLETED') {
+      const job = await db.mediaJob.findUnique({ where: { dedupKey: `media_process:${upload.assetId}:v1` } });
+      return { asset: publicAsset(current.asset), jobId: job?.id ?? null, idempotent: true };
+    }
+    throw new AppError(409, 'Завершение загрузки уже выполняется', undefined, 'media_upload_completion_in_progress');
   }
   let completion: Awaited<ReturnType<PrivateMediaStorageAdapter['completeMultipartUpload']>>;
   try {
@@ -617,6 +808,10 @@ export async function completeMediaUpload(
       expectedSizeBytes: upload.asset.sizeBytes,
     });
   } catch (error) {
+    await db.mediaUpload.updateMany({
+      where: { id: upload.id, status: 'UPLOADING', completeClaimToken: completionClaimToken },
+      data: { completeClaimToken: null, completeClaimExpiresAt: null },
+    });
     throw new AppError(
       503,
       'Не удалось завершить загрузку',
@@ -627,18 +822,23 @@ export async function completeMediaUpload(
   const valid = completion.mimeType === upload.asset.mimeType && completion.sizeBytes === upload.asset.sizeBytes;
   if (!valid) {
     await db.$transaction(async tx => {
-      await tx.mediaUpload.update({
-        where: { id: upload.id },
+      const ownership = await tx.mediaUpload.updateMany({
+        where: { id: upload.id, status: 'UPLOADING', completeClaimToken: completionClaimToken },
         data: {
           status: 'COMPLETED',
           completedAt: new Date(),
           uploadedPartsJson: ordered,
+          completeClaimToken: null,
+          completeClaimExpiresAt: null,
           ...(providerParts ? { lastReconciledAt: new Date() } : {}),
         },
       });
+      if (ownership.count !== 1) {
+        throw new AppError(409, 'Завершение загрузки потеряло claim', undefined, 'media_upload_claim_lost');
+      }
       await tx.mediaAsset.update({
         where: { id: upload.assetId },
-        data: { status: 'FAILED', failureCode: 'media_validation_failed', progressPercent: null },
+        data: { status: 'FAILED', failureCode: 'media_integrity_failed', progressPercent: null },
       });
       await tx.webinar.updateMany({
         where: {
@@ -648,18 +848,23 @@ export async function completeMediaUpload(
         data: { mediaStatus: 'FAILED' },
       });
     });
-    throw new AppError(422, 'Видео не прошло проверку', undefined, 'media_validation_failed');
+    throw new AppError(422, 'Видео не прошло проверку', undefined, 'media_integrity_failed');
   }
   const result = await db.$transaction(async tx => {
-    await tx.mediaUpload.update({
-      where: { id: upload.id },
+    const ownership = await tx.mediaUpload.updateMany({
+      where: { id: upload.id, status: 'UPLOADING', completeClaimToken: completionClaimToken },
       data: {
         status: 'COMPLETED',
         completedAt: new Date(),
         uploadedPartsJson: ordered,
+        completeClaimToken: null,
+        completeClaimExpiresAt: null,
         ...(providerParts ? { lastReconciledAt: new Date() } : {}),
       },
     });
+    if (ownership.count !== 1) {
+      throw new AppError(409, 'Завершение загрузки потеряло claim', undefined, 'media_upload_claim_lost');
+    }
     const asset = await tx.mediaAsset.update({
       where: { id: upload.assetId },
       data: {
@@ -763,11 +968,15 @@ export async function cancelMediaAsset(
   storage = getPrivateMediaStorageAdapter(),
 ) {
   const asset = await scopedAsset(db, context, assetId);
+  if (asset.status === 'CANCELLED') return { status: 'CANCELLED' as const, idempotent: true };
   if (!['CREATED', 'UPLOADING', 'VALIDATING'].includes(asset.status))
     throw new AppError(409, 'Обработку уже нельзя отменить', undefined, 'media_cancel_not_allowed');
   const upload = await db.mediaUpload.findFirst({
     where: { assetId, organizationId: context.organizationId, status: { in: ['CREATED', 'UPLOADING'] } },
   });
+  if (upload?.completeClaimToken && upload.completeClaimExpiresAt && upload.completeClaimExpiresAt > new Date()) {
+    throw new AppError(409, 'Завершение загрузки уже выполняется', undefined, 'media_upload_completion_in_progress');
+  }
   if (upload) {
     try {
       await storage.abortMultipartUpload({ providerUploadKey: upload.providerUploadKey, storageKey: asset.storageKey });
@@ -781,7 +990,10 @@ export async function cancelMediaAsset(
     }
   }
   await db.$transaction(async tx => {
-    await tx.mediaUpload.updateMany({ where: { assetId }, data: { status: 'CANCELLED' } });
+    await tx.mediaUpload.updateMany({
+      where: { assetId },
+      data: { status: 'CANCELLED', completeClaimToken: null, completeClaimExpiresAt: null },
+    });
     await tx.mediaJob.updateMany({
       where: { assetId, status: 'PENDING' },
       data: { status: 'CANCELLED', completedAt: new Date() },
@@ -798,7 +1010,7 @@ export async function cancelMediaAsset(
       },
     });
   });
-  return { status: 'CANCELLED' as const };
+  return { status: 'CANCELLED' as const, idempotent: false };
 }
 
 export async function activateMediaAsset(db: MediaDb, context: TenantContext, assetId: string) {
@@ -891,25 +1103,32 @@ export async function runMediaJobOnce(
     });
   }
 
-  const job = await db.mediaJob.findFirst({
-    where: { status: 'PENDING', nextAttemptAt: { lte: now } },
-    orderBy: { createdAt: 'asc' },
-    include: { asset: true },
-  });
-  if (!job) return { checked: 0, ready: 0, failed: 0 };
-  const claimToken = crypto.randomUUID();
   const leaseDurationMs = env.MEDIA_TRANSCODE_TIMEOUT_SECONDS * 1000 + MEDIA_JOB_LEASE_GRACE_MS;
-  const claimed = await db.mediaJob.updateMany({
-    where: { id: job.id, status: 'PENDING' },
-    data: {
-      status: 'RUNNING',
-      attempts: { increment: 1 },
-      claimedAt: now,
-      claimExpiresAt: new Date(now.getTime() + leaseDurationMs),
-      claimToken,
-    },
-  });
-  if (claimed.count !== 1) return { checked: 1, ready: 0, failed: 0 };
+  const claim = await (async () => {
+    for (let claimAttempt = 0; claimAttempt < 16; claimAttempt += 1) {
+      const candidate = await db.mediaJob.findFirst({
+        where: { status: 'PENDING', nextAttemptAt: { lte: now } },
+        orderBy: { createdAt: 'asc' },
+        include: { asset: true },
+      });
+      if (!candidate) return null;
+      const candidateClaimToken = crypto.randomUUID();
+      const claimed = await db.mediaJob.updateMany({
+        where: { id: candidate.id, status: 'PENDING' },
+        data: {
+          status: 'RUNNING',
+          attempts: { increment: 1 },
+          claimedAt: now,
+          claimExpiresAt: new Date(now.getTime() + leaseDurationMs),
+          claimToken: candidateClaimToken,
+        },
+      });
+      if (claimed.count === 1) return { job: candidate, claimToken: candidateClaimToken };
+    }
+    return null;
+  })();
+  if (!claim) return { checked: 0, ready: 0, failed: 0 };
+  const { job, claimToken } = claim;
 
   let renewalInFlight: Promise<void> | null = null;
   let claimLost = false;
@@ -943,10 +1162,26 @@ export async function runMediaJobOnce(
       expectedSizeBytes: job.asset.sizeBytes,
       expectedChecksumSha256: job.asset.expectedChecksumSha256,
     });
+    const renditionRoles = new Set(output.renditionsMetadata.map(item => item.role));
+    const requiredRenditionRoles: Array<(typeof output.renditionsMetadata)[number]['role']> = [
+      'hls_master',
+      'hls_media',
+      'hls_segment',
+      'poster',
+      'speech',
+    ];
+    const renditionMetadataValid =
+      output.renditionsMetadata.length >= 5 &&
+      requiredRenditionRoles.every(role => renditionRoles.has(role)) &&
+      output.renditionsMetadata.every(
+        item => item.sizeBytes > 0 && CHECKSUM_PATTERN.test(item.checksumSha256) && !item.relativeName.includes('..'),
+      ) &&
+      output.speechSizeBytes > 0n;
     if (
       !output.signatureValid ||
       !output.integrityValid ||
       !output.manifestValid ||
+      !renditionMetadataValid ||
       output.durationSeconds > env.MEDIA_MAX_DURATION_SECONDS
     )
       throw new Error('media_processing_invalid_output');
@@ -970,6 +1205,8 @@ export async function runMediaJobOnce(
           manifestStorageKey: output.manifestStorageKey,
           posterStorageKey: output.posterStorageKey,
           audioStorageKey: output.audioStorageKey,
+          speechSizeBytes: output.speechSizeBytes,
+          renditionsMetadataJson: output.renditionsMetadata,
           containerFormat: output.containerFormat,
           videoCodec: output.videoCodec,
           audioCodec: output.audioCodec,
@@ -1049,7 +1286,17 @@ export async function cleanupExpiredMediaUploads(
   now = new Date(),
 ) {
   const expired = await db.mediaUpload.findMany({
-    where: { status: 'UPLOADING', expiresAt: { lte: now }, provider: storage.name },
+    where: {
+      status: 'UPLOADING',
+      expiresAt: { lte: now },
+      provider: storage.name,
+      asset: { status: { in: ['CREATED', 'UPLOADING', 'VALIDATING'] } },
+      abortDeadLetteredAt: null,
+      AND: [
+        { OR: [{ abortNextAttemptAt: null }, { abortNextAttemptAt: { lte: now } }] },
+        { OR: [{ completeClaimToken: null }, { completeClaimExpiresAt: { lte: now } }] },
+      ],
+    },
     orderBy: { expiresAt: 'asc' },
     take: 50,
     include: { asset: true },
@@ -1058,7 +1305,10 @@ export async function cleanupExpiredMediaUploads(
   let failed = 0;
   for (const upload of expired) {
     try {
-      await db.mediaUpload.update({ where: { id: upload.id }, data: { abortAttemptedAt: now } });
+      await db.mediaUpload.update({
+        where: { id: upload.id },
+        data: { abortAttemptedAt: now, abortAttempts: { increment: 1 } },
+      });
       await storage.abortMultipartUpload({
         providerUploadKey: upload.providerUploadKey,
         storageKey: upload.asset.storageKey,
@@ -1066,7 +1316,14 @@ export async function cleanupExpiredMediaUploads(
       await db.$transaction(async tx => {
         const updated = await tx.mediaUpload.updateMany({
           where: { id: upload.id, status: 'UPLOADING', expiresAt: { lte: now } },
-          data: { status: 'CANCELLED' },
+          data: {
+            status: 'CANCELLED',
+            completeClaimToken: null,
+            completeClaimExpiresAt: null,
+            abortNextAttemptAt: null,
+            abortLastErrorCode: null,
+            abortDeadLetteredAt: null,
+          },
         });
         if (updated.count !== 1) return;
         await tx.mediaAsset.updateMany({
@@ -1088,7 +1345,29 @@ export async function cleanupExpiredMediaUploads(
         });
         cancelled += 1;
       });
-    } catch {
+    } catch (error) {
+      const attempt = upload.abortAttempts + 1;
+      const dead = attempt >= 5;
+      const failureCode = providerErrorCode(error, 'media_upload_abort_failed');
+      await db.$transaction(async tx => {
+        await tx.mediaUpload.updateMany({
+          where: { id: upload.id, status: 'UPLOADING' },
+          data: {
+            abortLastErrorCode: failureCode,
+            abortNextAttemptAt: dead ? null : new Date(now.getTime() + Math.min(60, 2 ** attempt) * 60_000),
+            abortDeadLetteredAt: dead ? now : null,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: upload.organizationId,
+            action: dead ? 'media.upload.cleanup_dead_lettered' : 'media.upload.cleanup_retry_scheduled',
+            entityType: 'MediaUpload',
+            entityId: upload.id,
+            afterJson: { assetId: upload.assetId, attempt, maxAttempts: 5, failureCode },
+          },
+        });
+      });
       failed += 1;
     }
   }

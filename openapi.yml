@@ -1930,6 +1930,11 @@ paths:
         - userSessionCookie: []
       parameters:
         - $ref: '#/components/parameters/WebinarId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Stable per logical upload request. A replay with the same request contract returns the existing upload and freshly signed operations only for missing parts; a conflicting contract is rejected.
+          schema: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
       requestBody:
         required: true
         content:
@@ -1944,12 +1949,14 @@ paths:
                 sizeBytes: { type: string, pattern: '^\\d{1,13}$' }
                 checksumSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
       responses:
+        '200': { description: Idempotent replay returned the existing asset/upload and fresh operations only for missing parts }
         '201':
           {
             description: Asset and temporary provider or same-origin part operations created; origin key is not returned,
           }
         '400': { description: Invalid type, size or request contract }
         '404': { description: Webinar is unavailable in the active tenant }
+        '409': { description: Idempotency-Key was already used with a different server-owned upload contract }
         '503': { description: Private object storage adapter is not configured }
   /api/v1/creator/uploads/{uploadId}/complete:
     post:
@@ -1985,11 +1992,12 @@ paths:
       responses:
         '200': { description: Upload completed and one deduplicated media job exists }
         '404': { description: Upload is unavailable in the active tenant }
+        '409': { description: Client, server checkpoint and provider ListParts state disagree; completion was not attempted }
         '422': { description: Trusted signature, MIME, integrity or duration validation failed }
   /api/v1/creator/uploads/{uploadId}/parts:
     post:
       summary: Idempotently record one directly uploaded multipart part
-      description: Stores only the trusted provider ETag and part number. External storage bytes bypass Express; self-hosted bytes use the separately authenticated streaming endpoint.
+      description: Stores only bounded part metadata. Provider size/checksum are reconciled through ListParts before resume/complete. External storage bytes bypass Express; self-hosted bytes use the separately authenticated streaming endpoint.
       security:
         - userSessionCookie: []
       parameters:
@@ -2011,7 +2019,7 @@ paths:
       responses:
         '200': { description: Part checkpoint recorded and safe progress returned }
         '404': { description: Upload is unavailable in the active tenant }
-        '409': { description: Upload is expired, completed or cancelled }
+        '409': { description: Upload is expired/completed/cancelled, or the same part number conflicts with the provider/server checkpoint }
   /api/v1/creator/uploads/{uploadId}/parts/{partNumber}/content:
     put:
       summary: Stream one self-hosted multipart part into private persistent storage
@@ -2074,7 +2082,7 @@ paths:
       responses:
         '200': { description: Completed checkpoints and newly signed missing-part operations returned }
         '404': { description: Upload is unavailable in the active tenant }
-        '409': { description: Upload is expired, completed, cancelled or belongs to another provider }
+        '409': { description: Upload is expired/completed/cancelled, belongs to another provider, or provider/server checkpoints disagree }
   /api/v1/creator/media/{assetId}/status:
     get:
       summary: Read safe tenant-scoped media processing status
@@ -2205,6 +2213,25 @@ paths:
             bounded attempts,
             safe error code and result reference without provider secrets,
           }
+        '404': { description: Unknown and cross-tenant jobs are intentionally indistinguishable }
+  /api/v1/creator/content-jobs/{jobId}/cancel:
+    post:
+      summary: Idempotently request cancellation of a tenant-scoped STT or AI job
+      description: The durable worker cancels processing and performs provider-side deletion when a private provider binding exists. Provider identifiers are never returned.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 191 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '200': { description: Cancellation recorded idempotently }
         '404': { description: Unknown and cross-tenant jobs are intentionally indistinguishable }
   /api/v1/creator/webinars/{webinarId}/transcript/export:
     get:

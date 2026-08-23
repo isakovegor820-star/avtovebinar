@@ -64,6 +64,12 @@ const uploadPartSchema = z
   })
   .strict();
 const emptyBodySchema = z.object({}).strict();
+const idempotencyKeySchema = z
+  .string()
+  .trim()
+  .min(8)
+  .max(128)
+  .regex(/^[A-Za-z0-9._:-]+$/);
 
 function requireCreatorDashboard() {
   const flags = getPlatformFeatureFlags();
@@ -87,8 +93,20 @@ creatorMediaRouter.post(
     requireCreatorDashboard();
     const context = await tenant(req);
     const { webinarId } = webinarParamsSchema.parse(req.params);
-    const result = await createMediaUpload(prisma, context, webinarId, createUploadSchema.parse(req.body));
-    res.status(201).json({ ok: true, ...result, correlationId: context.correlationId });
+    const idempotencyKey = idempotencyKeySchema.safeParse(req.get('idempotency-key'));
+    if (!idempotencyKey.success) {
+      throw new AppError(
+        400,
+        'Для загрузки требуется корректный Idempotency-Key',
+        undefined,
+        'media_upload_idempotency_key_required',
+      );
+    }
+    const result = await createMediaUpload(prisma, context, webinarId, {
+      ...createUploadSchema.parse(req.body),
+      idempotencyKey: idempotencyKey.data,
+    });
+    res.status(result.idempotent ? 200 : 201).json({ ok: true, ...result, correlationId: context.correlationId });
   }),
 );
 

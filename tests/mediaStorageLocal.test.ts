@@ -70,8 +70,8 @@ describe('self-hosted private media storage', () => {
     await expect(
       restartedAdapter.listMultipartUploadParts({ providerUploadKey: created.providerUploadKey, storageKey }),
     ).resolves.toEqual([
-      { partNumber: 1, etag: first.etag },
-      { partNumber: 2, etag: second.etag },
+      { partNumber: 1, etag: first.etag, sizeBytes: 5, checksumSha256: first.etag },
+      { partNumber: 2, etag: second.etag, sizeBytes: 5, checksumSha256: second.etag },
     ]);
     await expect(
       restartedAdapter.completeMultipartUpload({

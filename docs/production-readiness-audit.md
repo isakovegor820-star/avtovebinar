@@ -18,10 +18,10 @@ secrets, signed URLs и storage keys блокируются contract/DB checks. 
 platform aggregate структурно не выдаёт chat/notes/contact identifiers. Public
 report не раскрывает автора обращения. Коррекции и критические действия требуют
 причину, optimistic revision, MFA platform role и audit. Старые writers проходят
-наблюдаемый `schemaVersion=0` compatibility adapter. Все 68 migrations повторно
+наблюдаемый `schemaVersion=0` compatibility adapter. Все 70 migrations повторно
 применимы без pending changes; targeted ANA/MOD PostgreSQL acceptance проходит.
-Локальные gates: Vitest 319/319, Playwright Chromium 29/29, fresh-schema deploy
-68/68, четыре analytics/moderation pre/postflight без нарушений и повторный
+Локальные gates текущего checkout: Vitest 322/322, Playwright Chromium 29/29,
+fresh-schema deploy 70/70, media/STT pre/postflight без нарушений и повторный
 deploy без pending migrations. Staging/production migration, provider
 acceptance и реальные отправки не выполнялись.
 
@@ -293,6 +293,21 @@ fail-closed подтверждён локально, но recovery worker на s
 договор/DPA/no-training/retention, corpus quality и provider acceptance.
 MED-004/MED-005/TRN-001 поэтому остаются `implemented`, не `verified` на
 staging; MED-009 correctness остаётся verified локально, load acceptance открыт.
+
+После hardening 23.08.2026 local gate дополнительно подтверждает
+idempotent init, strict provider/server checkpoint disagreement, cleanup
+dead-letter, master→media→segment HLS, per-output type/size/SHA, scratch
+bytes/inodes preflight и safe capacity failure. `/metrics` содержит work/storage
+capacity, media/content queue/stalled/dead-letter без storage path. Это
+не заменяет 4 GB staging transfer, capacity/load/restart и restore drill.
+
+TRN-001 также усилен: async lifecycle разделён на
+submit/poll/result/delete; binding/model/version/deadline остаются в private
+job metadata, restart возобновляет poll, а cancel/terminal failure делают
+provider cleanup. Contract/integration покрывают 429/400, malformed,
+foreign binding, limits, deletion replay, restart, cancel и no auto-publication.
+Без accepted DPA/no-training/budget/credentials и real provider observation
+статус не выше `implemented`.
 
 MED-001 отдельно остаётся `implemented`: S3 path выполняет direct signed part
 PUT без full-file Express proxy, server checkpoint/ListParts reconciliation,

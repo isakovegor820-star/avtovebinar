@@ -1,8 +1,14 @@
 # DEC-05 — object storage, CDN и transcoder
 
-Дата исследования: 21 августа 2026 года
+Дата исследования: 23 августа 2026 года
 
-Статус: **для текущего односерверного compatibility-контура выбран self-hosted persistent volume; MED-001 production-capable S3 direct-upload path реализован provider-neutral, но provider/switch и эксплуатационная приёмка не выполнены**
+Статус: **Yandex Object Storage `ru-central1` — технический candidate для MED-001; provider не утверждён, resource/DPA/budget/credentials отсутствуют, поэтому статус требования — `implemented`, не `verified`; self-hosted persistent volume остаётся compatibility-контуром**
+
+## Provider decision gate — 23.08.2026
+
+Перепроверены только официальные первичные источники Yandex Cloud. Object Storage описан как S3-compatible service, data centers находятся в России, а публичная privacy-страница заявляет соответствие инфраструктуры 152-ФЗ. Публичные docs подтверждают private access/IAM, presigned operations, multipart Create/UploadPart/ListParts/Complete/Abort, CORS, lifecycle deletion incomplete uploads, Audit Trails и 99,98% service summary. Pricing складывается из storage, operations и egress; первые 1 GB storage, 10 000 write/list, 100 000 read и 100 GB egress в месяц описаны как free allowance. Точная цена зависит от юрлица/валюты и должна быть зафиксирована в budget approval.
+
+Эти источники **не** являются принятым для АСПБ DPA/поручением обработки, budget approval или доказательством exact region всех logs/backups/support access. В публичных docs также не найдена гарантия, что presigned `UploadPart` на выбранном contour обязательно вернёт per-part cryptographic checksum. Поэтому adapter подписывает exact `Content-Length`, использует checksum из `ListParts`, если provider его вернул, и в любом случае повторно считает SHA-256 в worker и сверяет final `HeadObject` size/MIME. Exact checksum behavior остаётся staging acceptance item.
 
 ## Решение
 
@@ -80,6 +86,10 @@ HLS — это manifest и множество ресурсов. Требован
 - `MEDIA_S3_FORCE_PATH_STYLE`, `MEDIA_SIGNED_OPERATION_TTL_SECONDS`;
 - `MEDIA_TRANSCODE_TIMEOUT_SECONDS`, `MEDIA_HLS_SEGMENT_SECONDS`;
 - `MEDIA_FFMPEG_PATH`, `MEDIA_FFPROBE_PATH`;
+- `MEDIA_WORK_ROOT`, `MEDIA_PROCESSING_SPACE_MULTIPLIER`,
+  `MEDIA_PROCESSING_RESERVE_BYTES`, `MEDIA_MIN_FREE_INODES`;
+- `MEDIA_WORKER_CONCURRENCY`, `CONTENT_WORKER_CONCURRENCY`,
+  `MEDIA_QUEUE_ALERT_THRESHOLD`, `CONTENT_QUEUE_ALERT_THRESHOLD`;
 - exact HTTPS allowlist `MEDIA_UPLOAD_CSP_ORIGINS`.
 
 `test_fake` разрешён только при `NODE_ENV=test`. Production guard для `local_fs` требует абсолютный private root вне web root; readiness проверяет доступность и запись в volume без раскрытия пути. S3 guard требует полный real config и отклоняет HTTP/localhost endpoint. Secrets не входят в репозиторий и не должны использоваться совместно со STT/AI.
@@ -109,9 +119,13 @@ HLS — это manifest и множество ресурсов. Требован
 
 - [Yandex Object Storage: S3 multipart API](https://yandex.cloud/en/docs/storage/s3/api-ref/multipart)
 - [Yandex Object Storage: pre-signed URLs](https://yandex.cloud/en/docs/storage/concepts/pre-signed-urls)
+- [Yandex Object Storage: access management and private/public access](https://yandex.cloud/en/docs/storage/security/overview)
+- [Yandex Object Storage: operations, including CORS](https://yandex.cloud/en/docs/storage/operations/)
 - [Yandex Object Storage: lifecycle](https://yandex.cloud/en/docs/storage/concepts/lifecycles)
-- [Yandex Object Storage: pricing](https://yandex.cloud/ru/docs/storage/pricing)
+- [Yandex Object Storage: quotas and limits](https://yandex.cloud/en/docs/storage/concepts/limits)
+- [Yandex Object Storage: pricing](https://yandex.cloud/en/docs/storage/pricing)
 - [Yandex Object Storage: service/SLA summary](https://yandex.cloud/en/services/storage)
+- [Yandex Object Storage: Audit Trails events](https://yandex.cloud/en/docs/storage/at-ref)
 - [Yandex Cloud: data privacy](https://yandex.cloud/en/security/data-privacy)
 - [Yandex Cloud CDN: secure tokens](https://yandex.cloud/en/docs/cdn/concepts/secure-tokens)
 - [Yandex Cloud CDN: pricing](https://yandex.cloud/en/docs/cdn/pricing)

@@ -985,9 +985,21 @@ async function runReminderCycle() {
         runWebinarAccessInvitationEmailOutboxJobOnce(new Date(), {}, reportProgress),
       ),
     );
-    results.push(await runStep('[ASPБ media pipeline]', () => runMediaJobOnce(prisma, undefined, reportProgress)));
+    results.push(
+      await runStep('[ASPБ media pipeline]', () =>
+        Promise.all(
+          Array.from({ length: env.MEDIA_WORKER_CONCURRENCY }, () =>
+            runMediaJobOnce(prisma, undefined, reportProgress),
+          ),
+        ),
+      ),
+    );
     results.push(await runStep('[ASPБ media upload cleanup]', () => cleanupExpiredMediaUploads(prisma)));
-    results.push(await runStep('[ASPБ content pipeline]', () => runContentJobOnce(prisma)));
+    results.push(
+      await runStep('[ASPБ content pipeline]', () =>
+        Promise.all(Array.from({ length: env.CONTENT_WORKER_CONCURRENCY }, () => runContentJobOnce(prisma))),
+      ),
+    );
     results.push(await runStep('[ASPБ telegram live]', () => runTelegramLiveJobOnce(new Date(), reportProgress)));
     results.push(
       await runStep('[ASPБ telegram reminders]', () => runTelegramReminderJobOnce(new Date(), reportProgress)),

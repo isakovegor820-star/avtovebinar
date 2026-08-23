@@ -1,6 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -9,6 +8,7 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   ListPartsCommand,
   PutObjectCommand,
@@ -18,7 +18,12 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from './env.js';
 import { AppError } from './http.js';
-import { contentTypeForMediaArtifact, prepareMediaRenditions, SafeMediaProviderError } from './mediaTranscoder.js';
+import {
+  contentTypeForMediaArtifact,
+  createMediaWorkDirectory,
+  prepareMediaRenditions,
+  SafeMediaProviderError,
+} from './mediaTranscoder.js';
 import type {
   CompletedUploadPart,
   MediaObjectResponse,
@@ -75,6 +80,8 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
     mimeType: string;
     partCount: number;
     expiresAt: Date;
+    expectedSizeBytes?: bigint;
+    partSizeBytes?: number;
   }) {
     const created = await this.client.send(
       new CreateMultipartUploadCommand({
@@ -91,6 +98,8 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
       storageKey: input.storageKey,
       partNumbers: Array.from({ length: input.partCount }, (_, index) => index + 1),
       expiresAt: input.expiresAt,
+      expectedSizeBytes: input.expectedSizeBytes,
+      partSizeBytes: input.partSizeBytes,
     });
     return { providerUploadKey: created.UploadId, partUrls };
   }
@@ -101,23 +110,39 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
     storageKey: string;
     partNumbers: number[];
     expiresAt: Date;
+    expectedSizeBytes?: bigint;
+    partSizeBytes?: number;
   }) {
     const expiresIn = signedUrlTtl(input.expiresAt);
     return Promise.all(
-      input.partNumbers.map(async partNumber => ({
-        partNumber,
-        url: await getSignedUrl(
-          this.client,
-          new UploadPartCommand({
-            Bucket: this.bucket,
-            Key: input.storageKey,
-            UploadId: input.providerUploadKey,
-            PartNumber: partNumber,
-          }),
-          { expiresIn },
-        ),
-        expiresAt: new Date(Date.now() + expiresIn * 1_000),
-      })),
+      input.partNumbers.map(async partNumber => {
+        const partCount =
+          input.expectedSizeBytes !== undefined && input.partSizeBytes
+            ? Math.ceil(Number(input.expectedSizeBytes) / input.partSizeBytes)
+            : undefined;
+        const expectedSizeBytes =
+          partCount && input.expectedSizeBytes !== undefined && input.partSizeBytes
+            ? partNumber === partCount
+              ? Number(input.expectedSizeBytes) - input.partSizeBytes * (partNumber - 1)
+              : input.partSizeBytes
+            : undefined;
+        return {
+          partNumber,
+          url: await getSignedUrl(
+            this.client,
+            new UploadPartCommand({
+              Bucket: this.bucket,
+              Key: input.storageKey,
+              UploadId: input.providerUploadKey,
+              PartNumber: partNumber,
+              ContentLength: expectedSizeBytes,
+            }),
+            { expiresIn },
+          ),
+          expiresAt: new Date(Date.now() + expiresIn * 1_000),
+          ...(expectedSizeBytes === undefined ? {} : { expectedSizeBytes }),
+        };
+      }),
     );
   }
 
@@ -143,7 +168,12 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
       }
       for (const part of response.Parts ?? []) {
         if (part.PartNumber && part.ETag) {
-          parts.push({ partNumber: part.PartNumber, etag: normalizeEtag(part.ETag) });
+          parts.push({
+            partNumber: part.PartNumber,
+            etag: normalizeEtag(part.ETag),
+            ...(part.Size === undefined ? {} : { sizeBytes: part.Size }),
+            ...(part.ChecksumSHA256 ? { checksumSha256: part.ChecksumSHA256 } : {}),
+          });
         }
       }
       marker = response.IsTruncated ? response.NextPartNumberMarker : undefined;
@@ -186,7 +216,7 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
     expectedSizeBytes: bigint;
     expectedChecksumSha256?: string | null;
   }): Promise<MediaProcessingResult> {
-    const workDirectory = await mkdtemp(join(tmpdir(), 'aspb-media-'));
+    const workDirectory = await createMediaWorkDirectory('aspb-media-', input.expectedSizeBytes);
     const sourcePath = join(workDirectory, 'source');
     try {
       const metadata = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: input.storageKey }));
@@ -195,7 +225,7 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
         BigInt(metadata.ContentLength) !== input.expectedSizeBytes ||
         metadata.ContentType !== input.expectedMimeType
       ) {
-        throw new SafeMediaProviderError('media_source_metadata_mismatch');
+        throw new SafeMediaProviderError('media_integrity_failed');
       }
       const source = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: input.storageKey }));
       if (!source.Body) throw new SafeMediaProviderError('media_source_unavailable');
@@ -208,7 +238,13 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
         expectedChecksumSha256: input.expectedChecksumSha256,
       });
       const outputPrefix = `${input.storageKey}/renditions/v1`;
+      const renditionByName = new Map(output.renditionsMetadata.map(artifact => [artifact.relativeName, artifact]));
+      const posterArtifact = renditionByName.get('poster.jpg');
+      const speechArtifact = renditionByName.get('speech.ogg');
+      if (!posterArtifact || !speechArtifact) throw new SafeMediaProviderError('media_processing_failed');
       for (const fileName of output.artifactNames) {
+        const artifact = renditionByName.get(fileName);
+        if (!artifact) throw new SafeMediaProviderError('media_processing_failed');
         await this.client.send(
           new PutObjectCommand({
             Bucket: this.bucket,
@@ -216,6 +252,7 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
             Body: createReadStream(join(output.hlsDirectory, fileName)),
             ContentType: contentTypeForMediaArtifact(fileName),
             CacheControl: 'private, max-age=31536000, immutable',
+            Metadata: { 'aspb-sha256': artifact.checksumSha256 },
           }),
         );
       }
@@ -227,6 +264,7 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
           Body: createReadStream(output.posterPath),
           ContentType: 'image/jpeg',
           CacheControl: 'private, max-age=31536000, immutable',
+          Metadata: { 'aspb-sha256': posterArtifact.checksumSha256 },
         }),
       );
       const audioStorageKey = `${outputPrefix}/speech.ogg`;
@@ -237,8 +275,24 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
           Body: createReadStream(output.speechAudioPath),
           ContentType: 'audio/ogg',
           CacheControl: 'private, max-age=31536000, immutable',
+          Metadata: { 'aspb-sha256': speechArtifact.checksumSha256 },
         }),
       );
+      for (const artifact of output.renditionsMetadata) {
+        const key = artifact.role.startsWith('hls_')
+          ? `${outputPrefix}/hls/${artifact.relativeName}`
+          : artifact.role === 'poster'
+            ? posterStorageKey
+            : audioStorageKey;
+        const stored = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+        if (
+          stored.ContentLength !== artifact.sizeBytes ||
+          stored.ContentType !== artifact.contentType ||
+          stored.Metadata?.['aspb-sha256'] !== artifact.checksumSha256
+        ) {
+          throw new SafeMediaProviderError('media_integrity_failed');
+        }
+      }
       return {
         mimeType: output.mimeType,
         durationSeconds: output.durationSeconds,
@@ -255,6 +309,8 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
         posterStorageKey,
         audioStorageKey,
         manifestValid: true,
+        speechSizeBytes: output.speechSizeBytes,
+        renditionsMetadata: output.renditionsMetadata,
       };
     } finally {
       await rm(workDirectory, { recursive: true, force: true });
@@ -272,6 +328,15 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
       );
     } catch (error) {
       if (!isNoSuchUpload(error)) throw new SafeMediaProviderError('media_upload_abort_failed');
+    }
+  }
+
+  async checkReady() {
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      return true;
+    } catch {
+      return false;
     }
   }
 

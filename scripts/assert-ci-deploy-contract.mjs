@@ -100,6 +100,10 @@ for (const [name, compose] of [
 ]) {
   const count = compose.split('BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}').length - 1;
   if (count !== 2) throw new Error(`${name} must pass BUILD_COMMIT_SHA to exactly two application services`);
+  const mediaWorkRootCount = compose.split('MEDIA_WORK_ROOT: /var/lib/aspb/media-work').length - 1;
+  if (mediaWorkRootCount !== 2) throw new Error(`${name} must configure the private media work root for API and worker`);
+  const mediaWorkMountCount = compose.split(':/var/lib/aspb/media-work').length - 1;
+  if (mediaWorkMountCount !== 2) throw new Error(`${name} must mount the private media work volume in API and worker`);
   requireText(
     compose,
     '${LEGACY_MEDIA_PATH:?LEGACY_MEDIA_PATH is required}:/app/crisis_premium/assets/media:ro',

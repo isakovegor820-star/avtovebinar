@@ -149,12 +149,21 @@ async function verifyProcessed(
 
   const manifestObject = await storage.readObject({ storageKey: processed.manifestStorageKey });
   const manifest = (await bodyBuffer(manifestObject.body)).toString('utf8');
-  const segment = manifest
+  const mediaManifestName = manifest
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .find(line => line.endsWith('.m3u8'));
+  invariant(mediaManifestName, `${name}: HLS media manifest is absent`);
+  const manifestDirectory = processed.manifestStorageKey.slice(0, processed.manifestStorageKey.lastIndexOf('/'));
+  const mediaManifestObject = await storage.readObject({
+    storageKey: `${manifestDirectory}/${mediaManifestName}`,
+  });
+  const mediaManifest = (await bodyBuffer(mediaManifestObject.body)).toString('utf8');
+  const segment = mediaManifest
     .split(/\r?\n/)
     .map(line => line.trim())
     .find(line => line.endsWith('.ts'));
   invariant(segment, `${name}: HLS segment is absent`);
-  const manifestDirectory = processed.manifestStorageKey.slice(0, processed.manifestStorageKey.lastIndexOf('/'));
   const segmentObject = await storage.readObject({
     storageKey: `${manifestDirectory}/${segment}`,
     range: 'bytes=0-3',
@@ -294,6 +303,7 @@ async function main() {
     ffprobePath: env.MEDIA_FFPROBE_PATH,
     transcodeTimeoutSeconds: env.MEDIA_TRANSCODE_TIMEOUT_SECONDS,
     maxDurationSeconds: env.MEDIA_MAX_DURATION_SECONDS,
+    minFreeInodes: env.MEDIA_MIN_FREE_INODES,
   };
   try {
     const fixtures = {
@@ -329,7 +339,11 @@ async function main() {
     };
     const rejected = [
       await expectSafeCode(() => storage.processVideo(corrupt), 'media_signature_invalid'),
-      await expectSafeCode(() => storage.processVideo(wrongMime), 'media_signature_invalid'),
+      await expectSafeCode(() => storage.processVideo(wrongMime), 'media_mime_mismatch'),
+      await expectSafeCode(
+        () => storage.processVideo({ ...validSource, expectedChecksumSha256: '0'.repeat(64) }),
+        'media_integrity_failed',
+      ),
     ];
 
     env.MEDIA_MAX_DURATION_SECONDS = 0.5;
@@ -340,8 +354,38 @@ async function main() {
     await writeFile(malformedProbe, '#!/usr/bin/env node\nprocess.stdout.write("{malformed");\n', { mode: 0o700 });
     await chmod(malformedProbe, 0o700);
     env.MEDIA_FFPROBE_PATH = malformedProbe;
-    rejected.push(await expectSafeCode(() => storage.processVideo(validSource), 'media_probe_response_invalid'));
+    rejected.push(await expectSafeCode(() => storage.processVideo(validSource), 'media_processing_failed'));
     env.MEDIA_FFPROBE_PATH = original.ffprobePath;
+
+    const unsupportedContainerProbe = join(workspace, 'unsupported-container-probe');
+    await writeFile(
+      unsupportedContainerProbe,
+      '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({format:{duration:"1",format_name:"avi"},streams:[{codec_type:"video",codec_name:"h264",width:320,height:180},{codec_type:"audio",codec_name:"aac"}]}));\n',
+      { mode: 0o700 },
+    );
+    await chmod(unsupportedContainerProbe, 0o700);
+    env.MEDIA_FFPROBE_PATH = unsupportedContainerProbe;
+    rejected.push(await expectSafeCode(() => storage.processVideo(validSource), 'media_container_unsupported'));
+
+    const unsupportedCodecProbe = join(workspace, 'unsupported-codec-probe');
+    await writeFile(
+      unsupportedCodecProbe,
+      '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({format:{duration:"1",format_name:"mov,mp4,m4a,3gp,3g2,mj2"},streams:[{codec_type:"video",codec_name:"mpeg2video",width:320,height:180},{codec_type:"audio",codec_name:"aac"}]}));\n',
+      { mode: 0o700 },
+    );
+    await chmod(unsupportedCodecProbe, 0o700);
+    env.MEDIA_FFPROBE_PATH = unsupportedCodecProbe;
+    rejected.push(await expectSafeCode(() => storage.processVideo(validSource), 'media_codec_unsupported'));
+    env.MEDIA_FFPROBE_PATH = original.ffprobePath;
+
+    const hangingProbe = join(workspace, 'hanging-ffprobe');
+    await writeFile(hangingProbe, '#!/usr/bin/env node\nsetTimeout(() => undefined, 60_000);\n', { mode: 0o700 });
+    await chmod(hangingProbe, 0o700);
+    env.MEDIA_FFPROBE_PATH = hangingProbe;
+    env.MEDIA_TRANSCODE_TIMEOUT_SECONDS = 0.05;
+    rejected.push(await expectSafeCode(() => storage.processVideo(validSource), 'media_probe_timeout'));
+    env.MEDIA_FFPROBE_PATH = original.ffprobePath;
+    env.MEDIA_TRANSCODE_TIMEOUT_SECONDS = original.transcodeTimeoutSeconds;
 
     const hangingFfmpeg = join(workspace, 'hanging-ffmpeg');
     await writeFile(hangingFfmpeg, '#!/usr/bin/env node\nsetTimeout(() => undefined, 60_000);\n', { mode: 0o700 });
@@ -350,12 +394,18 @@ async function main() {
     env.MEDIA_TRANSCODE_TIMEOUT_SECONDS = 0.05;
     rejected.push(await expectSafeCode(() => storage.processVideo(validSource), 'media_transcode_timeout'));
 
+    env.MEDIA_FFMPEG_PATH = original.ffmpegPath;
+    env.MEDIA_TRANSCODE_TIMEOUT_SECONDS = original.transcodeTimeoutSeconds;
+    env.MEDIA_MIN_FREE_INODES = Number.MAX_SAFE_INTEGER;
+    rejected.push(await expectSafeCode(() => storage.processVideo(validSource), 'media_capacity_insufficient'));
+
     process.stdout.write(`${JSON.stringify({ ok: true, accepted, rejected })}\n`);
   } finally {
     env.MEDIA_FFMPEG_PATH = original.ffmpegPath;
     env.MEDIA_FFPROBE_PATH = original.ffprobePath;
     env.MEDIA_TRANSCODE_TIMEOUT_SECONDS = original.transcodeTimeoutSeconds;
     env.MEDIA_MAX_DURATION_SECONDS = original.maxDurationSeconds;
+    env.MEDIA_MIN_FREE_INODES = original.minFreeInodes;
     await rm(workspace, { recursive: true, force: true });
   }
 }

@@ -2,7 +2,13 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import { env } from './env.js';
 import { AppError } from './http.js';
-import type { SpeechToTextAdapter, SpeechToTextInput, SpeechToTextSegment } from './speechToText.js';
+import {
+  SpeechToTextProviderError,
+  type SpeechToTextAdapter,
+  type SpeechToTextInput,
+  type SpeechToTextPollResult,
+  type SpeechToTextSegment,
+} from './speechToText.js';
 
 type FetchImplementation = typeof fetch;
 
@@ -64,8 +70,12 @@ const recognitionEventSchema = z
 
 type RecognitionEvent = z.infer<typeof recognitionEventSchema>;
 
-function safeSttError(code: string) {
-  return new AppError(503, 'Сервис расшифровки временно недоступен', undefined, code);
+function safeSttError(code: string, retryable = true) {
+  return new SpeechToTextProviderError(code, retryable);
+}
+
+function responseError(response: Response, code: string) {
+  return safeSttError(code, response.status === 408 || response.status === 429 || response.status >= 500);
 }
 
 async function withTimeout(fetchImpl: FetchImplementation, url: string, init: RequestInit, timeoutMs: number) {
@@ -73,8 +83,10 @@ async function withTimeout(fetchImpl: FetchImplementation, url: string, init: Re
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetchImpl(url, { ...init, signal: controller.signal });
-  } catch {
-    throw safeSttError('stt_provider_unavailable');
+  } catch (error) {
+    throw safeSttError(
+      error instanceof Error && error.name === 'AbortError' ? 'stt_provider_timeout' : 'stt_provider_unavailable',
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -94,7 +106,7 @@ function parseStreamingJson(text: string): unknown[] {
       try {
         events.push(JSON.parse(value));
       } catch {
-        throw safeSttError('stt_provider_response_invalid');
+        throw safeSttError('stt_provider_response_invalid', false);
       }
     }
     return events;
@@ -114,7 +126,7 @@ function segmentFromAlternative(
   const startMs = Number(alternative.startTimeMs);
   const endMs = Number(alternative.endTimeMs);
   if (!Number.isSafeInteger(startMs) || !Number.isSafeInteger(endMs) || startMs < 0 || endMs <= startMs) {
-    throw safeSttError('stt_provider_response_invalid');
+    throw safeSttError('stt_provider_response_invalid', false);
   }
   return { startMs, endMs, speaker: speakerLabel(channelTag), text: alternative.text };
 }
@@ -128,7 +140,7 @@ export function parseYandexRecognitionEvents(rawEvents: unknown[]): SpeechToText
     try {
       event = recognitionEventSchema.parse(raw);
     } catch {
-      throw safeSttError('stt_provider_response_invalid');
+      throw safeSttError('stt_provider_response_invalid', false);
     }
     if (event.final) {
       const parsedIndex = Number(event.audioCursors?.finalIndex);
@@ -141,7 +153,7 @@ export function parseYandexRecognitionEvents(rawEvents: unknown[]): SpeechToText
     }
     if (event.finalRefinement) {
       const index = Number(event.finalRefinement.finalIndex);
-      if (!Number.isSafeInteger(index) || index < 0) throw safeSttError('stt_provider_response_invalid');
+      if (!Number.isSafeInteger(index) || index < 0) throw safeSttError('stt_provider_response_invalid', false);
       refinements.set(
         index,
         segmentFromAlternative(
@@ -155,7 +167,7 @@ export function parseYandexRecognitionEvents(rawEvents: unknown[]): SpeechToText
   const segments = indexes
     .map(index => refinements.get(index) ?? finals.get(index))
     .filter(Boolean) as SpeechToTextSegment[];
-  if (!segments.length) throw safeSttError('stt_provider_response_invalid');
+  if (!segments.length) throw safeSttError('stt_provider_response_invalid', false);
   return segments.sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
 }
 
@@ -176,12 +188,16 @@ export class YandexSpeechKitAdapter implements SpeechToTextAdapter {
   readonly providerId = 'yandex_speechkit';
   readonly templateVersion = 'transcript-v1';
   readonly modelId: string;
+  readonly maxAudioSizeBytes = 1_073_741_824n;
+  readonly maxDurationSeconds = 14_400;
+  readonly supportsNativeDictionary = false;
 
   constructor(
     private readonly config: YandexSpeechKitConfig,
     private readonly fetchImpl: FetchImplementation = fetch,
-    private readonly sleep: (milliseconds: number) => Promise<void> = milliseconds =>
-      new Promise(resolve => setTimeout(resolve, milliseconds)),
+    // Retained as a third constructor argument for source compatibility with
+    // adapter contract tests from the pre-durable implementation.
+    _sleep?: (milliseconds: number) => Promise<void>,
   ) {
     this.modelId = config.model;
   }
@@ -195,8 +211,15 @@ export class YandexSpeechKitAdapter implements SpeechToTextAdapter {
     };
   }
 
-  async transcribe(input: SpeechToTextInput) {
-    const requestId = crypto.createHash('sha256').update(`aspb-stt-v1:${input.storageKey}`).digest('hex').slice(0, 36);
+  async submit(input: SpeechToTextInput, idempotencyKey: string) {
+    if (input.audioSizeBytes <= 0n || input.audioSizeBytes > this.maxAudioSizeBytes) {
+      throw safeSttError('stt_audio_size_exceeded', false);
+    }
+    if (input.durationSeconds <= 0 || input.durationSeconds > this.maxDurationSeconds) {
+      throw safeSttError('stt_audio_duration_exceeded', false);
+    }
+    if (input.dictionary.length > 500) throw safeSttError('stt_dictionary_limit_exceeded', false);
+    const requestId = crypto.createHash('sha256').update(`aspb-stt-v2:${idempotencyKey}`).digest('hex').slice(0, 36);
     const uri = new URL(
       input.storageKey.split('/').map(encodeURIComponent).join('/'),
       this.config.audioUriPrefix.endsWith('/') ? this.config.audioUriPrefix : `${this.config.audioUriPrefix}/`,
@@ -228,62 +251,58 @@ export class YandexSpeechKitAdapter implements SpeechToTextAdapter {
       },
       30_000,
     );
-    if (!submitted.ok) throw safeSttError('stt_provider_submit_failed');
+    if (!submitted.ok) throw responseError(submitted, 'stt_provider_submit_failed');
     let operation: z.infer<typeof operationSchema>;
     try {
       operation = operationSchema.parse(await submitted.json());
     } catch {
-      throw safeSttError('stt_provider_response_invalid');
+      throw safeSttError('stt_provider_response_invalid', false);
     }
-    let segments: SpeechToTextSegment[] | undefined;
-    let operationError: unknown;
-    try {
-      const deadline = Date.now() + this.config.timeoutSeconds * 1_000;
-      while (!operation.done) {
-        if (Date.now() >= deadline) throw safeSttError('stt_provider_timeout');
-        await this.sleep(this.config.pollIntervalMs);
-        const status = await withTimeout(
-          this.fetchImpl,
-          `${this.config.operationEndpoint.replace(/\/$/, '')}/${encodeURIComponent(operation.id)}`,
-          { method: 'GET', headers: this.headers() },
-          30_000,
-        );
-        if (!status.ok) throw safeSttError('stt_provider_status_failed');
-        try {
-          operation = operationSchema.parse(await status.json());
-        } catch {
-          throw safeSttError('stt_provider_response_invalid');
-        }
-      }
-      if (operation.error) throw safeSttError('stt_provider_failed');
+    return {
+      providerJobId: operation.id,
+      dictionaryApplied: false,
+    };
+  }
 
-      const result = await withTimeout(
-        this.fetchImpl,
-        `${this.config.resultEndpoint}?operationId=${encodeURIComponent(operation.id)}`,
-        { method: 'GET', headers: this.headers() },
-        60_000,
-      );
-      if (!result.ok) throw safeSttError('stt_provider_result_failed');
-      segments = parseYandexRecognitionEvents(parseStreamingJson(await result.text()));
-    } catch (error) {
-      operationError = error;
-    }
-    let cleanupError: unknown;
+  async poll(providerJobId: string): Promise<SpeechToTextPollResult> {
+    const status = await withTimeout(
+      this.fetchImpl,
+      `${this.config.operationEndpoint.replace(/\/$/, '')}/${encodeURIComponent(providerJobId)}`,
+      { method: 'GET', headers: this.headers() },
+      30_000,
+    );
+    if (!status.ok) throw responseError(status, 'stt_provider_status_failed');
+    let operation: z.infer<typeof operationSchema>;
     try {
-      const deleted = await withTimeout(
-        this.fetchImpl,
-        `${this.config.deleteEndpoint}?operationId=${encodeURIComponent(operation.id)}`,
-        { method: 'DELETE', headers: this.headers() },
-        30_000,
-      );
-      if (!deleted.ok) throw safeSttError('stt_provider_cleanup_failed');
-    } catch (error) {
-      cleanupError = error;
+      operation = operationSchema.parse(await status.json());
+    } catch {
+      throw safeSttError('stt_provider_response_invalid', false);
     }
-    if (cleanupError) throw cleanupError;
-    if (operationError) throw operationError;
-    if (!segments) throw safeSttError('stt_provider_response_invalid');
-    return { segments };
+    if (operation.id !== providerJobId) throw safeSttError('stt_provider_binding_mismatch', false);
+    if (!operation.done) return { status: 'pending' };
+    if (operation.error) return { status: 'failed', errorCode: 'stt_provider_failed' };
+    return { status: 'succeeded' };
+  }
+
+  async getResult(providerJobId: string) {
+    const result = await withTimeout(
+      this.fetchImpl,
+      `${this.config.resultEndpoint}?operationId=${encodeURIComponent(providerJobId)}`,
+      { method: 'GET', headers: this.headers() },
+      60_000,
+    );
+    if (!result.ok) throw responseError(result, 'stt_provider_result_failed');
+    return { segments: parseYandexRecognitionEvents(parseStreamingJson(await result.text())) };
+  }
+
+  async delete(providerJobId: string) {
+    const deleted = await withTimeout(
+      this.fetchImpl,
+      `${this.config.deleteEndpoint}?operationId=${encodeURIComponent(providerJobId)}`,
+      { method: 'DELETE', headers: this.headers() },
+      30_000,
+    );
+    if (!deleted.ok && deleted.status !== 404) throw responseError(deleted, 'stt_provider_cleanup_failed');
   }
 }
 

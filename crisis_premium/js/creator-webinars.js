@@ -899,23 +899,35 @@ async function uploadVideo(file) {
     && saved.fileName === file.name
     && saved.mimeType === file.type
     && saved.sizeBytes === String(file.size);
+  let reuseSavedInitKey = matchesSavedFile;
   let init = null;
-  if (matchesSavedFile) {
+  if (matchesSavedFile && saved.uploadId) {
     setText('creatorUploadStatus', 'Проверяем ранее загруженные части…');
     try {
       init = await post(`/v1/creator/uploads/${encodeURIComponent(saved.uploadId)}/resume`, {});
     } catch (error) {
       if (![404, 409].includes(error?.status)) throw error;
       clearUploadResume();
+      reuseSavedInitKey = false;
     }
   }
   if (!init) {
-    init = await post(`/v1/creator/webinars/${encodeURIComponent(state.current.id)}/uploads`, {
+    const idempotencyKey = reuseSavedInitKey && typeof saved.idempotencyKey === 'string'
+      ? saved.idempotencyKey
+      : operationKey('media-upload');
+    saveUploadResume({
+      idempotencyKey,
       fileName: file.name,
       mimeType: file.type,
       sizeBytes: String(file.size),
     });
+    init = await post(`/v1/creator/webinars/${encodeURIComponent(state.current.id)}/uploads`, {
+      fileName: file.name,
+      mimeType: file.type,
+      sizeBytes: String(file.size),
+    }, { 'Idempotency-Key': idempotencyKey });
     saveUploadResume({
+      idempotencyKey,
       uploadId: init.uploadId,
       fileName: file.name,
       mimeType: file.type,

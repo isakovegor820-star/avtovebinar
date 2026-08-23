@@ -3,6 +3,18 @@ import { YandexFoundationModelsAdapter } from '../src/lib/contentEnrichmentYande
 import { YandexSpeechKitAdapter, parseYandexRecognitionEvents } from '../src/lib/speechToTextYandex.js';
 
 describe('real provider adapters', () => {
+  const speechConfig = {
+    apiKey: 'test-api-key-never-logged',
+    folderId: 'folder-1',
+    recognizeEndpoint: 'https://stt.example.test/recognize',
+    operationEndpoint: 'https://stt.example.test/operations',
+    resultEndpoint: 'https://stt.example.test/result',
+    deleteEndpoint: 'https://stt.example.test/delete',
+    audioUriPrefix: 'https://storage.example.test/private/',
+    model: 'general',
+    pollIntervalMs: 500,
+    timeoutSeconds: 60,
+  };
   it('parses final SpeechKit events, applies normalized refinements and labels speakers', () => {
     expect(
       parseYandexRecognitionEvents([
@@ -63,16 +75,22 @@ describe('real provider adapters', () => {
       fetchMock,
       async () => undefined,
     );
-    await expect(
-      adapter.transcribe({
+    const submission = await adapter.submit(
+      {
         storageKey: 'organizations/org-1/assets/a-1/renditions/v1/speech.ogg',
         language: 'ru-RU',
         durationSeconds: 1,
+        audioSizeBytes: 1_024n,
         dictionary: [{ term: 'АСПБ', expansion: null }],
-      }),
-    ).resolves.toEqual({
+      },
+      'transcribe:asset-1:v1',
+    );
+    expect(submission).toEqual({ providerJobId: 'operation-1', dictionaryApplied: false });
+    await expect(adapter.poll(submission.providerJobId)).resolves.toEqual({ status: 'succeeded' });
+    await expect(adapter.getResult(submission.providerJobId)).resolves.toEqual({
       segments: [{ startMs: 0, endMs: 1000, speaker: undefined, text: 'Юридический термин.' }],
     });
+    await expect(adapter.delete(submission.providerJobId)).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(4);
     const submitBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(submitBody).toMatchObject({
@@ -107,16 +125,106 @@ describe('real provider adapters', () => {
       fetchMock,
       async () => undefined,
     );
-    await expect(
-      adapter.transcribe({
+    const submission = await adapter.submit(
+      {
         storageKey: 'speech.ogg',
         language: 'ru-RU',
         durationSeconds: 1,
+        audioSizeBytes: 1_024n,
         dictionary: [],
-      }),
-    ).rejects.toMatchObject({ code: 'stt_provider_status_failed' });
+      },
+      'transcribe:failed:v1',
+    );
+    await expect(adapter.poll(submission.providerJobId)).rejects.toMatchObject({
+      code: 'stt_provider_status_failed',
+      retryable: true,
+    });
+    await expect(adapter.delete(submission.providerJobId)).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls[2][1]?.method).toBe('DELETE');
+  });
+
+  it('classifies SpeechKit retry/permanent failures and rejects a foreign provider binding', async () => {
+    const unavailable = new YandexSpeechKitAdapter(
+      speechConfig,
+      vi.fn().mockRejectedValue(new Error('provider network unavailable')),
+    );
+    await expect(unavailable.poll('operation-1')).rejects.toMatchObject({
+      code: 'stt_provider_unavailable',
+      retryable: true,
+    });
+    const retrying = new YandexSpeechKitAdapter(
+      speechConfig,
+      vi.fn().mockResolvedValue(new Response('', { status: 429 })),
+    );
+    await expect(retrying.poll('operation-1')).rejects.toMatchObject({
+      code: 'stt_provider_status_failed',
+      retryable: true,
+    });
+    const permanent = new YandexSpeechKitAdapter(
+      speechConfig,
+      vi.fn().mockResolvedValue(new Response('', { status: 400 })),
+    );
+    await expect(permanent.poll('operation-1')).rejects.toMatchObject({
+      code: 'stt_provider_status_failed',
+      retryable: false,
+    });
+    const foreignBinding = new YandexSpeechKitAdapter(
+      speechConfig,
+      vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ id: 'operation-foreign', done: false }), { status: 200 })),
+    );
+    await expect(foreignBinding.poll('operation-local')).rejects.toMatchObject({
+      code: 'stt_provider_binding_mismatch',
+      retryable: false,
+    });
+  });
+
+  it('fails closed on malformed STT results, enforces input limits and treats deletion replay as success', async () => {
+    const malformed = new YandexSpeechKitAdapter(
+      speechConfig,
+      vi.fn().mockResolvedValue(new Response('{not-json', { status: 200 })),
+    );
+    await expect(malformed.getResult('operation-1')).rejects.toMatchObject({
+      code: 'stt_provider_response_invalid',
+      retryable: false,
+    });
+    const adapter = new YandexSpeechKitAdapter(
+      speechConfig,
+      vi.fn().mockResolvedValue(new Response('', { status: 404 })),
+    );
+    const validBase = {
+      storageKey: 'speech.ogg',
+      language: 'ru-RU',
+      durationSeconds: 1,
+      audioSizeBytes: 1_024n,
+      dictionary: [] as Array<{ term: string; expansion: null }>,
+    };
+    await expect(
+      adapter.submit({ ...validBase, audioSizeBytes: adapter.maxAudioSizeBytes + 1n }, 'too-large'),
+    ).rejects.toMatchObject({
+      code: 'stt_audio_size_exceeded',
+      retryable: false,
+    });
+    await expect(
+      adapter.submit(
+        {
+          ...validBase,
+          dictionary: Array.from({ length: 501 }, (_, index) => ({ term: `term-${index}`, expansion: null })),
+        },
+        'dictionary-too-large',
+      ),
+    ).rejects.toMatchObject({ code: 'stt_dictionary_limit_exceeded', retryable: false });
+    await expect(adapter.delete('already-deleted')).resolves.toBeUndefined();
+    const cleanupFailure = new YandexSpeechKitAdapter(
+      speechConfig,
+      vi.fn().mockResolvedValue(new Response('', { status: 503 })),
+    );
+    await expect(cleanupFailure.delete('operation-1')).rejects.toMatchObject({
+      code: 'stt_provider_cleanup_failed',
+      retryable: true,
+    });
   });
 
   it('validates structured YandexGPT suggestions and retains the returned model version', async () => {

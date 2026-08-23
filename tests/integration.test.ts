@@ -38,6 +38,7 @@ import {
   runMediaJobOnce,
 } from '../src/lib/tenancy/mediaPipeline.js';
 import { SafeMediaProviderError } from '../src/lib/mediaStorageS3.js';
+import { SpeechToTextProviderError } from '../src/lib/speechToText.js';
 import { getPublishedTranscript, runContentJobOnce } from '../src/lib/tenancy/transcripts.js';
 import { encryptMfaSecret, generateTotp } from '../src/lib/mfa.js';
 import {
@@ -9779,6 +9780,7 @@ describe('critical path integration scenarios', () => {
       const unrelated = await loginPlatformUser(unrelatedAuthor.id);
       const created = await owner.agent
         .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+        .set('Idempotency-Key', 'local-media-upload-1')
         .set('x-csrf-token', owner.csrfToken)
         .send({ fileName: 'local.mp4', mimeType: 'video/mp4', sizeBytes: '10' });
       expect(created.status).toBe(201);
@@ -9862,7 +9864,12 @@ describe('critical path integration scenarios', () => {
         .send({});
       expect(resumed.status).toBe(200);
       expect(resumed.body.parts).toEqual([]);
-      expect(resumed.body.completedParts).toEqual(uploaded.body.completedParts);
+      expect(resumed.body.completedParts).toEqual(
+        uploaded.body.completedParts.map(({ partNumber, etag }: { partNumber: number; etag: string }) => ({
+          partNumber,
+          etag,
+        })),
+      );
       const crossComplete = await foreignOwner.agent
         .post(`/api/v1/creator/uploads/${uploadId}/complete`)
         .set('x-csrf-token', foreignOwner.csrfToken)
@@ -9884,6 +9891,7 @@ describe('critical path integration scenarios', () => {
 
       const expiring = await owner.agent
         .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+        .set('Idempotency-Key', 'local-media-expired-1')
         .set('x-csrf-token', owner.csrfToken)
         .send({ fileName: 'expired.mp4', mimeType: 'video/mp4', sizeBytes: '10' });
       expect(expiring.status).toBe(201);
@@ -9918,6 +9926,9 @@ describe('critical path integration scenarios', () => {
       expect(mediaMetrics.text).toContain('aspb_media_storage_probe_success{provider="local_fs"} 1');
       expect(mediaMetrics.text).toContain('aspb_media_storage_bytes{provider="local_fs",state="available"} ');
       expect(mediaMetrics.text).toContain('aspb_media_storage_inodes{provider="local_fs",state="available"} ');
+      expect(mediaMetrics.text).toContain('aspb_media_work_probe_success{} 1');
+      expect(mediaMetrics.text).toContain('aspb_media_work_bytes{state="available"} ');
+      expect(mediaMetrics.text).toContain('aspb_media_work_inodes{state="available"} ');
       expect(mediaMetrics.text).not.toContain(localRoot);
     } finally {
       await rm(localRoot, { recursive: true, force: true });
@@ -9951,6 +9962,7 @@ describe('critical path integration scenarios', () => {
 
     const forged = await sessionA.agent
       .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('Idempotency-Key', 'media-forged-1')
       .set('x-csrf-token', sessionA.csrfToken)
       .send({
         fileName: 'legal.mp4',
@@ -9962,6 +9974,7 @@ describe('critical path integration scenarios', () => {
 
     const created = await sessionA.agent
       .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('Idempotency-Key', 'media-upload-legal-1')
       .set('x-csrf-token', sessionA.csrfToken)
       .send({ fileName: 'legal.mp4', mimeType: 'video/mp4', sizeBytes: '16777216' });
     expect(created.status).toBe(201);
@@ -9970,6 +9983,20 @@ describe('critical path integration scenarios', () => {
     expect(JSON.stringify(created.body)).not.toContain('organizations/');
     const assetId = created.body.asset.id as string;
     const uploadId = created.body.uploadId as string;
+    const initReplay = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('Idempotency-Key', 'media-upload-legal-1')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ fileName: 'legal.mp4', mimeType: 'video/mp4', sizeBytes: '16777216' });
+    expect(initReplay.status).toBe(200);
+    expect(initReplay.body).toMatchObject({ idempotent: true, uploadId, asset: { id: assetId } });
+    const initConflict = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('Idempotency-Key', 'media-upload-legal-1')
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ fileName: 'legal.mp4', mimeType: 'video/mp4', sizeBytes: '16777215' });
+    expect(initConflict.status).toBe(409);
+    expect(initConflict.body).toMatchObject({ code: 'media_upload_idempotency_conflict' });
 
     const crossRead = await sessionB.agent.get(`/api/v1/creator/media/${assetId}/status`);
     const recordedPart = await sessionA.agent
@@ -10008,6 +10035,15 @@ describe('critical path integration scenarios', () => {
       userId: tenantA.user.id,
       activeOrganizationId: tenantA.organization.id,
       correlationId: 'media-provider-reconciliation-test',
+    });
+    const conflictingProviderStorage = {
+      name: 'test_fake',
+      listMultipartUploadParts: async () => [{ partNumber: 1, etag: 'provider-conflict' }],
+      signMultipartUploadParts: async () => [],
+    } as any;
+    await expect(resumeMediaUpload(prisma, tenantContext, uploadId, conflictingProviderStorage)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'media_upload_checkpoint_conflict',
     });
     const providerAwareStorage = {
       name: 'test_fake',
@@ -10064,7 +10100,12 @@ describe('critical path integration scenarios', () => {
     expect(sameTenantAuthorRead.status).toBe(404);
     expect(sameTenantAuthorComplete.status).toBe(404);
 
-    const completeBody = { parts: [{ partNumber: 2, etag: 'b' }] };
+    const completeBody = {
+      parts: [
+        { partNumber: 1, etag: 'a' },
+        { partNumber: 2, etag: 'provider-b' },
+      ],
+    };
     const completed = await sessionA.agent
       .post(`/api/v1/creator/uploads/${uploadId}/complete`)
       .set('x-csrf-token', sessionA.csrfToken)
@@ -10302,7 +10343,14 @@ describe('critical path integration scenarios', () => {
     expect(manifest.text).toContain(`/api/media/webinar/${playbackSession.id}/segment/`);
     expect(manifest.text).not.toContain('organizations/');
     expect(manifest.text).not.toContain('private-storage');
-    const protectedSegmentPath = manifest.text.split('\n').find(line => line.startsWith('/api/media/'));
+    const protectedMediaManifestPath = manifest.text.split('\n').find(line => line.startsWith('/api/media/'));
+    expect(protectedMediaManifestPath).toBeTruthy();
+    if (!protectedMediaManifestPath) throw new Error('Expected protected HLS media manifest');
+    const mediaManifest = await request(app).get(protectedMediaManifestPath).set('Cookie', viewerCookie);
+    expect(mediaManifest.status).toBe(200);
+    expect(mediaManifest.headers['content-type']).toContain('application/vnd.apple.mpegurl');
+    expect(mediaManifest.text).not.toContain('organizations/');
+    const protectedSegmentPath = mediaManifest.text.split('\n').find(line => line.startsWith('/api/media/'));
     expect(protectedSegmentPath).toBeTruthy();
     if (!protectedSegmentPath) throw new Error('Expected protected HLS segment');
     const segment = await request(app).get(protectedSegmentPath).set('Cookie', viewerCookie);
@@ -10416,6 +10464,7 @@ describe('critical path integration scenarios', () => {
 
     const replacement = await sessionA.agent
       .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('Idempotency-Key', 'media-replacement-1')
       .set('x-csrf-token', sessionA.csrfToken)
       .send({ fileName: 'replacement.webm', mimeType: 'video/webm', sizeBytes: '5242880' });
     expect(replacement.body.asset.version).toBe(2);
@@ -10590,14 +10639,56 @@ describe('critical path integration scenarios', () => {
       abortAttemptedAt: expect.any(Date),
     });
 
+    const cleanupDeadLetterAsset = await prisma.mediaAsset.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        createdByUserId: tenantA.user.id,
+        version: 5,
+        status: 'UPLOADING',
+        originalFileName: 'cleanup-dead-letter.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 5_242_880n,
+        storageKey: `test/${tenantA.organization.id}/cleanup-dead-letter`,
+      },
+    });
+    const cleanupDeadLetterUpload = await prisma.mediaUpload.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        assetId: cleanupDeadLetterAsset.id,
+        provider: 'cleanup_failure_test',
+        providerUploadKey: `cleanup-failure-${cleanupDeadLetterAsset.id}`,
+        status: 'UPLOADING',
+        partSizeBytes: 5_242_880,
+        expiresAt: new Date(Date.now() - 60_000),
+        abortAttempts: 4,
+      },
+    });
+    await expect(
+      cleanupExpiredMediaUploads(prisma, {
+        name: 'cleanup_failure_test',
+        abortMultipartUpload: vi.fn().mockRejectedValue(new SafeMediaProviderError('media_upload_abort_failed')),
+      } as any),
+    ).resolves.toEqual({ checked: 1, cancelled: 0, failed: 1 });
+    await expect(
+      prisma.mediaUpload.findUniqueOrThrow({ where: { id: cleanupDeadLetterUpload.id } }),
+    ).resolves.toMatchObject({
+      status: 'UPLOADING',
+      abortAttempts: 5,
+      abortLastErrorCode: 'media_upload_abort_failed',
+      abortDeadLetteredAt: expect.any(Date),
+    });
+
     const maximumAllowed = await sessionA.agent
       .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('Idempotency-Key', 'media-maximum-1')
       .set('x-csrf-token', sessionA.csrfToken)
       .send({ fileName: 'maximum.mp4', mimeType: 'video/mp4', sizeBytes: String(env.MEDIA_MAX_UPLOAD_BYTES) });
     expect(maximumAllowed.status).toBe(201);
     expect(maximumAllowed.body.parts).toHaveLength(Math.ceil(env.MEDIA_MAX_UPLOAD_BYTES / env.MEDIA_PART_SIZE_BYTES));
     const overMaximum = await sessionA.agent
       .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('Idempotency-Key', 'media-over-maximum-1')
       .set('x-csrf-token', sessionA.csrfToken)
       .send({
         fileName: 'too-large.mp4',
@@ -10655,7 +10746,19 @@ describe('critical path integration scenarios', () => {
       activeOrganizationId: tenant.organization.id,
       correlationId: 'media-complete-recovery',
     });
-    const completeMultipartUpload = vi.fn(async () => ({ mimeType: 'video/mp4', sizeBytes }));
+    let releaseProviderComplete!: () => void;
+    let providerCompleteStarted!: () => void;
+    const providerCompleteGate = new Promise<void>(resolve => {
+      releaseProviderComplete = resolve;
+    });
+    const providerCompleteEntered = new Promise<void>(resolve => {
+      providerCompleteStarted = resolve;
+    });
+    const completeMultipartUpload = vi.fn(async () => {
+      providerCompleteStarted();
+      await providerCompleteGate;
+      return { mimeType: 'video/mp4', sizeBytes };
+    });
     const signMultipartUploadParts = vi.fn(async () => []);
     const storage = {
       name: 's3',
@@ -10671,9 +10774,19 @@ describe('critical path integration scenarios', () => {
       parts: [],
     });
     expect(signMultipartUploadParts).toHaveBeenCalledWith(expect.objectContaining({ partNumbers: [] }));
+    const firstComplete = completeMediaUpload(
+      prisma,
+      context,
+      upload.id,
+      [{ partNumber: 1, etag: 'trusted-etag' }],
+      storage,
+    );
+    await providerCompleteEntered;
     await expect(
       completeMediaUpload(prisma, context, upload.id, [{ partNumber: 1, etag: 'trusted-etag' }], storage),
-    ).resolves.toMatchObject({ idempotent: false, asset: { status: 'VALIDATING' } });
+    ).rejects.toMatchObject({ statusCode: 409, code: 'media_upload_completion_in_progress' });
+    releaseProviderComplete();
+    await expect(firstComplete).resolves.toMatchObject({ idempotent: false, asset: { status: 'VALIDATING' } });
     expect(completeMultipartUpload).toHaveBeenCalledTimes(1);
     await expect(prisma.mediaUpload.findUniqueOrThrow({ where: { id: upload.id } })).resolves.toMatchObject({
       status: 'COMPLETED',
@@ -10736,6 +10849,7 @@ describe('critical path integration scenarios', () => {
         manifestStorageKey: `organizations/${tenantA.organization.id}/webinars/${webinar.id}/manifest`,
         posterStorageKey: `organizations/${tenantA.organization.id}/webinars/${webinar.id}/poster`,
         audioStorageKey: `organizations/${tenantA.organization.id}/webinars/${webinar.id}/speech.ogg`,
+        speechSizeBytes: 65_536n,
         durationSeconds: 90,
         readyAt: new Date(),
       },
@@ -10780,9 +10894,21 @@ describe('critical path integration scenarios', () => {
     const crossJob = await sessionB.agent.get(`/api/v1/creator/content-jobs/${jobId}/status`);
     expect(crossJob.status).toBe(404);
     await expect(prisma.transcript.count({ where: { webinarId: webinar.id } })).resolves.toBe(0);
+    await expect(runContentJobOnce(prisma)).resolves.toEqual({ checked: 1, succeeded: 0, failed: 0 });
+    await expect(prisma.contentJob.findUniqueOrThrow({ where: { id: jobId } })).resolves.toMatchObject({
+      status: 'PENDING',
+      providerId: 'test_fake',
+      providerJobId: expect.stringMatching(/^fake_/),
+      providerModelId: 'deterministic-stt-v2',
+      providerModelVersion: 'test-v2',
+      providerState: 'SUBMITTED',
+      attempts: 0,
+    });
+    await prisma.contentJob.update({ where: { id: jobId }, data: { nextAttemptAt: new Date(0) } });
     await expect(runContentJobOnce(prisma)).resolves.toEqual({ checked: 1, succeeded: 1, failed: 0 });
     const jobStatus = await sessionA.agent.get(`/api/v1/creator/content-jobs/${jobId}/status`);
-    expect(jobStatus.body.job).toMatchObject({ status: 'SUCCEEDED', attempts: 1 });
+    expect(jobStatus.body.job).toMatchObject({ status: 'SUCCEEDED', attempts: 0 });
+    expect(JSON.stringify(jobStatus.body)).not.toMatch(/providerJobId|provider_job_id|fake_/i);
     const generated = await sessionA.agent.get(`/api/v1/creator/webinars/${webinar.id}/transcript`);
     expect(generated.body).toMatchObject({
       transcript: {
@@ -10793,7 +10919,8 @@ describe('critical path integration scenarios', () => {
           {
             operationType: 'speech_to_text',
             providerId: 'test_fake',
-            modelId: 'deterministic-stt-v1',
+            modelId: 'deterministic-stt-v2',
+            providerModelVersion: 'test-v2',
             templateVersion: 'transcript-v1',
             status: 'succeeded',
             reviewStatus: 'pending',
@@ -10814,6 +10941,127 @@ describe('critical path integration scenarios', () => {
       text: segment.text,
     }));
     expect(await getPublishedTranscript(prisma, tenantA.organization.id, webinar.id)).toBeNull();
+
+    const cancellationJob = await prisma.contentJob.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        mediaAssetId: asset.id,
+        requestedByUserId: tenantA.user.id,
+        type: 'TRANSCRIBE',
+        dedupKey: `transcribe-cancel:${asset.id}`,
+        providerId: 'test_fake',
+        providerJobId: `fake_cancel_${asset.id}`,
+        providerModelId: 'deterministic-stt-v2',
+        providerModelVersion: 'test-v2',
+        providerState: 'SUBMITTED',
+        providerSubmittedAt: new Date(),
+        providerDeadlineAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const crossCancel = await sessionB.agent
+      .post(`/api/v1/creator/content-jobs/${cancellationJob.id}/cancel`)
+      .set('x-csrf-token', sessionB.csrfToken)
+      .send({});
+    expect(crossCancel.status).toBe(404);
+    const cancellationRequested = await sessionA.agent
+      .post(`/api/v1/creator/content-jobs/${cancellationJob.id}/cancel`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(cancellationRequested.status).toBe(200);
+    expect(cancellationRequested.body).toMatchObject({ idempotent: false, job: { status: 'PENDING' } });
+    const cancellationReplay = await sessionA.agent
+      .post(`/api/v1/creator/content-jobs/${cancellationJob.id}/cancel`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({});
+    expect(cancellationReplay.body.idempotent).toBe(true);
+    await expect(runContentJobOnce(prisma)).resolves.toEqual({ checked: 1, succeeded: 0, failed: 0 });
+    await expect(prisma.contentJob.findUniqueOrThrow({ where: { id: cancellationJob.id } })).resolves.toMatchObject({
+      status: 'CANCELLED',
+      providerState: 'DELETED',
+      providerDeletedAt: expect.any(Date),
+      cancelledAt: expect.any(Date),
+    });
+    await expect(prisma.transcript.count({ where: { webinarId: webinar.id } })).resolves.toBe(1);
+
+    const timeoutJob = await prisma.contentJob.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        mediaAssetId: asset.id,
+        requestedByUserId: tenantA.user.id,
+        type: 'TRANSCRIBE',
+        dedupKey: `transcribe-timeout:${asset.id}`,
+        providerId: 'timeout_test',
+        providerJobId: `timeout_${asset.id}`,
+        providerModelId: 'timeout-model',
+        providerState: 'PENDING',
+        providerDeadlineAt: new Date(Date.now() - 1_000),
+      },
+    });
+    const timeoutDelete = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      runContentJobOnce(prisma, {
+        speechToText: {
+          providerId: 'timeout_test',
+          modelId: 'timeout-model',
+          templateVersion: 'timeout-v1',
+          maxAudioSizeBytes: 1_073_741_824n,
+          maxDurationSeconds: 14_400,
+          supportsNativeDictionary: false,
+          submit: vi.fn(),
+          poll: vi.fn(),
+          getResult: vi.fn(),
+          delete: timeoutDelete,
+        },
+      }),
+    ).resolves.toEqual({ checked: 1, succeeded: 0, failed: 1 });
+    expect(timeoutDelete).toHaveBeenCalledWith(timeoutJob.providerJobId);
+    await expect(prisma.contentJob.findUniqueOrThrow({ where: { id: timeoutJob.id } })).resolves.toMatchObject({
+      status: 'DEAD_LETTER',
+      attempts: 1,
+      lastErrorCode: 'stt_provider_timeout',
+      providerState: 'DELETED',
+      providerDeletedAt: expect.any(Date),
+    });
+
+    const retryJob = await prisma.contentJob.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        mediaAssetId: asset.id,
+        requestedByUserId: tenantA.user.id,
+        type: 'TRANSCRIBE',
+        dedupKey: `transcribe-retry:${asset.id}`,
+        providerId: 'retry_test',
+        providerJobId: `retry_${asset.id}`,
+        providerModelId: 'retry-model',
+        providerState: 'PENDING',
+        providerDeadlineAt: new Date(Date.now() + 60_000),
+      },
+    });
+    await expect(
+      runContentJobOnce(prisma, {
+        speechToText: {
+          providerId: 'retry_test',
+          modelId: 'retry-model',
+          templateVersion: 'retry-v1',
+          maxAudioSizeBytes: 1_073_741_824n,
+          maxDurationSeconds: 14_400,
+          supportsNativeDictionary: false,
+          submit: vi.fn(),
+          poll: vi.fn().mockRejectedValue(new SpeechToTextProviderError('stt_provider_status_failed', true)),
+          getResult: vi.fn(),
+          delete: vi.fn(),
+        },
+      }),
+    ).resolves.toEqual({ checked: 1, succeeded: 0, failed: 1 });
+    await expect(prisma.contentJob.findUniqueOrThrow({ where: { id: retryJob.id } })).resolves.toMatchObject({
+      status: 'PENDING',
+      attempts: 1,
+      lastErrorCode: 'stt_provider_status_failed',
+      providerDeletedAt: null,
+    });
 
     const injectedTenant = await sessionA.agent
       .patch(`/api/v1/creator/webinars/${webinar.id}/transcript`)
@@ -10881,7 +11129,7 @@ describe('critical path integration scenarios', () => {
     expect(aiEnqueued.body.job).toMatchObject({ type: 'AI_ENRICH', status: 'PENDING' });
     await expect(runContentJobOnce(prisma)).resolves.toEqual({ checked: 1, succeeded: 1, failed: 0 });
     const aiJob = await sessionA.agent.get(`/api/v1/creator/content-jobs/${aiEnqueued.body.job.id}/status`);
-    expect(aiJob.body.job).toMatchObject({ type: 'AI_ENRICH', status: 'SUCCEEDED', attempts: 1 });
+    expect(aiJob.body.job).toMatchObject({ type: 'AI_ENRICH', status: 'SUCCEEDED', attempts: 0 });
     const suggestionsResponse = await sessionA.agent.get(`/api/v1/creator/webinars/${webinar.id}/ai-suggestions`);
     expect(suggestionsResponse.status).toBe(200);
     const suggestions = suggestionsResponse.body.suggestions as Array<any>;

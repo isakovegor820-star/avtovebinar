@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createReadStream } from 'node:fs';
-import { mkdir, open, readFile, readdir, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, readdir, stat, statfs, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { env } from './env.js';
@@ -29,7 +30,29 @@ export async function sha256File(path: string) {
   return hash.digest('hex');
 }
 
-function sniffVideoMime(header: Buffer) {
+export async function getMediaWorkCapacity() {
+  const root = env.MEDIA_WORK_ROOT ?? tmpdir();
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const capacity = await statfs(root, { bigint: true });
+  return {
+    totalBytes: capacity.blocks * capacity.bsize,
+    availableBytes: capacity.bavail * capacity.bsize,
+    totalInodes: capacity.files,
+    availableInodes: capacity.ffree,
+  };
+}
+
+export async function createMediaWorkDirectory(prefix: string, expectedSourceBytes: bigint) {
+  const capacity = await getMediaWorkCapacity();
+  const requiredBytes =
+    expectedSourceBytes * BigInt(env.MEDIA_PROCESSING_SPACE_MULTIPLIER) + BigInt(env.MEDIA_PROCESSING_RESERVE_BYTES);
+  if (capacity.availableBytes < requiredBytes || capacity.availableInodes < BigInt(env.MEDIA_MIN_FREE_INODES)) {
+    throw new SafeMediaProviderError('media_capacity_insufficient');
+  }
+  return mkdtemp(join(env.MEDIA_WORK_ROOT ?? tmpdir(), prefix));
+}
+
+export function sniffVideoMime(header: Buffer) {
   if (header.length >= 12 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
     return header.subarray(8, 12).toString('ascii') === 'qt  ' ? 'video/quicktime' : 'video/mp4';
   }
@@ -90,7 +113,7 @@ async function probeVideo(path: string, expectedMimeType: string) {
   }
   const detectedMimeType = sniffVideoMime(header.subarray(0, bytesRead));
   if (!detectedMimeType || detectedMimeType !== expectedMimeType) {
-    throw new SafeMediaProviderError('media_signature_invalid');
+    throw new SafeMediaProviderError(detectedMimeType ? 'media_mime_mismatch' : 'media_signature_invalid');
   }
   const result = await runTool(
     env.MEDIA_FFPROBE_PATH,
@@ -105,27 +128,39 @@ async function probeVideo(path: string, expectedMimeType: string) {
     ],
     Math.min(env.MEDIA_TRANSCODE_TIMEOUT_SECONDS * 1_000, 120_000),
     'media_probe_timeout',
-    'media_probe_failed',
+    'media_processing_failed',
   );
   let probe: ProbeJson;
   try {
     probe = JSON.parse(result.stdout) as ProbeJson;
   } catch {
-    throw new SafeMediaProviderError('media_probe_response_invalid');
+    throw new SafeMediaProviderError('media_processing_failed');
   }
   const duration = Number(probe.format?.duration);
   const video = probe.streams?.find(stream => stream.codec_type === 'video');
   const audio = probe.streams?.find(stream => stream.codec_type === 'audio');
   const allowedVideoCodecs = new Set(['h264', 'hevc', 'vp8', 'vp9', 'av1']);
   const allowedAudioCodecs = new Set(['aac', 'opus', 'vorbis', 'mp3']);
-  if (!Number.isFinite(duration) || duration <= 0 || !video?.codec_name || !allowedVideoCodecs.has(video.codec_name)) {
+  const allowedContainersByMime: Record<string, Set<string>> = {
+    'video/mp4': new Set(['mov', 'mp4', 'm4a', '3gp', '3g2', 'mj2']),
+    'video/quicktime': new Set(['mov', 'mp4', 'm4a', '3gp', '3g2', 'mj2']),
+    'video/webm': new Set(['matroska', 'webm']),
+  };
+  const containers = new Set((probe.format?.format_name ?? '').split(',').filter(Boolean));
+  if (![...containers].some(container => allowedContainersByMime[expectedMimeType]?.has(container))) {
+    throw new SafeMediaProviderError('media_container_unsupported');
+  }
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new SafeMediaProviderError('media_processing_failed');
+  }
+  if (!video?.codec_name || !allowedVideoCodecs.has(video.codec_name)) {
     throw new SafeMediaProviderError('media_codec_unsupported');
   }
-  if (!audio?.codec_name) throw new SafeMediaProviderError('media_audio_missing');
+  if (!audio?.codec_name) throw new SafeMediaProviderError('media_codec_unsupported');
   if (!allowedAudioCodecs.has(audio.codec_name)) throw new SafeMediaProviderError('media_codec_unsupported');
   if (duration > env.MEDIA_MAX_DURATION_SECONDS) throw new SafeMediaProviderError('media_duration_exceeded');
   if (!video.width || !video.height || video.width <= 0 || video.height <= 0) {
-    throw new SafeMediaProviderError('media_probe_response_invalid');
+    throw new SafeMediaProviderError('media_processing_failed');
   }
   return {
     mimeType: detectedMimeType,
@@ -138,19 +173,51 @@ async function probeVideo(path: string, expectedMimeType: string) {
   };
 }
 
-function validateManifest(manifest: string, artifactNames: Set<string>) {
-  if (!manifest.startsWith('#EXTM3U') || !manifest.includes('#EXTINF:')) return false;
-  const resources = manifest
+function manifestResources(manifest: string) {
+  return manifest
     .split(/\r?\n/)
     .map(line => line.trim())
     .filter(line => line && !line.startsWith('#'));
+}
+
+function resourcesArePrivateRelative(resources: string[], artifactNames: Set<string>) {
+  return resources.every(resource => {
+    if (resource.includes('://') || resource.includes('..') || resource.startsWith('/')) return false;
+    return artifactNames.has(resource);
+  });
+}
+
+function validateMediaManifest(manifest: string, artifactNames: Set<string>, expectedDurationSeconds: number) {
+  if (!manifest.startsWith('#EXTM3U') || !manifest.includes('#EXTINF:')) return false;
+  const resources = manifestResources(manifest);
+  const durations = [...manifest.matchAll(/^#EXTINF:([0-9]+(?:\.[0-9]+)?),?/gm)].map(match => Number(match[1]));
+  const duration = durations.reduce((total, value) => total + value, 0);
   return (
     resources.length > 0 &&
-    resources.every(resource => {
-      if (resource.includes('://') || resource.includes('..') || resource.startsWith('/')) return false;
-      return artifactNames.has(resource);
-    })
+    resources.length === durations.length &&
+    durations.every(value => Number.isFinite(value) && value > 0) &&
+    Math.abs(duration - expectedDurationSeconds) <= Math.max(2, env.MEDIA_HLS_SEGMENT_SECONDS * 2) &&
+    manifest.includes('#EXT-X-ENDLIST') &&
+    resourcesArePrivateRelative(resources, artifactNames)
   );
+}
+
+function validateMasterManifest(manifest: string, artifactNames: Set<string>) {
+  const resources = manifestResources(manifest);
+  return (
+    manifest.startsWith('#EXTM3U') &&
+    manifest.includes('#EXT-X-STREAM-INF:') &&
+    resources.length >= 1 &&
+    resourcesArePrivateRelative(resources, artifactNames)
+  );
+}
+
+async function checkedArtifact(path: string, signature: (header: Buffer, body: Buffer) => boolean) {
+  const body = await readFile(path);
+  if (!body.length || !signature(body.subarray(0, 16), body)) {
+    throw new SafeMediaProviderError('media_processing_failed');
+  }
+  return { sizeBytes: body.length, checksumSha256: crypto.createHash('sha256').update(body).digest('hex') };
 }
 
 export async function prepareMediaRenditions(input: {
@@ -162,11 +229,11 @@ export async function prepareMediaRenditions(input: {
 }) {
   const sourceStat = await stat(input.sourcePath);
   if (!sourceStat.isFile() || BigInt(sourceStat.size) !== input.expectedSizeBytes) {
-    throw new SafeMediaProviderError('media_size_mismatch');
+    throw new SafeMediaProviderError('media_integrity_failed');
   }
   const checksumSha256 = await sha256File(input.sourcePath);
   if (input.expectedChecksumSha256 && checksumSha256 !== input.expectedChecksumSha256) {
-    throw new SafeMediaProviderError('media_checksum_mismatch');
+    throw new SafeMediaProviderError('media_integrity_failed');
   }
   const probe = await probeVideo(input.sourcePath, input.expectedMimeType);
   const hlsDirectory = join(input.workDirectory, 'hls');
@@ -211,11 +278,22 @@ export async function prepareMediaRenditions(input: {
       'independent_segments+temp_file',
       '-hls_segment_filename',
       join(hlsDirectory, 'segment-%06d.ts'),
-      join(hlsDirectory, 'master.m3u8'),
+      join(hlsDirectory, 'media.m3u8'),
     ],
     env.MEDIA_TRANSCODE_TIMEOUT_SECONDS * 1_000,
     'media_transcode_timeout',
     'media_transcode_failed',
+  );
+  await writeFile(
+    join(hlsDirectory, 'master.m3u8'),
+    [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      `#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=${probe.width}x${probe.height},CODECS="avc1.64001f,mp4a.40.2"`,
+      'media.m3u8',
+      '',
+    ].join('\n'),
+    { encoding: 'utf8', mode: 0o600 },
   );
   await runTool(
     env.MEDIA_FFMPEG_PATH,
@@ -266,8 +344,35 @@ export async function prepareMediaRenditions(input: {
     'media_poster_failed',
   );
   const artifactNames = new Set(await readdir(hlsDirectory));
-  const manifest = await readFile(join(hlsDirectory, 'master.m3u8'), 'utf8');
-  if (!validateManifest(manifest, artifactNames)) throw new SafeMediaProviderError('media_manifest_invalid');
+  const masterManifest = await readFile(join(hlsDirectory, 'master.m3u8'), 'utf8');
+  const mediaManifest = await readFile(join(hlsDirectory, 'media.m3u8'), 'utf8');
+  if (
+    !validateMasterManifest(masterManifest, artifactNames) ||
+    !validateMediaManifest(mediaManifest, artifactNames, probe.durationSeconds)
+  ) {
+    throw new SafeMediaProviderError('media_processing_failed');
+  }
+  const segmentNames = [...artifactNames].filter(name => /^segment-\d{6}\.ts$/.test(name)).sort();
+  if (!segmentNames.length) throw new SafeMediaProviderError('media_processing_failed');
+  const hlsArtifacts = await Promise.all(
+    [...artifactNames].sort().map(async relativeName => {
+      const role =
+        relativeName === 'master.m3u8'
+          ? ('hls_master' as const)
+          : relativeName === 'media.m3u8'
+            ? ('hls_media' as const)
+            : ('hls_segment' as const);
+      const checked = await checkedArtifact(join(hlsDirectory, relativeName), (header, body) =>
+        relativeName.endsWith('.m3u8') ? body.toString('utf8').startsWith('#EXTM3U') : header[0] === 0x47,
+      );
+      return { role, relativeName, contentType: contentTypeForMediaArtifact(relativeName), ...checked };
+    }),
+  );
+  const poster = await checkedArtifact(
+    posterPath,
+    (header, body) => header[0] === 0xff && header[1] === 0xd8 && body.at(-2) === 0xff && body.at(-1) === 0xd9,
+  );
+  const speech = await checkedArtifact(speechAudioPath, header => header.subarray(0, 4).toString('ascii') === 'OggS');
   return {
     ...probe,
     checksumSha256,
@@ -275,5 +380,11 @@ export async function prepareMediaRenditions(input: {
     hlsDirectory,
     posterPath,
     speechAudioPath,
+    speechSizeBytes: BigInt(speech.sizeBytes),
+    renditionsMetadata: [
+      ...hlsArtifacts,
+      { role: 'poster' as const, relativeName: 'poster.jpg', contentType: 'image/jpeg', ...poster },
+      { role: 'speech' as const, relativeName: 'speech.ogg', contentType: 'audio/ogg', ...speech },
+    ],
   };
 }

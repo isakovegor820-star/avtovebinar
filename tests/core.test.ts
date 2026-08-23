@@ -265,6 +265,7 @@ describe('security configuration', () => {
       EMAIL_MODE: 'send',
       E2E_EMAIL_OUTBOX_ENABLED: 'off',
       MEDIA_STORAGE_PROVIDER: 'unconfigured',
+      MEDIA_WORK_ROOT: '/var/lib/aspb/media-work',
       STT_PROVIDER: 'unconfigured',
       AI_ENRICHMENT_PROVIDER: 'unconfigured',
       MEDIA_MAX_UPLOAD_BYTES: 4_294_967_296,
@@ -476,6 +477,24 @@ describe('security configuration', () => {
   });
 
   it('requires a private absolute root for self-hosted versioned media', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: '/var/lib/aspb/media',
+          MEDIA_WORK_ROOT: undefined,
+        }),
+      ),
+    ).toThrow(/MEDIA_WORK_ROOT/);
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: '/var/lib/aspb/media',
+          MEDIA_WORK_ROOT: `${process.cwd()}/crisis_premium/media-work`,
+        }),
+      ),
+    ).toThrow(/MEDIA_WORK_ROOT/);
     expect(() =>
       validateProductionSecurity(
         secureProductionConfig({

@@ -1430,6 +1430,99 @@ provider-neutral errors и отсутствие bucket/key/origin/signed URL в 
 До этого `MEDIA_STORAGE_PROVIDER=unconfigured`; local adapter — compatibility,
 не MED-001 acceptance.
 
+### Media/STT hardening contract (23.08.2026)
+
+Additive migration `20260823130000_media_stt_durability_hardening` добавляет
+upload idempotency/cleanup state, rendition integrity metadata и private STT
+provider lifecycle. Перед migration запустите read-only preflight, после —
+postflight, а затем повторите deploy:
+
+```bash
+node scripts/run-libpq-command.mjs psql -v ON_ERROR_STOP=1 -f prisma/checks/20260823130000_media_stt_durability_hardening_preflight.sql
+node scripts/run-libpq-command.mjs psql -v ON_ERROR_STOP=1 -f prisma/checks/20260823131000_media_upload_completion_claim_preflight.sql
+npx prisma migrate deploy
+node scripts/run-libpq-command.mjs psql -v ON_ERROR_STOP=1 -f prisma/checks/20260823130000_media_stt_durability_hardening_postflight.sql
+node scripts/run-libpq-command.mjs psql -v ON_ERROR_STOP=1 -f prisma/checks/20260823131000_media_upload_completion_claim_postflight.sql
+npx prisma migrate deploy
+npx prisma migrate status
+```
+
+Provider values хранятся только в approved secret store. Без значений
+контракт такой:
+
+- object storage: `MEDIA_STORAGE_PROVIDER`, `MEDIA_S3_ENDPOINT`,
+  `MEDIA_S3_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_S3_ACCESS_KEY_ID`,
+  `MEDIA_S3_SECRET_ACCESS_KEY`, `MEDIA_S3_FORCE_PATH_STYLE`,
+  `MEDIA_SIGNED_OPERATION_TTL_SECONDS`, `MEDIA_UPLOAD_CSP_ORIGINS`;
+- transcoder: `MEDIA_WORK_ROOT`, `MEDIA_PROCESSING_SPACE_MULTIPLIER`,
+  `MEDIA_PROCESSING_RESERVE_BYTES`, `MEDIA_MIN_FREE_INODES`,
+  `MEDIA_TRANSCODE_TIMEOUT_SECONDS`, `MEDIA_HLS_SEGMENT_SECONDS`,
+  `MEDIA_FFMPEG_PATH`, `MEDIA_FFPROBE_PATH`, `MEDIA_WORKER_CONCURRENCY`,
+  `CONTENT_WORKER_CONCURRENCY`, `MEDIA_QUEUE_ALERT_THRESHOLD`,
+  `CONTENT_QUEUE_ALERT_THRESHOLD`;
+- STT: `STT_PROVIDER`, `STT_YANDEX_API_KEY`, `STT_YANDEX_FOLDER_ID`,
+  `STT_YANDEX_AUDIO_URI_PREFIX`, four `STT_YANDEX_*_ENDPOINT` values,
+  `STT_YANDEX_MODEL`, `STT_YANDEX_POLL_INTERVAL_MS`,
+  `STT_YANDEX_TIMEOUT_SECONDS`.
+
+`MEDIA_STORAGE_PROVIDER=unconfigured` и `STT_PROVIDER=unconfigured` остаются
+defaults. `test_fake` запрещён вне `NODE_ENV=test`. Для candidate Yandex
+Object Storage на staging нужно отдельно доказать: public access
+off, least-privilege service account, exact-origin CORS (`PUT`, `Content-Type`,
+exposed `ETag`), lifecycle delete incomplete multipart, Audit Trails/alerts,
+`ListParts` size/checksum behavior и `HeadObject` integrity. Ни один resource не
+создаётся этим runbook автоматически.
+
+### Capacity, load and restart evidence
+
+Перед media smoke сохраните из `/metrics` без самого token:
+`aspb_media_work_bytes`, `aspb_media_work_inodes`, storage capacity, media/content
+queue depths и stalled/dead-letter alert states. Scratch budget должен быть не
+меньше `MEDIA_MAX_UPLOAD_BYTES × MEDIA_PROCESSING_SPACE_MULTIPLIER +
+MEDIA_PROCESSING_RESERVE_BYTES`; `MEDIA_MIN_FREE_INODES` — жёсткий preflight.
+Зафиксируйте actual total/available bytes/inodes, P50/P95 ffmpeg time,
+queue wait, HLS/Range RPS/latency/error rate и отдельно:
+
+1. restart API между parts, затем `resume`/`ListParts`/complete;
+2. kill worker во время ffmpeg, дождаться lease expiry и одного recovery;
+3. обработать configured concurrency при bounded admission/queue alert;
+4. сравнить object inventory/checksums до/после — duplicate outputs нет;
+5. доказать safe `media_capacity_insufficient` без stderr/path при нехватке.
+
+### Coordinated PostgreSQL + private media restore drill
+
+Наличие backup без restore не считается acceptance. В отдельном staging
+contour и без production mutation:
+
+1. запретите новые upload/activate/STT jobs и дождитесь или запишите
+   exact in-flight set;
+2. запишите UTC start, DB transaction timestamp/WAL position и object/version
+   inventory with size/checksum; создайте PostgreSQL backup и provider-versioned
+   object recovery либо snapshot private volume;
+3. восстановите оба набора в изолированные DB schema/bucket/volume,
+   никогда не в source contour;
+4. выполните migrations/postflight и сверьте каждый READY
+   `MediaAsset → master/media manifest → segments`, poster и speech object по
+   stored rendition metadata/checksum;
+5. через изолированную participant session воспроизведите asset,
+   poster и Range seek; проверьте unknown/cross-tenant safe 404;
+6. запишите UTC finish, actual recovery-point age (RPO) и elapsed RTO.
+   Acceptance: RPO ≤ 1 часа и RTO ≤ 4 часов.
+
+Поля evidence: exact commit SHA/image digest, target IDs без secrets,
+backup/object recovery IDs, start/end UTC, measured RPO/RTO, restored asset/checksum
+counts, playback/Range results, operator/approver и evidence location. Пока эти
+поля не заполнены на exact-SHA staging, MED-005 не `verified`.
+
+### Provider failure and application rollback
+
+При provider failure не повторяйте complete/submit вручную с новыми IDs.
+Выключите creator rollout flag, верните provider в `unconfigured`, сохраните
+durable rows/dead letters и private objects для audited recovery; скомпрометированные
+credentials отзовите/ротируйте через secret owner. Application rollback возвращает
+предыдущий compatible image с flags/providers off, **без down-migration**.
+Не удаляйте READY/active asset во время rollback.
+
 ## Минимальный production checklist
 
 - [ ] Домен подключен.

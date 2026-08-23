@@ -11,6 +11,7 @@ import {
   getContentJobStatus,
   getCreatorTranscript,
   publishCreatorTranscript,
+  requestContentJobCancellation,
   updateCreatorTranscript,
 } from '../lib/tenancy/transcripts.js';
 import {
@@ -108,6 +109,21 @@ creatorTranscriptsRouter.get(
     res.json({
       ok: true,
       ...(await getContentJobStatus(prisma, context, jobId)),
+      correlationId: context.correlationId,
+    });
+  }),
+);
+
+creatorTranscriptsRouter.post(
+  '/creator/content-jobs/:jobId/cancel',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    emptyBodySchema.parse(req.body ?? {});
+    const context = await tenant(req);
+    const { jobId } = jobParamsSchema.parse(req.params);
+    res.json({
+      ok: true,
+      ...(await requestContentJobCancellation(prisma, context, jobId)),
       correlationId: context.correlationId,
     });
   }),

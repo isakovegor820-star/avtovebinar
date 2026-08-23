@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { prisma } from './prisma.js';
 import { env } from './env.js';
 import { getPrivateMediaStorageAdapter } from './mediaStorage.js';
+import { getMediaWorkCapacity } from './mediaTranscoder.js';
 
 const buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 
@@ -75,6 +76,15 @@ async function readMediaStorageCapacity() {
   }
 }
 
+async function readMediaWorkCapacity() {
+  if (env.MEDIA_STORAGE_PROVIDER === 'unconfigured') return null;
+  try {
+    return { ok: true as const, capacity: await getMediaWorkCapacity() };
+  } catch {
+    return { ok: false as const };
+  }
+}
+
 export async function renderPrometheusMetrics() {
   const lines: string[] = [];
   lines.push('# HELP aspb_http_requests_total Total HTTP requests.');
@@ -119,6 +129,14 @@ export async function renderPrometheusMetrics() {
     crmDeliveryBlocked,
     crmDeliveryDeadLetters,
     mediaStorage,
+    mediaWork,
+    mediaPending,
+    mediaDeadLetters,
+    mediaStalled,
+    contentPending,
+    contentDeadLetters,
+    contentStalled,
+    uploadCleanupDeadLetters,
   ] = await Promise.all([
     prisma.emailOutboxJob.count({ where: { status: { in: ['pending', 'failed', 'sending'] }, sentAt: null } }),
     prisma.emailOutboxJob.count({ where: { status: 'failed', sentAt: null } }),
@@ -139,6 +157,14 @@ export async function renderPrometheusMetrics() {
     prisma.cRMDelivery.count({ where: { status: 'BLOCKED' } }),
     prisma.cRMDelivery.count({ where: { status: 'DEAD_LETTER' } }),
     readMediaStorageCapacity(),
+    readMediaWorkCapacity(),
+    prisma.mediaJob.count({ where: { status: { in: ['PENDING', 'FAILED'] } } }),
+    prisma.mediaJob.count({ where: { status: 'DEAD_LETTER' } }),
+    prisma.mediaJob.count({ where: { status: 'RUNNING', claimExpiresAt: { lt: new Date() } } }),
+    prisma.contentJob.count({ where: { status: { in: ['PENDING', 'FAILED'] } } }),
+    prisma.contentJob.count({ where: { status: 'DEAD_LETTER' } }),
+    prisma.contentJob.count({ where: { status: 'RUNNING', claimExpiresAt: { lt: new Date() } } }),
+    prisma.mediaUpload.count({ where: { abortDeadLetteredAt: { not: null } } }),
   ]);
 
   const errorRate = totalRequests ? totalErrors / totalRequests : 0;
@@ -164,6 +190,13 @@ export async function renderPrometheusMetrics() {
   lines.push(metricLine('aspb_queue_depth', { queue: 'crm_delivery' }, crmDeliveryPending));
   lines.push(metricLine('aspb_queue_depth', { queue: 'crm_delivery_blocked' }, crmDeliveryBlocked));
   lines.push(metricLine('aspb_queue_depth', { queue: 'crm_delivery_dead_letter' }, crmDeliveryDeadLetters));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'media_processing' }, mediaPending));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'media_processing_dead_letter' }, mediaDeadLetters));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'media_processing_stalled' }, mediaStalled));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'content_processing' }, contentPending));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'content_processing_dead_letter' }, contentDeadLetters));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'content_processing_stalled' }, contentStalled));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'media_upload_cleanup_dead_letter' }, uploadCleanupDeadLetters));
   lines.push('# HELP aspb_alert_state Boolean alert states.');
   lines.push('# TYPE aspb_alert_state gauge');
   lines.push(metricLine('aspb_alert_state', { alert: 'http_5xx_rate_gt_1pct' }, errorRate > 0.01 ? 1 : 0));
@@ -198,6 +231,41 @@ export async function renderPrometheusMetrics() {
   lines.push(metricLine('aspb_alert_state', { alert: 'crm_delivery_blocked' }, crmDeliveryBlocked > 0 ? 1 : 0));
   lines.push(
     metricLine('aspb_alert_state', { alert: 'crm_delivery_dead_letters' }, crmDeliveryDeadLetters > 0 ? 1 : 0),
+  );
+  lines.push(
+    metricLine(
+      'aspb_alert_state',
+      { alert: 'media_stalled_or_dead_letter_jobs' },
+      mediaStalled > 0 || mediaDeadLetters > 0 ? 1 : 0,
+    ),
+  );
+  lines.push(
+    metricLine(
+      'aspb_alert_state',
+      { alert: 'media_queue_above_configured_threshold' },
+      mediaPending > env.MEDIA_QUEUE_ALERT_THRESHOLD ? 1 : 0,
+    ),
+  );
+  lines.push(
+    metricLine(
+      'aspb_alert_state',
+      { alert: 'content_stalled_or_dead_letter_jobs' },
+      contentStalled > 0 || contentDeadLetters > 0 ? 1 : 0,
+    ),
+  );
+  lines.push(
+    metricLine(
+      'aspb_alert_state',
+      { alert: 'content_queue_above_configured_threshold' },
+      contentPending > env.CONTENT_QUEUE_ALERT_THRESHOLD ? 1 : 0,
+    ),
+  );
+  lines.push(
+    metricLine(
+      'aspb_alert_state',
+      { alert: 'media_upload_cleanup_dead_letters' },
+      uploadCleanupDeadLetters > 0 ? 1 : 0,
+    ),
   );
 
   if (mediaStorage) {
@@ -235,6 +303,39 @@ export async function renderPrometheusMetrics() {
           'aspb_media_storage_inodes',
           { provider: 'local_fs', state: 'available' },
           Number(mediaStorage.capacity.availableInodes),
+        ),
+      );
+    }
+  }
+
+  if (mediaWork) {
+    lines.push('# HELP aspb_media_work_probe_success Whether transcoder workspace capacity is readable.');
+    lines.push('# TYPE aspb_media_work_probe_success gauge');
+    lines.push(metricLine('aspb_media_work_probe_success', {}, mediaWork.ok ? 1 : 0));
+    if (mediaWork.ok) {
+      lines.push('# HELP aspb_media_work_bytes Transcoder workspace bytes; filesystem paths are never labels.');
+      lines.push('# TYPE aspb_media_work_bytes gauge');
+      lines.push(metricLine('aspb_media_work_bytes', { state: 'total' }, Number(mediaWork.capacity.totalBytes)));
+      lines.push(
+        metricLine('aspb_media_work_bytes', { state: 'available' }, Number(mediaWork.capacity.availableBytes)),
+      );
+      lines.push('# HELP aspb_media_work_inodes Transcoder workspace inodes.');
+      lines.push('# TYPE aspb_media_work_inodes gauge');
+      lines.push(metricLine('aspb_media_work_inodes', { state: 'total' }, Number(mediaWork.capacity.totalInodes)));
+      lines.push(
+        metricLine('aspb_media_work_inodes', { state: 'available' }, Number(mediaWork.capacity.availableInodes)),
+      );
+      const requiredBytes =
+        BigInt(env.MEDIA_MAX_UPLOAD_BYTES) * BigInt(env.MEDIA_PROCESSING_SPACE_MULTIPLIER) +
+        BigInt(env.MEDIA_PROCESSING_RESERVE_BYTES);
+      lines.push(
+        metricLine(
+          'aspb_alert_state',
+          { alert: 'media_work_capacity_below_max_asset_budget' },
+          mediaWork.capacity.availableBytes < requiredBytes ||
+            mediaWork.capacity.availableInodes < BigInt(env.MEDIA_MIN_FREE_INODES)
+            ? 1
+            : 0,
         ),
       );
     }

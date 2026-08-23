@@ -238,7 +238,7 @@ Migration `20260821090000_media_pipeline_foundation` добавляет versione
 переключает опубликованную версию раньше явного запроса.
 Завершённые parts фиксируются на сервере по `partNumber`/ETag; resume выдаёт fresh
 15-minute operations только для недостающих частей. Browser хранит только
-upload ID и identity файла, а не signed URLs. Local adapter
+upload ID, idempotency key и identity файла, а не signed operations. Local adapter
 (`MEDIA_STORAGE_PROVIDER=local_fs`) требует absolute `MEDIA_LOCAL_ROOT` вне web
 root; Docker API/worker используют один named volume `/var/lib/aspb/media`.
 Parts получают SHA-256 ETag после `fsync`, conflicting retry не перезаписывает
@@ -248,6 +248,10 @@ direct PUT origins нужно явно задать comma-separated HTTPS origin
 (`MEDIA_STORAGE_PROVIDER=s3`) сохранён как optional future path. Оба real
 adapter используют общие magic-byte/ffprobe checks и ffmpeg HLS/poster/OGG
 pipeline.
+Init требует `Idempotency-Key`; повтор с тем же server-owned request hash
+возвращает существующий upload, а conflicting request fail closed. Resume/complete
+строго сверяют server checkpoint с provider `ListParts` и exact part sizes;
+expired abort cleanup имеет bounded backoff и dead-letter.
 `MediaJob` использует возобновляемый lease: после падения worker зависший `RUNNING` claim
 возвращается в очередь либо попадает в dead-letter на исчерпанном лимите. Manifest,
 каждый segment/poster и Range проходят повторную cookie/session/WebinarSession/replay/grant
@@ -279,6 +283,9 @@ staging-проверку фактической передачи 4 ГБ, capacit
 При `MEDIA_STORAGE_PROVIDER=local_fs` защищённый `/metrics` также публикует
 total/available bytes и inodes без filesystem path; пороги alerts выбираются по
 реальному staging volume и load test, а не задаются приложением произвольно.
+Отдельный private `MEDIA_WORK_ROOT` измеряет bytes/inodes и fail closed до
+download/transcode, если нет запаса `source × multiplier + reserve`; path в metrics
+не попадает.
 
 Migrations `20260821100000_transcript_foundation` и
 `20260821110000_transcript_enrichment` добавляют versioned transcript segments,
@@ -292,6 +299,10 @@ Optional adapters `yandex_speechkit` и `yandex_foundation_models` реализ�
 async STT submit/poll/result/delete и structured AI suggestions. Они остаются
 `unconfigured` до data-processing/no-training acceptance; decision matrix находится в
 [`docs/DEC-06-STT-AI-PROVIDERS.md`](docs/DEC-06-STT-AI-PROVIDERS.md).
+STT worker хранит provider job/model/deadline только в private `ContentJob`,
+возобновляет polling/cleanup после restart, имеет bounded retry,
+timeout, cancel и dead-letter. Result создаёт только `DRAFT`; publication
+остаётся human-controlled.
 
 ## Быстрый запуск
 

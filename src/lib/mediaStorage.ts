@@ -5,7 +5,18 @@ import { AppError } from './http.js';
 import { createLocalMediaStorageFromEnv } from './mediaStorageLocal.js';
 import { createS3MediaStorageFromEnv } from './mediaStorageS3.js';
 
-export type CompletedUploadPart = { partNumber: number; etag: string };
+export type CompletedUploadPart = {
+  partNumber: number;
+  etag: string;
+  sizeBytes?: number;
+  checksumSha256?: string;
+};
+export type SignedUploadPart = {
+  partNumber: number;
+  url: string;
+  expiresAt: Date;
+  expectedSizeBytes?: number;
+};
 export type MultipartCompletionResult = {
   mimeType: string;
   sizeBytes: bigint;
@@ -28,6 +39,14 @@ export type MediaProcessingResult = MediaProbeResult & {
   manifestStorageKey: string;
   posterStorageKey: string;
   manifestValid: boolean;
+  speechSizeBytes: bigint;
+  renditionsMetadata: Array<{
+    role: 'hls_master' | 'hls_media' | 'hls_segment' | 'poster' | 'speech';
+    relativeName: string;
+    contentType: string;
+    sizeBytes: number;
+    checksumSha256: string;
+  }>;
 };
 export type MediaObjectResponse = {
   body: Readable;
@@ -53,14 +72,18 @@ export interface PrivateMediaStorageAdapter {
     mimeType: string;
     partCount: number;
     expiresAt: Date;
-  }): Promise<{ providerUploadKey: string; partUrls: Array<{ partNumber: number; url: string; expiresAt: Date }> }>;
+    expectedSizeBytes?: bigint;
+    partSizeBytes?: number;
+  }): Promise<{ providerUploadKey: string; partUrls: SignedUploadPart[] }>;
   signMultipartUploadParts(input: {
     applicationUploadId: string;
     providerUploadKey: string;
     storageKey: string;
     partNumbers: number[];
     expiresAt: Date;
-  }): Promise<Array<{ partNumber: number; url: string; expiresAt: Date }>>;
+    expectedSizeBytes?: bigint;
+    partSizeBytes?: number;
+  }): Promise<SignedUploadPart[]>;
   writeMultipartUploadPart?(input: {
     applicationUploadId: string;
     providerUploadKey: string;
@@ -124,6 +147,8 @@ class TestFakeMediaStorage implements PrivateMediaStorageAdapter {
     mimeType: string;
     partCount: number;
     expiresAt: Date;
+    expectedSizeBytes?: bigint;
+    partSizeBytes?: number;
   }) {
     this.assertTest();
     const providerUploadKey = `fake_${crypto.randomUUID()}`;
@@ -133,6 +158,14 @@ class TestFakeMediaStorage implements PrivateMediaStorageAdapter {
         partNumber: index + 1,
         url: `https://private-storage.invalid/multipart/${providerUploadKey}/${index + 1}?signature=test-only`,
         expiresAt: input.expiresAt,
+        ...(input.expectedSizeBytes !== undefined && input.partSizeBytes
+          ? {
+              expectedSizeBytes:
+                index + 1 === input.partCount
+                  ? Number(input.expectedSizeBytes) - input.partSizeBytes * index
+                  : input.partSizeBytes,
+            }
+          : {}),
       })),
     };
   }
@@ -142,12 +175,22 @@ class TestFakeMediaStorage implements PrivateMediaStorageAdapter {
     storageKey: string;
     partNumbers: number[];
     expiresAt: Date;
+    expectedSizeBytes?: bigint;
+    partSizeBytes?: number;
   }) {
     this.assertTest();
     return input.partNumbers.map(partNumber => ({
       partNumber,
       url: `https://private-storage.invalid/multipart/${input.providerUploadKey}/${partNumber}?signature=test-only-resume`,
       expiresAt: input.expiresAt,
+      ...(input.expectedSizeBytes !== undefined && input.partSizeBytes
+        ? {
+            expectedSizeBytes:
+              partNumber === Math.ceil(Number(input.expectedSizeBytes) / input.partSizeBytes)
+                ? Number(input.expectedSizeBytes) - input.partSizeBytes * (partNumber - 1)
+                : input.partSizeBytes,
+          }
+        : {}),
     }));
   }
   async completeMultipartUpload(input: {
@@ -175,16 +218,33 @@ class TestFakeMediaStorage implements PrivateMediaStorageAdapter {
       throw new AppError(422, 'Видео не прошло проверку', undefined, 'media_checksum_mismatch');
     }
     const manifestStorageKey = `${input.storageKey}/renditions/v1/hls/master.m3u8`;
+    const mediaManifestStorageKey = `${input.storageKey}/renditions/v1/hls/media.m3u8`;
     const segmentStorageKey = `${input.storageKey}/renditions/v1/hls/segment-000000.ts`;
     const posterStorageKey = `${input.storageKey}/renditions/v1/poster.jpg`;
     const audioStorageKey = `${input.storageKey}/renditions/v1/speech.ogg`;
     TEST_MEDIA_OBJECTS.set(manifestStorageKey, {
+      contentType: 'application/vnd.apple.mpegurl',
+      body: Buffer.from('#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\nmedia.m3u8\n'),
+    });
+    TEST_MEDIA_OBJECTS.set(mediaManifestStorageKey, {
       contentType: 'application/vnd.apple.mpegurl',
       body: Buffer.from('#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:6.000,\nsegment-000000.ts\n#EXT-X-ENDLIST\n'),
     });
     TEST_MEDIA_OBJECTS.set(segmentStorageKey, { contentType: 'video/mp2t', body: Buffer.from('test-hls-segment') });
     TEST_MEDIA_OBJECTS.set(posterStorageKey, { contentType: 'image/jpeg', body: Buffer.from('test-poster') });
     TEST_MEDIA_OBJECTS.set(audioStorageKey, { contentType: 'audio/ogg', body: Buffer.from('test-speech-audio') });
+    const fakeArtifacts = [
+      ['hls_master', 'master.m3u8', 'application/vnd.apple.mpegurl', TEST_MEDIA_OBJECTS.get(manifestStorageKey)!.body],
+      [
+        'hls_media',
+        'media.m3u8',
+        'application/vnd.apple.mpegurl',
+        TEST_MEDIA_OBJECTS.get(mediaManifestStorageKey)!.body,
+      ],
+      ['hls_segment', 'segment-000000.ts', 'video/mp2t', TEST_MEDIA_OBJECTS.get(segmentStorageKey)!.body],
+      ['poster', 'poster.jpg', 'image/jpeg', TEST_MEDIA_OBJECTS.get(posterStorageKey)!.body],
+      ['speech', 'speech.ogg', 'audio/ogg', TEST_MEDIA_OBJECTS.get(audioStorageKey)!.body],
+    ] as const;
     return {
       mimeType: input.expectedMimeType,
       sizeBytes: input.expectedSizeBytes,
@@ -201,6 +261,14 @@ class TestFakeMediaStorage implements PrivateMediaStorageAdapter {
       manifestStorageKey,
       posterStorageKey,
       manifestValid: true,
+      speechSizeBytes: BigInt(TEST_MEDIA_OBJECTS.get(audioStorageKey)!.body.length),
+      renditionsMetadata: fakeArtifacts.map(([role, relativeName, contentType, body]) => ({
+        role,
+        relativeName,
+        contentType,
+        sizeBytes: body.length,
+        checksumSha256: crypto.createHash('sha256').update(body).digest('hex'),
+      })),
     };
   }
   async abortMultipartUpload() {

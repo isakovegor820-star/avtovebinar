@@ -61,6 +61,14 @@ const envSchema = z.object({
   MEDIA_HLS_SEGMENT_SECONDS: z.coerce.number().int().min(2).max(20).default(6),
   MEDIA_FFMPEG_PATH: z.string().trim().min(1).default('ffmpeg'),
   MEDIA_FFPROBE_PATH: z.string().trim().min(1).default('ffprobe'),
+  MEDIA_WORK_ROOT: optionalProviderValue(2),
+  MEDIA_PROCESSING_SPACE_MULTIPLIER: z.coerce.number().int().min(2).max(8).default(4),
+  MEDIA_PROCESSING_RESERVE_BYTES: z.coerce.number().int().positive().default(1_073_741_824),
+  MEDIA_MIN_FREE_INODES: z.coerce.number().int().positive().default(10_000),
+  MEDIA_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
+  CONTENT_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
+  MEDIA_QUEUE_ALERT_THRESHOLD: z.coerce.number().int().positive().default(100),
+  CONTENT_QUEUE_ALERT_THRESHOLD: z.coerce.number().int().positive().default(100),
   STT_PROVIDER: z.enum(['unconfigured', 'yandex_speechkit', 'test_fake']).default('unconfigured'),
   STT_YANDEX_API_KEY: optionalProviderValue(16),
   STT_YANDEX_FOLDER_ID: optionalProviderValue(3),
@@ -150,6 +158,13 @@ type DefaultedProviderConfigKey =
   | 'MEDIA_HLS_SEGMENT_SECONDS'
   | 'MEDIA_FFMPEG_PATH'
   | 'MEDIA_FFPROBE_PATH'
+  | 'MEDIA_PROCESSING_SPACE_MULTIPLIER'
+  | 'MEDIA_PROCESSING_RESERVE_BYTES'
+  | 'MEDIA_MIN_FREE_INODES'
+  | 'MEDIA_WORKER_CONCURRENCY'
+  | 'CONTENT_WORKER_CONCURRENCY'
+  | 'MEDIA_QUEUE_ALERT_THRESHOLD'
+  | 'CONTENT_QUEUE_ALERT_THRESHOLD'
   | 'STT_YANDEX_ENDPOINT'
   | 'STT_YANDEX_OPERATION_ENDPOINT'
   | 'STT_YANDEX_RESULT_ENDPOINT'
@@ -304,6 +319,19 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
     ) {
       errors.push('MEDIA_LOCAL_ROOT must be an absolute private directory outside the public web root');
     }
+  }
+  const configuredWorkRoot = config.MEDIA_WORK_ROOT ? path.resolve(config.MEDIA_WORK_ROOT) : null;
+  const publicRoot = path.resolve(process.cwd(), 'crisis_premium');
+  const workRelativeToPublic = configuredWorkRoot ? path.relative(publicRoot, configuredWorkRoot) : '';
+  if (
+    (config.MEDIA_STORAGE_PROVIDER !== 'unconfigured' && !configuredWorkRoot) ||
+    (configuredWorkRoot !== null &&
+      (!path.isAbsolute(config.MEDIA_WORK_ROOT ?? '') ||
+        configuredWorkRoot === path.parse(configuredWorkRoot).root ||
+        workRelativeToPublic === '' ||
+        (!workRelativeToPublic.startsWith('..') && !path.isAbsolute(workRelativeToPublic))))
+  ) {
+    errors.push('MEDIA_WORK_ROOT must be an absolute non-root private directory');
   }
   if (
     config.STT_PROVIDER === 'yandex_speechkit' &&

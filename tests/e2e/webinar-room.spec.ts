@@ -1005,6 +1005,11 @@ test('creator builds a private Webinar scenario and previews it without particip
 
   await page.locator('#creatorTranscriptGenerateButton').click();
   await expect.poll(async () => prisma.contentJob.count({ where: { type: 'TRANSCRIBE', status: 'PENDING' } })).toBe(1);
+  await expect(runContentJobOnce(prisma)).resolves.toMatchObject({ checked: 1, succeeded: 0 });
+  await prisma.contentJob.updateMany({
+    where: { type: 'TRANSCRIBE', status: 'PENDING' },
+    data: { nextAttemptAt: new Date(0) },
+  });
   await expect(runContentJobOnce(prisma)).resolves.toMatchObject({ checked: 1, succeeded: 1 });
   await expect(page.locator('#creatorTranscriptForm')).toBeVisible();
   await expect(page.locator('.creator-transcript-segment')).toHaveCount(3);

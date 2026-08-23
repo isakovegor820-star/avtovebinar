@@ -53,13 +53,22 @@ export async function checkDatabase(): Promise<HealthCheck> {
 }
 
 export async function checkMediaStorage(): Promise<HealthCheck> {
-  if (env.MEDIA_STORAGE_PROVIDER !== 'local_fs') return { ok: true };
+  if (env.MEDIA_STORAGE_PROVIDER === 'unconfigured') return { ok: true, required: false, status: 'unconfigured' };
   try {
     const storage = getPrivateMediaStorageAdapter();
-    return { ok: Boolean(storage.checkReady && (await storage.checkReady())) };
+    return { ok: Boolean(storage.checkReady && (await storage.checkReady())), required: true };
   } catch {
     return { ok: false };
   }
+}
+
+export async function checkSpeechToTextConfiguration(): Promise<HealthCheck> {
+  const required = env.CREATOR_DASHBOARD_ENABLED === 'on';
+  if (!required) return { ok: true, required: false, status: env.STT_PROVIDER };
+  if (env.STT_PROVIDER === 'unconfigured') return { ok: false, required: true, status: 'unconfigured' };
+  if (env.STT_PROVIDER === 'test_fake') return { ok: env.NODE_ENV === 'test', required: true, status: 'test_only' };
+  const configured = Boolean(env.STT_YANDEX_API_KEY && env.STT_YANDEX_FOLDER_ID && env.STT_YANDEX_AUDIO_URI_PREFIX);
+  return { ok: configured, required: true, status: configured ? 'configured' : 'credentials_missing' };
 }
 
 export async function checkSmtp(): Promise<HealthCheck> {
@@ -340,6 +349,7 @@ export async function getDependencyStatus() {
     organizationInvitationEmailOutboxQueue,
     webinarAccessInvitationEmailOutboxQueue,
     workerSubsystems,
+    speechToText,
   ] = await Promise.all([
     checkSmtp(),
     checkTelegram(),
@@ -348,6 +358,7 @@ export async function getDependencyStatus() {
     checkOrganizationInvitationEmailOutbox(),
     checkWebinarAccessInvitationEmailOutbox(),
     checkWorkerSubsystems(),
+    checkSpeechToTextConfiguration(),
   ]);
   const expectedTelegramSubsystems = (workerSubsystems.expected ?? []).filter(subsystem => subsystem !== 'reminders');
   const telegram = {
@@ -378,6 +389,7 @@ export async function getDependencyStatus() {
     organizationInvitationEmailOutbox,
     webinarAccessInvitationEmailOutbox,
     workerSubsystems,
+    speechToText,
   };
   return {
     ok: Object.values(checks).every(check => check.ok),

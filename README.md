@@ -530,8 +530,11 @@ requests и owner-only Organization/taxonomy/feature-flag governance. Публи
 контакт сохраняется только как HMAC; private/unknown target неразличимы.
 Platform action/config mutation требует reason, confirmation и optimistic
 revision. Author correction остаётся private до human review. Интерфейсы:
-`/crisis_premium/platform-moderation.html` и
-`/crisis_premium/creator-corrections.html`. Managed flags seeded fail-closed и
+`/crisis_premium/report.html`, `/crisis_premium/platform-moderation.html` и
+`/crisis_premium/creator-corrections.html`. Их consolidated full manual review
+зафиксирован в
+[`docs/INTERFACE-REVIEW-2026-08-23.md`](docs/INTERFACE-REVIEW-2026-08-23.md).
+Managed flags seeded fail-closed и
 их изменение само по себе не отправляет сообщения и не запускает provider job.
 Platform-wide tenant inventory находится в
 [`docs/TEN-002-ENTRYPOINT-INVENTORY.md`](docs/TEN-002-ENTRYPOINT-INVENTORY.md).

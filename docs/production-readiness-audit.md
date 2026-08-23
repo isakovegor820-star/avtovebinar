@@ -6,6 +6,22 @@
 
 ## Текущий статус
 
+Дополнение ANA-001–ANA-007 и MOD-001–MOD-005 от 23 августа 2026: поверх
+versioned `events` contract добавлена одна additive migration с tenant/platform
+analytics projections, публичными жалобами, moderation state machine,
+коррекциями автора, архивированием/приостановкой и audited platform governance.
+Tenant scope и Organization→Webinar→WebinarSession→Registration/User связи
+выводятся сервером; неизвестные и foreign IDs имеют одинаковый safe 404.
+Authoritative время задаёт БД по UTC, повторы дедуплицируются атомарно, а PII,
+secrets, signed URLs и storage keys блокируются contract/DB checks. Dashboard
+имеет URL-фильтры, формулы, live-window, retention и low-frequency suppression;
+platform aggregate структурно не выдаёт chat/notes/contact identifiers. Public
+report не раскрывает автора обращения. Коррекции и критические действия требуют
+причину, optimistic revision, MFA platform role и audit. Старые writers проходят
+наблюдаемый `schemaVersion=0` compatibility adapter. Все 68 migrations повторно
+применимы без pending changes; targeted ANA/MOD PostgreSQL acceptance проходит.
+Staging/production migration, provider acceptance и реальные отправки не выполнялись.
+
 Дополнение от 21 августа 2026: tenant foundation, passwordless User auth,
 organization invitations/MFA, author verification, Webinar/session domain,
 private grants, creator UI/preview, public catalog, tenant-scoped exact-session
@@ -91,8 +107,10 @@ S3-compatible adapter и общий real ffmpeg pipeline добавлены addi
 Production остаётся fail-closed с `MEDIA_STORAGE_PROVIDER=unconfigured`; test
 fake запрещён production guard. Для текущего односерверного deployment в
 [DEC-05](./DEC-05-MEDIA-STORAGE-CDN-TRANSCODER.md) выбран persistent Docker
-volume + self-hosted ffmpeg + application authorization gateway. Внешний S3/CDN
-сохранён как будущая альтернатива, но сейчас не требуется. В
+volume + self-hosted ffmpeg + application authorization gateway как local
+compatibility contour. S3 direct multipart contour реализован provider-neutral
+для MED-001, но ни provider, ни bucket/CORS/IAM/lifecycle не выбраны и не приняты
+на staging. В
 [DEC-06](./DEC-06-STT-AI-PROVIDERS.md) — Yandex SpeechKit/Foundation Models.
 Это не является production deploy: media switch блокируют staging
 backup/restore, capacity/load и failure acceptance; STT/AI по-прежнему требуют
@@ -124,8 +142,8 @@ Email-доставка переведена на outbox:
 
 Тесты усилены:
 
-- Vitest покрывает cookie-only API, one-time exchange, tenant/session registration scope, idempotency, viewer isolation, progress throttling/dedup, note privacy, consent separation, questions, exact chat types/approval/sanitization/rate limit, tenant moderation/audit, partner application, admin flow и email outbox retry/replace;
-- Playwright e2e покрывает регистрацию, success, catalog exact-session flow, room через cookie/session, очистку token из URL, live/DVR/replay position, private notes, viewer account states/settings, chapters/published transcript/search/captions, keyboard player controls, safe media states, 320px layout, honest synthetic chat labels, keyboard moderation hide/block/restore, question, partner application и ended-chat state;
+- Vitest покрывает cookie-only API, one-time exchange, tenant/session registration scope, analytics formulas/retention/live/published-content, role matrix, public report/state machine/corrections/actions/governance, idempotency, viewer isolation, progress throttling/dedup, note privacy, consent separation, questions, exact chat types/approval/sanitization/rate limit, tenant moderation/audit, partner application, admin flow, object-storage contract и email outbox retry/replace;
+- Playwright e2e покрывает регистрацию, success, все CAT-006 sort modes, analytics URL reload/back/keyboard/320px, platform moderation confirmation/revision/320px, catalog exact-session flow, room через cookie/session, очистку token из URL, live/DVR/replay position, private notes, viewer account states/settings, chapters/published transcript/search/captions, keyboard player controls, safe media states, honest synthetic chat labels, keyboard moderation hide/block/restore, question, partner application и ended-chat state;
 - CI устанавливает Chromium через `npx playwright install --with-deps chromium` и запускает e2e.
 
 ## Оценка готовности
@@ -134,6 +152,7 @@ Email-доставка переведена на outbox:
 | --- | ---: | --- |
 | Frontend | 8.3/10 | Основной user flow работает; крупные inline scripts вынесены, оставшиеся static styles закрыты CSP hashes. |
 | Backend API | 9/10 | Cookie-only room access, strict env, health/readiness, metrics и worker split закрывают главные production риски. |
+| Analytics foundation | 9/10 | ANA-001–ANA-007 и MOD-001–MOD-005 реализованы: tenant/platform aggregates, URL filters, retention/live/content privacy, public reports, corrections/actions/governance и negative tests; exact-SHA staging observation остаётся отдельно. |
 | Admin/CRM/Telegram | 9/10 | CRM-001–CRM-016, CHT-001–CHT-010 и BOT-001–BOT-013 закрыты локальным tenant/consent/moderation/bot negative-test контуром; provider и canary acceptance ещё должны пройти на staging. |
 | Email | 8.5/10 | Outbox/retry есть; `/metrics` показывает queue depth и failed jobs. |
 | Автовебинар | 8.5/10 | Server-backed live/chat flow покрыт e2e. |
@@ -155,6 +174,18 @@ Email-доставка переведена на outbox:
 - CI включает dependency-review, Semgrep, secretlint, dotenv-linter и staging deploy через secrets.
 
 ## Оставшиеся риски
+
+### P0. Analytics/moderation staging acceptance
+
+Analytics/moderation implementation и concurrency/negative tests закрыты
+локально, но production rollout не выполнялся. До deploy нужно сохранить оба
+analytics/moderation preflight на восстановленной staging-копии, применить
+additive migrations, получить нулевой postflight и повторный migrate без pending
+changes. На exact SHA отдельно проверить часы/refresh dashboard, role matrix,
+create/retry/conflict/cross-tenant parity, public report rate limit,
+correction/unpublish/suspend/restore и отсутствие ПДн/secrets в events, API и
+logs. Application rollback — предыдущий совместимый image и выключенные flags;
+schema, audit и legacy history не откатываются.
 
 ### P1. CSP hash list требует регенерации при изменении inline styles
 
@@ -260,6 +291,14 @@ fail-closed подтверждён локально, но recovery worker на s
 MED-004/MED-005/TRN-001 поэтому остаются `implemented`, не `verified` на
 staging; MED-009 correctness остаётся verified локально, load acceptance открыт.
 
+MED-001 отдельно остаётся `implemented`: S3 path выполняет direct signed part
+PUT без full-file Express proxy, server checkpoint/ListParts reconciliation,
+idempotent HeadObject-backed complete, abort/cleanup и safe audit/errors. До
+`verified` обязательны provider/legal/budget decision, private IAM/origin,
+production-origin CORS с exposed ETag, incomplete multipart lifecycle,
+credentials в approved secret store и exact-SHA staging smoke. Local adapter не
+может заменить эту acceptance.
+
 Следующий шаг: на staging того же SHA смонтировать private persistent volume,
 выполнить backup/restore и failure/load matrix, затем включить local media для
 одной тестовой организации. Отдельно получить legal/budget approval DEC-06 и
@@ -286,7 +325,10 @@ Production deploy дополнительно требует:
 - `EMAIL_MODE=send` и рабочий SMTP;
 - `WEBINAR_TEST_ROOM_MODE=off`;
 - `PUBLIC_CATALOG_ENABLED=off` до same-SHA staging registration/account acceptance;
+- managed flags `analytics_dashboard`, `public_reporting`, `moderation_actions`, `provider_jobs` остаются false до отдельной same-SHA acceptance и owner confirmation;
+- `MEDIA_STORAGE_PROVIDER=unconfigured` до выбранного provider и MED-001 либо отдельно утверждённого local compatibility switch;
 - миграции через `npm run prisma:deploy`;
+- preflight/postflight `20260823110000` и `20260823120000` с нулевыми violation counts и повторный migrate без pending migrations;
 - viewer-registration preflight/postflight с нулевыми violation counts и повторный migrate без pending migrations;
 - согласованный backup/restore PostgreSQL и отдельного media volume;
 - мониторинг healthcheck, logs и email outbox.

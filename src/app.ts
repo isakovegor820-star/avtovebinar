@@ -22,6 +22,7 @@ import { getPlatformFeatureFlags } from './lib/featureFlags.js';
 import { listCatalogSitemapEntries } from './lib/catalog.js';
 import { prisma } from './lib/prisma.js';
 import { getMediaUploadCspOrigins } from './lib/mediaStorage.js';
+import { platformAdminRouter } from './routes/platformAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -117,6 +118,10 @@ app.use(
     credentials: true,
   }),
 );
+// Analytics is a small typed envelope. Parse it with its real wire-size limit
+// before the general JSON parser so a large body is rejected before allocation
+// and route-level validation.
+app.use('/api/events', express.json({ limit: '12kb' }));
 app.use(express.json({ limit: '256kb' }));
 // API работает на JSON; urlencoded — с лимитом и extended:false (без вложенных
 // объектов через qs) — меньше поверхность атаки и не растёт без ограничения.
@@ -308,6 +313,30 @@ const eventLimiter = rateLimit({
   limit: 120,
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Too many analytics events. Retry later.',
+      code: 'analytics_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
+});
+
+const publicReportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  skip: () => env.NODE_ENV === 'test',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Слишком много жалоб. Попробуйте позже.',
+      code: 'public_report_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
 });
 
 const adminLoginLimiter = rateLimit({
@@ -354,6 +383,7 @@ app.use('/api/v1/telegram', platformMutationLimiter);
 app.use('/api/questions', formLimiter);
 app.use('/api/partner-application', formLimiter);
 app.use('/api/events', eventLimiter);
+app.use('/api/v1/reports', publicReportLimiter);
 app.use('/api/telegram-click', eventLimiter);
 app.use('/api/registration', tokenReadLimiter);
 app.use('/api/webinar/current', tokenReadLimiter);
@@ -374,6 +404,7 @@ app.use('/api/admin/telegram/broadcast', adminBroadcastLimiter);
 
 app.use('/api', publicRouter);
 app.use(adminRouter);
+app.use(platformAdminRouter);
 
 app.get('/metrics', async (_req, res, next) => {
   try {

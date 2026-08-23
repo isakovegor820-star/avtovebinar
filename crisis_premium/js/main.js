@@ -19,7 +19,7 @@ import {
 } from './registration.js?v=remediation-20260804-1';
 import { bindQuestionForm } from './questions.js?v=remediation-20260804-3';
 import { bindPartnerApplicationForm } from './partner.js?v=remediation-20260804-1';
-import { track } from './analytics.js?v=site-review-7';
+import { track } from './analytics.js?v=ana-006-1';
 
 async function exchangeCurrentUrlToken() {
   const exchangedRoomToken = await exchangeUrlTokenIfPresent().catch(() => false);

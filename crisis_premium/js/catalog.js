@@ -239,7 +239,6 @@ function submitFilters(event) {
     const value = String(form.get(key) || '').trim();
     if (!value) return;
     if (key === 'availability' && value === 'ALL') return;
-    if (key === 'sort' && value === (form.get('q') ? 'RELEVANCE' : 'UPCOMING')) return;
     params.set(key, value);
   });
   window.location.assign(`catalog.html${params.size ? `?${params.toString()}` : ''}`);

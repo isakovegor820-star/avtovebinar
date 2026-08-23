@@ -1,4 +1,5 @@
 import { env } from './env.js';
+import type { PrismaClient } from '@prisma/client';
 
 export type PlatformFeatureFlags = {
   platformAccounts: boolean;
@@ -18,4 +19,18 @@ export function getPlatformFeatureFlags(): PlatformFeatureFlags {
     tenantCrm: env.TENANT_CRM_ENABLED === 'on',
     tenantTelegramBots: env.TENANT_TELEGRAM_BOTS_ENABLED === 'on',
   };
+}
+
+export type ManagedPlatformFeatureFlag =
+  | 'analytics_dashboard'
+  | 'public_reporting'
+  | 'moderation_actions'
+  | 'provider_jobs';
+
+export async function isManagedPlatformFeatureEnabled(
+  db: Pick<PrismaClient, 'platformFeatureFlag'>,
+  key: ManagedPlatformFeatureFlag,
+) {
+  const flag = await db.platformFeatureFlag.findUnique({ where: { key }, select: { enabled: true } });
+  return flag?.enabled === true;
 }

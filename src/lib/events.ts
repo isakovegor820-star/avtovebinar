@@ -1,36 +1,8 @@
-export const PUBLIC_ANALYTICS_EVENTS = [
-  'page_view',
-  'registration_click',
-  'registration_form_open',
-  'registration_submit',
-  'registration_success',
-  'telegram_click',
-  'telegram_subscribe',
-  'webinar_room_open',
-  'video_start',
-  'video_progress_25',
-  'video_progress_50',
-  'video_progress_75',
-  'video_finish',
-  'recordings_open',
-  'recording_open',
-  'recording_play',
-  'recording_progress_25',
-  'recording_progress_50',
-  'recording_progress_75',
-  'recording_finish',
-  'recording_cta_click',
-  // Server emits this after a question is persisted; kept public for historical clients.
-  'question_submit',
-  'question_submit_attempt',
-  'question_submitted',
-  'question_submit_error',
-  // Server emits this after a partner application is persisted; kept public for historical clients.
-  'partner_application_submit',
-  'partner_application_submitted',
-  'partner_application_error',
-  'partner_form_opened',
-  'partner_request_click',
-] as const;
-
-export type PublicAnalyticsEvent = (typeof PUBLIC_ANALYTICS_EVENTS)[number];
+export {
+  ANALYTICS_EVENT_NAMES,
+  ANALYTICS_EVENT_REGISTRY,
+  ANALYTICS_SOURCES,
+  CURRENT_ANALYTICS_SCHEMA_VERSION,
+  PUBLIC_ANALYTICS_EVENTS,
+} from './analyticsEvents.js';
+export type { AnalyticsSource, PublicAnalyticsEvent } from './analyticsEvents.js';

@@ -12,7 +12,7 @@ import {
 } from './utils.js?v=site-review-7';
 import { getRegistrationState } from './registration.js?v=remediation-20260804-1';
 import { updateTelegramLinks } from './room.js?v=site-review-7';
-import { track } from './analytics.js?v=site-review-7';
+import { track } from './analytics.js?v=ana-006-1';
 
 function clearLocalAccessHint() {
   try {

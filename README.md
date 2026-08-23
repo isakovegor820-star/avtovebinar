@@ -130,6 +130,12 @@ server-resolved Organization/Webinar graph; client `organizationId` не
 повторная отправка идемпотентна, а действующая legacy-регистрация и партнёрская
 воронка не подменяются.
 
+CAT-006 поддерживает `RELEVANCE`, `UPCOMING`, `NEWEST` и `UPDATED`; default —
+`UPCOMING`. Каждый SQL order имеет стабильный ID tie-break, а sort вместе с
+остальными фильтрами всегда остаётся в URL и восстанавливается при reload и
+Back/Forward. PostgreSQL integration и Playwright проверяют каждый режим,
+keyboard focus и отсутствие horizontal overflow при 320px.
+
 Additive migration `20260821130000_viewer_account_registration` связывает новые
 Registration с trusted Organization, Webinar и participant User и добавляет
 tenant-scoped favorites, progress, private timestamped notes и notification
@@ -254,6 +260,16 @@ acceptance. External S3 требует отдельного legal/budget/provide
 Важно: local streaming проходит через Express и потому не закрывает буквальный
 direct-object-storage критерий MED-001; актуальный статус требования указан в
 implementation ledger.
+
+Production-capable `MEDIA_STORAGE_PROVIDER=s3` возвращает browser contract
+`transport=direct_object_storage`, `credentials=omit`, `method=PUT`,
+`fullFileProxy=false` и короткоживущие signed part operations. Resume сверяет
+server checkpoint с provider `ListParts`, повторный complete подтверждает объект
+через `HeadObject`, cleanup вызывает Abort. Bucket, storage key и origin URL не
+являются API/log contract. Это provider-neutral implementation, а не provider
+acceptance: до `verified` нужны выбранные private bucket/IAM, exact CORS с
+exposed ETag, lifecycle incomplete multipart, DPA/budget/credentials и staging
+smoke; production default остаётся `unconfigured`.
 
 Реальный локальный media gate запускается командой `npm run media:acceptance`.
 Он создаёт временные MP4/MOV/WebM fixtures, пропускает их через production
@@ -442,6 +458,84 @@ POST /api/v1/creator/webinars/:webinarId/publish
 POST /api/v1/creator/webinars/:webinarId/archive
 ```
 
+`POST /api/events` принимает текущий аналитический контракт `schemaVersion: 1`.
+Тип события берётся из централизованной таксономии, `source` — только из
+allowlist `web`, `room`, `replay`, `registration`, `crm`, `email`, `telegram`,
+`worker`, `system`, `admin`. Для каждого нового события обязателен случайный
+`dedupKey` длиной 16–128 символов, стабильный только для retry одной логической
+операции. Browser/server writers включают event-name namespace в ключ
+(`web:<eventName>:…` / `srv:<eventName>:…`). Область уникальности: server-derived
+Organization для tenant-события или единая platform scope для глобального
+события; ключ нельзя переиспользовать с другим event type или payload. Первый insert отвечает `201`, идентичный retry
+— `200` с `replayed: true`, несовместимое повторное использование — безопасным
+`409 analytics_idempotency_conflict`.
+
+`occurredAt` всегда назначает PostgreSQL по серверному UTC-времени. Необязательный
+`clientOccurredAt` хранится отдельно и допускается только в диагностическом окне
+±24 часа. `X-Correlation-ID` принимается лишь в безопасном формате длиной до
+128 символов, иначе сервер создаёт новый; значение возвращается в header и
+response. Organization/Webinar/WebinarSession/Registration/User никогда не
+доверяются из body: клиентские ID используются только как hints и сверяются с
+participant cookie и server relations. Metadata типизирована по event type,
+ограничена глубиной/размером и не допускает email, телефон, chat ID, токены,
+cookie, signed URL, storage key, полный IP, provider secrets или произвольный
+request body. Старый unversioned body временно проходит только через явный
+legacy adapter и сохраняется как `schemaVersion=0`; новые browser writers
+отправляют версию 1 и не сохраняют dedup key или секреты в browser storage.
+
+Таксономия schema 1 фиксирована группами:
+
+```text
+acquisition: page_view, registration_click, registration_form_open,
+  registration_submit, registration_success, telegram_click, telegram_subscribe
+room: webinar_room_open, webinar_room_waiting, viewer_heartbeat, video_start,
+  video_progress_25, video_progress_50, video_progress_75, video_finish
+replay: recordings_open, recording_open, recording_play,
+  recording_progress_25, recording_progress_50, recording_progress_75,
+  recording_finish, recording_cta_click
+interaction: question_submit, question_submit_attempt, question_submitted,
+  question_submit_error, partner_application_submit,
+  partner_application_submitted, partner_application_error,
+  partner_form_opened, partner_request_click, chapter_open, transcript_search
+internal: participant_login_request, admin_manual_telegram_reminder,
+  telegram_broadcast, telegram_news_broadcast, telegram_broadcast_completed,
+  telegram_repeat_start, telegram_start_without_registration,
+  telegram_participant_command, telegram_consultant_start,
+  telegram_consultant_contact_request, telegram_consultant_message
+```
+
+Авторитетный runtime registry находится в `src/lib/analyticsEvents.ts`, а
+публичный enum — в `openapi.yml`. Тип не переименовывается и не подменяется
+другим смыслом. Добавление optional safe attribute к существующему типу может
+оставаться в текущей версии только вместе с registry/OpenAPI/tests; удаление,
+переименование, смена типа/обязательности или семантики требует новой
+`schemaVersion`, отдельной Zod schema, additive DB compatibility и явного
+adapter. Неизвестная версия или type всегда отклоняется и никогда не считается
+конверсией.
+
+Analytics dashboard `/crisis_premium/analytics.html` строится только поверх
+schema 1 и trusted Registration/Question/PartnerApplication data. Tenant берётся
+из User session/membership; `organizationId` не выбирает tenant. Overview,
+LIVE/REPLAY retention, active-viewer window и published-transcript content
+aggregates документируют UTC period, identity/dedup/background policy и
+privacy threshold 3 в [`docs/ANALYTICS-FORMULAS.md`](docs/ANALYTICS-FORMULAS.md).
+Filters Webinar/Session/source/period живут только в URL. Platform-wide
+projection отделена в MFA AdminUser route и не возвращает raw chat, notes,
+email, phone или Telegram IDs.
+
+Migration `20260823120000_analytics_moderation_platform` добавляет публичные
+CONTENT/AUTHOR/RIGHTS reports, exact moderation case state machine, immutable
+events/evidence, reversible Webinar/Author actions, versioned correction
+requests и owner-only Organization/taxonomy/feature-flag governance. Публичный
+контакт сохраняется только как HMAC; private/unknown target неразличимы.
+Platform action/config mutation требует reason, confirmation и optimistic
+revision. Author correction остаётся private до human review. Интерфейсы:
+`/crisis_premium/platform-moderation.html` и
+`/crisis_premium/creator-corrections.html`. Managed flags seeded fail-closed и
+их изменение само по себе не отправляет сообщения и не запускает provider job.
+Platform-wide tenant inventory находится в
+[`docs/TEN-002-ENTRYPOINT-INVENTORY.md`](docs/TEN-002-ENTRYPOINT-INVENTORY.md).
+
 Admin:
 
 ```text
@@ -457,10 +551,33 @@ PATCH /api/admin/questions/:id
 GET   /api/admin/partner-applications
 POST  /api/admin/telegram/broadcast
 GET   /api/admin/analytics/summary
+GET   /api/admin/analytics/organizations
+GET   /api/admin/moderation/reports
+PATCH /api/admin/moderation/reports/:id/status
+POST  /api/admin/moderation/reports/:id/actions
+POST  /api/admin/moderation/reports/:id/correction-requests
+POST  /api/admin/moderation/corrections/:id/review
+GET   /api/admin/platform/feature-flags
+PATCH /api/admin/platform/feature-flags/:key
+PATCH /api/admin/platform/organizations/:id
+PATCH /api/admin/platform/taxonomy/:kind/:id
+POST  /api/admin/platform/changes/:id/rollback
 GET   /api/v1/platform/author-verifications
 GET   /api/v1/platform/author-verifications/:id
 PATCH /api/v1/platform/author-verifications/:id
 GET   /api/v1/platform/author-verifications/evidence/:evidenceId
+```
+
+Tenant analytics and public/moderation additions:
+
+```text
+GET  /api/v1/analytics/overview
+GET  /api/v1/analytics/retention
+GET  /api/v1/analytics/live
+GET  /api/v1/analytics/content
+POST /api/v1/reports
+GET  /api/v1/moderation/corrections
+POST /api/v1/moderation/corrections/:requestId/submissions
 ```
 
 ## Production env

@@ -8,6 +8,9 @@ import { TELEGRAM_BINDING_VERSION } from '../../src/lib/roomLinks.js';
 import { runEmailOutboxJobOnce } from '../../src/lib/emailOutbox.js';
 import {
   DEFAULT_ORGANIZATION_ID,
+  DEFAULT_ORGANIZATION_SLUG,
+  DEFAULT_SYSTEM_OWNER_EMAIL,
+  DEFAULT_SYSTEM_OWNER_MEMBERSHIP_ID,
   DEFAULT_SYSTEM_OWNER_USER_ID,
   DEFAULT_WEBINAR_ID,
 } from '../../src/lib/tenancy/constants.js';
@@ -30,6 +33,40 @@ async function resetDb() {
   });
   await prisma.organization.deleteMany({ where: { id: { not: DEFAULT_ORGANIZATION_ID } } });
   await prisma.user.deleteMany({ where: { id: { not: DEFAULT_SYSTEM_OWNER_USER_ID } } });
+  await prisma.organization.upsert({
+    where: { id: DEFAULT_ORGANIZATION_ID },
+    update: { status: 'ACTIVE' },
+    create: {
+      id: DEFAULT_ORGANIZATION_ID,
+      name: 'АСПБ',
+      slug: DEFAULT_ORGANIZATION_SLUG,
+      status: 'ACTIVE',
+      settingsJson: { compatibilityMode: 'legacy', scopeVersion: 1 },
+    },
+  });
+  await prisma.user.upsert({
+    where: { id: DEFAULT_SYSTEM_OWNER_USER_ID },
+    update: { status: 'ACTIVE' },
+    create: {
+      id: DEFAULT_SYSTEM_OWNER_USER_ID,
+      emailNormalized: DEFAULT_SYSTEM_OWNER_EMAIL,
+      displayName: 'Системный владелец АСПБ',
+      kind: 'SYSTEM',
+      status: 'ACTIVE',
+    },
+  });
+  await prisma.organizationMembership.upsert({
+    where: { id: DEFAULT_SYSTEM_OWNER_MEMBERSHIP_ID },
+    update: { status: 'ACTIVE', role: 'OWNER' },
+    create: {
+      id: DEFAULT_SYSTEM_OWNER_MEMBERSHIP_ID,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      userId: DEFAULT_SYSTEM_OWNER_USER_ID,
+      role: 'OWNER',
+      status: 'ACTIVE',
+      permissionsJson: { systemBootstrap: true },
+    },
+  });
   await prisma.webinar.create({
     data: {
       id: DEFAULT_WEBINAR_ID,
@@ -1195,6 +1232,18 @@ test('public catalog restores URL filters and never exposes closed Webinar recor
   await page.goForward({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#catalogPracticeArea')).toHaveValue(rootArea.slug);
   await expect(page.getByRole('link', { name: webinar.title })).toBeVisible();
+  for (const sort of ['RELEVANCE', 'UPCOMING', 'NEWEST', 'UPDATED']) {
+    await page.locator('#catalogSort').focus();
+    await expect(page.locator('#catalogSort')).toBeFocused();
+    await page.locator('#catalogSort').selectOption(sort);
+    await page.locator('#catalogApplyButton').click();
+    await expect(page).toHaveURL(new RegExp(`sort=${sort}`));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#catalogSort')).toHaveValue(sort);
+    await expect(page.getByRole('link', { name: webinar.title })).toBeVisible();
+    const sortOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(sortOverflow).toBeLessThanOrEqual(1);
+  }
   await page.getByRole('link', { name: webinar.title }).click();
   await expect(page.locator('body')).toHaveAttribute('data-detail-mode', 'content');
   await expect(page.locator('#detailTitle')).toBeVisible();
@@ -1215,6 +1264,129 @@ test('public catalog restores URL filters and never exposes closed Webinar recor
       prisma.emailOutboxJob.count(),
     ]),
   ).resolves.toEqual(sideEffectsBefore);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test('analytics filters survive reload and browser history with keyboard and 320px layout', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await page.route('**/api/v1/analytics/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    const body = path.endsWith('/overview')
+      ? {
+          metrics: {
+            registrations: 3,
+            uniqueEntries: 3,
+            liveViews: 3,
+            replayViews: 2,
+            averageWatchSeconds: 60,
+            questions: 1,
+            ctaActions: 1,
+            completion: { numerator: 1, denominator: 3, rate: 1 / 3 },
+          },
+          period: { from: '2026-08-01T00:00:00.000Z', toExclusive: '2026-09-01T00:00:00.000Z', timezone: 'UTC' },
+          formulas: {
+            registrations: 'Trusted registrations in the UTC interval.',
+            completion: 'Completed identities divided by unique viewers.',
+          },
+        }
+      : path.endsWith('/retention')
+        ? {
+            privacyThreshold: 3,
+            intervals: [
+              { fromPercent: 0, viewers: 3, suppressed: false },
+              { fromPercent: 25, viewers: null, suppressed: true },
+            ],
+          }
+        : path.endsWith('/live')
+          ? {
+              activeViewers: 3,
+              algorithm: 'Visible playing heartbeat in the last 45 seconds.',
+              refreshDelaySeconds: 10,
+            }
+          : {
+              popularChapters: [{ title: 'Введение', count: 3 }],
+              transcriptSearches: [{ query: 'договор', count: 3 }],
+            };
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+
+  await page.goto('/crisis_premium/analytics.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#analyticsContent')).toBeVisible();
+  await expect(page.getByText('3', { exact: true }).first()).toBeVisible();
+  await page.locator('[name="webinarId"]').fill('webinar-1');
+  await page.locator('[name="source"]').focus();
+  await expect(page.locator('[name="source"]')).toBeFocused();
+  await page.locator('[name="source"]').selectOption('room');
+  await page.locator('[name="from"]').fill('2026-08-01');
+  await page.getByRole('button', { name: 'Применить фильтры' }).click();
+  await expect(page).toHaveURL(/webinarId=webinar-1/);
+  await expect(page).toHaveURL(/source=room/);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('[name="webinarId"]')).toHaveValue('webinar-1');
+  await page.goBack();
+  await expect(page.locator('[name="webinarId"]')).toHaveValue('');
+  await page.goForward();
+  await expect(page.locator('[name="webinarId"]')).toHaveValue('webinar-1');
+  await expect(page.getByText(/Скрыто: меньше 3/)).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test('platform moderation is keyboard-usable, revisioned and confirmed at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  const mutations: Array<Record<string, unknown>> = [];
+  await page.route('**/api/admin/moderation/**', async route => {
+    const request = route.request();
+    if (request.method() !== 'GET') mutations.push(request.postDataJSON());
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              id: 'report-1',
+              targetType: 'WEBINAR',
+              webinarId: 'webinar-1',
+              authorProfileId: null,
+              category: 'CONTENT',
+              description: 'Проверяемое описание публичной жалобы.',
+              status: 'NEW',
+              revision: 0,
+              createdAt: '2026-08-23T10:00:00.000Z',
+              webinar: { moderationRevision: 4, authorProfile: { moderationRevision: 2 } },
+              authorProfile: null,
+            },
+          ],
+          pagination: { page: 1, pageSize: 25, total: 1 },
+        }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+  });
+
+  await page.goto('/crisis_premium/platform-moderation.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { level: 1, name: 'Очередь публичных жалоб' })).toBeVisible();
+  await expect(page.getByText('Проверяемое описание публичной жалобы.')).toBeVisible();
+  await page.locator('#reportStatus').focus();
+  await expect(page.locator('#reportStatus')).toBeFocused();
+  await page.locator('#reportStatus').selectOption('NEW');
+  await page.getByRole('button', { name: 'Применить', exact: true }).click();
+  await expect(page).toHaveURL(/status=NEW/);
+  await page.goBack();
+  await expect(page.locator('#reportStatus')).toHaveValue('');
+  await page.getByRole('textbox', { name: 'Основание', exact: true }).fill('Проверено platform admin');
+  await page.getByRole('combobox', { name: 'Критическое действие' }).selectOption('SUSPEND_AUTHOR');
+  await page.getByRole('checkbox', { name: /Я проверил основание/ }).check();
+  await page.getByRole('button', { name: 'Применить критическое действие' }).click();
+  expect(mutations.at(-1)).toMatchObject({
+    confirmation: 'APPLY_MODERATION_ACTION',
+    expectedRevision: 0,
+    expectedTargetRevision: 2,
+    action: 'SUSPEND_AUTHOR',
+  });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
@@ -1560,6 +1732,43 @@ test('declining optional cookies leaves no persistent visitor identifier', async
     .poll(async () => (await page.context().cookies()).find(cookie => cookie.name === 'aspb_cookie_consent')?.value)
     .toBe('declined');
   expect((await page.context().cookies()).find(cookie => cookie.name === 'aspb_visitor_id')).toBeUndefined();
+});
+
+test('browser analytics retry reuses one versioned operation key without persisting it', async ({ page }) => {
+  const deliveries: Array<Record<string, unknown>> = [];
+  await page.route('**/api/events', async route => {
+    deliveries.push(JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>);
+    if (deliveries.length === 1) {
+      await route.abort('failed');
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        accepted: true,
+        replayed: false,
+        schemaVersion: 1,
+        correlationId: 'e2e-correlation',
+      }),
+    });
+  });
+
+  await page.goto('/crisis_premium/index.html', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => deliveries.length).toBe(2);
+  expect(deliveries[0]).toEqual(deliveries[1]);
+  expect(deliveries[0]).toMatchObject({
+    schemaVersion: 1,
+    eventName: 'page_view',
+    source: 'web',
+    attributes: {},
+  });
+  expect(deliveries[0].dedupKey).toMatch(/^web:page_view:[A-Za-z0-9._:-]+$/);
+  expect(JSON.stringify(deliveries)).not.toMatch(/email|phone|token|signed.?url|storage.?key/i);
+  expect(await page.evaluate(() => `${JSON.stringify(localStorage)}${JSON.stringify(sessionStorage)}`)).not.toContain(
+    String(deliveries[0].dedupKey),
+  );
 });
 
 test('magic link opened in the same access tab creates the participant session', async ({ page }) => {

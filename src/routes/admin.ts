@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { Request } from 'express';
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
@@ -29,6 +30,7 @@ import { findOrCreateWebinarSession } from '../lib/webinarSessions.js';
 import { getDailyBroadcastDate } from '../lib/time.js';
 import { getWebinarLiveState } from '../lib/webinarLive.js';
 import { getScriptedChatMessagesUntil } from '../lib/scriptedChat.js';
+import { buildServerDedupKey, recordAnalyticsEvent } from '../lib/analyticsEvents.js';
 import { createMfaEnrollment, decryptMfaSecret, verifyTotp } from '../lib/mfa.js';
 import { anonymizeLeadInTransaction, LEAD_ANONYMIZATION_TRANSACTION_TIMEOUT_MS } from '../lib/anonymizeLead.js';
 import { acquireLeadSecurityLock, isParticipantRegistrationActive } from '../lib/leadSecurity.js';
@@ -93,7 +95,7 @@ function toCount(value: number | bigint) {
   return typeof value === 'bigint' ? Number(value) : value;
 }
 
-type AdminRequest = Request & {
+export type AdminRequest = Request & {
   admin?: {
     id: string | null;
     login: string;
@@ -102,7 +104,7 @@ type AdminRequest = Request & {
   };
 };
 
-async function requireAdmin(req: AdminRequest, _res: any, next: any) {
+export async function requireAdmin(req: AdminRequest, _res: any, next: any) {
   const session = parseAdminSession(req.cookies?.aspb_admin_session);
   if (!session) {
     return next(new AppError(401, 'Admin authorization required'));
@@ -146,7 +148,7 @@ async function requireAdmin(req: AdminRequest, _res: any, next: any) {
   return next();
 }
 
-function requireRole(roles: AdminRole[]) {
+export function requireRole(roles: AdminRole[]) {
   return (req: AdminRequest, _res: any, next: any) => {
     if (!req.admin || !roles.includes(req.admin.role as AdminRole)) {
       return next(new AppError(403, 'Недостаточно прав'));
@@ -172,7 +174,7 @@ async function ensureDefaultAdminUser() {
   });
 }
 
-async function audit(
+export async function audit(
   req: AdminRequest,
   input: {
     action: string;
@@ -1347,15 +1349,14 @@ adminRouter.post(
         include: { lead: true },
       });
       if (!stillActive || !isParticipantRegistrationActive(stillActive)) return;
-      await tx.event.create({
-        data: {
-          eventName: 'admin_manual_telegram_reminder',
-          leadId: stillActive.leadId,
-          registrationId: stillActive.id,
-          webinarSessionId: stillActive.webinarSessionId,
-          source: 'admin',
-          page: 'admin',
-        },
+      const correlationId = getRequestContext()?.correlationId ?? `admin_${crypto.randomUUID()}`;
+      await recordAnalyticsEvent(tx as unknown as typeof prisma, {
+        eventName: 'admin_manual_telegram_reminder',
+        source: 'admin',
+        dedupKey: buildServerDedupKey('admin_manual_telegram_reminder', `${stillActive.id}:${correlationId}`),
+        correlationId,
+        scope: { kind: 'trusted', registrationId: stillActive.id },
+        page: '/admin',
       });
       await audit(
         adminReq,
@@ -1548,18 +1549,20 @@ adminRouter.post(
     }
     const { job, preview } = queueResult;
 
-    await prisma.event.create({
-      data: {
-        eventName: 'telegram_broadcast',
-        source: 'admin',
-        metadataJson: {
-          status: 'queued',
-          jobId: job.jobId,
-          total: job.total,
-          textLength: data.text.length,
-          consentDocumentVersion: preview.consentDocumentVersion,
-          initiatedById: actor.id,
-        },
+    await recordAnalyticsEvent(prisma, {
+      eventName: 'telegram_broadcast',
+      source: 'admin',
+      dedupKey: buildServerDedupKey('telegram_broadcast', job.jobId),
+      correlationId: getRequestContext()?.correlationId,
+      scope: { kind: 'platform' },
+      page: '/admin',
+      attributes: {
+        status: 'queued',
+        jobId: job.jobId,
+        total: job.total,
+        textLength: data.text.length,
+        consentDocumentVersion: preview.consentDocumentVersion,
+        initiatedById: actor.id,
       },
     });
 

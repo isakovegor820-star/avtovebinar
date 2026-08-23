@@ -17,6 +17,8 @@ import { viewerAccountRouter } from './viewerAccount.js';
 import { tenantCrmRouter } from './tenantCrm.js';
 import { tenantModerationRouter } from './tenantModeration.js';
 import { tenantTelegramRouter } from './tenantTelegram.js';
+import { tenantAnalyticsRouter } from './tenantAnalytics.js';
+import { publicReportsRouter } from './publicReports.js';
 
 export const publicRouter = Router();
 
@@ -51,6 +53,8 @@ publicRouter.use('/v1', viewerAccountRouter);
 publicRouter.use('/v1', tenantCrmRouter);
 publicRouter.use('/v1', tenantModerationRouter);
 publicRouter.use('/v1', tenantTelegramRouter);
+publicRouter.use('/v1', tenantAnalyticsRouter);
+publicRouter.use('/v1', publicReportsRouter);
 
 // Sub-routers (all paths are defined inside each module)
 publicRouter.use(registrationRouter);

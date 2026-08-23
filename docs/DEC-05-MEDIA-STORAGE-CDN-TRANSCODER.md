@@ -2,7 +2,7 @@
 
 Дата исследования: 21 августа 2026 года
 
-Статус: **для текущего односерверного контура выбран self-hosted persistent volume; production switch и эксплуатационная приёмка не выполнены**
+Статус: **для текущего односерверного compatibility-контура выбран self-hosted persistent volume; MED-001 production-capable S3 direct-upload path реализован provider-neutral, но provider/switch и эксплуатационная приёмка не выполнены**
 
 ## Решение
 
@@ -24,11 +24,18 @@ Local adapter, S3 adapter и worker добавлены, но безопасны�
 Self-hosted endpoint передаёт каждую часть потоково и не буферизует полный файл
 в памяти, однако bytes всё равно проходят через Express. Это осознанное
 следствие выбранного односерверного контура и не равно требуемому в MED-001
-direct upload в object storage. Поэтому MED-001 для выбранного contour остаётся
-`in_progress`. Реализованный S3 adapter предоставляет direct presigned PUT, но
-станет выбранным путём только после отдельного provider/legal/budget решения и
-staging acceptance. Эта граница не переименовывается в «object storage» и не
-считается закрытой тестами local filesystem adapter.
+direct upload в object storage. Поэтому local contour не является буквальным
+MED-001. Production-capable S3 adapter предоставляет direct presigned PUT и API
+явно возвращает provider-neutral browser contract
+`transport=direct_object_storage`, `credentials=omit`, `fullFileProxy=false`,
+bounded signed TTL и требуемые CORS headers. Resume сверяет provider `ListParts`
+с server checkpoint, complete идемпотентно подтверждает MIME/size через
+`HeadObject`, а abort/expiry cleanup и reconciliation пишут privacy-safe
+lifecycle audit без key/bucket/origin. Provider-neutral MED-001 имеет статус
+`implemented`, но станет `verified` только после отдельного
+provider/legal/budget решения и staging acceptance. Эта граница не
+переименовывает local filesystem в «object storage» и не считается закрытой его
+тестами.
 
 ## Почему не PostgreSQL для video bytes
 

@@ -1304,6 +1304,132 @@ bot/callback secrets как способ обычного rollback: это от�
 procedure. Down-migration, delete history и старый image без нового enum/schema
 contract запрещены.
 
+## ANA-006: versioned analytics rollout
+
+Migration `20260823110000_analytics_event_contract` только расширяет существующую
+`events`: legacy rows сохраняются как version 0, а nullable/default columns
+оставляют старые writers совместимыми. Перед schema deploy на восстановленной
+копии production DB сохраните read-only snapshot:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823110000_analytics_event_contract_preflight.sql
+```
+
+Snapshot обязан содержать total events, legacy rows без tenant/session/
+registration scope, heuristic duplicate groups, unknown event types, forbidden
+metadata keys и полное распределение source. Эти значения классифицируют
+историческое состояние и не являются разрешением создавать новые version-1
+нарушения.
+
+Rollout выполняется вперёд без schema switch:
+
+1. Создайте и проверьте backup, затем выполните `npm run prisma:deploy`.
+2. Сразу выполните postflight ниже; все `v1_*_violations` и duplicate groups
+   должны быть равны нулю, legacy rows должны быть явно посчитаны отдельно.
+3. Повторите `npm run prisma:deploy` и зафиксируйте `No pending migrations to
+   apply`.
+4. Разверните совместимый API/worker/browser image. Browser отправляет schema 1;
+   unversioned payload допускается только через centralized legacy adapter и
+   должен наблюдаться по privacy-safe log `analytics_legacy_payload_accepted`.
+5. На тестовой Registration проверьте create, sequential retry, два
+   конкурентных retry и несовместимый payload conflict. Сверьте фактический
+   count в `events`, server UTC `occurred_at`, exact tenant/session scope и
+   отсутствие ПДн/secrets в response/logs.
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823110000_analytics_event_contract_postflight.sql
+npm run prisma:deploy
+```
+
+Contract version 1 принимает только типы централизованной таксономии и source
+`web`, `room`, `replay`, `registration`, `crm`, `email`, `telegram`, `worker`,
+`system`, `admin`. Dedup uniqueness — `(server-derived organization,
+dedup_key)` для tenant scope и `(platform scope, dedup_key)` для global events;
+browser/server writers кодируют event-name namespace как `web:<eventName>:…` /
+`srv:<eventName>:…`, а payload hash запрещает повторное использование ключа для другого type/payload.
+DB назначает authoritative UTC `occurred_at`, а bounded `client_occurred_at` не
+участвует в бизнес-времени. Metadata — только allowlist конкретного event type
+с лимитами depth 3, 20 keys/items, string 500 и request body 12 KiB; PII,
+prototype keys, tokens/cookies/signed URLs/storage/provider secrets запрещены.
+
+Штатный rollback ANA-006 — вернуть предыдущий application image/path. Не
+выполняйте down-migration и не удаляйте новые columns/indexes/history: старый
+writer продолжит записывать version 0 через DB defaults. Если version-1
+postflight ненулевой, остановите rollout нового image, сохраните evidence и
+исправляйте только новой forward migration. Включение analytics/moderation
+projection выполняется отдельно по процедуре ниже.
+
+## Analytics, moderation и platform governance rollout
+
+Migration `20260823120000_analytics_moderation_platform` additive: она не
+переписывает version-0 events, Webinar/Author history или legacy moderation.
+Перед deploy выполните read-only inventory и сохраните вывод рядом с backup:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823120000_analytics_moderation_platform_preflight.sql
+npm run prisma:deploy
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823120000_analytics_moderation_platform_postflight.sql
+npm run prisma:deploy # обязан сообщить No pending migrations to apply
+```
+
+Все postflight violation counts обязаны быть нулём. До staging acceptance четыре
+managed flags `analytics_dashboard`, `public_reporting`, `moderation_actions`,
+`provider_jobs` остаются `false`. Их меняет только MFA AdminUser owner через
+confirmed reasoned optimistic API; прямой SQL switch не является rollout.
+Изменение flag не отправляет email/Telegram и не запускает job.
+
+Staging acceptance на тестовых данных:
+
+1. OWNER/AUTHOR/ANALYST/AUDITOR видят только свой analytics scope, AUTHOR —
+   только свои Webinars; foreign/unknown Webinar/Session одинаковы.
+2. Проверить UTC boundaries, LIVE/REPLAY separation, background tab, duplicate
+   tab/retry/seek, active 45-second expiry и threshold 3 по формулам
+   `docs/ANALYTICS-FORMULAS.md`; synthetic viewer создавать запрещено.
+3. MFA AdminUser owner/admin видит только aggregate; viewer и tenant роли — нет.
+   Response/log не содержит chat, notes, email, phone, Telegram IDs.
+4. Включить `public_reporting` только на staging, проверить rate limit,
+   sanitization и одинаковый private/unknown 404. Reporter contact не должен
+   появиться ни в response, ни в обычных logs.
+5. Провести report `NEW → IN_REVIEW → ACTION_REQUIRED → RESOLVED`; stale и
+   invalid transition должны дать 409 и ноль event/audit.
+6. На тестовом Webinar проверить unpublish, прекращение новых catalog/
+   registration access, сохранение Registration/CRM/Event, затем controlled
+   restore. Для Author — suspend/restore с теми же проверками.
+7. Запросить correction с каждым visibility decision; submitted draft не
+   должен быть публичным до отдельного human approve. Проверить parallel 409.
+8. Изменить тестовую Organization/taxonomy/flag запись, проверить before/after,
+   audit и controlled rollback; stale rollback должен быть отклонён.
+
+Incident/rollback: сначала fail-close managed flags (analytics/public reports/
+moderation actions/provider jobs) через owner API с причиной. Не удаляйте cases,
+events, revisions, actions или config history и не делайте down-migration.
+Ошибочное unpublish/suspend восстанавливается только RESTORE action, которое
+ссылается на исходное immutable evidence. Ошибочная configuration mutation —
+только `/api/admin/platform/changes/:id/rollback` при совпадающей current
+revision. При подозрении на compromise отзовите AdminUser sessions по отдельной
+security procedure, сохраните correlation IDs и audit export.
+
+## MED-001 object-storage acceptance boundary
+
+Provider-neutral S3 code не разрешает production switch без выбранного private
+bucket/IAM и принятого DPA/budget. Bucket CORS обязан разрешать только production
+HTTPS origin, методы PUT/HEAD, request header `Content-Type`, expose `ETag`; GET
+origin остаётся private. Provider lifecycle aborts incomplete multipart, а
+application cleanup остаётся вторым барьером. На staging проверить initiate,
+direct part PUT (API не получает bytes), interrupted resume/ListParts,
+idempotent complete, checksum mismatch, abort/expiry cleanup, bounded retry,
+provider-neutral errors и отсутствие bucket/key/origin/signed URL в DB/logs.
+До этого `MEDIA_STORAGE_PROVIDER=unconfigured`; local adapter — compatibility,
+не MED-001 acceptance.
+
 ## Минимальный production checklist
 
 - [ ] Домен подключен.
@@ -1323,6 +1449,10 @@ contract запрещены.
 - [ ] Публичный `/health/dependencies` раскрывает только aggregate `ok/status`, без имён компонентов/errors/counts/usernames; полная диагностика доступна только в защищённом `/health/dependencies/details`.
 - [ ] Telegram deep-link `/start` token одноразовый и не работает как room exchange token.
 - [ ] Telegram news работает через durable broadcast jobs: `slot_key`/idempotency уникальны, временная ошибка получает retry, а consent перепроверяется перед каждой отправкой.
+- [ ] ANA-006 preflight snapshot сохранён; migration/postflight дают ноль version-1 scope/taxonomy/source/correlation/metadata/dedup violations; конкурентный retry создаёт одну row, а повторный migrate не имеет pending migrations.
+- [ ] Analytics/moderation preflight сохранён; migration/postflight дают ноль report/event/correction/revision/action/flag violations; повторный migrate не имеет pending migrations.
+- [ ] Managed analytics/reporting/moderation/provider flags fail-closed; role matrix, formulas/privacy, report rate limit, moderation correction/action restore и platform rollback приняты на staging.
+- [ ] MED-001 выбранный private object storage принят с exact CORS/IAM/lifecycle/DPA, direct bytes bypass, ListParts resume, idempotent complete, abort/cleanup, checksum и PII-safe audit; иначе provider остаётся `unconfigured`.
 - [ ] `WEBINAR_TEST_ROOM_MODE=off`.
 - [ ] `npm run prisma:deploy` проходит.
 - [ ] `npm run css:build` проходит.

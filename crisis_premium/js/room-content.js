@@ -4,6 +4,7 @@
  */
 
 import { getJson, formatTimelineTime } from './utils.js?v=site-review-7';
+import { track } from './analytics.js?v=ana-analytics-1';
 
 const CONTENT_PATH = '/webinar/content/session/current';
 const REFRESH_INTERVAL_MS = 60_000;
@@ -12,6 +13,7 @@ let currentSegments = [];
 let refreshTimer = null;
 let refreshInFlight = null;
 let listenersBound = false;
+let searchAnalyticsTimer = null;
 
 function node(id) {
   return document.getElementById(id);
@@ -113,6 +115,9 @@ function renderChapters(chapters, hasTranscript) {
     const item = document.createElement('li');
     item.className = 'room-chapter-item';
     const button = createSeekButton(chapter.startMs, chapter.title, 'room-time-button');
+    if (typeof chapter.id === 'string') {
+      button.addEventListener('click', () => track('chapter_open', { chapterId: chapter.id }));
+    }
     const copy = document.createElement('div');
     copy.className = 'min-w-0';
     const title = document.createElement('p');
@@ -196,7 +201,17 @@ function bindSearch() {
   const input = node('roomTranscriptSearch');
   if (!input || input.dataset.bound === 'true') return;
   input.dataset.bound = 'true';
-  input.addEventListener('input', renderTranscriptResults);
+  input.addEventListener('input', () => {
+    renderTranscriptResults();
+    if (searchAnalyticsTimer) window.clearTimeout(searchAnalyticsTimer);
+    const query = String(input.value || '').trim();
+    const safe = query.length >= 2
+      && query.length <= 120
+      && /^[\p{L}\p{N}\s.,:;!?()«»"'-]+$/u.test(query)
+      && !/@/.test(query)
+      && !/(?:^|\s)\+?\d[\d\s()-]{8,}\d(?:$|\s)/.test(query);
+    if (safe) searchAnalyticsTimer = window.setTimeout(() => track('transcript_search', { query }), 700);
+  });
   input.addEventListener('keydown', event => {
     const buttons = transcriptResultButtons();
     if ((event.key === 'ArrowDown' || event.key === 'Enter') && buttons[0]) {

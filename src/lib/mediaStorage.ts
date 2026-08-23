@@ -250,3 +250,15 @@ export function getMediaUploadCspOrigins() {
   }
   return [...new Set(configured)];
 }
+
+export function getMediaUploadBrowserContract(providerName: string) {
+  return {
+    transport: providerName === 's3' ? ('direct_object_storage' as const) : ('api_compatibility' as const),
+    method: 'PUT' as const,
+    credentials: 'omit' as const,
+    requestHeaders: ['content-type'],
+    responseHeaders: ['etag'],
+    signedOperationTtlSeconds: providerName === 'local_fs' ? null : env.MEDIA_SIGNED_OPERATION_TTL_SECONDS,
+    fullFileProxy: providerName !== 's3',
+  };
+}

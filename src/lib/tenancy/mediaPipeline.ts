@@ -5,6 +5,7 @@ import { env } from '../env.js';
 import { AppError } from '../http.js';
 import {
   getPrivateMediaStorageAdapter,
+  getMediaUploadBrowserContract,
   type CompletedUploadPart,
   type PrivateMediaStorageAdapter,
 } from '../mediaStorage.js';
@@ -319,6 +320,7 @@ export async function createMediaUpload(
       partSizeBytes: env.MEDIA_PART_SIZE_BYTES,
     },
     parts: signed.partUrls,
+    uploadContract: getMediaUploadBrowserContract(storage.name),
   };
 }
 
@@ -534,6 +536,21 @@ export async function resumeMediaUpload(
       providerErrorCode(error, 'media_upload_sign_failed'),
     );
   }
+  await db.auditLog.create({
+    data: {
+      userId: context.userId,
+      organizationId: context.organizationId,
+      correlationId: context.correlationId,
+      action: 'media.upload.resumed',
+      entityType: 'MediaUpload',
+      entityId: upload.id,
+      afterJson: {
+        completedPartCount: completedParts.length,
+        missingPartCount: missingPartNumbers.length,
+        providerReconciled: Boolean(providerParts),
+      },
+    },
+  });
   return {
     asset: publicAsset(upload.asset),
     uploadId: upload.id,
@@ -545,6 +562,7 @@ export async function resumeMediaUpload(
     },
     completedParts,
     parts,
+    uploadContract: getMediaUploadBrowserContract(storage.name),
   };
 }
 

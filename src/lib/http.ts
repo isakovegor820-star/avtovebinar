@@ -31,7 +31,7 @@ export function getClientIp(req: Request) {
   return req.socket.remoteAddress ?? '0.0.0.0';
 }
 
-export function errorMiddleware(error: unknown, _req: Request, res: Response, _next: NextFunction) {
+export function errorMiddleware(error: unknown, req: Request, res: Response, _next: NextFunction) {
   const correlationId = getRequestContext()?.correlationId;
   if (error instanceof AppError) {
     return res.status(error.statusCode).json({
@@ -54,10 +54,11 @@ export function errorMiddleware(error: unknown, _req: Request, res: Response, _n
   }
 
   if (isPayloadTooLargeError(error)) {
+    const analyticsRequest = req.originalUrl === '/api/events' || req.originalUrl.startsWith('/api/events?');
     return res.status(413).json({
       ok: false,
-      error: 'Размер запроса превышает допустимый',
-      code: 'payload_too_large',
+      error: analyticsRequest ? 'Analytics request is too large' : 'Размер запроса превышает допустимый',
+      code: analyticsRequest ? 'analytics_payload_too_large' : 'payload_too_large',
       correlationId,
     });
   }

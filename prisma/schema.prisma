@@ -213,6 +213,55 @@ enum QuestionPriority {
   @@map("question_priority")
 }
 
+enum ModerationReportCategory {
+  CONTENT @map("content")
+  AUTHOR  @map("author")
+  RIGHTS  @map("rights")
+
+  @@map("moderation_report_category")
+}
+
+enum ModerationTargetType {
+  WEBINAR        @map("webinar")
+  AUTHOR_PROFILE @map("author_profile")
+
+  @@map("moderation_target_type")
+}
+
+enum ModerationCaseStatus {
+  NEW             @map("new")
+  IN_REVIEW       @map("in_review")
+  ACTION_REQUIRED @map("action_required")
+  RESOLVED        @map("resolved")
+  REJECTED        @map("rejected")
+
+  @@map("moderation_case_status")
+}
+
+enum ModerationCorrectionStatus {
+  OPEN      @map("open")
+  SUBMITTED @map("submitted")
+  APPROVED  @map("approved")
+  REJECTED  @map("rejected")
+
+  @@map("moderation_correction_status")
+}
+
+enum ModerationVisibilityDecision {
+  KEEP_PUBLISHED      @map("keep_published")
+  HIDE_UNTIL_APPROVED @map("hide_until_approved")
+
+  @@map("moderation_visibility_decision")
+}
+
+enum ModerationRevisionStatus {
+  SUBMITTED @map("submitted")
+  APPROVED  @map("approved")
+  REJECTED  @map("rejected")
+
+  @@map("moderation_revision_status")
+}
+
 enum AiSuggestionStatus {
   PENDING  @map("pending")
   ACCEPTED @map("accepted")
@@ -485,6 +534,8 @@ model User {
   aiSuggestionsReviewed            AiSuggestion[]                 @relation("AiSuggestionReviewer")
   registrations                    Registration[]                 @relation("RegistrationParticipantUser")
   analyticsEvents                  Event[]                        @relation("EventUser")
+  moderationReports                ContentReport[]                @relation("ContentReportReporter")
+  moderationRevisions              WebinarContentRevision[]       @relation("WebinarContentRevisionCreator")
   viewerFavorites                  ViewerWebinarFavorite[]
   viewerProgress                   ViewerWebinarProgress[]
   viewerNotes                      ViewerWebinarNote[]
@@ -504,6 +555,7 @@ model Organization {
   slug                          String                         @unique
   status                        OrganizationStatus             @default(ACTIVE)
   settingsJson                  Json?                          @map("settings_json")
+  platformRevision              Int                            @default(1) @map("platform_revision")
   createdAt                     DateTime                       @default(now()) @map("created_at")
   updatedAt                     DateTime                       @updatedAt @map("updated_at")
   memberships                   OrganizationMembership[]
@@ -556,6 +608,11 @@ model Organization {
   telegramBotEvents             TelegramBotEvent[]
   telegramConsultantMessages    TelegramConsultantMessage[]
   analyticsEvents               Event[]
+  moderationReports             ContentReport[]
+  moderationReportEvents        ContentReportEvent[]
+  moderationCorrections         ModerationCorrectionRequest[]
+  webinarContentRevisions       WebinarContentRevision[]
+  moderationPlatformActions     ModerationPlatformAction[]
 
   @@index([status])
   @@map("organizations")
@@ -718,24 +775,27 @@ model OrganizationInvitationEmailJob {
 }
 
 model AuthorProfile {
-  id                       String                       @id @default(cuid())
-  organizationId           String                       @map("organization_id")
-  userId                   String                       @map("user_id")
-  slug                     String                       @unique
-  publicName               String?                      @map("public_name")
-  bio                      String?
-  specializations          String[]                     @default([])
-  professionalOrganization String?                      @map("professional_organization")
-  region                   String?
-  experience               String?
-  verificationStatus       AuthorVerificationStatus     @default(DRAFT) @map("verification_status")
-  createdAt                DateTime                     @default(now()) @map("created_at")
-  updatedAt                DateTime                     @updatedAt @map("updated_at")
-  organization             Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  user                     User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
-  verifications            AuthorVerification[]
-  evidence                 AuthorVerificationEvidence[]
-  webinars                 Webinar[]
+  id                        String                       @id @default(cuid())
+  organizationId            String                       @map("organization_id")
+  userId                    String                       @map("user_id")
+  slug                      String                       @unique
+  publicName                String?                      @map("public_name")
+  bio                       String?
+  specializations           String[]                     @default([])
+  professionalOrganization  String?                      @map("professional_organization")
+  region                    String?
+  experience                String?
+  verificationStatus        AuthorVerificationStatus     @default(DRAFT) @map("verification_status")
+  moderationRevision        Int                          @default(0) @map("moderation_revision")
+  createdAt                 DateTime                     @default(now()) @map("created_at")
+  updatedAt                 DateTime                     @updatedAt @map("updated_at")
+  organization              Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user                      User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  verifications             AuthorVerification[]
+  evidence                  AuthorVerificationEvidence[]
+  webinars                  Webinar[]
+  moderationReports         ContentReport[]
+  moderationPlatformActions ModerationPlatformAction[]
 
   @@unique([organizationId, userId])
   @@unique([id, organizationId])
@@ -790,17 +850,18 @@ model AuthorVerificationEvidence {
 }
 
 model LegalPracticeArea {
-  id         String                @id @default(cuid())
-  parentId   String?               @map("parent_id")
-  slug       String                @unique
-  name       String
-  status     TaxonomyStatus        @default(ACTIVE)
-  orderIndex Int                   @default(0) @map("order_index")
-  createdAt  DateTime              @default(now()) @map("created_at")
-  updatedAt  DateTime              @updatedAt @map("updated_at")
-  parent     LegalPracticeArea?    @relation("PracticeAreaTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children   LegalPracticeArea[]   @relation("PracticeAreaTree")
-  webinars   WebinarPracticeArea[]
+  id               String                @id @default(cuid())
+  parentId         String?               @map("parent_id")
+  slug             String                @unique
+  name             String
+  status           TaxonomyStatus        @default(ACTIVE)
+  orderIndex       Int                   @default(0) @map("order_index")
+  platformRevision Int                   @default(1) @map("platform_revision")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+  parent           LegalPracticeArea?    @relation("PracticeAreaTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children         LegalPracticeArea[]   @relation("PracticeAreaTree")
+  webinars         WebinarPracticeArea[]
 
   @@index([parentId, status, orderIndex])
   @@index([status, orderIndex])
@@ -808,16 +869,17 @@ model LegalPracticeArea {
 }
 
 model Jurisdiction {
-  id        String         @id @default(cuid())
-  parentId  String?        @map("parent_id")
-  code      String         @unique
-  name      String
-  status    TaxonomyStatus @default(ACTIVE)
-  createdAt DateTime       @default(now()) @map("created_at")
-  updatedAt DateTime       @updatedAt @map("updated_at")
-  parent    Jurisdiction?  @relation("JurisdictionTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children  Jurisdiction[] @relation("JurisdictionTree")
-  webinars  Webinar[]
+  id               String         @id @default(cuid())
+  parentId         String?        @map("parent_id")
+  code             String         @unique
+  name             String
+  status           TaxonomyStatus @default(ACTIVE)
+  platformRevision Int            @default(1) @map("platform_revision")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  parent           Jurisdiction?  @relation("JurisdictionTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children         Jurisdiction[] @relation("JurisdictionTree")
+  webinars         Webinar[]
 
   @@index([parentId, status])
   @@index([status, name])
@@ -825,40 +887,41 @@ model Jurisdiction {
 }
 
 model Webinar {
-  id                         String                      @id @default(cuid())
-  organizationId             String                      @map("organization_id")
-  authorProfileId            String?                     @map("author_profile_id")
-  jurisdictionId             String?                     @map("jurisdiction_id")
+  id                         String                        @id @default(cuid())
+  organizationId             String                        @map("organization_id")
+  authorProfileId            String?                       @map("author_profile_id")
+  jurisdictionId             String?                       @map("jurisdiction_id")
   slug                       String
   title                      String
   description                String?
-  outcomeDescription         String?                     @map("outcome_description")
-  contentStatus              WebinarContentStatus        @default(DRAFT) @map("content_status")
-  visibility                 WebinarVisibility           @default(PRIVATE)
-  freshnessStatus            WebinarFreshnessStatus      @default(UNKNOWN) @map("freshness_status")
-  audienceLevel              WebinarAudienceLevel?       @map("audience_level")
-  targetAudience             String?                     @map("target_audience")
+  outcomeDescription         String?                       @map("outcome_description")
+  contentStatus              WebinarContentStatus          @default(DRAFT) @map("content_status")
+  visibility                 WebinarVisibility             @default(PRIVATE)
+  freshnessStatus            WebinarFreshnessStatus        @default(UNKNOWN) @map("freshness_status")
+  audienceLevel              WebinarAudienceLevel?         @map("audience_level")
+  targetAudience             String?                       @map("target_audience")
   format                     WebinarFormat?
-  durationMinutes            Int?                        @map("duration_minutes")
-  language                   String                      @default("ru")
-  currentAsOf                DateTime?                   @map("current_as_of") @db.Date
+  durationMinutes            Int?                          @map("duration_minutes")
+  language                   String                        @default("ru")
+  currentAsOf                DateTime?                     @map("current_as_of") @db.Date
   disclaimer                 String?
-  syntheticDisclosure        String?                     @map("synthetic_disclosure")
-  mediaStatus                WebinarMediaStatus          @default(NOT_UPLOADED) @map("media_status")
-  transcriptStatus           WebinarTranscriptStatus     @default(NOT_AVAILABLE) @map("transcript_status")
-  scenarioStatus             WebinarScenarioStatus       @default(NOT_AVAILABLE) @map("scenario_status")
-  contentVersion             Int                         @default(1) @map("content_version")
-  supersededByWebinarId      String?                     @map("superseded_by_webinar_id")
-  legacyCompatibility        Boolean                     @default(false) @map("legacy_compatibility")
-  publishedAt                DateTime?                   @map("published_at")
-  archivedAt                 DateTime?                   @map("archived_at")
-  createdAt                  DateTime                    @default(now()) @map("created_at")
-  updatedAt                  DateTime                    @updatedAt @map("updated_at")
-  organization               Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  authorProfile              AuthorProfile?              @relation(fields: [authorProfileId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  jurisdiction               Jurisdiction?               @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
-  supersededBy               Webinar?                    @relation("WebinarSupersession", fields: [supersededByWebinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  supersedes                 Webinar[]                   @relation("WebinarSupersession")
+  syntheticDisclosure        String?                       @map("synthetic_disclosure")
+  mediaStatus                WebinarMediaStatus            @default(NOT_UPLOADED) @map("media_status")
+  transcriptStatus           WebinarTranscriptStatus       @default(NOT_AVAILABLE) @map("transcript_status")
+  scenarioStatus             WebinarScenarioStatus         @default(NOT_AVAILABLE) @map("scenario_status")
+  contentVersion             Int                           @default(1) @map("content_version")
+  moderationRevision         Int                           @default(0) @map("moderation_revision")
+  supersededByWebinarId      String?                       @map("superseded_by_webinar_id")
+  legacyCompatibility        Boolean                       @default(false) @map("legacy_compatibility")
+  publishedAt                DateTime?                     @map("published_at")
+  archivedAt                 DateTime?                     @map("archived_at")
+  createdAt                  DateTime                      @default(now()) @map("created_at")
+  updatedAt                  DateTime                      @updatedAt @map("updated_at")
+  organization               Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  authorProfile              AuthorProfile?                @relation(fields: [authorProfileId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  jurisdiction               Jurisdiction?                 @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+  supersededBy               Webinar?                      @relation("WebinarSupersession", fields: [supersededByWebinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supersedes                 Webinar[]                     @relation("WebinarSupersession")
   practiceAreas              WebinarPracticeArea[]
   sources                    WebinarSource[]
   slugAliases                WebinarSlugAlias[]
@@ -868,9 +931,9 @@ model Webinar {
   accessGrants               WebinarAccessGrant[]
   chatScenarios              ChatScenario[]
   chatMessages               WebinarChatMessage[]
-  currentMediaAssetId        String?                     @map("current_media_asset_id")
-  currentMediaAsset          MediaAsset?                 @relation("WebinarCurrentMedia", fields: [currentMediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  mediaAssets                MediaAsset[]                @relation("WebinarMediaAssets")
+  currentMediaAssetId        String?                       @map("current_media_asset_id")
+  currentMediaAsset          MediaAsset?                   @relation("WebinarCurrentMedia", fields: [currentMediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  mediaAssets                MediaAsset[]                  @relation("WebinarMediaAssets")
   transcripts                Transcript[]
   aiOperations               AiOperationProvenance[]
   contentJobs                ContentJob[]
@@ -888,6 +951,10 @@ model Webinar {
   telegramBotEvents          TelegramBotEvent[]
   telegramConsultantMessages TelegramConsultantMessage[]
   analyticsEvents            Event[]
+  moderationReports          ContentReport[]
+  moderationCorrections      ModerationCorrectionRequest[]
+  contentRevisions           WebinarContentRevision[]
+  moderationPlatformActions  ModerationPlatformAction[]
 
   @@unique([organizationId, slug])
   @@unique([id, organizationId])
@@ -1402,24 +1469,31 @@ model WebinarAccessInvitationEmailJob {
 }
 
 model AdminUser {
-  id                          String                 @id @default(cuid())
-  name                        String
-  email                       String                 @unique
-  passwordHash                String                 @map("password_hash")
-  role                        String                 @default("manager")
-  isActive                    Boolean                @default(true) @map("is_active")
-  mfaSecretEncrypted          String?                @map("mfa_secret_encrypted")
-  mfaEnabledAt                DateTime?              @map("mfa_enabled_at")
-  sessionVersion              Int                    @default(1) @map("session_version")
-  lastLoginAt                 DateTime?              @map("last_login_at")
-  createdAt                   DateTime               @default(now()) @map("created_at")
-  updatedAt                   DateTime               @updatedAt @map("updated_at")
-  auditLogs                   AuditLog[]
-  assignedRegistrations       Registration[]
-  assignedPartnerApplications PartnerApplication[]
-  telegramBroadcastJobs       TelegramBroadcastJob[]
-  authorVerificationReviews   AuthorVerification[]
-  legacyOwnedCrmContacts      CRMContact[]           @relation("CRMContactLegacyAdminOwner")
+  id                            String                        @id @default(cuid())
+  name                          String
+  email                         String                        @unique
+  passwordHash                  String                        @map("password_hash")
+  role                          String                        @default("manager")
+  isActive                      Boolean                       @default(true) @map("is_active")
+  mfaSecretEncrypted            String?                       @map("mfa_secret_encrypted")
+  mfaEnabledAt                  DateTime?                     @map("mfa_enabled_at")
+  sessionVersion                Int                           @default(1) @map("session_version")
+  lastLoginAt                   DateTime?                     @map("last_login_at")
+  createdAt                     DateTime                      @default(now()) @map("created_at")
+  updatedAt                     DateTime                      @updatedAt @map("updated_at")
+  auditLogs                     AuditLog[]
+  assignedRegistrations         Registration[]
+  assignedPartnerApplications   PartnerApplication[]
+  telegramBroadcastJobs         TelegramBroadcastJob[]
+  authorVerificationReviews     AuthorVerification[]
+  moderationReportEvents        ContentReportEvent[]
+  moderationCorrectionRequests  ModerationCorrectionRequest[] @relation("ModerationCorrectionRequester")
+  moderationCorrectionReviews   ModerationCorrectionRequest[] @relation("ModerationCorrectionReviewer")
+  webinarContentRevisionReviews WebinarContentRevision[]      @relation("WebinarContentRevisionReviewer")
+  moderationPlatformActions     ModerationPlatformAction[]
+  featureFlagsUpdated           PlatformFeatureFlag[]
+  platformConfigChanges         PlatformConfigChange[]
+  legacyOwnedCrmContacts        CRMContact[]                  @relation("CRMContactLegacyAdminOwner")
 
   @@index([role])
   @@index([isActive])
@@ -2659,6 +2733,177 @@ model WebinarChatMessage {
   @@index([messageType])
   @@index([hiddenByMembershipId])
   @@map("webinar_chat_messages")
+}
+
+model ContentReport {
+  id                  String                        @id @default(cuid())
+  organizationId      String                        @map("organization_id")
+  targetType          ModerationTargetType          @map("target_type")
+  webinarId           String?                       @map("webinar_id")
+  authorProfileId     String?                       @map("author_profile_id")
+  category            ModerationReportCategory
+  description         String
+  reporterUserId      String?                       @map("reporter_user_id")
+  reporterContactHash String?                       @map("reporter_contact_hash")
+  status              ModerationCaseStatus          @default(NEW)
+  revision            Int                           @default(0)
+  correlationId       String                        @map("correlation_id")
+  createdAt           DateTime                      @default(now()) @map("created_at")
+  updatedAt           DateTime                      @updatedAt @map("updated_at")
+  organization        Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar             Webinar?                      @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  authorProfile       AuthorProfile?                @relation(fields: [authorProfileId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  reporterUser        User?                         @relation("ContentReportReporter", fields: [reporterUserId], references: [id], onDelete: SetNull)
+  events              ContentReportEvent[]
+  correctionRequests  ModerationCorrectionRequest[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, status, createdAt])
+  @@index([webinarId, status, createdAt])
+  @@index([authorProfileId, status, createdAt])
+  @@map("content_reports")
+}
+
+model ContentReportEvent {
+  id               String                @id @default(cuid())
+  reportId         String                @map("report_id")
+  organizationId   String                @map("organization_id")
+  fromStatus       ModerationCaseStatus? @map("from_status")
+  toStatus         ModerationCaseStatus  @map("to_status")
+  actorAdminUserId String?               @map("actor_admin_user_id")
+  reason           String
+  correlationId    String                @map("correlation_id")
+  reportRevision   Int                   @map("report_revision")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  report           ContentReport         @relation(fields: [reportId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actorAdminUser   AdminUser?            @relation(fields: [actorAdminUserId], references: [id], onDelete: Restrict)
+
+  @@unique([reportId, reportRevision])
+  @@index([organizationId, createdAt])
+  @@index([actorAdminUserId, createdAt])
+  @@map("content_report_events")
+}
+
+model ModerationCorrectionRequest {
+  id                     String                       @id @default(cuid())
+  reportId               String?                      @map("report_id")
+  organizationId         String                       @map("organization_id")
+  webinarId              String                       @map("webinar_id")
+  requestedByAdminUserId String                       @map("requested_by_admin_user_id")
+  reviewedByAdminUserId  String?                      @map("reviewed_by_admin_user_id")
+  reason                 String
+  reviewReason           String?                      @map("review_reason")
+  visibilityDecision     ModerationVisibilityDecision @map("visibility_decision")
+  status                 ModerationCorrectionStatus   @default(OPEN)
+  revision               Int                          @default(0)
+  baselineContentVersion Int                          @map("baseline_content_version")
+  createdAt              DateTime                     @default(now()) @map("created_at")
+  submittedAt            DateTime?                    @map("submitted_at")
+  reviewedAt             DateTime?                    @map("reviewed_at")
+  updatedAt              DateTime                     @updatedAt @map("updated_at")
+  report                 ContentReport?               @relation(fields: [reportId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization           Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar                Webinar                      @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  requestedByAdminUser   AdminUser                    @relation("ModerationCorrectionRequester", fields: [requestedByAdminUserId], references: [id], onDelete: Restrict)
+  reviewedByAdminUser    AdminUser?                   @relation("ModerationCorrectionReviewer", fields: [reviewedByAdminUserId], references: [id], onDelete: Restrict)
+  contentRevisions       WebinarContentRevision[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, status, createdAt])
+  @@index([webinarId, status, createdAt])
+  @@index([reportId])
+  @@map("moderation_correction_requests")
+}
+
+model WebinarContentRevision {
+  id                    String                      @id @default(cuid())
+  correctionRequestId   String                      @map("correction_request_id")
+  organizationId        String                      @map("organization_id")
+  webinarId             String                      @map("webinar_id")
+  revision              Int
+  baseContentVersion    Int                         @map("base_content_version")
+  payloadJson           Json                        @map("payload_json")
+  status                ModerationRevisionStatus    @default(SUBMITTED)
+  createdByUserId       String                      @map("created_by_user_id")
+  reviewedByAdminUserId String?                     @map("reviewed_by_admin_user_id")
+  reviewReason          String?                     @map("review_reason")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  reviewedAt            DateTime?                   @map("reviewed_at")
+  correctionRequest     ModerationCorrectionRequest @relation(fields: [correctionRequestId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization          Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar               Webinar                     @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdByUser         User                        @relation("WebinarContentRevisionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  reviewedByAdminUser   AdminUser?                  @relation("WebinarContentRevisionReviewer", fields: [reviewedByAdminUserId], references: [id], onDelete: Restrict)
+
+  @@unique([correctionRequestId, revision])
+  @@unique([id, organizationId])
+  @@index([organizationId, webinarId, status, createdAt])
+  @@map("webinar_content_revisions")
+}
+
+model ModerationPlatformAction {
+  id               String                     @id @default(cuid())
+  organizationId   String                     @map("organization_id")
+  targetType       ModerationTargetType       @map("target_type")
+  webinarId        String?                    @map("webinar_id")
+  authorProfileId  String?                    @map("author_profile_id")
+  action           String
+  reason           String
+  beforeJson       Json                       @map("before_json")
+  afterJson        Json                       @map("after_json")
+  actorAdminUserId String                     @map("actor_admin_user_id")
+  correlationId    String                     @map("correlation_id")
+  reversesActionId String?                    @map("reverses_action_id")
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar          Webinar?                   @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  authorProfile    AuthorProfile?             @relation(fields: [authorProfileId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  actorAdminUser   AdminUser                  @relation(fields: [actorAdminUserId], references: [id], onDelete: Restrict)
+  reversesAction   ModerationPlatformAction?  @relation("ModerationActionReversal", fields: [reversesActionId], references: [id], onDelete: Restrict)
+  reversedBy       ModerationPlatformAction[] @relation("ModerationActionReversal")
+
+  @@index([organizationId, createdAt])
+  @@index([webinarId, createdAt])
+  @@index([authorProfileId, createdAt])
+  @@index([actorAdminUserId, createdAt])
+  @@map("moderation_platform_actions")
+}
+
+model PlatformFeatureFlag {
+  key                  String     @id
+  enabled              Boolean    @default(false)
+  revision             Int        @default(1)
+  description          String
+  updatedByAdminUserId String?    @map("updated_by_admin_user_id")
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
+  updatedByAdminUser   AdminUser? @relation(fields: [updatedByAdminUserId], references: [id], onDelete: Restrict)
+
+  @@index([enabled, updatedAt])
+  @@map("platform_feature_flags")
+}
+
+model PlatformConfigChange {
+  id                String                 @id @default(cuid())
+  targetType        String                 @map("target_type")
+  targetId          String                 @map("target_id")
+  operation         String
+  beforeJson        Json                   @map("before_json")
+  afterJson         Json                   @map("after_json")
+  targetRevision    Int                    @map("target_revision")
+  actorAdminUserId  String                 @map("actor_admin_user_id")
+  reason            String
+  correlationId     String                 @map("correlation_id")
+  rollsBackChangeId String?                @map("rolls_back_change_id")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  actorAdminUser    AdminUser              @relation(fields: [actorAdminUserId], references: [id], onDelete: Restrict)
+  rollsBackChange   PlatformConfigChange?  @relation("PlatformConfigRollback", fields: [rollsBackChangeId], references: [id], onDelete: Restrict)
+  rolledBackBy      PlatformConfigChange[] @relation("PlatformConfigRollback")
+
+  @@index([targetType, targetId, createdAt])
+  @@index([actorAdminUserId, createdAt])
+  @@map("platform_config_changes")
 }
 
 model Event {

@@ -15,6 +15,7 @@ import { createCorrelationId } from './requestContext.js';
 import { classifyTelegramConsultantText, recordTelegramConsultantMessage } from './tenancy/telegramConsultant.js';
 import { createTelegramManagerCallback } from './tenancy/telegramBots.js';
 import { logger } from './logger.js';
+import { buildServerDedupKey, recordAnalyticsEvent, type AnalyticsEventName } from './analyticsEvents.js';
 
 type ConsultantTelegramUpdate = {
   update_id: number;
@@ -40,24 +41,30 @@ function getTelegramProfile(update: ConsultantTelegramUpdate) {
   };
 }
 
-async function saveConsultantEvent(input: { eventName: string; chatId: string; update: ConsultantTelegramUpdate }) {
+async function saveConsultantEvent(input: {
+  eventName: Extract<AnalyticsEventName, 'telegram_consultant_start' | 'telegram_consultant_contact_request'>;
+  chatId: string;
+  update: ConsultantTelegramUpdate;
+}) {
   const providerMessageId = input.update.message?.message_id ? String(input.update.message.message_id) : 'unknown';
   const chatHash = crypto
     .createHmac('sha256', env.IP_HASH_SECRET)
     .update(`telegram-consultant-command:v1:${input.chatId}`)
     .digest('hex');
   const correlationId = createCorrelationId('telegram_consultant_command');
-  await prisma.$transaction([
-    prisma.event.create({
-      data: {
-        eventName: input.eventName,
-        page: 'telegram_consultant_bot',
-        source: 'telegram',
-        metadataJson: { commandEvent: true },
-      },
-    }),
-    prisma.telegramBotEvent.upsert({
-      where: { dedupKey: `consultant-command:${chatHash}:${providerMessageId}:${input.eventName}` },
+  const operationKey = `consultant-command:${chatHash}:${providerMessageId}:${input.eventName}`;
+  await prisma.$transaction(async tx => {
+    await recordAnalyticsEvent(tx as unknown as typeof prisma, {
+      eventName: input.eventName,
+      source: 'telegram',
+      dedupKey: buildServerDedupKey(input.eventName, operationKey),
+      correlationId,
+      scope: { kind: 'platform' },
+      page: '/telegram/consultant',
+      attributes: { commandEvent: true },
+    });
+    await tx.telegramBotEvent.upsert({
+      where: { dedupKey: operationKey },
       update: {},
       create: {
         botIdentity: 'CONSULTANT',
@@ -65,12 +72,12 @@ async function saveConsultantEvent(input: { eventName: string; chatId: string; u
         eventType: input.eventName,
         correlationId,
         providerMessageId,
-        dedupKey: `consultant-command:${chatHash}:${providerMessageId}:${input.eventName}`,
+        dedupKey: operationKey,
         status: 'accepted',
         metadataJson: { commandEvent: true },
       },
-    }),
-  ]);
+    });
+  });
 }
 
 function buildContactRows(

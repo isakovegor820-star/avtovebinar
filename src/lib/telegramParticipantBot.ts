@@ -33,6 +33,7 @@ import {
 import { canAccessRegisteredWebinar } from './tenancy/webinarAccess.js';
 import { getWebinarAccess } from './time.js';
 import { createCorrelationId } from './requestContext.js';
+import { buildServerDedupKey, recordAnalyticsEvent, type AnalyticsEventName } from './analyticsEvents.js';
 
 // A revocation may wait for one already-started Telegram provider request
 // (20s hard deadline), then takes the short Lead data lock and commits.
@@ -287,7 +288,13 @@ function safeMaterialUrl(value: string | null | undefined) {
 }
 
 async function saveBotEvent(input: {
-  eventName: string;
+  eventName: Extract<
+    AnalyticsEventName,
+    | 'telegram_repeat_start'
+    | 'telegram_start_without_registration'
+    | 'telegram_subscribe'
+    | 'telegram_participant_command'
+  >;
   leadId?: string;
   registrationId?: string;
   webinarSessionId?: string;
@@ -303,24 +310,20 @@ async function saveBotEvent(input: {
         ['command', 'outcome', 'isRebind'].includes(key) && ['string', 'boolean', 'number'].includes(typeof value),
     ),
   );
-  const data = {
-    eventName: input.eventName,
-    page: 'telegram_bot',
-    source: 'telegram',
-    metadataJson: safeMetadata as Prisma.InputJsonValue,
-  };
+  const operationKey = `participant:${providerMessageId ?? correlationId}:${input.eventName}`;
   if (!input.leadId) {
-    await prisma.$transaction([
-      prisma.event.create({
-        data: {
-          ...data,
-          leadId: null,
-          registrationId: null,
-          webinarSessionId: null,
-        },
-      }),
-      prisma.telegramBotEvent.upsert({
-        where: { dedupKey: `participant:${providerMessageId ?? correlationId}:${input.eventName}` },
+    await prisma.$transaction(async tx => {
+      await recordAnalyticsEvent(tx as unknown as typeof prisma, {
+        eventName: input.eventName,
+        source: 'telegram',
+        dedupKey: buildServerDedupKey(input.eventName, operationKey),
+        correlationId,
+        scope: { kind: 'platform' },
+        page: '/telegram/participant',
+        attributes: safeMetadata,
+      });
+      await tx.telegramBotEvent.upsert({
+        where: { dedupKey: operationKey },
         update: {},
         create: {
           botIdentity: 'PARTICIPANT',
@@ -328,12 +331,12 @@ async function saveBotEvent(input: {
           eventType: input.eventName,
           correlationId,
           providerMessageId,
-          dedupKey: `participant:${providerMessageId ?? correlationId}:${input.eventName}`,
+          dedupKey: operationKey,
           status: 'accepted',
           metadataJson: safeMetadata as Prisma.InputJsonValue,
         },
-      }),
-    ]);
+      });
+    });
     return true;
   }
 
@@ -353,13 +356,15 @@ async function saveBotEvent(input: {
       return false;
     }
 
-    await tx.event.create({
-      data: {
-        ...data,
-        leadId: activeRegistration.leadId,
-        registrationId: activeRegistration.id,
-        webinarSessionId: input.webinarSessionId ?? activeRegistration.webinarSessionId,
-      },
+    if (input.webinarSessionId && input.webinarSessionId !== activeRegistration.webinarSessionId) return false;
+    await recordAnalyticsEvent(tx as unknown as typeof prisma, {
+      eventName: input.eventName,
+      source: 'telegram',
+      dedupKey: buildServerDedupKey(input.eventName, operationKey),
+      correlationId,
+      scope: { kind: 'trusted', registrationId: activeRegistration.id },
+      page: '/telegram/participant',
+      attributes: safeMetadata,
     });
     const exactTenantScope =
       activeRegistration.organizationId &&
@@ -367,7 +372,7 @@ async function saveBotEvent(input: {
       activeRegistration.organizationId === activeRegistration.webinarSession.organizationId &&
       activeRegistration.webinarId === activeRegistration.webinarSession.webinarId;
     await tx.telegramBotEvent.upsert({
-      where: { dedupKey: `participant:${providerMessageId ?? correlationId}:${input.eventName}` },
+      where: { dedupKey: operationKey },
       update: {},
       create: {
         organizationId: exactTenantScope ? activeRegistration.organizationId : null,
@@ -380,7 +385,7 @@ async function saveBotEvent(input: {
         eventType: input.eventName,
         correlationId,
         providerMessageId,
-        dedupKey: `participant:${providerMessageId ?? correlationId}:${input.eventName}`,
+        dedupKey: operationKey,
         status: 'accepted',
         metadataJson: safeMetadata as Prisma.InputJsonValue,
       },

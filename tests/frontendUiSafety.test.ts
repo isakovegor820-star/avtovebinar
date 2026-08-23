@@ -33,6 +33,14 @@ describe('frontend player safety regressions', () => {
   const moderationJs = readProjectFile('crisis_premium/js/moderation.js');
   const moderationHtml = readProjectFile('crisis_premium/moderation.html');
   const moderationCss = readProjectFile('crisis_premium/moderation.css');
+  const analyticsHtml = readProjectFile('crisis_premium/analytics.html');
+  const analyticsJs = readProjectFile('crisis_premium/js/analytics-dashboard.js');
+  const analyticsCss = readProjectFile('crisis_premium/analytics-dashboard.css');
+  const platformModerationHtml = readProjectFile('crisis_premium/platform-moderation.html');
+  const platformModerationJs = readProjectFile('crisis_premium/js/platform-moderation.js');
+  const platformModerationCss = readProjectFile('crisis_premium/platform-moderation.css');
+  const correctionsHtml = readProjectFile('crisis_premium/creator-corrections.html');
+  const correctionsJs = readProjectFile('crisis_premium/js/creator-corrections.js');
 
   it('stops media before rendering an ended webinar and never initializes an ended source', () => {
     const endedBranch = videoJs.indexOf('if (isPreLive || isEnded)');
@@ -232,5 +240,32 @@ describe('frontend player safety regressions', () => {
     expect(moderationHtml).toContain('role="status" aria-live="polite"');
     expect(moderationCss).toContain('@media (max-width: 30rem)');
     expect(moderationCss).toContain('.moderation-message-text');
+  });
+
+  it('keeps analytics URL-addressable, textual, keyboard-visible and usable at 320px', () => {
+    expect(analyticsJs).not.toContain('innerHTML');
+    expect(analyticsJs).not.toContain('localStorage');
+    expect(analyticsJs).toContain("history.pushState({}, '',");
+    expect(analyticsJs).toContain("window.addEventListener('popstate'");
+    expect(analyticsHtml).toContain('role="status" aria-live="polite"');
+    expect(analyticsHtml).toContain('<table>');
+    expect(analyticsHtml).toContain('Как рассчитаны показатели');
+    expect(analyticsCss).toContain('@media (max-width: 32rem)');
+    expect(analyticsCss).toContain(':focus-visible');
+    expect(analyticsCss).toContain('@media (prefers-reduced-motion: reduce)');
+  });
+
+  it('requires reason, confirmation and server revisions in accessible moderation interfaces', () => {
+    expect(platformModerationJs).not.toContain('innerHTML');
+    expect(platformModerationJs).not.toContain('localStorage');
+    expect(platformModerationJs).toContain('expectedRevision: report.revision');
+    expect(platformModerationJs).toContain("confirmation: 'APPLY_MODERATION_ACTION'");
+    expect(platformModerationHtml).toContain('role="status" aria-live="polite"');
+    expect(platformModerationHtml).toContain('К очереди модерации');
+    expect(platformModerationCss).toContain('@media (max-width: 36rem)');
+    expect(platformModerationCss).toContain(':focus-visible');
+    expect(correctionsJs).not.toContain('innerHTML');
+    expect(correctionsJs).toContain('baseContentVersion: request.baselineContentVersion');
+    expect(correctionsHtml).toContain('не попадёт зрителям, пока её не одобрит platform admin');
   });
 });

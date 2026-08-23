@@ -18,6 +18,7 @@ import {
 } from '../lib/tenancy/questionModeration.js';
 import { resolveTenantContext } from '../lib/tenancy/context.js';
 import { requireAuthenticatedUserSession } from '../lib/tenancy/userAuth.js';
+import { listTenantCorrectionRequests, submitWebinarCorrection } from '../lib/moderationCases.js';
 
 export const tenantModerationRouter = Router();
 
@@ -43,6 +44,7 @@ const questionParamsSchema = z
 const questionSuggestionParamsSchema = questionParamsSchema
   .extend({ suggestionId: z.string().trim().min(1).max(191) })
   .strict();
+const correctionParamsSchema = z.object({ requestId: z.string().trim().min(1).max(191) }).strict();
 
 function requireModerationDashboard() {
   const flags = getPlatformFeatureFlags();
@@ -95,6 +97,28 @@ tenantModerationRouter.patch(
     const context = await tenantContextFromRequest(req);
     const message = await moderateChatMessage(prisma, context, params.sessionId, params.messageId, req.body);
     res.json({ ok: true, message, correlationId: correlationId() });
+  }),
+);
+
+tenantModerationRouter.get(
+  '/moderation/corrections',
+  asyncHandler(async (req, res) => {
+    requireModerationDashboard();
+    const context = await tenantContextFromRequest(req);
+    const corrections = await listTenantCorrectionRequests(prisma, context);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ ok: true, corrections, correlationId: correlationId() });
+  }),
+);
+
+tenantModerationRouter.post(
+  '/moderation/corrections/:requestId/submissions',
+  asyncHandler(async (req, res) => {
+    requireModerationDashboard();
+    const params = correctionParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const revision = await submitWebinarCorrection(prisma, context, params.requestId, req.body);
+    res.status(201).json({ ok: true, revision, correlationId: correlationId() });
   }),
 );
 

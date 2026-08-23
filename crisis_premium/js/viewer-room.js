@@ -1,4 +1,5 @@
 import { deleteJson, formatTimelineTime, getJson, post, putJson } from './utils.js?v=viewer-account-1';
+import { track } from './analytics.js?v=ana-analytics-1';
 
 const WRITE_INTERVAL_MS = 15_000;
 let activeController = null;
@@ -114,6 +115,17 @@ async function writeProgress(options = {}) {
     eventId,
   })
     .then(result => {
+      if (result.writeAccepted) {
+        track('viewer_heartbeat', {
+          intervalNumber: Math.floor(now / WRITE_INTERVAL_MS),
+          positionSeconds: Math.max(0, video.currentTime),
+          durationSeconds: video.duration,
+          intervalSeconds: WRITE_INTERVAL_MS / 1000,
+          playbackState: video.paused ? 'paused' : 'playing',
+          visibilityState: document.visibilityState,
+          playbackMode: 'live',
+        });
+      }
       if (!result.writeAccepted && result.retryAfterMs) {
         lastWriteStartedAt = Date.now() - WRITE_INTERVAL_MS + Number(result.retryAfterMs);
       }

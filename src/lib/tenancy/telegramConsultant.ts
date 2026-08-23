@@ -8,6 +8,7 @@ import { createCorrelationId } from '../requestContext.js';
 import { ANONYMIZED_LEAD_EMAIL_SUFFIX } from '../leadSecurity.js';
 import { TELEGRAM_BINDING_VERSION } from '../roomLinks.js';
 import { requireTenantRole, type TenantContext } from './context.js';
+import { buildServerDedupKey, recordAnalyticsEvent } from '../analyticsEvents.js';
 
 const idSchema = z.string().trim().min(1).max(191);
 const providerMessageIdSchema = z.string().trim().min(1).max(191);
@@ -238,22 +239,20 @@ export async function recordTelegramConsultantMessage(
         handedOffAt: now,
       },
     });
-    await tx.event.create({
-      data: {
-        eventName: 'telegram_consultant_message',
-        leadId: registration?.lead.id ?? null,
-        registrationId,
-        webinarSessionId,
-        page: 'telegram_consultant_bot',
-        source: 'telegram',
-        metadataJson: {
-          topic: classification.topic,
-          intent: classification.intent,
-          urgency: classification.urgency,
-          handedToHuman: true,
-          classificationModel: classification.model,
-          classificationVersion: classification.version,
-        },
+    await recordAnalyticsEvent(tx as unknown as PrismaClient, {
+      eventName: 'telegram_consultant_message',
+      source: 'telegram',
+      dedupKey: buildServerDedupKey('telegram_consultant_message', providerMessageKey),
+      correlationId,
+      scope: registration ? { kind: 'trusted', registrationId: registration.id } : { kind: 'platform' },
+      page: '/telegram/consultant',
+      attributes: {
+        topic: classification.topic,
+        intent: classification.intent,
+        urgency: classification.urgency,
+        handedToHuman: true,
+        classificationModel: classification.model,
+        classificationVersion: classification.version,
       },
     });
     await tx.telegramBotEvent.create({

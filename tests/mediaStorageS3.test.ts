@@ -1,8 +1,27 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
+import { getMediaUploadBrowserContract } from '../src/lib/mediaStorage.js';
 import { S3CompatibleMediaStorage } from '../src/lib/mediaStorageS3.js';
 
 describe('S3-compatible private media adapter', () => {
+  it('exposes a provider-neutral direct-upload CORS contract without storage authority', () => {
+    const contract = getMediaUploadBrowserContract('s3');
+    expect(contract).toMatchObject({
+      transport: 'direct_object_storage',
+      method: 'PUT',
+      credentials: 'omit',
+      requestHeaders: ['content-type'],
+      responseHeaders: ['etag'],
+      fullFileProxy: false,
+    });
+    expect(contract.signedOperationTtlSeconds).toBeGreaterThan(0);
+    expect(JSON.stringify(contract)).not.toMatch(/bucket|storageKey|originUrl|secret/i);
+    expect(getMediaUploadBrowserContract('local_fs')).toMatchObject({
+      transport: 'api_compatibility',
+      fullFileProxy: true,
+    });
+  });
+
   it('paginates provider ListParts and normalizes ETags', async () => {
     const send = vi.fn(async (command: { constructor: { name: string }; input: { PartNumberMarker?: string } }) => {
       expect(command.constructor.name).toBe('ListPartsCommand');

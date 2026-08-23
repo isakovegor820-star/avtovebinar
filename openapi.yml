@@ -1737,6 +1737,58 @@ paths:
       responses:
         '200':
           description: Webinar schedule and countdown
+  /api/events:
+    post:
+      summary: Record one versioned, privacy-safe analytics event
+      description: >-
+        schemaVersion 1 is the current contract. Tenant scope is resolved from the participant cookie and
+        verified Organization -> Webinar -> WebinarSession -> registration/User relations; supplied entity IDs
+        are hints only and unknown/foreign hints return the same safe 404. occurredAt is always assigned by the
+        database in UTC. clientOccurredAt is optional diagnostic data and never replaces server time. Browser and
+        server writers namespace dedupKey by event name; it is unique inside the server-derived organization, or
+        inside the explicit platform scope, regardless of event type. Reuse with another type or payload returns
+        409. Unversioned legacy payloads remain temporarily
+        accepted as schemaVersion 0 through a logged compatibility adapter. Request size is limited to 12 KiB.
+      parameters:
+        - name: x-correlation-id
+          in: header
+          required: false
+          description: Safe retry correlation identifier; invalid values are ignored and replaced by a server-generated ID.
+          schema: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/AnalyticsEventV1'
+                - $ref: '#/components/schemas/LegacyAnalyticsEvent'
+      responses:
+        '200':
+          description: Idempotent replay accepted without creating another event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsEventAccepted' }
+        '201':
+          description: One event created, or a legacy compatibility event accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsEventAccepted' }
+        '400':
+          description: Strict schema, version, taxonomy, source, correlation, key, client time or attributes validation failed
+          content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsEventError' } } }
+        '404':
+          description: Unknown and cross-tenant scope hints are intentionally indistinguishable
+          content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsEventError' } } }
+        '409':
+          description: The dedup key already belongs to another event type or payload in this scope
+          content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsEventError' } } }
+        '413':
+          description: Analytics request exceeds 12 KiB
+          content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsEventError' } } }
+        '429':
+          description: Analytics rate limit exceeded
+          content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsEventError' } } }
   /api/webinar/timeline/session/current:
     get:
       summary: Cookie-backed webinar timeline
@@ -2701,6 +2753,239 @@ paths:
         '200': { description: Cancelled job/request and idempotent replay indicator }
         '403': { description: Active membership is not OWNER }
         '404': { description: Unknown, foreign or terminal jobs are intentionally indistinguishable }
+  /api/v1/analytics/overview:
+    get:
+      summary: Read tenant-scoped Webinar analytics formulas and metrics
+      description: Tenant is derived from the authenticated User session. organizationId, when present, is ignored as authority. Only schemaVersion 1 trusted data is projected; periods use UTC and `to` is inclusive by calendar day.
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - { in: query, name: webinarId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: sessionId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: source, schema: { type: string, enum: [web, room, replay, registration, crm, email, telegram, worker, system, admin] } }
+        - { in: query, name: from, schema: { type: string, format: date } }
+        - { in: query, name: to, schema: { type: string, format: date } }
+        - { in: query, name: organizationId, schema: { type: string }, description: Untrusted compatibility hint; never selects the tenant. }
+      responses:
+        '200': { description: Textual formulas, UTC period, data-quality policy and registrations, entry, live/replay, watch, completion, question and CTA metrics }
+        '401': { description: User session is missing or invalid }
+        '403': { description: Membership role cannot read tenant analytics }
+        '404': { description: Unknown and cross-tenant Webinar or Session are intentionally indistinguishable, or rollout is disabled }
+  /api/v1/analytics/retention:
+    get:
+      summary: Read privacy-thresholded video retention intervals
+      description: Visible playing heartbeats are grouped by a stable server-trusted identity. Repeat heartbeats and backward seeks do not create viewers; positions are clamped to actual Session duration and LIVE/REPLAY are explicit.
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - { in: query, name: playback, required: true, schema: { type: string, enum: [LIVE, REPLAY] } }
+        - { in: query, name: webinarId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: sessionId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: source, schema: { type: string } }
+        - { in: query, name: from, schema: { type: string, format: date } }
+        - { in: query, name: to, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Ten percent intervals with small nonzero cohorts suppressed below privacyThreshold }
+        '403': { description: Membership role cannot read tenant analytics }
+        '404': { description: Unknown and cross-tenant scope is intentionally indistinguishable }
+  /api/v1/analytics/live:
+    get:
+      summary: Read actually active tenant viewer sessions
+      description: Counts distinct visible playing heartbeats inside the server-defined 45-second activity window. Synthetic viewers are never included; response documents its refresh delay.
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - { in: query, name: webinarId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: sessionId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: source, schema: { type: string } }
+      responses:
+        '200': { description: Active viewer count, activity algorithm, window and refresh-delay metadata }
+        '403': { description: Membership role cannot read tenant analytics }
+        '404': { description: Unknown and cross-tenant scope is intentionally indistinguishable }
+  /api/v1/analytics/content:
+    get:
+      summary: Read chapter and transcript-search aggregates
+      description: Uses only the currently published transcript and returns no row below the privacy threshold. Raw unsafe search text is rejected before persistence and never logged.
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - { in: query, name: webinarId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: sessionId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: source, schema: { type: string } }
+        - { in: query, name: from, schema: { type: string, format: date } }
+        - { in: query, name: to, schema: { type: string, format: date } }
+      responses:
+        '200': { description: Tenant-scoped popular chapters and normalized safe transcript searches }
+        '403': { description: Membership role cannot read tenant analytics }
+        '404': { description: Unknown and cross-tenant scope is intentionally indistinguishable }
+  /api/v1/reports:
+    post:
+      summary: Submit a public content, author or rights report
+      description: The server resolves a trusted published target, sanitizes the narrative, hashes optional reporter contact and returns no reporter identity. Private, foreign and unknown targets are indistinguishable. Rate limited to five requests per fifteen minutes outside tests.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PublicContentReportRequest' } } }
+      responses:
+        '201': { description: Minimal report receipt with server time, initial status and correlation ID }
+        '400': { description: Strict Zod validation failed }
+        '403': { description: CSRF token is missing or invalid }
+        '404': { description: Target unavailable or public reporting rollout disabled }
+        '429': { description: Public report rate limit exceeded }
+  /api/v1/moderation/corrections:
+    get:
+      summary: List correction requests in the server-selected tenant
+      security: [{ userSessionCookie: [] }]
+      responses:
+        '200': { description: OWNER sees tenant requests; AUTHOR sees only authored Webinar requests and latest revision status }
+        '403': { description: Active membership is not OWNER or AUTHOR }
+  /api/v1/moderation/corrections/{requestId}/submissions:
+    post:
+      summary: Submit an immutable Webinar correction revision for human review
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - { in: path, name: requestId, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CorrectionSubmissionRequest' } } }
+      responses:
+        '201': { description: Private submitted revision; current public Webinar content is unchanged }
+        '403': { description: Active membership is not OWNER or AUTHOR }
+        '404': { description: Unknown and cross-tenant request are intentionally indistinguishable }
+        '409': { description: Request, content version or optimistic revision changed }
+  /api/admin/moderation/reports:
+    get:
+      summary: List platform moderation reports
+      security: [{ adminSessionCookie: [] }]
+      parameters:
+        - { in: query, name: status, schema: { $ref: '#/components/schemas/ModerationCaseStatus' } }
+        - { in: query, name: organizationId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        '200': { description: Platform queue without reporter identity; owner/admin only }
+        '401': { description: MFA AdminUser session is missing or invalid }
+        '403': { description: AdminUser role is not owner/admin }
+  /api/admin/moderation/reports/{id}/status:
+    patch:
+      summary: Apply an allowed moderation state transition
+      security: [{ adminSessionCookie: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, maxLength: 191 } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ModerationTransitionRequest' } } }
+      responses:
+        '200': { description: State, immutable event and audit committed atomically }
+        '404': { description: Unknown report }
+        '409': { description: Invalid transition or optimistic revision conflict; rejected mutation creates no event/audit }
+  /api/admin/moderation/reports/{id}/actions:
+    post:
+      summary: Unpublish/restore a Webinar or suspend/restore an author
+      description: Requires MFA platform owner/admin authorization, reason, explicit confirmation and both report/target revisions. Existing evidence, CRM and analytics are preserved.
+      security: [{ adminSessionCookie: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, maxLength: 191 } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ModerationPlatformActionRequest' } } }
+      responses:
+        '200': { description: Reversible action and audit committed atomically }
+        '409': { description: Action rollout disabled, stale revision or restoration evidence unavailable }
+  /api/admin/moderation/reports/{id}/correction-requests:
+    post:
+      summary: Request a reasoned human-reviewed Webinar correction
+      security: [{ adminSessionCookie: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, maxLength: 191 } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CorrectionRequestCommand' } } }
+      responses:
+        '201': { description: Immutable correction request created; explicit visibility decision applied }
+        '409': { description: Report revision conflict }
+  /api/admin/moderation/corrections/{id}/review:
+    post:
+      summary: Approve or reject a submitted Webinar revision after human review
+      security: [{ adminSessionCookie: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, maxLength: 191 } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CorrectionReviewRequest' } } }
+      responses:
+        '200': { description: Human decision audited; approved content is versioned and only then becomes current }
+        '409': { description: Request or Webinar content version changed }
+  /api/admin/analytics/organizations:
+    get:
+      summary: Read platform-admin organization/Webinar/Session aggregates
+      description: Returns privacy-thresholded aggregates only. Raw chat, notes, email, phone and Telegram identifiers are structurally excluded; no tenant User role grants access.
+      security: [{ adminSessionCookie: [] }]
+      parameters:
+        - { in: query, name: organizationId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: webinarId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: sessionId, schema: { type: string, maxLength: 191 } }
+        - { in: query, name: from, schema: { type: string, format: date } }
+        - { in: query, name: to, schema: { type: string, format: date } }
+      responses:
+        '200': { description: UTC aggregates with counts below three suppressed }
+        '401': { description: MFA AdminUser session missing; tenant sessions are not accepted }
+        '403': { description: AdminUser role is not owner/admin }
+        '404': { description: Unknown scoped filter }
+  /api/admin/platform/feature-flags:
+    get:
+      summary: List managed fail-closed platform feature flags
+      security: [{ adminSessionCookie: [] }]
+      responses:
+        '200': { description: Safe flag values and optimistic revisions; owner/admin only }
+  /api/admin/platform/feature-flags/{key}:
+    patch:
+      summary: Change a managed fail-closed feature flag
+      description: Owner only. Mutation never sends messages or starts provider jobs.
+      security: [{ adminSessionCookie: [] }]
+      parameters: [{ in: path, name: key, required: true, schema: { type: string, pattern: '^[a-z][a-z0-9_]{2,63}$' } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PlatformFeatureFlagChange' } } }
+      responses:
+        '200': { description: Before/after evidence and audit committed with the updated revision }
+        '403': { description: AdminUser is not owner }
+        '409': { description: Optimistic revision conflict }
+  /api/admin/platform/organizations/{id}:
+    patch:
+      summary: Change platform organization state with rollback evidence
+      security: [{ adminSessionCookie: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, maxLength: 191 } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PlatformOrganizationChange' } } }
+      responses:
+        '200': { description: Owner-only confirmed organization change committed and audited }
+        '409': { description: Optimistic revision conflict }
+  /api/admin/platform/taxonomy/{kind}/{id}:
+    patch:
+      summary: Change an allowed legal taxonomy entry
+      security: [{ adminSessionCookie: [] }]
+      parameters:
+        - { in: path, name: kind, required: true, schema: { type: string, enum: [practice_area, jurisdiction] } }
+        - { in: path, name: id, required: true, schema: { type: string, maxLength: 191 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PlatformTaxonomyChange' } } }
+      responses:
+        '200': { description: Owner-only confirmed taxonomy change committed and audited }
+        '409': { description: Optimistic revision conflict }
+  /api/admin/platform/changes/{id}/rollback:
+    post:
+      summary: Roll back one reversible platform configuration change
+      security: [{ adminSessionCookie: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, maxLength: 191 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedRevision, reason, confirmation]
+              properties:
+                expectedRevision: { type: integer, minimum: 1 }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+                confirmation: { type: string, enum: [CONFIRM_PLATFORM_ROLLBACK] }
+      responses:
+        '200': { description: Current revision restored from immutable before-state and rollback audited }
+        '409': { description: Change already rolled back or target has since changed }
 components:
   parameters:
     AssetId:
@@ -2838,6 +3123,220 @@ components:
       required: true
       schema: { type: string, minLength: 1, maxLength: 191 }
   schemas:
+    AnalyticsEventV1:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, eventName, source, dedupKey]
+      properties:
+        schemaVersion: { type: integer, enum: [1] }
+        eventName:
+          type: string
+          enum:
+            [
+              page_view,
+              registration_click,
+              registration_form_open,
+              registration_submit,
+              registration_success,
+              telegram_click,
+              telegram_subscribe,
+              webinar_room_open,
+              webinar_room_waiting,
+              viewer_heartbeat,
+              video_start,
+              video_progress_25,
+              video_progress_50,
+              video_progress_75,
+              video_finish,
+              recordings_open,
+              recording_open,
+              recording_play,
+              recording_progress_25,
+              recording_progress_50,
+              recording_progress_75,
+              recording_finish,
+              recording_cta_click,
+              question_submit,
+              question_submit_attempt,
+              question_submitted,
+              question_submit_error,
+              partner_application_submit,
+              partner_application_submitted,
+              partner_application_error,
+              partner_form_opened,
+              partner_request_click,
+              chapter_open,
+              transcript_search,
+            ]
+        source: { type: string, enum: [web, room, replay, registration, crm, email, telegram, worker, system, admin] }
+        dedupKey: { type: string, minLength: 16, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+        page: { type: string, maxLength: 160, pattern: '^/[^?#]*$' }
+        clientOccurredAt:
+          type: string
+          format: date-time
+          description: Optional diagnostic time within 24 hours of server time; never authoritative.
+        organizationId: { type: string, maxLength: 191, description: Optional untrusted consistency hint; never selects tenant scope. }
+        webinarId: { type: string, maxLength: 191, description: Optional untrusted consistency hint. }
+        webinarSessionId: { type: string, maxLength: 191, description: Optional untrusted consistency hint. }
+        registrationId: { type: string, maxLength: 191, description: Optional untrusted consistency hint. }
+        userId: { type: string, maxLength: 191, description: Optional untrusted consistency hint. }
+        attributes:
+          type: object
+          maxProperties: 20
+          description: Event-specific strict allowlist; maximum 4096 UTF-8 bytes, depth 3, arrays 20 and strings 500. PII, secrets, prototype keys, signed URLs and storage keys are rejected.
+        utmSource: { type: string, maxLength: 120 }
+        utmMedium: { type: string, maxLength: 120 }
+        utmCampaign: { type: string, maxLength: 120 }
+    LegacyAnalyticsEvent:
+      type: object
+      deprecated: true
+      additionalProperties: false
+      required: [eventName]
+      description: Temporary schemaVersion 0 compatibility input for the historical browser writer; unknown types and unsafe metadata are rejected and the path is safely logged.
+      properties:
+        eventName: { type: string, maxLength: 120 }
+        page: { type: string, maxLength: 160 }
+        metadata: { type: object, maxProperties: 20 }
+        source: { type: string, maxLength: 120 }
+        utmSource: { type: string, maxLength: 120 }
+        utmMedium: { type: string, maxLength: 120 }
+        utmCampaign: { type: string, maxLength: 120 }
+        utmContent: { type: string, maxLength: 120 }
+        utmTerm: { type: string, maxLength: 120 }
+    AnalyticsEventAccepted:
+      type: object
+      additionalProperties: false
+      required: [ok, schemaVersion, correlationId]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        accepted: { type: boolean, enum: [true] }
+        replayed: { type: boolean }
+        schemaVersion: { type: integer, enum: [0, 1] }
+        occurredAt: { type: string, format: date-time, description: Server-authoritative UTC time for schemaVersion 1. }
+        legacyCompatibility: { type: boolean }
+        correlationId: { type: string }
+    AnalyticsEventError:
+      type: object
+      additionalProperties: false
+      required: [ok, error, code, correlationId]
+      properties:
+        ok: { type: boolean, enum: [false] }
+        error: { type: string, description: Safe public error without provider or database details. }
+        code:
+          type: string
+          enum:
+            [
+              analytics_schema_version_unsupported,
+              analytics_event_type_unknown,
+              analytics_source_unknown,
+              analytics_validation_failed,
+              validation_failed,
+              analytics_scope_not_found,
+              analytics_idempotency_conflict,
+              analytics_payload_too_large,
+              analytics_rate_limited,
+            ]
+        details:
+          type: object
+          description: Optional bounded validation paths or supportedVersions; never echoes the request body.
+        correlationId: { type: string, minLength: 8, maxLength: 128 }
+    PublicContentReportRequest:
+      type: object
+      additionalProperties: false
+      required: [targetType, targetId, category, description]
+      properties:
+        targetType: { type: string, enum: [WEBINAR, AUTHOR_PROFILE] }
+        targetId: { type: string, minLength: 1, maxLength: 191 }
+        category: { type: string, enum: [CONTENT, AUTHOR, RIGHTS] }
+        description: { type: string, minLength: 10, maxLength: 2000 }
+        reporterContact: { type: string, format: email, maxLength: 254, description: Optional; persisted only as a one-way HMAC hash. }
+    ModerationCaseStatus:
+      type: string
+      enum: [NEW, IN_REVIEW, ACTION_REQUIRED, RESOLVED, REJECTED]
+    ModerationTransitionRequest:
+      type: object
+      additionalProperties: false
+      required: [status, expectedRevision, reason]
+      properties:
+        status: { $ref: '#/components/schemas/ModerationCaseStatus' }
+        expectedRevision: { type: integer, minimum: 0 }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    ModerationPlatformActionRequest:
+      type: object
+      additionalProperties: false
+      required: [action, expectedRevision, expectedTargetRevision, reason, confirmation]
+      properties:
+        action: { type: string, enum: [UNPUBLISH_WEBINAR, SUSPEND_AUTHOR, RESTORE_WEBINAR, RESTORE_AUTHOR] }
+        expectedRevision: { type: integer, minimum: 0 }
+        expectedTargetRevision: { type: integer, minimum: 0 }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        confirmation: { type: string, enum: [APPLY_MODERATION_ACTION] }
+    CorrectionRequestCommand:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, reason, visibilityDecision, confirmation]
+      properties:
+        expectedRevision: { type: integer, minimum: 0 }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        visibilityDecision: { type: string, enum: [KEEP_PUBLISHED, HIDE_UNTIL_APPROVED] }
+        confirmation: { type: string, enum: [REQUEST_CORRECTION] }
+    WebinarCorrectionContent:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title: { type: string, minLength: 3, maxLength: 180 }
+        description: { type: string, nullable: true, minLength: 10, maxLength: 4000 }
+        outcomeDescription: { type: string, nullable: true, maxLength: 2000 }
+        targetAudience: { type: string, nullable: true, maxLength: 1000 }
+        disclaimer: { type: string, nullable: true, maxLength: 2000 }
+    CorrectionSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, baseContentVersion, content]
+      properties:
+        expectedRevision: { type: integer, minimum: 0 }
+        baseContentVersion: { type: integer, minimum: 1 }
+        content: { $ref: '#/components/schemas/WebinarCorrectionContent' }
+    CorrectionReviewRequest:
+      type: object
+      additionalProperties: false
+      required: [decision, expectedRevision, reason, confirmation]
+      properties:
+        decision: { type: string, enum: [APPROVE, REJECT] }
+        expectedRevision: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        confirmation: { type: string, enum: [REVIEW_CORRECTION] }
+    PlatformFeatureFlagChange:
+      type: object
+      additionalProperties: false
+      required: [enabled, expectedRevision, reason, confirmation]
+      properties:
+        enabled: { type: boolean }
+        expectedRevision: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        confirmation: { type: string, enum: [CONFIRM_PLATFORM_CHANGE] }
+    PlatformOrganizationChange:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, reason, confirmation]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 191 }
+        status: { type: string, enum: [ACTIVE, SUSPENDED, ARCHIVED] }
+        expectedRevision: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        confirmation: { type: string, enum: [CONFIRM_PLATFORM_CHANGE] }
+    PlatformTaxonomyChange:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, reason, confirmation]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 191 }
+        status: { type: string, enum: [ACTIVE, ARCHIVED] }
+        orderIndex: { type: integer, minimum: 0, maximum: 100000 }
+        expectedRevision: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        confirmation: { type: string, enum: [CONFIRM_PLATFORM_CHANGE] }
     CatalogRegistrationRequest:
       type: object
       additionalProperties: false

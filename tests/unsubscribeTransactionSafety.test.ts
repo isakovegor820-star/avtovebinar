@@ -30,11 +30,12 @@ vi.mock('../src/lib/prisma.js', () => {
       update: vi.fn(),
     },
     registration: { findMany: vi.fn() },
-    event: { create: vi.fn() },
+    event: { findFirst: vi.fn() },
     telegramBotEvent: { upsert: vi.fn() },
     telegramBroadcastRecipient: { updateMany: vi.fn() },
     consentRecord: { create: vi.fn() },
     $executeRaw: vi.fn(),
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
   prisma.$transaction.mockImplementation(
@@ -57,11 +58,12 @@ type MockFn = ReturnType<typeof vi.fn>;
 const prismaMock = prisma as unknown as {
   lead: { findFirst: MockFn; findUnique: MockFn; update: MockFn };
   registration: { findMany: MockFn };
-  event: { create: MockFn };
+  event: { findFirst: MockFn };
   telegramBotEvent: { upsert: MockFn };
   telegramBroadcastRecipient: { updateMany: MockFn };
   consentRecord: { create: MockFn };
   $executeRaw: MockFn;
+  $queryRaw: MockFn;
   $transaction: MockFn;
 };
 
@@ -119,7 +121,9 @@ beforeEach(() => {
   prismaMock.lead.findUnique.mockResolvedValue(lead);
   prismaMock.lead.update.mockResolvedValue(lead);
   prismaMock.registration.findMany.mockResolvedValue([]);
-  prismaMock.event.create.mockResolvedValue({});
+  prismaMock.$queryRaw.mockResolvedValue([
+    { occurredAt: new Date(), correlationId: 'participant-analytics-correlation' },
+  ]);
   prismaMock.telegramBotEvent.upsert.mockResolvedValue({});
   prismaMock.telegramBroadcastRecipient.updateMany.mockResolvedValue({ count: 1 });
   prismaMock.consentRecord.create.mockResolvedValue({});

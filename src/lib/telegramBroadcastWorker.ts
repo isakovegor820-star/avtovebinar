@@ -4,6 +4,7 @@ import { env } from './env.js';
 import { logger } from './logger.js';
 import { prisma } from './prisma.js';
 import { createCorrelationId, runWithCorrelation } from './requestContext.js';
+import { buildServerDedupKey, recordAnalyticsEvent, safeAnalyticsFailureCode } from './analyticsEvents.js';
 import { retryDelayMs } from './resilience.js';
 import { sendOperationalTelegramAlert, sendTelegramMessageToChat } from './telegram.js';
 import { MARKETING_TELEGRAM_CONSENT } from './consentDocuments.js';
@@ -1022,22 +1023,35 @@ export async function runTelegramBroadcastJobOnce(
       });
 
       try {
-        await prisma.event.create({
-          data: {
-            eventName:
-              job.kind === TELEGRAM_BROADCAST_KIND_NEWS ? 'telegram_news_broadcast' : 'telegram_broadcast_completed',
-            source: 'worker',
-            metadataJson: {
-              jobId: job.id,
-              total: job.total,
-              sent: job.sent + sent,
-              failed: job.failed + failedSkipped,
-              textLength: job.text.length,
-            },
+        const eventName =
+          job.kind === TELEGRAM_BROADCAST_KIND_NEWS ? 'telegram_news_broadcast' : 'telegram_broadcast_completed';
+        await recordAnalyticsEvent(prisma, {
+          eventName,
+          source: 'worker',
+          dedupKey: buildServerDedupKey(eventName, job.id),
+          correlationId,
+          scope: job.organizationId
+            ? {
+                kind: 'trusted',
+                organizationId: job.organizationId,
+                webinarId: job.webinarId ?? undefined,
+                webinarSessionId: job.webinarSessionId ?? undefined,
+              }
+            : { kind: 'platform' },
+          page: '/worker/telegram-broadcast',
+          attributes: {
+            jobId: job.id,
+            total: job.total,
+            sent: job.sent + sent,
+            failed: job.failed + failedSkipped,
+            textLength: job.text.length,
           },
         });
       } catch (error) {
-        logger.error({ err: error, jobId: job.id }, 'Failed to record Telegram broadcast analytics event');
+        logger.error(
+          { failureCode: safeAnalyticsFailureCode(error), jobId: job.id },
+          'Failed to record Telegram broadcast analytics event',
+        );
       }
 
       return { checked: 1, sent, failed: failedSkipped, deadLettered: 0 };

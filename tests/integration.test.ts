@@ -5842,23 +5842,35 @@ describe('critical path integration scenarios', () => {
       .set('Cookie', accountCookie);
     expect(roomStateResponse.status).toBe(200);
     const roomOpenEvent = await prisma.event.findFirstOrThrow({
-      where: { registrationId: registration.id, eventName: 'webinar_room_open' },
+      where: { schemaVersion: 1, webinarSessionId: dailySession.id, eventName: 'webinar_room_open' },
       orderBy: { createdAt: 'desc' },
     });
     expect(roomOpenEvent.webinarSessionId).toBe(dailySession.id);
     expect(roomOpenEvent.webinarSessionId).not.toBe(oldSession.id);
+    expect(roomOpenEvent.registrationId).toBeNull();
+    expect(roomOpenEvent.organizationId).toBe(dailySession.organizationId);
+    expect(roomOpenEvent.webinarId).toBe(dailySession.webinarId);
 
+    const browserDedupKey = 'web:video_start:daily-session-regression';
     const browserEventResponse = await request(app)
       .post('/api/events')
       .set('Cookie', [...accountCookie, 'aspb_cookie_consent=accepted'])
-      .send({ eventName: 'video_start', page: '/crisis_premium/webinar.html' });
+      .send({
+        schemaVersion: 1,
+        eventName: 'video_start',
+        source: 'room',
+        dedupKey: browserDedupKey,
+        page: '/crisis_premium/webinar.html',
+        attributes: {},
+      });
     expect(browserEventResponse.status).toBe(201);
     const browserEvent = await prisma.event.findFirstOrThrow({
-      where: { registrationId: registration.id, eventName: 'video_start' },
+      where: { schemaVersion: 1, dedupKey: browserDedupKey, eventName: 'video_start' },
       orderBy: { createdAt: 'desc' },
     });
     expect(browserEvent.webinarSessionId).toBe(dailySession.id);
     expect(browserEvent.webinarSessionId).not.toBe(oldSession.id);
+    expect(browserEvent.registrationId).toBeNull();
   });
 
   it('does not expose persisted chat messages before broadcast start', async () => {

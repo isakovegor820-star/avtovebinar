@@ -22,6 +22,7 @@
           >
         </a>
         <nav class="creator-header-nav" aria-label="Кабинет организации">
+          <a class="platform-header-link" href="crm.html">CRM</a>
           <a class="platform-header-link" href="author-profile.html">Профиль автора</a>
           <a class="platform-header-link" href="platform-access.html">Мой доступ</a>
         </nav>
@@ -278,7 +279,7 @@
                   <div><h2 id="creatorScenarioHeading" class="text-headline-md font-headline-md text-primary">Сценарий подготовленного чата</h2><p id="creatorScenarioVersion" class="mt-1 text-label-sm text-on-surface-variant"></p></div>
                   <button id="creatorScenarioAddButton" class="platform-secondary-button" type="button">Добавить сообщение</button>
                 </div>
-                <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">Все сообщения сохраняются с <code>isSynthetic=true</code>. Не используйте имена реальных участников и не выдавайте подготовленный текст за отзыв.</p>
+                <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">Все сообщения сохраняются с <code>isSynthetic=true</code> и нейтральной подписью. Укажите статус каждого сообщения; в комнату попадут только одобренные сообщения опубликованной версии.</p>
                 <div id="creatorScenarioMessages" class="mt-6 grid gap-4"></div>
                 <div class="creator-actions mt-6"><button id="creatorScenarioSaveButton" class="platform-secondary-button" type="button">Сохранить сценарий</button><button id="creatorScenarioPublishButton" class="platform-primary-button" type="button">Опубликовать сценарий</button></div>
                 <p id="creatorScenarioStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
@@ -326,8 +327,8 @@
       <article class="creator-scenario-row">
         <div class="creator-scenario-fields">
           <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="offset">Таймкод, секунды</label><input class="platform-input px-4 creator-number" data-field="offsetSeconds" type="number" inputmode="numeric" min="0" max="10800" required /></div>
-          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="kind">Тип сообщения</label><select class="platform-input px-4" data-field="kind"><option value="PREPARED_QUESTION">Подготовленный вопрос</option><option value="MODERATOR_NOTICE">Сообщение модератора</option><option value="AUTHOR_PROMPT">Реплика автора</option></select></div>
-          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="author">Подпись автора</label><input class="platform-input px-4" data-field="authorLabel" minlength="2" maxlength="120" required /></div>
+          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="kind">Тип сообщения</label><select class="platform-input px-4" data-field="kind"><option value="PREPARED_QUESTION">Подготовленный вопрос</option><option value="MODERATOR_NOTICE">Подготовленное объявление</option><option value="AUTHOR_PROMPT">Подготовленная реплика автора</option></select></div>
+          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="status">Статус</label><select class="platform-input px-4" data-field="status"><option value="DRAFT">Черновик</option><option value="APPROVED">Одобрено</option><option value="REJECTED">Отклонено</option></select></div>
           <div class="creator-scenario-message-field grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="text">Текст</label><textarea class="platform-input creator-scenario-text px-4 py-3" data-field="text" minlength="1" maxlength="1000" required></textarea></div>
         </div>
         <button class="platform-secondary-button creator-danger-button" data-action="remove" type="button">Удалить сообщение</button>

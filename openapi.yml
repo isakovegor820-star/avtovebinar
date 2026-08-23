@@ -509,7 +509,11 @@ paths:
         - { in: query, name: availability, schema: { type: string, enum: [ALL, UPCOMING, RECORDING], default: ALL } }
         - { in: query, name: dateFrom, schema: { type: string, format: date } }
         - { in: query, name: dateTo, schema: { type: string, format: date } }
-        - { in: query, name: sort, schema: { type: string, enum: [RELEVANCE, UPCOMING, NEWEST, UPDATED], default: UPCOMING } }
+        - {
+            in: query,
+            name: sort,
+            schema: { type: string, enum: [RELEVANCE, UPCOMING, NEWEST, UPDATED], default: UPCOMING },
+          }
         - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 100, default: 1 } }
         - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 24, default: 12 } }
       responses:
@@ -550,6 +554,676 @@ paths:
           description: Path or query validation failed
         '404':
           description: Unknown, closed, archived or ineligible Webinar
+  /api/v1/catalog/webinars/{slug}/register:
+    post:
+      summary: Register for the exact public catalog WebinarSession
+      description: >-
+        Resolves Organization, Webinar and WebinarSession from the published server-side catalog
+        graph. Client-supplied organizationId is rejected. Anonymous and existing-mailbox requests
+        receive the same non-enumerating 202 response; an authenticated matching participant may
+        receive an immediate 201 and HttpOnly room cookie. Replays are idempotent for the same
+        normalized email and session and do not synthesize Lead or CRM events.
+      security:
+        - {}
+        - participantSessionCookie: []
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string, minLength: 2, maxLength: 120 }
+        - in: query
+          name: organization
+          required: true
+          description: Public organization slug used only to resolve the published tenant graph.
+          schema: { type: string, minLength: 2, maxLength: 120 }
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CatalogRegistrationRequest' }
+      responses:
+        '201':
+          description: Same authenticated viewer registered; trusted scoped registration and room cookie issued
+        '202':
+          description: Generic verification or recovery response without mailbox-existence disclosure
+        '400':
+          description: Strict payload, consent or CSRF validation failed
+        '404':
+          description: Unknown, cross-tenant, wrong-session, closed or rollout-disabled target
+  /api/v1/viewer/dashboard:
+    get:
+      summary: Read the current viewer account in the cookie-selected tenant
+      description: Returns upcoming, recording, watched, saved and unavailable sections with progress, replay expiry and timezone. A favorite never grants access.
+      security:
+        - participantSessionCookie: []
+      responses:
+        '200': { description: Private no-store viewer dashboard }
+        '404': { description: Missing legacy scope, unknown viewer or inaccessible tenant }
+  /api/v1/viewer/registrations/{registrationId}/activate:
+    post:
+      summary: Select one owned registration and issue a fresh room session cookie
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - name: registrationId
+          in: path
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 64 }
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Same-user, same-tenant active registration selected }
+        '404': { description: Unknown, cross-tenant, expired, revoked or unavailable registration }
+  /api/v1/viewer/favorites/{webinarId}:
+    put:
+      summary: Idempotently save an eligible Webinar without changing access
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Favorite exists for this User and tenant }
+        '404': { description: Unknown, cross-tenant or inaccessible private Webinar }
+    delete:
+      summary: Idempotently remove an owned favorite
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Favorite is absent }
+        '404': { description: Viewer context is missing or unscoped }
+  /api/v1/viewer/progress/{sessionId}:
+    get:
+      summary: Read the current viewer's position for one owned WebinarSession
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+      responses:
+        '200': { description: Private no-store progress or null }
+        '404': { description: Unknown, cross-tenant or unowned session }
+    put:
+      summary: Deduplicate and throttle a server-owned viewing-progress update
+      description: Hidden browser tabs do not write. The server deduplicates eventId and throttles immaterial updates while accepting material seeks and completion.
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ViewerProgressWrite' }
+      responses:
+        '200': { description: Update or exact duplicate accepted }
+        '202': { description: Immaterial write throttled; retryAfterMs returned }
+        '404': { description: Unknown, cross-tenant or unowned session }
+  /api/v1/viewer/notes:
+    get:
+      summary: List private timestamped notes for one owned WebinarSession
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - name: sessionId
+          in: query
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 64 }
+      responses:
+        '200': { description: Private no-store notes visible only to this User and tenant }
+        '404': { description: Unknown, cross-tenant or unowned session }
+    post:
+      summary: Create one private timestamped viewer note
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ViewerNoteCreate' }
+      responses:
+        '201': { description: Private note created in the trusted session scope }
+        '404': { description: Unknown, cross-tenant or unowned session }
+  /api/v1/viewer/notes/{noteId}:
+    delete:
+      summary: Delete one note owned by the current viewer
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 64 }
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Owned note deleted }
+        '404': { description: Unknown and foreign notes are intentionally indistinguishable }
+  /api/v1/viewer/notifications:
+    get:
+      summary: Read viewer notification preferences without mutating storage
+      security:
+        - participantSessionCookie: []
+      responses:
+        '200': { description: Private no-store marketing and service channel preferences }
+        '404': { description: Viewer context is missing or unscoped }
+    patch:
+      summary: Update marketing and service notification channels independently
+      description: Marketing changes append consent evidence and update the compatibility Lead; personal-data consent and mandatory legal delivery bases are not revoked.
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ViewerNotificationPatch' }
+      responses:
+        '200': { description: Preferences saved and consent evidence appended when marketing changed }
+        '404': { description: Viewer context is missing or unscoped }
+  /api/v1/crm/reference-data:
+    get:
+      summary: Read tenant-scoped CRM pipelines, stages, managers and role capabilities
+      description: The organization is resolved only from the authenticated User session and active membership. CRM_MANAGER and OWNER receive writable capabilities; ANALYST and AUDITOR receive masked read-only capabilities.
+      security:
+        - userSessionCookie: []
+      responses:
+        '200':
+          description: Private no-store CRM reference data for the server-selected tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMReferenceData' }
+        '401': { description: User session is missing, expired or MFA-challenged }
+        '403': { description: Active membership role cannot read CRM }
+        '404': { description: CRM rollout flag is disabled }
+        '429': { description: CRM read rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/bulk-actions:
+    post:
+      summary: Preview or execute one tenant-scoped CRM bulk action
+      description: OWNER or CRM_MANAGER only. PREVIEW stores the exact filtered contact-id snapshot for ten minutes (maximum 1000); EXECUTE accepts only that server-side preview id and returns per-contact successes and safe failure codes. The organization is resolved from the active membership, and foreign/unknown targets are indistinguishable.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMBulkActionRequest' }
+      responses:
+        '200':
+          description: Idempotent preview replay, execution result, or terminal execution replay
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMBulkActionResponse' }
+        '201':
+          description: Exact preview snapshot created and audited
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMBulkActionResponse' }
+        '400': { description: Strict filter/action validation failed, selection exceeds 1000, or lost reason is missing }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant preview/action targets are intentionally indistinguishable }
+        '409': { description: Preview expired, is already running, or idempotency key conflicts }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/exports:
+    post:
+      summary: Download a permissioned tenant CRM CSV for the current filters
+      description: Requires an explicit active-membership permission `{crm:{export:true}}` in addition to a CRM read role. The response is private/no-store, capped at 10000 contacts and never retained as a platform file; ANALYST and AUDITOR values remain masked. Spreadsheet formula prefixes are escaped and every successful export is audited without contact data.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMExportRequest' }
+      responses:
+        '200':
+          description: One-time UTF-8 CSV response; x-crm-export-row-count and x-crm-export-audit-id are returned
+          headers:
+            Cache-Control: { schema: { type: string, example: 'private, no-store' } }
+            x-crm-export-row-count: { schema: { type: integer, minimum: 0 } }
+            x-crm-export-audit-id: { schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { description: Strict filter validation failed or selection exceeds 10000 }
+        '403': { description: CRM read role or explicit export permission is missing }
+        '404': { description: CRM rollout flag is disabled }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/queues:
+    get:
+      summary: Read server-computed tenant CRM task queue counts
+      description: Today is calculated in the default pipeline IANA timezone. Overdue tasks are strictly before server time; without-task contains active OPEN-stage contacts with no OPEN task.
+      security:
+        - userSessionCookie: []
+      responses:
+        '200':
+          description: Private no-store Today, Overdue, Without task and due-reminder counts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMQueueSummary' }
+        '401': { description: User session is missing, expired or MFA-challenged }
+        '403': { description: Active membership role cannot read CRM }
+        '404': { description: CRM rollout flag is disabled }
+        '429': { description: CRM read rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/scoring:
+    get:
+      summary: Read tenant CRM scoring versions and the active explainable rule set
+      description: Rules and versions are scoped to the organization resolved from the active membership. No client organization identifier is accepted.
+      security:
+        - userSessionCookie: []
+      responses:
+        '200':
+          description: Active and archived scoring versions for the server-selected tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMScoringConfiguration' }
+        '403': { description: Active membership role cannot read CRM }
+        '404': { description: CRM rollout flag is disabled }
+        '429': { description: CRM read rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/scoring/versions:
+    post:
+      summary: Create and atomically activate a new tenant scoring version
+      description: OWNER only. The previous active version is archived and contact scores are recalculated from immutable, deduplicated factors; no factor is invented or duplicated.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMScoringVersionCreate' }
+      responses:
+        '200': { description: Idempotent replay of the previously created version }
+        '201': { description: New version created, activated and audited }
+        '400': { description: Strict scoring payload validation failed }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: CRM rollout flag is disabled }
+        '409': { description: Idempotency key conflicts with another operation }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/tags:
+    get:
+      summary: List tags in the server-selected tenant
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { in: query, name: includeArchived, schema: { type: string, enum: ['true', 'false'], default: 'false' } }
+      responses:
+        '200':
+          description: Tenant-scoped tag collection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMTagCollection' }
+        '403': { description: Active membership role cannot read CRM }
+        '404': { description: CRM rollout flag is disabled }
+        '429': { description: CRM read rate limit exceeded; machine-readable code and correlationId returned }
+    post:
+      summary: Create a normalized tenant CRM tag
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMTagCreate' }
+      responses:
+        '201': { description: Tag created and audited inside the selected tenant }
+        '400': { description: Strict tag payload validation failed }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: CRM rollout flag is disabled }
+        '409': { description: Normalized tag name already exists in this tenant }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/tags/{tagId}:
+    patch:
+      summary: Rename, recolor, archive or reactivate one tenant CRM tag
+      description: Unknown and foreign tags are indistinguishable. Used tags are archived instead of physically deleted.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMTagId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMTagUpdate' }
+      responses:
+        '200': { description: Tag updated and audited }
+        '400': { description: Strict tag payload validation failed }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant tags are intentionally indistinguishable }
+        '409': { description: Normalized tag name already exists in this tenant }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/contacts:
+    get:
+      summary: List tenant-scoped CRM contacts with combinable server filters
+      description: ANALYST and AUDITOR receive masked personal data and cannot search raw personal fields. Unknown and foreign entity identifiers never expand the tenant scope.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 10000, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
+        - { in: query, name: search, schema: { type: string, minLength: 2, maxLength: 120 } }
+        - { in: query, name: webinarId, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { in: query, name: sessionId, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { in: query, name: stageId, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { in: query, name: managerId, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { in: query, name: activity, schema: { type: string, enum: [registered, entered, viewed, question, cta, email, telegram, note] } }
+        - { in: query, name: source, schema: { type: string, minLength: 1, maxLength: 120 } }
+        - { in: query, name: hasQuestion, schema: { type: string, enum: ['true', 'false'] } }
+        - { in: query, name: hasCta, schema: { type: string, enum: ['true', 'false'] } }
+        - { in: query, name: queue, schema: { type: string, enum: [today, overdue, without_task] } }
+      responses:
+        '200':
+          description: Private no-store page of contacts in the server-selected tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMContactPage' }
+        '400': { description: Strict query validation failed }
+        '403': { description: Role cannot read CRM or attempted raw personal-data search }
+        '404': { description: CRM rollout flag is disabled }
+        '429': { description: CRM read rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/contacts/{contactId}:
+    get:
+      summary: Read one tenant CRM contact and unified server-time timeline
+      description: Personal viewer note bodies, chat identifiers and provider secrets are never returned. Unknown and cross-tenant contacts are intentionally indistinguishable.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMContactId'
+      responses:
+        '200':
+          description: Private no-store CRM contact, registrations and ordered timeline
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMContactDetail' }
+        '403': { description: Active membership role cannot read CRM }
+        '404': { description: Unknown, cross-tenant or rollout-disabled contact }
+        '429': { description: CRM read rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/contacts/{contactId}/deliveries:
+    post:
+      summary: Enqueue one consent-aware tenant CRM marketing delivery
+      description: OWNER and CRM_MANAGER only. The server resolves the tenant from the active membership, verifies the exact contact registration, Webinar and WebinarSession, and requires current channel consent both now and immediately before provider send. Recipient addresses, Telegram chat identifiers and message content are never returned.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMContactId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMDeliveryCreate' }
+      responses:
+        '200':
+          description: Idempotent replay of the same delivery request
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMDeliveryResponse' }
+        '201':
+          description: Consent-checked delivery queued with tenant audit and timeline event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMDeliveryResponse' }
+        '400': { description: Strict channel payload or idempotency validation failed }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant contacts or registrations are intentionally indistinguishable }
+        '409': { description: Consent, recipient, Telegram binding or idempotency requirement failed }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/deliveries/{deliveryId}/retry:
+    post:
+      summary: Request an idempotent retry for one tenant CRM delivery
+      description: Retries only a terminal or retryable delivery in the active tenant. Current consent, recipient state and the original requester membership are rechecked before returning it to the durable queue.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMDeliveryId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMDeliveryRetry' }
+      responses:
+        '200':
+          description: Retry requested or idempotently replayed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMDeliveryResponse' }
+        '400': { description: Strict idempotency payload validation failed }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant deliveries are intentionally indistinguishable }
+        '409': { description: Delivery state, current consent, recipient or original requester prevents retry }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/contacts/{contactId}/tasks:
+    post:
+      summary: Create an assigned CRM task for one contact in the selected tenant
+      description: The assignee must be an active OWNER or CRM_MANAGER membership in the server-selected organization. Local due/reminder values are converted in the pipeline timezone; no email or Telegram message is sent.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMContactId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMTaskCreate' }
+      responses:
+        '201': { description: Tenant-scoped task, create event, next-contact projection and audit committed atomically }
+        '400': { description: Strict payload, local-time or reminder-order validation failed }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant contact/assignee are intentionally undisclosed }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/contacts/{contactId}/hot:
+    patch:
+      summary: Set or clear a reasoned manual hot override for one tenant CRM contact
+      description: OWNER and CRM_MANAGER only. AUTOMATIC clears the override. The server preserves the idempotency key, actor, reason, source, event and audit; legacy Registration.isHot is a compatibility projection.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMContactId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMManualHotUpdate' }
+      responses:
+        '200': { description: Override updated or idempotently replayed with explainable score }
+        '400': { description: Strict mode, reason or idempotency validation failed }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant contacts are intentionally indistinguishable }
+        '409': { description: Idempotency key was already used for another contact }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/contacts/{contactId}/tags/{tagId}:
+    post:
+      summary: Assign an active tenant tag to a tenant CRM contact
+      description: The contact and tag must belong to the organization resolved from the active membership. A repeated assignment is idempotent.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMContactId'
+        - $ref: '#/components/parameters/CRMTagId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Idempotent replay of an existing assignment }
+        '201': { description: Assignment, contact event and audit created }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant contact/tag are intentionally indistinguishable }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+    delete:
+      summary: Remove a tenant tag assignment without deleting the tag
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMContactId'
+        - $ref: '#/components/parameters/CRMTagId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Assignment removed or idempotently already absent; event and audit only on change }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant contact/tag are intentionally indistinguishable }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/tasks/{taskId}:
+    patch:
+      summary: Update, complete, cancel or reopen one tenant CRM task
+      description: Task identity scope is immutable. The mutation records server time, actor, task event and audit; physical delete is not exposed.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMTaskId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMTaskUpdate' }
+      responses:
+        '200': { description: Task updated with contact nextContactAt projection, event and audit }
+        '400': { description: Strict payload, local-time or reminder-order validation failed }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant task/assignee are intentionally undisclosed }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/contacts/{contactId}/stage:
+    patch:
+      summary: Move a CRM contact to an active stage in the same tenant pipeline
+      description: Persists actor, server time, before/after, source and audit atomically. A lost semantic category requires a reason. Legacy Registration.crmStatus is dual-written with the stable stage code during compatibility rollout.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMContactId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMStageTransitionRequest' }
+      responses:
+        '200': { description: Idempotent no-change or audited stage transition }
+        '400': { description: Strict payload validation or lost reason requirement failed }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant contact/stage are intentionally indistinguishable }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/stages:
+    post:
+      summary: Add one custom stage to the default tenant CRM pipeline
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMStageCreate' }
+      responses:
+        '201': { description: Custom stage with a server-generated stable code created and audited }
+        '400': { description: Strict payload validation failed }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: CRM rollout flag is disabled }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
+  /api/v1/crm/stages/{stageId}:
+    patch:
+      summary: Rename, reorder or archive one tenant CRM stage
+      description: Stage id/code and semantic category remain stable. Protected stages cannot be archived; in-use stages cannot be archived or physically deleted.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CRMStageId'
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CRMStageUpdate' }
+      responses:
+        '200': { description: Stage updated and audited }
+        '400': { description: Strict payload validation failed }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown and cross-tenant stages are intentionally indistinguishable }
+        '409': { description: Stage is protected or currently used by contacts }
+        '429': { description: CRM mutation rate limit exceeded; machine-readable code and correlationId returned }
   /api/v1/catalog/practice-areas:
     get:
       summary: List active public legal practice-area taxonomy
@@ -1068,9 +1742,24 @@ paths:
       summary: Cookie-backed webinar timeline
       responses:
         '200':
-          description: Timeline and live state
+          description: Timeline, live state and safe ready/processing/error/unavailable media state
         '401':
           description: Missing room cookie
+  /api/webinar/content/session/current:
+    get:
+      summary: Read one consistent published room-content snapshot
+      description: Resolves tenant, Webinar, WebinarSession and current media server-side. Only the published transcript bound to the current media asset is returned; draft and reviewed versions are excluded.
+      security:
+        - participantSessionCookie: []
+      responses:
+        '200':
+          description: Private no-store chapters, transcript and sources from one repeatable-read snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomContentSnapshot'
+        '404':
+          description: Same safe absence for missing, expired, revoked or otherwise unauthorized room content
   /api/media/webinar/{sessionId}/manifest:
     get:
       summary: Read the authorized HLS manifest for one exact WebinarSession
@@ -1085,7 +1774,14 @@ paths:
           content:
             application/vnd.apple.mpegurl:
               schema: { type: string }
-        '404': { description: Same safe absence for unknown, unauthorized, cross-tenant, wrong-session, revoked or expired media }
+        '404':
+          {
+            description: Same safe absence for unknown,
+            unauthorized,
+            cross-tenant,
+            wrong-session,
+            revoked or expired media,
+          }
   /api/media/webinar/{sessionId}/segment/{resource}:
     get:
       summary: Read one authorized opaque HLS resource with optional Range
@@ -1116,7 +1812,31 @@ paths:
         - $ref: '#/components/parameters/WebinarSessionId'
       responses:
         '200': { description: Private no-store poster image }
-        '404': { description: Same safe absence for unknown, unauthorized, cross-tenant, wrong-session, revoked or expired media }
+        '404':
+          {
+            description: Same safe absence for unknown,
+            unauthorized,
+            cross-tenant,
+            wrong-session,
+            revoked or expired media,
+          }
+  /api/media/webinar/{sessionId}/captions/{transcriptId}:
+    get:
+      summary: Read WebVTT captions for the exact current published transcript
+      description: Revalidates the participant session and server-selected tenant, Webinar, WebinarSession, current media asset and published transcript on every request. Draft, reviewed and stale published versions return the same safe absence.
+      security:
+        - participantSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+        - $ref: '#/components/parameters/TranscriptId'
+      responses:
+        '200':
+          description: Private no-store sanitized WebVTT captions
+          content:
+            text/vtt:
+              schema: { type: string }
+        '404':
+          description: Same safe absence for unknown, cross-tenant, wrong-session, expired, revoked, draft, reviewed or stale captions
   /api/webinar/chat/session/current:
     get:
       summary: Cookie-backed webinar chat
@@ -1172,7 +1892,10 @@ paths:
                 sizeBytes: { type: string, pattern: '^\\d{1,13}$' }
                 checksumSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
       responses:
-        '201': { description: Asset and temporary signed part operations created; origin key is not returned }
+        '201':
+          {
+            description: Asset and temporary provider or same-origin part operations created; origin key is not returned,
+          }
         '400': { description: Invalid type, size or request contract }
         '404': { description: Webinar is unavailable in the active tenant }
         '503': { description: Private object storage adapter is not configured }
@@ -1214,7 +1937,7 @@ paths:
   /api/v1/creator/uploads/{uploadId}/parts:
     post:
       summary: Idempotently record one directly uploaded multipart part
-      description: Stores only the provider ETag and part number; video bytes never pass through Express.
+      description: Stores only the trusted provider ETag and part number. External storage bytes bypass Express; self-hosted bytes use the separately authenticated streaming endpoint.
       security:
         - userSessionCookie: []
       parameters:
@@ -1237,6 +1960,49 @@ paths:
         '200': { description: Part checkpoint recorded and safe progress returned }
         '404': { description: Upload is unavailable in the active tenant }
         '409': { description: Upload is expired, completed or cancelled }
+  /api/v1/creator/uploads/{uploadId}/parts/{partNumber}/content:
+    put:
+      summary: Stream one self-hosted multipart part into private persistent storage
+      description: Requires the platform session, active tenant membership, creator-to-Webinar relation and double-submit CSRF token. Content-Length and MIME must match server-owned upload metadata. The path never grants access by itself and never exposes a filesystem path or storage key.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: partNumber
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 10000 }
+        - name: x-csrf-token
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Content-Length
+          in: header
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          video/mp4:
+            schema: { type: string, format: binary }
+          video/quicktime:
+            schema: { type: string, format: binary }
+          video/webm:
+            schema: { type: string, format: binary }
+      responses:
+        '200': { description: Part fsynced, SHA-256 ETag returned and server checkpoint committed }
+        '400': { description: Part number, MIME or exact byte length does not match server metadata }
+        '401': { description: Platform session is absent or invalid }
+        '403': { description: CSRF token is missing or invalid }
+        '404': { description: Upload is unknown, cross-tenant or unrelated to this author }
+        '409': { description: Upload is inactive or this part already has different content }
+        '411': { description: Content-Length is required }
+        '415': { description: MIME is missing or content encoding is unsupported }
+        '429': { description: Self-hosted part rate limit exceeded }
+        '503': { description: Private media storage is unavailable }
   /api/v1/creator/uploads/{uploadId}/resume:
     post:
       summary: Resume a multipart upload without retransmitting completed parts
@@ -1322,7 +2088,12 @@ paths:
         - $ref: '#/components/parameters/WebinarId'
       responses:
         '200': { description: Latest version, timed segments and non-secret provenance }
-        '404': { description: Unknown, absent, unauthorized and cross-tenant transcripts are intentionally indistinguishable }
+        '404':
+          {
+            description: Unknown,
+            absent,
+            unauthorized and cross-tenant transcripts are intentionally indistinguishable,
+          }
     patch:
       summary: Atomically replace segments with optimistic concurrency and explicit review state
       security:
@@ -1336,7 +2107,8 @@ paths:
             schema:
               $ref: '#/components/schemas/TranscriptUpdate'
       responses:
-        '200': { description: Draft or reviewed version updated; editing a published version creates a new draft version }
+        '200':
+          { description: Draft or reviewed version updated; editing a published version creates a new draft version }
         '400': { description: Strict payload validation failed }
         '404': { description: Unknown, unauthorized and cross-tenant transcripts are intentionally indistinguishable }
         '409': { description: Revision or latest-version conflict }
@@ -1356,7 +2128,11 @@ paths:
             schema:
               $ref: '#/components/schemas/TranscriptReference'
       responses:
-        '200': { description: Reviewed version published and audited, or already-published current revision returned idempotently }
+        '200':
+          {
+            description: Reviewed version published and audited,
+            or already-published current revision returned idempotently,
+          }
         '400': { description: Strict payload validation failed }
         '404': { description: Unknown, unauthorized and cross-tenant transcripts are intentionally indistinguishable }
         '409': { description: Review is missing or optimistic revision is stale }
@@ -1371,7 +2147,12 @@ paths:
           required: true
           schema: { type: string, minLength: 1, maxLength: 191 }
       responses:
-        '200': { description: Durable state, bounded attempts, safe error code and result reference without provider secrets }
+        '200':
+          {
+            description: Durable state,
+            bounded attempts,
+            safe error code and result reference without provider secrets,
+          }
         '404': { description: Unknown and cross-tenant jobs are intentionally indistinguishable }
   /api/v1/creator/webinars/{webinarId}/transcript/export:
     get:
@@ -1474,6 +2255,452 @@ paths:
         '200': { description: Suggestion reviewed, side effect and audit committed atomically }
         '404': { description: Unknown and cross-tenant suggestions are intentionally indistinguishable }
         '409': { description: Suggestion is already reviewed or its revision is stale }
+  /api/v1/moderation/sessions:
+    get:
+      summary: List recent WebinarSessions available to the active tenant moderator
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: webinarId
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 191 }
+      responses:
+        '200':
+          description: Tenant-scoped sessions with real message, hidden-message and blocked-registration counts
+        '403':
+          description: Active membership is not OWNER or MODERATOR
+        '404':
+          description: Moderation dashboard is disabled
+  /api/v1/moderation/sessions/{sessionId}/messages:
+    get:
+      summary: Read the exact tenant-scoped moderation projection for one WebinarSession
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+      responses:
+        '200':
+          description: Messages include exact type, synthetic flag, current visibility revision and registration chat state
+        '403':
+          description: Active membership is not OWNER or MODERATOR
+        '404':
+          description: Unknown and cross-tenant sessions are intentionally indistinguishable
+  /api/v1/moderation/sessions/{sessionId}/messages/{messageId}:
+    patch:
+      summary: Hide or restore one message with optimistic revision and a mandatory reason
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+        - $ref: '#/components/parameters/ChatMessageId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChatMessageModerationCommand' }
+      responses:
+        '200':
+          description: Visibility changed immediately, room cache invalidated and audit written
+        '400':
+          description: Strict payload or reason validation failed; tenant fields are rejected
+        '403':
+          description: Active membership is not OWNER or MODERATOR
+        '404':
+          description: Unknown and cross-tenant messages are intentionally indistinguishable
+        '409':
+          description: Revision conflict or requested visibility is already current
+  /api/v1/moderation/sessions/{sessionId}/questions:
+    get:
+      summary: List the new, repeating, priority or complete question queue for one exact tenant session
+      description: Repetition is grouped by a server-derived normalized fingerprint; participant text never determines tenant scope.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+        - name: queue
+          in: query
+          schema: { type: string, enum: [all, new, repeating, priority], default: new }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/QuestionModerationStatus' }
+      responses:
+        '200': { description: Questions with durable status, priority, revision, repeat count and latest human-reviewable suggestion }
+        '403': { description: Active membership is not OWNER or MODERATOR }
+        '404': { description: Unknown and cross-tenant sessions are intentionally indistinguishable }
+  /api/v1/moderation/sessions/{sessionId}/questions/{questionId}:
+    patch:
+      summary: Change question status or priority with a mandatory reason and optimistic revision
+      description: The change writes question history, CRM contact timeline and tenant audit in one transaction.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+        - $ref: '#/components/parameters/QuestionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestionModerationCommand' }
+      responses:
+        '200': { description: Question state, participant history, CRM timeline and audit are synchronized }
+        '400': { description: Strict payload or reason validation failed; tenant fields are rejected }
+        '403': { description: Active membership is not OWNER or MODERATOR }
+        '404': { description: Unknown and cross-tenant questions are intentionally indistinguishable }
+        '409': { description: Revision conflict or requested state is already current }
+  /api/v1/moderation/sessions/{sessionId}/questions/{questionId}/suggestions:
+    post:
+      summary: Prepare an unpublished grounded AI-moderator draft
+      description: >-
+        Searches only the latest published transcript and explicit WebinarSource records. Personalized legal advice
+        and questions without a sufficient basis are routed to a human. This operation never publishes a chat message.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+        - $ref: '#/components/parameters/QuestionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestionSuggestionGenerateCommand' }
+      responses:
+        '201': { description: Idempotent pending draft with policy outcome and safe timestamp or HTTPS source citation }
+        '400': { description: Strict payload validation failed; tenant fields are rejected }
+        '403': { description: Active membership is not OWNER or MODERATOR }
+        '404': { description: Unknown and cross-tenant questions are intentionally indistinguishable }
+        '409': { description: Question revision is stale or the question is in a terminal state }
+  /api/v1/moderation/sessions/{sessionId}/questions/{questionId}/suggestions/{suggestionId}/review:
+    post:
+      summary: Publish or reject one AI-moderator draft by explicit human action
+      description: Publication creates a visibly synthetic AI-moderator message and preserves its safe grounding projection.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+        - $ref: '#/components/parameters/QuestionId'
+        - { name: suggestionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestionSuggestionReviewCommand' }
+      responses:
+        '200': { description: Human decision, question state, CRM timeline, participant history and audit committed atomically }
+        '400': { description: Strict payload or reason validation failed; tenant fields are rejected }
+        '403': { description: Active membership is not OWNER or MODERATOR }
+        '404': { description: Unknown and cross-tenant suggestions are intentionally indistinguishable }
+        '409': { description: Question revision is stale or suggestion was already reviewed }
+  /api/v1/moderation/sessions/{sessionId}/registrations/{registrationId}/chat-access:
+    patch:
+      summary: Block or restore chat writes for one exact-session registration
+      security:
+        - userSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WebinarSessionId'
+        - $ref: '#/components/parameters/RegistrationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationChatAccessCommand' }
+      responses:
+        '200':
+          description: Registration chat state changed, room cache invalidated and audit written
+        '400':
+          description: Strict payload or reason validation failed; tenant fields are rejected
+        '403':
+          description: Active membership is not OWNER or MODERATOR
+        '404':
+          description: Unknown and cross-tenant registrations are intentionally indistinguishable
+        '409':
+          description: Requested registration chat state is already current
+  /api/v1/telegram/manager-bindings:
+    get:
+      summary: List manager Telegram chat bindings in the active tenant
+      description: OWNER only. Raw chat IDs and binding tokens are never returned.
+      security:
+        - userSessionCookie: []
+      responses:
+        '200': { description: Private no-store binding projections with masked chat hints }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Tenant Telegram rollout is disabled }
+    post:
+      summary: Create a one-time manager chat binding invitation
+      description: OWNER selects an active HUMAN OWNER or CRM_MANAGER membership in the server-selected tenant. The raw start token exists only inside the one-time startUrl response; the database stores its hash.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [membershipId]
+              properties:
+                membershipId: { type: string, minLength: 1, maxLength: 191 }
+      responses:
+        '201': { description: Pending binding, 15-minute expiry and one-time Telegram start URL }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown/foreign membership or disabled tenant Telegram flow }
+        '409': { description: Membership already has a pending or active binding }
+  /api/v1/telegram/manager-bindings/{bindingId}/confirm:
+    post:
+      summary: Confirm a manager chat claim as tenant OWNER
+      description: The claimed chat remains unusable until this explicit confirmation; current membership and binding state are rechecked transactionally.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: bindingId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirm]
+              properties:
+                confirm: { type: boolean, enum: [true] }
+      responses:
+        '200': { description: Binding activated and audited }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown and cross-tenant bindings are intentionally indistinguishable }
+  /api/v1/telegram/manager-bindings/{bindingId}:
+    delete:
+      summary: Revoke a tenant manager Telegram chat binding
+      description: OWNER only. Revocation immediately makes subsequent callbacks unavailable and preserves audit history.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: bindingId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Binding revoked idempotently and audited }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown and cross-tenant bindings are intentionally indistinguishable }
+  /api/v1/telegram/consultant/messages:
+    get:
+      summary: List Telegram assistant requests classified for the active tenant
+      description: OWNER or CRM_MANAGER only. Text is returned only from the dedicated tenant-scoped request store; raw chat IDs are not returned and analytics projections contain no text.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [NEW, HANDED_TO_HUMAN, RESOLVED] } }
+        - { name: topic, in: query, schema: { type: string, enum: [bankruptcy, tax, debt, partnership, webinar_access, other] } }
+        - { name: urgency, in: query, schema: { type: string, enum: [low, normal, high] } }
+      responses:
+        '200': { description: Private no-store request list with original/current classification and provenance }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Tenant Telegram rollout is disabled }
+  /api/v1/telegram/consultant/messages/{messageId}/classification:
+    patch:
+      summary: Correct Telegram assistant topic, intent or urgency with a reason
+      description: Original classification remains immutable; correction writes tenant audit and a minimal CRM event without the request text.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: messageId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              minProperties: 2
+              properties:
+                topic: { type: string, enum: [bankruptcy, tax, debt, partnership, webinar_access, other] }
+                intent: { type: string, enum: [navigation, legal_question, manager_contact, partnership, other] }
+                urgency: { type: string, enum: [low, normal, high] }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200': { description: Reasoned correction stored; original classification preserved }
+        '400': { description: Strict payload has no classification change or is invalid }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Unknown and cross-tenant messages are intentionally indistinguishable }
+  /api/v1/telegram/broadcast-templates:
+    get:
+      summary: List tenant Telegram broadcast templates
+      security:
+        - userSessionCookie: []
+      responses:
+        '200': { description: Private no-store templates for the active tenant }
+        '403': { description: Active membership cannot read tenant Telegram templates }
+        '404': { description: Tenant Telegram rollout is disabled }
+    post:
+      summary: Create a tenant Telegram broadcast template draft
+      description: OWNER only. Unknown variables are rejected; no delivery job is created.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, text]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                text: { type: string, minLength: 3, maxLength: 2800, description: 'Only {{participant_name}}, {{webinar_title}}, {{session_datetime}} and {{room_link}} are accepted.' }
+      responses:
+        '201': { description: Tenant-scoped draft created and audited }
+        '400': { description: Strict payload or template variable validation failed }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Tenant Telegram rollout is disabled }
+  /api/v1/telegram/broadcast-templates/{templateId}/publish:
+    post:
+      summary: Publish an immutable approved-variable Telegram template
+      description: OWNER only. The room_link variable is mandatory; repeat publication is idempotent.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: templateId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirm]
+              properties:
+                confirm: { type: boolean, enum: [true] }
+      responses:
+        '200': { description: Published template and replay indicator }
+        '400': { description: Unknown variable or mandatory room_link is missing }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown and cross-tenant templates are intentionally indistinguishable }
+  /api/v1/telegram/broadcasts/preview:
+    post:
+      summary: Preview an exact-session Telegram broadcast segment
+      description: OWNER only. Computes the current registered_session segment and returns a 10-minute one-time preview token in a private no-store response. No job or recipient rows are created.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [templateId, webinarId, webinarSessionId, segment]
+              properties:
+                templateId: { type: string, minLength: 1, maxLength: 191 }
+                webinarId: { type: string, minLength: 1, maxLength: 191 }
+                webinarSessionId: { type: string, minLength: 1, maxLength: 191 }
+                segment: { type: string, enum: [registered_session] }
+      responses:
+        '201': { description: Exact count, snapshot expiry and one-time raw preview token; no job exists yet }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown/cross-tenant template, Webinar or Session are intentionally indistinguishable }
+        '409': { description: Segment exceeds the bounded 2000-recipient limit }
+        '503': { description: Manual broadcast provider path is disabled }
+  /api/v1/telegram/broadcasts/confirm:
+    post:
+      summary: Separately confirm and enqueue one previewed Telegram broadcast
+      description: OWNER only. The server verifies the hash-only preview token, expiry, creator membership and unchanged exact segment snapshot before creating a durable job and recipients.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [previewId, previewToken, confirm, idempotencyKey]
+              properties:
+                previewId: { type: string, minLength: 1, maxLength: 191 }
+                previewToken: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+                confirm: { type: boolean, enum: [true] }
+                idempotencyKey: { type: string, format: uuid }
+      responses:
+        '200': { description: Idempotent replay returns the original tenant job }
+        '202': { description: Durable job accepted; current consent will be rechecked before every send }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Invalid/expired/consumed/foreign preview is intentionally unavailable }
+        '409': { description: Segment snapshot changed and a new preview is required }
+  /api/v1/telegram/broadcasts:
+    get:
+      summary: List tenant Telegram broadcast progress
+      description: OWNER or CRM_MANAGER. Projection excludes template text, recipient chat IDs and provider errors.
+      security:
+        - userSessionCookie: []
+      responses:
+        '200': { description: Private no-store job status, attempts and aggregate progress }
+        '403': { description: Active membership is not OWNER or CRM_MANAGER }
+        '404': { description: Tenant Telegram rollout is disabled }
+  /api/v1/telegram/broadcasts/{jobId}/pause:
+    post:
+      summary: Pause or request pause of a tenant Telegram broadcast
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: jobId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [confirm], properties: { confirm: { type: boolean, enum: [true] } } }
+      responses:
+        '200': { description: Paused job/request and idempotent replay indicator }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown, foreign or terminal jobs are intentionally indistinguishable }
+  /api/v1/telegram/broadcasts/{jobId}/resume:
+    post:
+      summary: Resume a paused tenant Telegram broadcast
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: jobId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, required: [confirm], properties: { confirm: { type: boolean, enum: [true] } } }
+      responses:
+        '200': { description: Pending job and idempotent replay indicator }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown, foreign or non-paused jobs are intentionally indistinguishable }
+  /api/v1/telegram/broadcasts/{jobId}/cancel:
+    post:
+      summary: Cancel or request cancellation of a tenant Telegram broadcast
+      description: OWNER only. A currently claimed send is allowed to settle; unsent recipients remain unsent and history is retained.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - { name: jobId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 191 } }
+        - { name: x-csrf-token, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200': { description: Cancelled job/request and idempotent replay indicator }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown, foreign or terminal jobs are intentionally indistinguishable }
 components:
   parameters:
     AssetId:
@@ -1545,6 +2772,14 @@ components:
         type: string
         minLength: 1
         maxLength: 191
+    TranscriptId:
+      name: transcriptId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 191
     WebinarAccessGrantId:
       name: grantId
       in: path
@@ -1562,7 +2797,717 @@ components:
         minLength: 8
         maxLength: 191
         pattern: '^[A-Za-z0-9._:-]+$'
+    CRMContactId:
+      name: contactId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    CRMStageId:
+      name: stageId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    CRMTaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    CRMTagId:
+      name: tagId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    CRMDeliveryId:
+      name: deliveryId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    ChatMessageId:
+      name: messageId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    QuestionId:
+      name: questionId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    RegistrationId:
+      name: registrationId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
   schemas:
+    CatalogRegistrationRequest:
+      type: object
+      additionalProperties: false
+      required: [sessionId, name, phone, email, personalDataConsent, termsAccepted]
+      properties:
+        sessionId: { type: string, minLength: 8, maxLength: 64 }
+        name: { type: string, minLength: 2, maxLength: 120 }
+        phone: { type: string, minLength: 6, maxLength: 40 }
+        email: { type: string, format: email, maxLength: 160 }
+        companyWebsite: { type: string, maxLength: 200, description: Anonymous anti-bot honeypot; must be empty. }
+        city: { type: string, maxLength: 120 }
+        professionalStatus: { type: string, maxLength: 120 }
+        personalDataConsent: { type: boolean, enum: [true] }
+        termsAccepted: { type: boolean, enum: [true] }
+        marketingEmailConsent: { type: boolean, default: false }
+        marketingTelegramConsent: { type: boolean, default: false }
+        source: { type: string, maxLength: 120 }
+        utmSource: { type: string, maxLength: 120 }
+        utmMedium: { type: string, maxLength: 120 }
+        utmCampaign: { type: string, maxLength: 120 }
+        utmContent: { type: string, maxLength: 120 }
+        utmTerm: { type: string, maxLength: 120 }
+    ViewerProgressWrite:
+      type: object
+      additionalProperties: false
+      required: [positionSeconds, durationSeconds, eventId]
+      properties:
+        positionSeconds: { type: number, minimum: 0, maximum: 86400 }
+        durationSeconds: { type: number, exclusiveMinimum: true, minimum: 0, maximum: 86400 }
+        eventId:
+          type: string
+          minLength: 16
+          maxLength: 100
+          pattern: '^[A-Za-z0-9._:-]+$'
+    ViewerNoteCreate:
+      type: object
+      additionalProperties: false
+      required: [sessionId, timestampSeconds, body]
+      properties:
+        sessionId: { type: string, minLength: 8, maxLength: 64 }
+        timestampSeconds: { type: number, minimum: 0, maximum: 86400 }
+        body: { type: string, minLength: 1, maxLength: 4000 }
+    ViewerNotificationPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        marketingEmailEnabled: { type: boolean }
+        marketingTelegramEnabled: { type: boolean }
+        serviceEmailEnabled: { type: boolean }
+        serviceTelegramEnabled: { type: boolean }
+    CRMContactFilters:
+      type: object
+      additionalProperties: false
+      properties:
+        search: { type: string, minLength: 2, maxLength: 120 }
+        webinarId: { type: string, minLength: 1, maxLength: 191 }
+        sessionId: { type: string, minLength: 1, maxLength: 191 }
+        stageId: { type: string, minLength: 1, maxLength: 191 }
+        managerId: { type: string, minLength: 1, maxLength: 191 }
+        activity: { type: string, enum: [registered, entered, viewed, question, cta, email, telegram, note] }
+        source: { type: string, minLength: 1, maxLength: 120 }
+        hasQuestion: { type: string, enum: ['true', 'false'] }
+        hasCta: { type: string, enum: ['true', 'false'] }
+        queue: { type: string, enum: [today, overdue, without_task] }
+    CRMBulkAssignManagerAction:
+      type: object
+      additionalProperties: false
+      required: [type, assigneeMembershipId]
+      properties:
+        type: { type: string, enum: [ASSIGN_MANAGER] }
+        assigneeMembershipId: { type: string, minLength: 1, maxLength: 191 }
+    CRMBulkCreateTaskAction:
+      type: object
+      additionalProperties: false
+      required: [type, task]
+      properties:
+        type: { type: string, enum: [CREATE_TASK] }
+        task: { $ref: '#/components/schemas/CRMTaskCreate' }
+    CRMBulkChangeStageAction:
+      type: object
+      additionalProperties: false
+      required: [type, stageId]
+      properties:
+        type: { type: string, enum: [CHANGE_STAGE] }
+        stageId: { type: string, minLength: 1, maxLength: 191 }
+        reason: { type: string, minLength: 3, maxLength: 1000 }
+    CRMBulkAddTagAction:
+      type: object
+      additionalProperties: false
+      required: [type, tagId]
+      properties:
+        type: { type: string, enum: [ADD_TAG] }
+        tagId: { type: string, minLength: 1, maxLength: 191 }
+    CRMBulkAction:
+      oneOf:
+        - $ref: '#/components/schemas/CRMBulkAssignManagerAction'
+        - $ref: '#/components/schemas/CRMBulkCreateTaskAction'
+        - $ref: '#/components/schemas/CRMBulkChangeStageAction'
+        - $ref: '#/components/schemas/CRMBulkAddTagAction'
+      discriminator:
+        propertyName: type
+    CRMBulkPreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [mode, action, idempotencyKey]
+      properties:
+        mode: { type: string, enum: [PREVIEW] }
+        filters: { $ref: '#/components/schemas/CRMContactFilters' }
+        action: { $ref: '#/components/schemas/CRMBulkAction' }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+    CRMBulkExecuteRequest:
+      type: object
+      additionalProperties: false
+      required: [mode, previewId]
+      properties:
+        mode: { type: string, enum: [EXECUTE] }
+        previewId: { type: string, minLength: 1, maxLength: 191 }
+    CRMBulkActionRequest:
+      oneOf:
+        - $ref: '#/components/schemas/CRMBulkPreviewRequest'
+        - $ref: '#/components/schemas/CRMBulkExecuteRequest'
+      discriminator:
+        propertyName: mode
+    CRMBulkActionResult:
+      type: object
+      additionalProperties: false
+      required: [successes, failures]
+      properties:
+        successes:
+          type: array
+          maxItems: 1000
+          items:
+            type: object
+            additionalProperties: false
+            required: [contactId]
+            properties:
+              contactId: { type: string }
+        failures:
+          type: array
+          maxItems: 1000
+          items:
+            type: object
+            additionalProperties: false
+            required: [contactId, code]
+            properties:
+              contactId: { type: string }
+              code: { type: string, description: Safe machine-readable failure code without provider details. }
+    CRMBulkActionSnapshot:
+      type: object
+      additionalProperties: false
+      required: [id, actionType, expectedCount, status, expiresAt, executedAt, results]
+      properties:
+        id: { type: string }
+        actionType: { type: string, enum: [ASSIGN_MANAGER, CREATE_TASK, CHANGE_STAGE, ADD_TAG] }
+        expectedCount: { type: integer, minimum: 0, maximum: 1000 }
+        status: { type: string, enum: [PREVIEWED, RUNNING, COMPLETED, PARTIAL, FAILED, EXPIRED] }
+        expiresAt: { type: string, format: date-time }
+        executedAt: { type: string, format: date-time, nullable: true }
+        results:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CRMBulkActionResult'
+    CRMBulkActionResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, bulkAction, replayed]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        bulkAction: { $ref: '#/components/schemas/CRMBulkActionSnapshot' }
+        replayed: { type: boolean }
+        correlationId: { type: string, nullable: true }
+    CRMExportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        filters: { $ref: '#/components/schemas/CRMContactFilters' }
+    CRMStage:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, semanticCategory, orderIndex, status, isProtected]
+      properties:
+        id: { type: string }
+        code: { type: string, pattern: '^[a-z][a-z0-9_]{0,62}$' }
+        name: { type: string }
+        semanticCategory: { type: string, enum: [OPEN, WON, LOST] }
+        orderIndex: { type: integer, minimum: 0 }
+        status: { type: string, enum: [ACTIVE, ARCHIVED] }
+        isProtected: { type: boolean }
+    CRMTag:
+      type: object
+      additionalProperties: false
+      required: [id, name, colorToken, status]
+      properties:
+        id: { type: string }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        colorToken: { type: string, enum: [slate, blue, teal, amber, red, violet] }
+        status: { type: string, enum: [ACTIVE, ARCHIVED] }
+        contactCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CRMScore:
+      type: object
+      additionalProperties: false
+      required: [value, ruleSetVersion, hotThreshold, automaticHot, manualOverride, effectiveHot, manualReason, computedAt]
+      properties:
+        value: { type: integer, minimum: 0 }
+        ruleSetVersion: { type: integer, minimum: 1, nullable: true }
+        hotThreshold: { type: integer, minimum: 0, nullable: true }
+        automaticHot: { type: boolean }
+        manualOverride: { type: string, enum: [AUTOMATIC, HOT, NOT_HOT] }
+        effectiveHot: { type: boolean }
+        manualReason: { type: string, nullable: true }
+        computedAt: { type: string, format: date-time, nullable: true }
+        factors:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, label, pointsEach, count, lastOccurredAt, subtotal]
+            properties:
+              code: { type: string, enum: [registration, room_entered, viewed_50_percent, question, cta] }
+              label: { type: string }
+              pointsEach: { type: integer, minimum: 0 }
+              count: { type: integer, minimum: 1 }
+              lastOccurredAt: { type: string, format: date-time }
+              subtotal: { type: integer, minimum: 0 }
+    CRMScoreDetail:
+      allOf:
+        - $ref: '#/components/schemas/CRMScore'
+        - type: object
+          required: [factors]
+    CRMScoringRuleSet:
+      type: object
+      additionalProperties: false
+      required: [id, version, name, status, hotThreshold, activatedAt, rules]
+      properties:
+        id: { type: string }
+        version: { type: integer, minimum: 1 }
+        name: { type: string }
+        status: { type: string, enum: [DRAFT, ACTIVE, ARCHIVED] }
+        hotThreshold: { type: integer, minimum: 0 }
+        activatedAt: { type: string, format: date-time, nullable: true }
+        rules:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, label, points]
+            properties:
+              code: { type: string, enum: [registration, room_entered, viewed_50_percent, question, cta] }
+              label: { type: string }
+              points: { type: integer, minimum: 0, maximum: 100 }
+    CRMScoringConfiguration:
+      type: object
+      additionalProperties: false
+      required: [ok, active, versions, canManage]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        active:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CRMScoringRuleSet'
+        versions: { type: array, items: { $ref: '#/components/schemas/CRMScoringRuleSet' } }
+        canManage: { type: boolean }
+        correlationId: { type: string, nullable: true }
+    CRMScoringVersionCreate:
+      type: object
+      additionalProperties: false
+      required: [name, hotThreshold, points, idempotencyKey]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        hotThreshold: { type: integer, minimum: 0, maximum: 10000 }
+        points:
+          type: object
+          additionalProperties: false
+          required: [registration, roomEntered, viewed50Percent, question, cta]
+          properties:
+            registration: { type: integer, minimum: 0, maximum: 100 }
+            roomEntered: { type: integer, minimum: 0, maximum: 100 }
+            viewed50Percent: { type: integer, minimum: 0, maximum: 100 }
+            question: { type: integer, minimum: 0, maximum: 100 }
+            cta: { type: integer, minimum: 0, maximum: 100 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+    CRMManualHotUpdate:
+      type: object
+      additionalProperties: false
+      required: [mode, reason, idempotencyKey]
+      properties:
+        mode: { type: string, enum: [AUTOMATIC, HOT, NOT_HOT] }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+    CRMTagCreate:
+      type: object
+      additionalProperties: false
+      required: [name, colorToken]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        colorToken: { type: string, enum: [slate, blue, teal, amber, red, violet] }
+    CRMTagUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        colorToken: { type: string, enum: [slate, blue, teal, amber, red, violet] }
+        status: { type: string, enum: [ACTIVE, ARCHIVED] }
+    CRMTagCollection:
+      type: object
+      additionalProperties: false
+      required: [ok, tags, canEdit]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        tags: { type: array, items: { $ref: '#/components/schemas/CRMTag' } }
+        canEdit: { type: boolean }
+        correlationId: { type: string, nullable: true }
+    CRMContact:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, email, phone, source, stage, pipeline, manager, nextContactAt, score, tags, updatedAt]
+      properties:
+        id: { type: string }
+        displayName: { type: string, nullable: true }
+        email: { type: string, nullable: true, description: Full or role-masked value. }
+        phone: { type: string, nullable: true, description: Full or role-masked value. }
+        source: { type: string, nullable: true }
+        stage:
+          type: object
+          required: [id, code, name, semanticCategory]
+          properties:
+            id: { type: string }
+            code: { type: string }
+            name: { type: string }
+            semanticCategory: { type: string, enum: [OPEN, WON, LOST] }
+        pipeline:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        manager:
+          nullable: true
+          type: object
+          required: [type, id, name]
+          properties:
+            type: { type: string, enum: [membership, legacy_admin] }
+            id: { type: string }
+            name: { type: string }
+        nextContactAt: { type: string, format: date-time, nullable: true }
+        score: { $ref: '#/components/schemas/CRMScore' }
+        tags: { type: array, items: { $ref: '#/components/schemas/CRMTag' } }
+        updatedAt: { type: string, format: date-time }
+    CRMReferenceData:
+      type: object
+      required: [ok, pipelines, managers, maskedPersonalData, canEditContacts, canEditTasks, canEditTags, canSendDeliveries, canRunBulkActions, canExport, canManageScoring, canManageStages]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        pipelines:
+          type: array
+          items:
+            type: object
+            required: [id, name, isDefault, version, timezone, stages]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              isDefault: { type: boolean }
+              version: { type: integer, minimum: 1 }
+              timezone: { type: string, minLength: 1, maxLength: 120, example: Europe/Moscow }
+              stages: { type: array, items: { $ref: '#/components/schemas/CRMStage' } }
+        managers:
+          type: array
+          items:
+            type: object
+            required: [id, type, name]
+            properties:
+              id: { type: string }
+              type: { type: string, enum: [membership, legacy_admin] }
+              name: { type: string }
+        maskedPersonalData: { type: boolean }
+        canEditContacts: { type: boolean }
+        canEditTasks: { type: boolean }
+        canEditTags: { type: boolean }
+        canSendDeliveries: { type: boolean, description: True only for OWNER and CRM_MANAGER memberships. }
+        canRunBulkActions: { type: boolean }
+        canExport: { type: boolean, description: True only when the active membership has explicit crm.export permission. }
+        canManageScoring: { type: boolean }
+        canManageStages: { type: boolean }
+        correlationId: { type: string, nullable: true }
+    CRMContactPage:
+      type: object
+      required: [ok, contacts, pagination, filters, timezone, localDate]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        contacts: { type: array, items: { $ref: '#/components/schemas/CRMContact' } }
+        pagination:
+          type: object
+          required: [page, pageSize, total, pages]
+          properties:
+            page: { type: integer, minimum: 1 }
+            pageSize: { type: integer, minimum: 1, maximum: 100 }
+            total: { type: integer, minimum: 0 }
+            pages: { type: integer, minimum: 0 }
+        filters: { type: object, additionalProperties: true }
+        timezone: { type: string, example: Europe/Moscow }
+        localDate: { type: string, format: date }
+        correlationId: { type: string, nullable: true }
+    CRMContactDetail:
+      type: object
+      required: [ok, contact, scoring, tasks, deliveries, canSendDeliveries, timeline, registrations]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        contact: { $ref: '#/components/schemas/CRMContact' }
+        scoring: { $ref: '#/components/schemas/CRMScoreDetail' }
+        tasks: { type: array, items: { $ref: '#/components/schemas/CRMTask' } }
+        deliveries: { type: array, items: { $ref: '#/components/schemas/CRMDelivery' }, maxItems: 100 }
+        canSendDeliveries: { type: boolean }
+        timeline:
+          type: array
+          items:
+            type: object
+            required: [id, type, source, occurredAt, summary]
+            properties:
+              id: { type: string }
+              type: { type: string }
+              source: { type: string }
+              occurredAt: { type: string, format: date-time }
+              webinarId: { type: string, nullable: true }
+              webinarSessionId: { type: string, nullable: true }
+              status: { type: string, nullable: true }
+              summary: { type: string }
+        registrations: { type: array, items: { $ref: '#/components/schemas/CRMContactRegistration' } }
+        correlationId: { type: string, nullable: true }
+    CRMDeliveryCreate:
+      oneOf:
+        - $ref: '#/components/schemas/CRMEmailDeliveryCreate'
+        - $ref: '#/components/schemas/CRMTelegramDeliveryCreate'
+      discriminator:
+        propertyName: channel
+    CRMEmailDeliveryCreate:
+      type: object
+      additionalProperties: false
+      required: [channel, registrationId, subject, message, idempotencyKey]
+      properties:
+        channel: { type: string, enum: [EMAIL] }
+        registrationId: { type: string, minLength: 1, maxLength: 191 }
+        subject: { type: string, minLength: 1, maxLength: 160 }
+        message: { type: string, minLength: 1, maxLength: 3500 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+    CRMTelegramDeliveryCreate:
+      type: object
+      additionalProperties: false
+      required: [channel, registrationId, message, idempotencyKey]
+      properties:
+        channel: { type: string, enum: [TELEGRAM] }
+        registrationId: { type: string, minLength: 1, maxLength: 191 }
+        message: { type: string, minLength: 1, maxLength: 3500 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+    CRMDeliveryRetry:
+      type: object
+      additionalProperties: false
+      required: [idempotencyKey]
+      properties:
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+    CRMDelivery:
+      type: object
+      additionalProperties: false
+      required: [id, channel, purpose, status, attempts, registrationId, webinarId, webinarSessionId, lastErrorCode, nextAttemptAt, sentAt, completedAt, createdAt, canRetry]
+      properties:
+        id: { type: string }
+        channel: { type: string, enum: [EMAIL, TELEGRAM] }
+        purpose: { type: string, enum: [marketing] }
+        status: { type: string, enum: [PENDING, SENDING, SENT, RETRY_SCHEDULED, BLOCKED, DEAD_LETTER, CANCELLED] }
+        attempts: { type: integer, minimum: 0, maximum: 5 }
+        registrationId: { type: string }
+        webinarId: { type: string }
+        webinarSessionId: { type: string }
+        lastErrorCode: { type: string, nullable: true, description: Safe machine-readable code without provider details. }
+        nextAttemptAt: { type: string, format: date-time, nullable: true }
+        sentAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        canRetry: { type: boolean }
+    CRMDeliveryEligibility:
+      type: object
+      additionalProperties: false
+      required: [allowed, reasonCode]
+      properties:
+        allowed: { type: boolean }
+        reasonCode: { type: string, nullable: true }
+    CRMContactRegistration:
+      type: object
+      additionalProperties: false
+      required: [id, webinarId, webinarTitle, sessionId, scheduledAt, timezone, deliveryEligibility]
+      properties:
+        id: { type: string }
+        webinarId: { type: string, nullable: true }
+        webinarTitle: { type: string }
+        sessionId: { type: string }
+        scheduledAt: { type: string, format: date-time }
+        timezone: { type: string }
+        deliveryEligibility:
+          type: object
+          additionalProperties: false
+          required: [registrationId, email, telegram]
+          properties:
+            registrationId: { type: string }
+            email: { $ref: '#/components/schemas/CRMDeliveryEligibility' }
+            telegram: { $ref: '#/components/schemas/CRMDeliveryEligibility' }
+    CRMDeliveryResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, delivery, replayed]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        delivery: { $ref: '#/components/schemas/CRMDelivery' }
+        replayed: { type: boolean }
+        correlationId: { type: string, nullable: true }
+    CRMTask:
+      type: object
+      additionalProperties: false
+      required: [id, contactId, title, description, priority, status, dueAt, reminderAt, completedAt, cancelledAt, timezone, assignee, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        contactId: { type: string }
+        title: { type: string, description: Role-masked to a generic label for ANALYST/AUDITOR. }
+        description: { type: string, nullable: true, description: Hidden from ANALYST/AUDITOR. }
+        priority: { type: string, enum: [LOW, NORMAL, HIGH, URGENT] }
+        status: { type: string, enum: [OPEN, COMPLETED, CANCELLED] }
+        dueAt: { type: string, format: date-time }
+        reminderAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+        cancelledAt: { type: string, format: date-time, nullable: true }
+        timezone: { type: string, example: Europe/Moscow }
+        assignee:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CRMQueueSummary:
+      type: object
+      additionalProperties: false
+      required: [ok, timezone, localDate, generatedAt, counts]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        timezone: { type: string, example: Europe/Moscow }
+        localDate: { type: string, format: date }
+        generatedAt: { type: string, format: date-time }
+        counts:
+          type: object
+          additionalProperties: false
+          required: [today, overdue, withoutTask, remindersDue]
+          properties:
+            today: { type: integer, minimum: 0 }
+            overdue: { type: integer, minimum: 0 }
+            withoutTask: { type: integer, minimum: 0 }
+            remindersDue: { type: integer, minimum: 0 }
+        correlationId: { type: string, nullable: true }
+    CRMTaskCreate:
+      type: object
+      additionalProperties: false
+      required: [title, assigneeMembershipId, priority, dueLocal, reminderLocal]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, nullable: true, maxLength: 4000 }
+        assigneeMembershipId: { type: string, minLength: 1, maxLength: 191 }
+        priority: { type: string, enum: [LOW, NORMAL, HIGH, URGENT] }
+        dueLocal: { type: string, pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$', example: '2026-08-22T10:00' }
+        reminderLocal: { type: string, pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$', example: '2026-08-22T09:30' }
+    CRMTaskUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, nullable: true, maxLength: 4000 }
+        assigneeMembershipId: { type: string, minLength: 1, maxLength: 191 }
+        priority: { type: string, enum: [LOW, NORMAL, HIGH, URGENT] }
+        status: { type: string, enum: [OPEN, COMPLETED, CANCELLED] }
+        dueLocal: { type: string, pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$' }
+        reminderLocal: { type: string, pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$' }
+    CRMStageTransitionRequest:
+      type: object
+      additionalProperties: false
+      required: [stageId]
+      properties:
+        stageId: { type: string, minLength: 1, maxLength: 191 }
+        reason: { type: string, minLength: 3, maxLength: 1000 }
+    CRMStageCreate:
+      type: object
+      additionalProperties: false
+      required: [name, semanticCategory]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        semanticCategory: { type: string, enum: [OPEN, WON, LOST] }
+    CRMStageUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        position: { type: integer, minimum: 0, maximum: 500 }
+        status: { type: string, enum: [ACTIVE, ARCHIVED] }
+    RoomContentSnapshot:
+      type: object
+      additionalProperties: false
+      required: [ok, serverTime, webinarSessionId, mediaState, consistencyKey, transcript, chapters, materials]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        serverTime: { type: string, format: date-time }
+        webinarSessionId: { type: string, minLength: 1, maxLength: 191 }
+        mediaState: { type: string, enum: [ready, processing, error, unavailable] }
+        consistencyKey: { type: string, nullable: true }
+        transcript:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/PublishedRoomTranscript'
+        chapters:
+          type: array
+          items: { $ref: '#/components/schemas/PublishedRoomChapter' }
+        materials:
+          type: array
+          items: { $ref: '#/components/schemas/PublishedRoomMaterial' }
+    PublishedRoomTranscript:
+      type: object
+      additionalProperties: false
+      required: [id, version, language, publishedAt, captionsUrl, segments]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 191 }
+        version: { type: integer, minimum: 1 }
+        language: { type: string }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        captionsUrl: { type: string, pattern: '^/api/media/webinar/' }
+        segments:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [startMs, endMs, speaker, text]
+            properties:
+              startMs: { type: integer, minimum: 0 }
+              endMs: { type: integer, minimum: 1 }
+              speaker: { type: string, nullable: true }
+              text: { type: string }
+    PublishedRoomChapter:
+      type: object
+      additionalProperties: false
+      required: [id, startMs, title, description]
+      properties:
+        id: { type: string }
+        startMs: { type: integer, minimum: 0 }
+        title: { type: string }
+        description: { type: string, nullable: true }
+    PublishedRoomMaterial:
+      type: object
+      additionalProperties: false
+      required: [id, type, title, url, accessedAt, note]
+      properties:
+        id: { type: string }
+        type:
+          type: string
+          enum: [REGULATION, STATUTE_PROVISION, COURT_DECISION, OFFICIAL_GUIDANCE, OFFICIAL_SOURCE, TEMPLATE_OR_CHECKLIST, OTHER]
+        title: { type: string }
+        url: { type: string, format: uri, nullable: true }
+        accessedAt: { type: string, format: date, nullable: true }
+        note: { type: string, nullable: true }
     OrganizationTermInput:
       type: object
       additionalProperties: false
@@ -1894,7 +3839,7 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [offsetSeconds, kind, text, authorLabel]
+            required: [offsetSeconds, kind, status, text]
             properties:
               offsetSeconds:
                 type: integer
@@ -1903,6 +3848,9 @@ components:
               kind:
                 type: string
                 enum: [PREPARED_QUESTION, MODERATOR_NOTICE, AUTHOR_PROMPT]
+              status:
+                type: string
+                enum: [DRAFT, APPROVED, REJECTED]
               text:
                 type: string
                 minLength: 1
@@ -1911,6 +3859,55 @@ components:
                 type: string
                 minLength: 2
                 maxLength: 120
+                deprecated: true
+                description: Compatibility input only; the server derives a non-identifying public label.
+    ChatMessageModerationCommand:
+      type: object
+      additionalProperties: false
+      required: [action, reason, expectedRevision]
+      properties:
+        action: { type: string, enum: [HIDE, RESTORE] }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        expectedRevision: { type: integer, minimum: 0 }
+    QuestionModerationStatus:
+      type: string
+      enum: [NEW, IN_REVIEW, ACTION_REQUIRED, RESOLVED, REJECTED]
+    QuestionPriority:
+      type: string
+      enum: [NORMAL, HIGH]
+    QuestionModerationCommand:
+      type: object
+      additionalProperties: false
+      required: [reason, expectedRevision]
+      anyOf:
+        - required: [status]
+        - required: [priority]
+      properties:
+        status: { $ref: '#/components/schemas/QuestionModerationStatus' }
+        priority: { $ref: '#/components/schemas/QuestionPriority' }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        expectedRevision: { type: integer, minimum: 0 }
+    QuestionSuggestionGenerateCommand:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision]
+      properties:
+        expectedRevision: { type: integer, minimum: 0 }
+    QuestionSuggestionReviewCommand:
+      type: object
+      additionalProperties: false
+      required: [action, reason, expectedQuestionRevision]
+      properties:
+        action: { type: string, enum: [PUBLISH, REJECT] }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+        expectedQuestionRevision: { type: integer, minimum: 0 }
+    RegistrationChatAccessCommand:
+      type: object
+      additionalProperties: false
+      required: [action, reason]
+      properties:
+        action: { type: string, enum: [BLOCK, RESTORE] }
+        reason: { type: string, minLength: 3, maxLength: 500 }
     CreatorWebinarScheduleCreate:
       type: object
       additionalProperties: false

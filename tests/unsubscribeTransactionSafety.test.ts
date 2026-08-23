@@ -29,12 +29,18 @@ vi.mock('../src/lib/prisma.js', () => {
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    registration: { findMany: vi.fn() },
+    event: { create: vi.fn() },
+    telegramBotEvent: { upsert: vi.fn() },
     telegramBroadcastRecipient: { updateMany: vi.fn() },
     consentRecord: { create: vi.fn() },
     $executeRaw: vi.fn(),
     $transaction: vi.fn(),
   };
-  prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => unknown) => callback(prisma));
+  prisma.$transaction.mockImplementation(
+    async (callback: ((tx: typeof prisma) => unknown) | Array<Promise<unknown>>) =>
+      Array.isArray(callback) ? Promise.all(callback) : callback(prisma),
+  );
   return { prisma };
 });
 
@@ -50,6 +56,9 @@ import { buildUnsubscribeToken } from '../src/lib/unsubscribe.js';
 type MockFn = ReturnType<typeof vi.fn>;
 const prismaMock = prisma as unknown as {
   lead: { findFirst: MockFn; findUnique: MockFn; update: MockFn };
+  registration: { findMany: MockFn };
+  event: { create: MockFn };
+  telegramBotEvent: { upsert: MockFn };
   telegramBroadcastRecipient: { updateMany: MockFn };
   consentRecord: { create: MockFn };
   $executeRaw: MockFn;
@@ -109,11 +118,15 @@ beforeEach(() => {
   prismaMock.lead.findFirst.mockResolvedValue(lead);
   prismaMock.lead.findUnique.mockResolvedValue(lead);
   prismaMock.lead.update.mockResolvedValue(lead);
+  prismaMock.registration.findMany.mockResolvedValue([]);
+  prismaMock.event.create.mockResolvedValue({});
+  prismaMock.telegramBotEvent.upsert.mockResolvedValue({});
   prismaMock.telegramBroadcastRecipient.updateMany.mockResolvedValue({ count: 1 });
   prismaMock.consentRecord.create.mockResolvedValue({});
   prismaMock.$executeRaw.mockResolvedValue(1);
-  prismaMock.$transaction.mockImplementation(async (callback: (tx: typeof prismaMock) => unknown) =>
-    callback(prismaMock),
+  prismaMock.$transaction.mockImplementation(
+    async (callback: ((tx: typeof prismaMock) => unknown) | Array<Promise<unknown>>) =>
+      Array.isArray(callback) ? Promise.all(callback) : callback(prismaMock),
   );
   telegramMocks.sendTelegramMessageToChat.mockResolvedValue({ sent: true, mode: 'send' });
 });

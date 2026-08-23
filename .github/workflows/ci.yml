@@ -315,6 +315,29 @@ jobs:
       - name: Docker production command smoke test
         run: docker run --rm --entrypoint sh "aspb-autowebinar-build:$GITHUB_SHA" -c 'test -f dist/src/server.js'
 
+      - name: Real media acceptance in production image
+        run: docker run --rm --entrypoint sh -e NODE_ENV=test "aspb-autowebinar-build:$GITHUB_SHA" -c 'node dist/src/cli/mediaAcceptance.js'
+
+      - name: Persistent media restart acceptance
+        run: |
+          volume_name="aspb-media-acceptance-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          cleanup() { docker volume rm -f "$volume_name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker volume create "$volume_name"
+          for phase in upload resume; do
+            docker run --rm \
+              --entrypoint node \
+              -e NODE_ENV=test \
+              -e MEDIA_STORAGE_PROVIDER=local_fs \
+              -e MEDIA_LOCAL_ROOT=/var/lib/aspb/media \
+              -e MEDIA_ACCEPTANCE_RESTART=on \
+              -v "$volume_name:/var/lib/aspb/media" \
+              "aspb-autowebinar-build:$GITHUB_SHA" \
+              dist/src/cli/mediaAcceptance.js "--restart-$phase"
+          done
+          cleanup
+          trap - EXIT
+
       - name: Deploy safety regression checks
         run: |
           bash scripts/test-deploy-release-safety.sh

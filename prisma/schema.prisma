@@ -186,13 +186,31 @@ enum WebinarTranscriptStatus {
 }
 
 enum AiSuggestionType {
-  TITLE             @map("title")
-  DESCRIPTION       @map("description")
-  CHAPTER           @map("chapter")
-  TAG               @map("tag")
-  PREPARED_QUESTION @map("prepared_question")
+  TITLE                @map("title")
+  DESCRIPTION          @map("description")
+  CHAPTER              @map("chapter")
+  TAG                  @map("tag")
+  PREPARED_QUESTION    @map("prepared_question")
+  CHAT_MODERATOR_REPLY @map("chat_moderator_reply")
 
   @@map("ai_suggestion_type")
+}
+
+enum QuestionModerationStatus {
+  NEW             @map("new")
+  IN_REVIEW       @map("in_review")
+  ACTION_REQUIRED @map("action_required")
+  RESOLVED        @map("resolved")
+  REJECTED        @map("rejected")
+
+  @@map("question_moderation_status")
+}
+
+enum QuestionPriority {
+  NORMAL @map("normal")
+  HIGH   @map("high")
+
+  @@map("question_priority")
 }
 
 enum AiSuggestionStatus {
@@ -215,8 +233,28 @@ enum ChatScenarioMessageKind {
   PREPARED_QUESTION @map("prepared_question")
   MODERATOR_NOTICE  @map("moderator_notice")
   AUTHOR_PROMPT     @map("author_prompt")
+  AI_MODERATOR      @map("ai_moderator")
+  SYSTEM            @map("system")
 
   @@map("chat_scenario_message_kind")
+}
+
+enum ChatScenarioMessageStatus {
+  DRAFT    @map("draft")
+  APPROVED @map("approved")
+  REJECTED @map("rejected")
+
+  @@map("chat_scenario_message_status")
+}
+
+enum WebinarChatMessageType {
+  PARTICIPANT       @map("participant")
+  MODERATOR         @map("moderator")
+  PREPARED_QUESTION @map("prepared_question")
+  AI_MODERATOR      @map("ai_moderator")
+  SYSTEM            @map("system")
+
+  @@map("webinar_chat_message_type")
 }
 
 enum WebinarSourceType {
@@ -256,40 +294,204 @@ enum WebinarAccessPurpose {
   @@map("webinar_access_purpose")
 }
 
+enum RegistrationAccessPolicy {
+  LEGACY         @map("legacy")
+  PUBLIC_CATALOG @map("public_catalog")
+  PRIVATE_GRANT  @map("private_grant")
+
+  @@map("registration_access_policy")
+}
+
+enum CRMPipelineStatus {
+  ACTIVE   @map("active")
+  ARCHIVED @map("archived")
+
+  @@map("crm_pipeline_status")
+}
+
+enum CRMStageStatus {
+  ACTIVE   @map("active")
+  ARCHIVED @map("archived")
+
+  @@map("crm_stage_status")
+}
+
+enum CRMStageSemanticCategory {
+  OPEN @map("open")
+  WON  @map("won")
+  LOST @map("lost")
+
+  @@map("crm_stage_semantic_category")
+}
+
+enum CRMTaskPriority {
+  LOW    @map("low")
+  NORMAL @map("normal")
+  HIGH   @map("high")
+  URGENT @map("urgent")
+
+  @@map("crm_task_priority")
+}
+
+enum CRMTaskStatus {
+  OPEN      @map("open")
+  COMPLETED @map("completed")
+  CANCELLED @map("cancelled")
+
+  @@map("crm_task_status")
+}
+
+enum CRMScoringRuleSetStatus {
+  DRAFT    @map("draft")
+  ACTIVE   @map("active")
+  ARCHIVED @map("archived")
+
+  @@map("crm_scoring_rule_set_status")
+}
+
+enum CRMTagStatus {
+  ACTIVE   @map("active")
+  ARCHIVED @map("archived")
+
+  @@map("crm_tag_status")
+}
+
+enum CRMBulkActionType {
+  ASSIGN_MANAGER @map("assign_manager")
+  CREATE_TASK    @map("create_task")
+  CHANGE_STAGE   @map("change_stage")
+  ADD_TAG        @map("add_tag")
+
+  @@map("crm_bulk_action_type")
+}
+
+enum CRMBulkActionStatus {
+  PREVIEWED @map("previewed")
+  RUNNING   @map("running")
+  COMPLETED @map("completed")
+  PARTIAL   @map("partial")
+  FAILED    @map("failed")
+  EXPIRED   @map("expired")
+
+  @@map("crm_bulk_action_status")
+}
+
+enum CRMDeliveryChannel {
+  EMAIL    @map("email")
+  TELEGRAM @map("telegram")
+
+  @@map("crm_delivery_channel")
+}
+
+enum CRMDeliveryStatus {
+  PENDING         @map("pending")
+  SENDING         @map("sending")
+  SENT            @map("sent")
+  RETRY_SCHEDULED @map("retry_scheduled")
+  BLOCKED         @map("blocked")
+  DEAD_LETTER     @map("dead_letter")
+  CANCELLED       @map("cancelled")
+
+  @@map("crm_delivery_status")
+}
+
+enum TelegramManagerChatBindingStatus {
+  PENDING_CHAT  @map("pending_chat")
+  PENDING_OWNER @map("pending_owner")
+  ACTIVE        @map("active")
+  REVOKED       @map("revoked")
+  EXPIRED       @map("expired")
+
+  @@map("telegram_manager_chat_binding_status")
+}
+
+enum TelegramManagerCallbackAction {
+  ACCEPT_CONTACT @map("accept_contact")
+  CHANGE_STAGE   @map("change_stage")
+  MARK_HOT       @map("mark_hot")
+  CREATE_TASK    @map("create_task")
+
+  @@map("telegram_manager_callback_action")
+}
+
+enum TelegramManagerCallbackStatus {
+  PENDING   @map("pending")
+  COMPLETED @map("completed")
+  REJECTED  @map("rejected")
+  EXPIRED   @map("expired")
+
+  @@map("telegram_manager_callback_status")
+}
+
+enum TelegramBotIdentity {
+  PARTICIPANT @map("participant")
+  MANAGER     @map("manager")
+  CONSULTANT  @map("consultant")
+  OPERATIONAL @map("operational")
+
+  @@map("telegram_bot_identity")
+}
+
+enum TelegramBotEventDirection {
+  INBOUND  @map("inbound")
+  OUTBOUND @map("outbound")
+  INTERNAL @map("internal")
+
+  @@map("telegram_bot_event_direction")
+}
+
+enum TelegramConsultantMessageStatus {
+  NEW             @map("new")
+  HANDED_TO_HUMAN @map("handed_to_human")
+  RESOLVED        @map("resolved")
+
+  @@map("telegram_consultant_message_status")
+}
+
 model User {
-  id                           String                   @id @default(cuid())
-  emailNormalized              String                   @unique @map("email_normalized")
-  displayName                  String?                  @map("display_name")
-  kind                         UserKind                 @default(HUMAN)
-  status                       UserStatus               @default(PENDING)
-  emailVerifiedAt              DateTime?                @map("email_verified_at")
-  mfaSecretEncrypted           String?                  @map("mfa_secret_encrypted")
-  mfaEnabledAt                 DateTime?                @map("mfa_enabled_at")
-  mfaEnrollmentExpiresAt       DateTime?                @map("mfa_enrollment_expires_at")
-  sessionVersion               Int                      @default(1) @map("session_version")
-  createdAt                    DateTime                 @default(now()) @map("created_at")
-  updatedAt                    DateTime                 @updatedAt @map("updated_at")
-  memberships                  OrganizationMembership[]
-  membershipAudits             AuditLog[]
-  authTokens                   UserAuthToken[]
-  sessions                     UserSession[]
-  authEmailJobs                UserAuthEmailJob[]
-  invitationsSent              OrganizationInvitation[] @relation("OrganizationInvitationInviter")
-  invitationsAccepted          OrganizationInvitation[] @relation("OrganizationInvitationAcceptor")
-  authorProfiles               AuthorProfile[]
-  authorVerificationsSubmitted AuthorVerification[]     @relation("AuthorVerificationSubmitter")
-  webinarCommands              WebinarCommand[]
-  webinarSchedulesCreated      WebinarSchedule[]        @relation("WebinarScheduleCreator")
-  webinarAccessGrants          WebinarAccessGrant[]     @relation("WebinarAccessGrantUser")
-  webinarAccessGrantsInvited   WebinarAccessGrant[]     @relation("WebinarAccessGrantInviter")
-  chatScenariosCreated         ChatScenario[]           @relation("ChatScenarioCreator")
-  chatScenariosApproved        ChatScenario[]           @relation("ChatScenarioApprover")
-  mediaAssetsCreated           MediaAsset[]             @relation("MediaAssetCreator")
-  transcriptsCreated           Transcript[]             @relation("TranscriptCreator")
-  transcriptsReviewed          Transcript[]             @relation("TranscriptReviewer")
-  contentJobsRequested         ContentJob[]             @relation("ContentJobRequester")
-  organizationTermsCreated     OrganizationTerm[]       @relation("OrganizationTermCreator")
-  aiSuggestionsReviewed        AiSuggestion[]           @relation("AiSuggestionReviewer")
+  id                               String                         @id @default(cuid())
+  emailNormalized                  String                         @unique @map("email_normalized")
+  displayName                      String?                        @map("display_name")
+  kind                             UserKind                       @default(HUMAN)
+  status                           UserStatus                     @default(PENDING)
+  emailVerifiedAt                  DateTime?                      @map("email_verified_at")
+  mfaSecretEncrypted               String?                        @map("mfa_secret_encrypted")
+  mfaEnabledAt                     DateTime?                      @map("mfa_enabled_at")
+  mfaEnrollmentExpiresAt           DateTime?                      @map("mfa_enrollment_expires_at")
+  sessionVersion                   Int                            @default(1) @map("session_version")
+  createdAt                        DateTime                       @default(now()) @map("created_at")
+  updatedAt                        DateTime                       @updatedAt @map("updated_at")
+  memberships                      OrganizationMembership[]
+  membershipAudits                 AuditLog[]
+  authTokens                       UserAuthToken[]
+  sessions                         UserSession[]
+  authEmailJobs                    UserAuthEmailJob[]
+  invitationsSent                  OrganizationInvitation[]       @relation("OrganizationInvitationInviter")
+  invitationsAccepted              OrganizationInvitation[]       @relation("OrganizationInvitationAcceptor")
+  authorProfiles                   AuthorProfile[]
+  authorVerificationsSubmitted     AuthorVerification[]           @relation("AuthorVerificationSubmitter")
+  createdCrmTasks                  CRMTask[]                      @relation("CRMTaskCreator")
+  webinarCommands                  WebinarCommand[]
+  webinarSchedulesCreated          WebinarSchedule[]              @relation("WebinarScheduleCreator")
+  webinarAccessGrants              WebinarAccessGrant[]           @relation("WebinarAccessGrantUser")
+  webinarAccessGrantsInvited       WebinarAccessGrant[]           @relation("WebinarAccessGrantInviter")
+  chatScenariosCreated             ChatScenario[]                 @relation("ChatScenarioCreator")
+  chatScenariosApproved            ChatScenario[]                 @relation("ChatScenarioApprover")
+  mediaAssetsCreated               MediaAsset[]                   @relation("MediaAssetCreator")
+  transcriptsCreated               Transcript[]                   @relation("TranscriptCreator")
+  transcriptsReviewed              Transcript[]                   @relation("TranscriptReviewer")
+  contentJobsRequested             ContentJob[]                   @relation("ContentJobRequester")
+  organizationTermsCreated         OrganizationTerm[]             @relation("OrganizationTermCreator")
+  aiSuggestionsReviewed            AiSuggestion[]                 @relation("AiSuggestionReviewer")
+  registrations                    Registration[]                 @relation("RegistrationParticipantUser")
+  analyticsEvents                  Event[]                        @relation("EventUser")
+  viewerFavorites                  ViewerWebinarFavorite[]
+  viewerProgress                   ViewerWebinarProgress[]
+  viewerNotes                      ViewerWebinarNote[]
+  viewerNotificationPreferences    ViewerNotificationPreference[]
+  telegramManagerBindingsRequested TelegramManagerChatBinding[]   @relation("TelegramManagerBindingRequester")
+  telegramManagerBindingsConfirmed TelegramManagerChatBinding[]   @relation("TelegramManagerBindingConfirmer")
+  telegramManagerBindingsRevoked   TelegramManagerChatBinding[]   @relation("TelegramManagerBindingRevoker")
 
   @@index([status])
   @@index([kind])
@@ -297,58 +499,101 @@ model User {
 }
 
 model Organization {
-  id                   String                   @id @default(cuid())
-  name                 String
-  slug                 String                   @unique
-  status               OrganizationStatus       @default(ACTIVE)
-  settingsJson         Json?                    @map("settings_json")
-  createdAt            DateTime                 @default(now()) @map("created_at")
-  updatedAt            DateTime                 @updatedAt @map("updated_at")
-  memberships          OrganizationMembership[]
-  webinarSessions      WebinarSession[]
-  auditLogs            AuditLog[]
-  activeSessions       UserSession[]            @relation("UserSessionActiveOrganization")
-  invitations          OrganizationInvitation[]
-  authorProfiles       AuthorProfile[]
-  webinars             Webinar[]
-  webinarAliases       WebinarSlugAlias[]
-  webinarSources       WebinarSource[]
-  webinarCommands      WebinarCommand[]
-  webinarSchedules     WebinarSchedule[]
-  webinarAccessGrants  WebinarAccessGrant[]
-  chatScenarios        ChatScenario[]
-  chatScenarioMessages ChatScenarioMessage[]
-  mediaAssets          MediaAsset[]
-  mediaUploads         MediaUpload[]
-  transcripts          Transcript[]
-  transcriptSegments   TranscriptSegment[]
-  aiOperations         AiOperationProvenance[]
-  contentJobs          ContentJob[]
-  organizationTerms    OrganizationTerm[]
-  aiSuggestions        AiSuggestion[]
-  webinarChapters      WebinarChapter[]
-  webinarTags          WebinarTag[]
+  id                            String                         @id @default(cuid())
+  name                          String
+  slug                          String                         @unique
+  status                        OrganizationStatus             @default(ACTIVE)
+  settingsJson                  Json?                          @map("settings_json")
+  createdAt                     DateTime                       @default(now()) @map("created_at")
+  updatedAt                     DateTime                       @updatedAt @map("updated_at")
+  memberships                   OrganizationMembership[]
+  webinarSessions               WebinarSession[]
+  auditLogs                     AuditLog[]
+  activeSessions                UserSession[]                  @relation("UserSessionActiveOrganization")
+  invitations                   OrganizationInvitation[]
+  authorProfiles                AuthorProfile[]
+  webinars                      Webinar[]
+  webinarAliases                WebinarSlugAlias[]
+  webinarSources                WebinarSource[]
+  webinarCommands               WebinarCommand[]
+  webinarSchedules              WebinarSchedule[]
+  webinarAccessGrants           WebinarAccessGrant[]
+  chatScenarios                 ChatScenario[]
+  chatScenarioMessages          ChatScenarioMessage[]
+  mediaAssets                   MediaAsset[]
+  mediaUploads                  MediaUpload[]
+  transcripts                   Transcript[]
+  transcriptSegments            TranscriptSegment[]
+  aiOperations                  AiOperationProvenance[]
+  contentJobs                   ContentJob[]
+  organizationTerms             OrganizationTerm[]
+  aiSuggestions                 AiSuggestion[]
+  webinarChapters               WebinarChapter[]
+  webinarTags                   WebinarTag[]
+  registrations                 Registration[]
+  viewerFavorites               ViewerWebinarFavorite[]
+  viewerProgress                ViewerWebinarProgress[]
+  viewerNotes                   ViewerWebinarNote[]
+  viewerNotificationPreferences ViewerNotificationPreference[]
+  crmPipelines                  CRMPipeline[]
+  crmStages                     CRMStage[]
+  crmContacts                   CRMContact[]
+  crmContactEvents              CRMContactEvent[]
+  crmStageTransitions           CRMStageTransition[]
+  crmTasks                      CRMTask[]
+  crmScoringRuleSets            CRMScoringRuleSet[]
+  crmScoringRules               CRMScoringRule[]
+  crmScoreFactors               CRMScoreFactor[]
+  crmTags                       CRMTag[]
+  crmContactTags                CRMContactTag[]
+  crmBulkActions                CRMBulkAction[]
+  crmDeliveries                 CRMDelivery[]
+  webinarChatMessages           WebinarChatMessage[]
+  questions                     Question[]
+  questionModerationEvents      QuestionModerationEvent[]
+  telegramManagerChatBindings   TelegramManagerChatBinding[]
+  telegramManagerCallbacks      TelegramManagerCallback[]
+  telegramBotEvents             TelegramBotEvent[]
+  telegramConsultantMessages    TelegramConsultantMessage[]
+  analyticsEvents               Event[]
 
   @@index([status])
   @@map("organizations")
 }
 
 model OrganizationMembership {
-  id                  String                       @id @default(cuid())
-  organizationId      String                       @map("organization_id")
-  userId              String                       @map("user_id")
-  role                OrganizationMembershipRole
-  status              OrganizationMembershipStatus @default(ACTIVE)
-  permissionsJson     Json?                        @map("permissions_json")
-  joinedAt            DateTime                     @default(now()) @map("joined_at")
-  removedAt           DateTime?                    @map("removed_at")
-  createdAt           DateTime                     @default(now()) @map("created_at")
-  updatedAt           DateTime                     @updatedAt @map("updated_at")
-  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  user                User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
-  acceptedInvitations OrganizationInvitation[]
+  id                                String                       @id @default(cuid())
+  organizationId                    String                       @map("organization_id")
+  userId                            String                       @map("user_id")
+  role                              OrganizationMembershipRole
+  status                            OrganizationMembershipStatus @default(ACTIVE)
+  permissionsJson                   Json?                        @map("permissions_json")
+  joinedAt                          DateTime                     @default(now()) @map("joined_at")
+  removedAt                         DateTime?                    @map("removed_at")
+  createdAt                         DateTime                     @default(now()) @map("created_at")
+  updatedAt                         DateTime                     @updatedAt @map("updated_at")
+  organization                      Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user                              User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  acceptedInvitations               OrganizationInvitation[]
+  ownedCrmContacts                  CRMContact[]                 @relation("CRMContactOwnerMembership")
+  assignedCrmTasks                  CRMTask[]                    @relation("CRMTaskAssigneeMembership")
+  manualHotContacts                 CRMContact[]                 @relation("CRMContactManualHotMembership")
+  scoringRuleSetsCreated            CRMScoringRuleSet[]          @relation("CRMScoringRuleSetCreatorMembership")
+  crmTagsCreated                    CRMTag[]                     @relation("CRMTagCreatorMembership")
+  crmContactTagsAssigned            CRMContactTag[]              @relation("CRMContactTagAssignerMembership")
+  crmBulkActionsRequested           CRMBulkAction[]              @relation("CRMBulkActionRequesterMembership")
+  crmDeliveriesRequested            CRMDelivery[]                @relation("CRMDeliveryRequesterMembership")
+  chatMessagesHidden                WebinarChatMessage[]         @relation("WebinarChatMessageHiddenByMembership")
+  chatBansApplied                   Registration[]               @relation("RegistrationChatBannedByMembership")
+  questionsHandled                  Question[]                   @relation("QuestionHandledByMembership")
+  questionModerationEvents          QuestionModerationEvent[]
+  telegramManagerChatBindings       TelegramManagerChatBinding[]
+  telegramManagerCallbacks          TelegramManagerCallback[]
+  telegramBotEvents                 TelegramBotEvent[]
+  telegramConsultantMessagesHandled TelegramConsultantMessage[]
 
   @@unique([organizationId, userId])
+  @@unique([id, organizationId])
   @@index([userId, status])
   @@index([organizationId, status, role])
   @@map("organization_memberships")
@@ -580,57 +825,69 @@ model Jurisdiction {
 }
 
 model Webinar {
-  id                    String                  @id @default(cuid())
-  organizationId        String                  @map("organization_id")
-  authorProfileId       String?                 @map("author_profile_id")
-  jurisdictionId        String?                 @map("jurisdiction_id")
-  slug                  String
-  title                 String
-  description           String?
-  outcomeDescription    String?                 @map("outcome_description")
-  contentStatus         WebinarContentStatus    @default(DRAFT) @map("content_status")
-  visibility            WebinarVisibility       @default(PRIVATE)
-  freshnessStatus       WebinarFreshnessStatus  @default(UNKNOWN) @map("freshness_status")
-  audienceLevel         WebinarAudienceLevel?   @map("audience_level")
-  targetAudience        String?                 @map("target_audience")
-  format                WebinarFormat?
-  durationMinutes       Int?                    @map("duration_minutes")
-  language              String                  @default("ru")
-  currentAsOf           DateTime?               @map("current_as_of") @db.Date
-  disclaimer            String?
-  syntheticDisclosure   String?                 @map("synthetic_disclosure")
-  mediaStatus           WebinarMediaStatus      @default(NOT_UPLOADED) @map("media_status")
-  transcriptStatus      WebinarTranscriptStatus @default(NOT_AVAILABLE) @map("transcript_status")
-  scenarioStatus        WebinarScenarioStatus   @default(NOT_AVAILABLE) @map("scenario_status")
-  contentVersion        Int                     @default(1) @map("content_version")
-  supersededByWebinarId String?                 @map("superseded_by_webinar_id")
-  legacyCompatibility   Boolean                 @default(false) @map("legacy_compatibility")
-  publishedAt           DateTime?               @map("published_at")
-  archivedAt            DateTime?               @map("archived_at")
-  createdAt             DateTime                @default(now()) @map("created_at")
-  updatedAt             DateTime                @updatedAt @map("updated_at")
-  organization          Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  authorProfile         AuthorProfile?          @relation(fields: [authorProfileId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  jurisdiction          Jurisdiction?           @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
-  supersededBy          Webinar?                @relation("WebinarSupersession", fields: [supersededByWebinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  supersedes            Webinar[]               @relation("WebinarSupersession")
-  practiceAreas         WebinarPracticeArea[]
-  sources               WebinarSource[]
-  slugAliases           WebinarSlugAlias[]
-  sessions              WebinarSession[]
-  schedules             WebinarSchedule[]
-  commands              WebinarCommand[]
-  accessGrants          WebinarAccessGrant[]
-  chatScenarios         ChatScenario[]
-  currentMediaAssetId   String?                 @map("current_media_asset_id")
-  currentMediaAsset     MediaAsset?             @relation("WebinarCurrentMedia", fields: [currentMediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  mediaAssets           MediaAsset[]            @relation("WebinarMediaAssets")
-  transcripts           Transcript[]
-  aiOperations          AiOperationProvenance[]
-  contentJobs           ContentJob[]
-  aiSuggestions         AiSuggestion[]
-  chapters              WebinarChapter[]
-  tags                  WebinarTag[]
+  id                         String                      @id @default(cuid())
+  organizationId             String                      @map("organization_id")
+  authorProfileId            String?                     @map("author_profile_id")
+  jurisdictionId             String?                     @map("jurisdiction_id")
+  slug                       String
+  title                      String
+  description                String?
+  outcomeDescription         String?                     @map("outcome_description")
+  contentStatus              WebinarContentStatus        @default(DRAFT) @map("content_status")
+  visibility                 WebinarVisibility           @default(PRIVATE)
+  freshnessStatus            WebinarFreshnessStatus      @default(UNKNOWN) @map("freshness_status")
+  audienceLevel              WebinarAudienceLevel?       @map("audience_level")
+  targetAudience             String?                     @map("target_audience")
+  format                     WebinarFormat?
+  durationMinutes            Int?                        @map("duration_minutes")
+  language                   String                      @default("ru")
+  currentAsOf                DateTime?                   @map("current_as_of") @db.Date
+  disclaimer                 String?
+  syntheticDisclosure        String?                     @map("synthetic_disclosure")
+  mediaStatus                WebinarMediaStatus          @default(NOT_UPLOADED) @map("media_status")
+  transcriptStatus           WebinarTranscriptStatus     @default(NOT_AVAILABLE) @map("transcript_status")
+  scenarioStatus             WebinarScenarioStatus       @default(NOT_AVAILABLE) @map("scenario_status")
+  contentVersion             Int                         @default(1) @map("content_version")
+  supersededByWebinarId      String?                     @map("superseded_by_webinar_id")
+  legacyCompatibility        Boolean                     @default(false) @map("legacy_compatibility")
+  publishedAt                DateTime?                   @map("published_at")
+  archivedAt                 DateTime?                   @map("archived_at")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  organization               Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  authorProfile              AuthorProfile?              @relation(fields: [authorProfileId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  jurisdiction               Jurisdiction?               @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+  supersededBy               Webinar?                    @relation("WebinarSupersession", fields: [supersededByWebinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supersedes                 Webinar[]                   @relation("WebinarSupersession")
+  practiceAreas              WebinarPracticeArea[]
+  sources                    WebinarSource[]
+  slugAliases                WebinarSlugAlias[]
+  sessions                   WebinarSession[]
+  schedules                  WebinarSchedule[]
+  commands                   WebinarCommand[]
+  accessGrants               WebinarAccessGrant[]
+  chatScenarios              ChatScenario[]
+  chatMessages               WebinarChatMessage[]
+  currentMediaAssetId        String?                     @map("current_media_asset_id")
+  currentMediaAsset          MediaAsset?                 @relation("WebinarCurrentMedia", fields: [currentMediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  mediaAssets                MediaAsset[]                @relation("WebinarMediaAssets")
+  transcripts                Transcript[]
+  aiOperations               AiOperationProvenance[]
+  contentJobs                ContentJob[]
+  aiSuggestions              AiSuggestion[]
+  chapters                   WebinarChapter[]
+  tags                       WebinarTag[]
+  registrations              Registration[]
+  viewerFavorites            ViewerWebinarFavorite[]
+  viewerProgress             ViewerWebinarProgress[]
+  viewerNotes                ViewerWebinarNote[]
+  crmDeliveries              CRMDelivery[]
+  questions                  Question[]
+  questionModerationEvents   QuestionModerationEvent[]
+  telegramManagerCallbacks   TelegramManagerCallback[]
+  telegramBotEvents          TelegramBotEvent[]
+  telegramConsultantMessages TelegramConsultantMessage[]
+  analyticsEvents            Event[]
 
   @@unique([organizationId, slug])
   @@unique([id, organizationId])
@@ -867,32 +1124,43 @@ model OrganizationTerm {
 }
 
 model AiSuggestion {
-  id                String                @id @default(cuid())
-  organizationId    String                @map("organization_id")
-  webinarId         String                @map("webinar_id")
-  transcriptId      String                @map("transcript_id")
-  provenanceId      String                @map("provenance_id")
-  type              AiSuggestionType
-  status            AiSuggestionStatus    @default(PENDING)
-  revision          Int                   @default(1)
-  orderIndex        Int                   @default(0) @map("order_index")
-  contentJson       Json                  @map("content_json")
-  editedContentJson Json?                 @map("edited_content_json")
-  reviewedByUserId  String?               @map("reviewed_by_user_id")
-  reviewedAt        DateTime?             @map("reviewed_at")
-  targetEntityType  String?               @map("target_entity_type")
-  targetEntityId    String?               @map("target_entity_id")
-  createdAt         DateTime              @default(now()) @map("created_at")
-  updatedAt         DateTime              @updatedAt @map("updated_at")
-  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  webinar           Webinar               @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  transcript        Transcript            @relation(fields: [transcriptId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  provenance        AiOperationProvenance @relation(fields: [provenanceId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  reviewedBy        User?                 @relation("AiSuggestionReviewer", fields: [reviewedByUserId], references: [id], onDelete: Restrict)
+  id                     String                @id @default(cuid())
+  organizationId         String                @map("organization_id")
+  webinarId              String                @map("webinar_id")
+  transcriptId           String?               @map("transcript_id")
+  provenanceId           String                @map("provenance_id")
+  webinarSessionId       String?               @map("webinar_session_id")
+  registrationId         String?               @map("registration_id")
+  questionId             String?               @map("question_id")
+  questionRevision       Int?                  @map("question_revision")
+  publishedChatMessageId String?               @unique @map("published_chat_message_id")
+  type                   AiSuggestionType
+  status                 AiSuggestionStatus    @default(PENDING)
+  revision               Int                   @default(1)
+  orderIndex             Int                   @default(0) @map("order_index")
+  contentJson            Json                  @map("content_json")
+  editedContentJson      Json?                 @map("edited_content_json")
+  reviewedByUserId       String?               @map("reviewed_by_user_id")
+  reviewedAt             DateTime?             @map("reviewed_at")
+  targetEntityType       String?               @map("target_entity_type")
+  targetEntityId         String?               @map("target_entity_id")
+  createdAt              DateTime              @default(now()) @map("created_at")
+  updatedAt              DateTime              @updatedAt @map("updated_at")
+  organization           Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar                Webinar               @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  transcript             Transcript?           @relation(fields: [transcriptId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  provenance             AiOperationProvenance @relation(fields: [provenanceId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  reviewedBy             User?                 @relation("AiSuggestionReviewer", fields: [reviewedByUserId], references: [id], onDelete: Restrict)
+  webinarSession         WebinarSession?       @relation(fields: [webinarSessionId], references: [id], onDelete: Restrict)
+  registration           Registration?         @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  question               Question?             @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  publishedChatMessage   WebinarChatMessage?   @relation("AiSuggestionPublishedChatMessage", fields: [publishedChatMessageId], references: [id], onDelete: Restrict)
 
   @@unique([provenanceId, type, orderIndex])
+  @@unique([questionId, questionRevision, type])
   @@index([organizationId, webinarId, status, type])
   @@index([transcriptId, status])
+  @@index([organizationId, webinarSessionId, questionId, status])
   @@map("ai_suggestions")
 }
 
@@ -992,19 +1260,20 @@ model ChatScenario {
 }
 
 model ChatScenarioMessage {
-  id             String                  @id @default(cuid())
-  scenarioId     String                  @map("scenario_id")
-  organizationId String                  @map("organization_id")
-  orderIndex     Int                     @map("order_index")
-  offsetSeconds  Int                     @map("offset_seconds")
+  id             String                    @id @default(cuid())
+  scenarioId     String                    @map("scenario_id")
+  organizationId String                    @map("organization_id")
+  orderIndex     Int                       @map("order_index")
+  offsetSeconds  Int                       @map("offset_seconds")
   kind           ChatScenarioMessageKind
+  status         ChatScenarioMessageStatus @default(DRAFT)
   text           String
-  authorLabel    String                  @map("author_label")
-  isSynthetic    Boolean                 @default(true) @map("is_synthetic")
-  metadataJson   Json?                   @map("metadata_json")
-  createdAt      DateTime                @default(now()) @map("created_at")
-  scenario       ChatScenario            @relation(fields: [scenarioId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  authorLabel    String                    @map("author_label")
+  isSynthetic    Boolean                   @default(true) @map("is_synthetic")
+  metadataJson   Json?                     @map("metadata_json")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  scenario       ChatScenario              @relation(fields: [scenarioId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@unique([scenarioId, orderIndex])
   @@index([organizationId, scenarioId, offsetSeconds])
@@ -1150,6 +1419,7 @@ model AdminUser {
   assignedPartnerApplications PartnerApplication[]
   telegramBroadcastJobs       TelegramBroadcastJob[]
   authorVerificationReviews   AuthorVerification[]
+  legacyOwnedCrmContacts      CRMContact[]           @relation("CRMContactLegacyAdminOwner")
 
   @@index([role])
   @@index([isActive])
@@ -1232,6 +1502,7 @@ model Lead {
   consentRecords                     ConsentRecord[]
   legalAcceptances                   LegalAcceptance[]
   telegramBroadcastRecipients        TelegramBroadcastRecipient[]
+  crmContacts                        CRMContact[]
 
   @@index([phone])
   @@index([telegramChatId])
@@ -1240,42 +1511,51 @@ model Lead {
 }
 
 model WebinarSession {
-  id                    String                        @id @default(cuid())
-  webinarId             String                        @default("webinar_aspb_legacy") @map("webinar_id")
-  scheduleId            String?                       @map("schedule_id")
-  title                 String
-  scheduledAt           DateTime                      @map("scheduled_at")
-  timezone              String                        @default("Europe/Moscow")
-  lifecycleStatus       WebinarSessionLifecycleStatus @default(SCHEDULED) @map("lifecycle_status")
-  scheduleVersion       Int                           @default(1) @map("schedule_version")
-  cancelledAt           DateTime?                     @map("cancelled_at")
-  cancellationReason    String?                       @map("cancellation_reason")
-  rescheduledAt         DateTime?                     @map("rescheduled_at")
-  durationMinutes       Int                           @default(65) @map("duration_minutes")
-  videoUrl              String?                       @map("video_url")
-  posterUrl             String?                       @map("poster_url")
-  videoDurationSeconds  Int                           @default(3860) @map("video_duration_seconds")
-  roomOpenBeforeMinutes Int                           @default(15) @map("room_open_before_minutes")
-  replayAvailableHours  Int                           @default(168) @map("replay_available_hours")
-  replayEnabled         Boolean                       @default(true) @map("replay_enabled")
-  liveMode              String                        @default("simulated") @map("live_mode")
-  status                String                        @default("scheduled")
-  organizationId        String                        @default("org_aspb") @map("organization_id")
-  createdAt             DateTime                      @default(now()) @map("created_at")
-  updatedAt             DateTime                      @updatedAt @map("updated_at")
-  registrations         Registration[]
-  questions             Question[]
-  events                Event[]
-  partnerApplications   PartnerApplication[]
-  timelineEvents        WebinarTimelineEvent[]
-  chatMessages          WebinarChatMessage[]
-  emailOutboxJobs       EmailOutboxJob[]
-  recordings            WebinarRecording[]
-  webinar               Webinar                       @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  schedule              WebinarSchedule?              @relation(fields: [scheduleId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  organization          Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  id                         String                        @id @default(cuid())
+  webinarId                  String                        @default("webinar_aspb_legacy") @map("webinar_id")
+  scheduleId                 String?                       @map("schedule_id")
+  title                      String
+  scheduledAt                DateTime                      @map("scheduled_at")
+  timezone                   String                        @default("Europe/Moscow")
+  lifecycleStatus            WebinarSessionLifecycleStatus @default(SCHEDULED) @map("lifecycle_status")
+  scheduleVersion            Int                           @default(1) @map("schedule_version")
+  cancelledAt                DateTime?                     @map("cancelled_at")
+  cancellationReason         String?                       @map("cancellation_reason")
+  rescheduledAt              DateTime?                     @map("rescheduled_at")
+  durationMinutes            Int                           @default(65) @map("duration_minutes")
+  videoUrl                   String?                       @map("video_url")
+  posterUrl                  String?                       @map("poster_url")
+  videoDurationSeconds       Int                           @default(3860) @map("video_duration_seconds")
+  roomOpenBeforeMinutes      Int                           @default(15) @map("room_open_before_minutes")
+  replayAvailableHours       Int                           @default(168) @map("replay_available_hours")
+  replayEnabled              Boolean                       @default(true) @map("replay_enabled")
+  liveMode                   String                        @default("simulated") @map("live_mode")
+  status                     String                        @default("scheduled")
+  organizationId             String                        @default("org_aspb") @map("organization_id")
+  createdAt                  DateTime                      @default(now()) @map("created_at")
+  updatedAt                  DateTime                      @updatedAt @map("updated_at")
+  registrations              Registration[]
+  questions                  Question[]
+  events                     Event[]
+  partnerApplications        PartnerApplication[]
+  timelineEvents             WebinarTimelineEvent[]
+  chatMessages               WebinarChatMessage[]
+  emailOutboxJobs            EmailOutboxJob[]
+  recordings                 WebinarRecording[]
+  webinar                    Webinar                       @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  schedule                   WebinarSchedule?              @relation(fields: [scheduleId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization               Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  viewerProgress             ViewerWebinarProgress[]
+  viewerNotes                ViewerWebinarNote[]
+  crmDeliveries              CRMDelivery[]
+  aiSuggestions              AiSuggestion[]
+  questionModerationEvents   QuestionModerationEvent[]
+  telegramManagerCallbacks   TelegramManagerCallback[]
+  telegramBotEvents          TelegramBotEvent[]
+  telegramConsultantMessages TelegramConsultantMessage[]
 
   @@unique([webinarId, scheduledAt])
+  @@unique([id, webinarId, organizationId])
   @@index([organizationId, scheduledAt])
   @@index([webinarId, lifecycleStatus, scheduledAt])
   @@index([scheduleId, scheduledAt])
@@ -1307,52 +1587,70 @@ model WebinarRecording {
 }
 
 model Registration {
-  id                              String               @id @default(cuid())
-  leadId                          String               @map("lead_id")
-  webinarSessionId                String               @map("webinar_session_id")
-  accessTokenHash                 String               @unique @map("access_token_hash")
-  registeredAt                    DateTime             @default(now()) @map("registered_at")
-  emailVerifiedAt                 DateTime?            @map("email_verified_at")
-  pendingMetadataJson             Json?                @map("pending_metadata_json")
-  successViewedAt                 DateTime?            @map("success_viewed_at")
-  roomEnteredAt                   DateTime?            @map("room_entered_at")
-  telegramClickedAt               DateTime?            @map("telegram_clicked_at")
-  emailSentAt                     DateTime?            @map("email_sent_at")
-  reminderSentAt                  DateTime?            @map("reminder_sent_at")
-  confirmationSentAt              DateTime?            @map("confirmation_sent_at")
-  reminder24hSentAt               DateTime?            @map("reminder_24h_sent_at")
-  reminder3hSentAt                DateTime?            @map("reminder_3h_sent_at")
-  reminder30mSentAt               DateTime?            @map("reminder_30m_sent_at")
-  telegramReminder24hSentAt       DateTime?            @map("telegram_reminder_24h_sent_at")
-  telegramReminder3hSentAt        DateTime?            @map("telegram_reminder_3h_sent_at")
-  telegramReminder30mSentAt       DateTime?            @map("telegram_reminder_30m_sent_at")
-  telegramLiveSentAt              DateTime?            @map("telegram_live_sent_at")
-  telegramFollowupSentAt          DateTime?            @map("telegram_followup_sent_at")
-  telegramReminder24hClaimedUntil DateTime?            @map("telegram_reminder_24h_claimed_until")
-  telegramReminder3hClaimedUntil  DateTime?            @map("telegram_reminder_3h_claimed_until")
-  telegramReminder30mClaimedUntil DateTime?            @map("telegram_reminder_30m_claimed_until")
-  telegramLiveClaimedUntil        DateTime?            @map("telegram_live_claimed_until")
-  telegramFollowupClaimedUntil    DateTime?            @map("telegram_followup_claimed_until")
-  status                          String               @default("registered")
-  crmStatus                       String               @default("new") @map("crm_status")
-  isHot                           Boolean              @default(false) @map("is_hot")
-  chatBannedAt                    DateTime?            @map("chat_banned_at")
-  assignedManagerId               String?              @map("assigned_manager_id")
-  nextContactAt                   DateTime?            @map("next_contact_at")
-  managerNote                     String?              @map("manager_note")
-  createdAt                       DateTime             @default(now()) @map("created_at")
-  updatedAt                       DateTime             @updatedAt @map("updated_at")
-  lead                            Lead                 @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  webinarSession                  WebinarSession       @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
-  assignedManager                 AdminUser?           @relation(fields: [assignedManagerId], references: [id], onDelete: SetNull)
+  id                              String                      @id @default(cuid())
+  leadId                          String                      @map("lead_id")
+  webinarSessionId                String                      @map("webinar_session_id")
+  organizationId                  String?                     @map("organization_id")
+  webinarId                       String?                     @map("webinar_id")
+  userId                          String?                     @map("user_id")
+  accessPolicy                    RegistrationAccessPolicy    @default(LEGACY) @map("access_policy")
+  crmContactId                    String?                     @map("crm_contact_id")
+  accessTokenHash                 String                      @unique @map("access_token_hash")
+  registeredAt                    DateTime                    @default(now()) @map("registered_at")
+  emailVerifiedAt                 DateTime?                   @map("email_verified_at")
+  pendingMetadataJson             Json?                       @map("pending_metadata_json")
+  successViewedAt                 DateTime?                   @map("success_viewed_at")
+  roomEnteredAt                   DateTime?                   @map("room_entered_at")
+  telegramClickedAt               DateTime?                   @map("telegram_clicked_at")
+  emailSentAt                     DateTime?                   @map("email_sent_at")
+  reminderSentAt                  DateTime?                   @map("reminder_sent_at")
+  confirmationSentAt              DateTime?                   @map("confirmation_sent_at")
+  reminder24hSentAt               DateTime?                   @map("reminder_24h_sent_at")
+  reminder3hSentAt                DateTime?                   @map("reminder_3h_sent_at")
+  reminder30mSentAt               DateTime?                   @map("reminder_30m_sent_at")
+  telegramReminder24hSentAt       DateTime?                   @map("telegram_reminder_24h_sent_at")
+  telegramReminder3hSentAt        DateTime?                   @map("telegram_reminder_3h_sent_at")
+  telegramReminder30mSentAt       DateTime?                   @map("telegram_reminder_30m_sent_at")
+  telegramLiveSentAt              DateTime?                   @map("telegram_live_sent_at")
+  telegramFollowupSentAt          DateTime?                   @map("telegram_followup_sent_at")
+  telegramReminder24hClaimedUntil DateTime?                   @map("telegram_reminder_24h_claimed_until")
+  telegramReminder3hClaimedUntil  DateTime?                   @map("telegram_reminder_3h_claimed_until")
+  telegramReminder30mClaimedUntil DateTime?                   @map("telegram_reminder_30m_claimed_until")
+  telegramLiveClaimedUntil        DateTime?                   @map("telegram_live_claimed_until")
+  telegramFollowupClaimedUntil    DateTime?                   @map("telegram_followup_claimed_until")
+  status                          String                      @default("registered")
+  crmStatus                       String                      @default("new") @map("crm_status")
+  isHot                           Boolean                     @default(false) @map("is_hot")
+  chatBannedAt                    DateTime?                   @map("chat_banned_at")
+  chatBannedReason                String?                     @map("chat_banned_reason")
+  chatBannedByMembershipId        String?                     @map("chat_banned_by_membership_id")
+  assignedManagerId               String?                     @map("assigned_manager_id")
+  nextContactAt                   DateTime?                   @map("next_contact_at")
+  managerNote                     String?                     @map("manager_note")
+  createdAt                       DateTime                    @default(now()) @map("created_at")
+  updatedAt                       DateTime                    @updatedAt @map("updated_at")
+  lead                            Lead                        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  webinarSession                  WebinarSession              @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  organization                    Organization?               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar                         Webinar?                    @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  participantUser                 User?                       @relation("RegistrationParticipantUser", fields: [userId], references: [id], onDelete: Restrict)
+  crmContact                      CRMContact?                 @relation(fields: [crmContactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  assignedManager                 AdminUser?                  @relation(fields: [assignedManagerId], references: [id], onDelete: SetNull)
+  chatBannedByMembership          OrganizationMembership?     @relation("RegistrationChatBannedByMembership", fields: [chatBannedByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
   questions                       Question[]
   events                          Event[]
   partnerApplications             PartnerApplication[]
   tokens                          RegistrationToken[]
   chatMessages                    WebinarChatMessage[]
   emailOutboxJobs                 EmailOutboxJob[]
+  crmDeliveries                   CRMDelivery[]
   consentRecords                  ConsentRecord[]
   legalAcceptances                LegalAcceptance[]
+  aiSuggestions                   AiSuggestion[]
+  questionModerationEvents        QuestionModerationEvent[]
+  telegramManagerCallbacks        TelegramManagerCallback[]
+  telegramBotEvents               TelegramBotEvent[]
+  telegramConsultantMessages      TelegramConsultantMessage[]
 
   @@unique([leadId, webinarSessionId])
   @@index([leadId])
@@ -1363,6 +1661,10 @@ model Registration {
   @@index([isHot])
   @@index([assignedManagerId])
   @@index([nextContactAt])
+  @@index([organizationId, userId, registeredAt])
+  @@index([organizationId, webinarId, status])
+  @@index([userId, webinarSessionId])
+  @@index([organizationId, crmContactId])
   @@map("registrations")
 }
 
@@ -1378,6 +1680,432 @@ model RegistrationToken {
   @@index([registrationId])
   @@index([purpose])
   @@map("registration_tokens")
+}
+
+model ViewerWebinarFavorite {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  webinarId      String       @map("webinar_id")
+  userId         String       @map("user_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar        Webinar      @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId, webinarId])
+  @@index([organizationId, userId, createdAt])
+  @@map("viewer_webinar_favorites")
+}
+
+model ViewerWebinarProgress {
+  id               String         @id @default(cuid())
+  organizationId   String         @map("organization_id")
+  webinarId        String         @map("webinar_id")
+  webinarSessionId String         @map("webinar_session_id")
+  userId           String         @map("user_id")
+  positionMs       Int            @default(0) @map("position_ms")
+  durationMs       Int?           @map("duration_ms")
+  lastDedupKey     String?        @map("last_dedup_key")
+  lastObservedAt   DateTime       @default(now()) @map("last_observed_at")
+  completedAt      DateTime?      @map("completed_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar          Webinar        @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId, webinarSessionId])
+  @@index([organizationId, userId, updatedAt])
+  @@index([webinarId, completedAt])
+  @@map("viewer_webinar_progress")
+}
+
+model ViewerWebinarNote {
+  id               String         @id @default(cuid())
+  organizationId   String         @map("organization_id")
+  webinarId        String         @map("webinar_id")
+  webinarSessionId String         @map("webinar_session_id")
+  userId           String         @map("user_id")
+  timestampMs      Int            @map("timestamp_ms")
+  body             String
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar          Webinar        @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, webinarSessionId, timestampMs])
+  @@map("viewer_webinar_notes")
+}
+
+model ViewerNotificationPreference {
+  id                       String       @id @default(cuid())
+  organizationId           String       @map("organization_id")
+  userId                   String       @map("user_id")
+  marketingEmailEnabled    Boolean      @default(false) @map("marketing_email_enabled")
+  marketingTelegramEnabled Boolean      @default(false) @map("marketing_telegram_enabled")
+  serviceEmailEnabled      Boolean      @default(true) @map("service_email_enabled")
+  serviceTelegramEnabled   Boolean      @default(true) @map("service_telegram_enabled")
+  createdAt                DateTime     @default(now()) @map("created_at")
+  updatedAt                DateTime     @updatedAt @map("updated_at")
+  organization             Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user                     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, updatedAt])
+  @@map("viewer_notification_preferences")
+}
+
+model CRMPipeline {
+  id             String               @id @default(cuid())
+  organizationId String               @map("organization_id")
+  name           String
+  status         CRMPipelineStatus    @default(ACTIVE)
+  isDefault      Boolean              @default(false) @map("is_default")
+  version        Int                  @default(1)
+  timezone       String               @default("Europe/Moscow")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  stages         CRMStage[]
+  contacts       CRMContact[]
+  transitions    CRMStageTransition[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, name])
+  @@index([organizationId, status, isDefault])
+  @@map("crm_pipelines")
+}
+
+model CRMStage {
+  id               String                   @id @default(cuid())
+  organizationId   String                   @map("organization_id")
+  pipelineId       String                   @map("pipeline_id")
+  code             String
+  name             String
+  semanticCategory CRMStageSemanticCategory @default(OPEN) @map("semantic_category")
+  orderIndex       Int                      @map("order_index")
+  status           CRMStageStatus           @default(ACTIVE)
+  isProtected      Boolean                  @default(false) @map("is_protected")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  pipeline         CRMPipeline              @relation(fields: [pipelineId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  contacts         CRMContact[]
+  transitionsFrom  CRMStageTransition[]     @relation("CRMTransitionFromStage")
+  transitionsTo    CRMStageTransition[]     @relation("CRMTransitionToStage")
+
+  @@unique([pipelineId, code])
+  @@unique([id, pipelineId, organizationId])
+  @@unique([pipelineId, orderIndex])
+  @@index([organizationId, status, orderIndex])
+  @@map("crm_stages")
+}
+
+model CRMContact {
+  id                         String                      @id @default(cuid())
+  organizationId             String                      @map("organization_id")
+  pipelineId                 String                      @map("pipeline_id")
+  stageId                    String                      @map("stage_id")
+  legacyLeadId               String?                     @map("legacy_lead_id")
+  emailNormalized            String?                     @map("email_normalized")
+  phoneNormalized            String?                     @map("phone_normalized")
+  displayName                String?                     @map("display_name")
+  source                     String?
+  ownerMembershipId          String?                     @map("owner_membership_id")
+  legacyAssignedManagerId    String?                     @map("legacy_assigned_manager_id")
+  nextContactAt              DateTime?                   @map("next_contact_at")
+  score                      Int                         @default(0)
+  scoreRuleSetId             String?                     @map("score_rule_set_id")
+  scoreComputedAt            DateTime?                   @map("score_computed_at")
+  manualHot                  Boolean?                    @map("manual_hot")
+  manualHotReason            String?                     @map("manual_hot_reason")
+  manualHotByMembershipId    String?                     @map("manual_hot_by_membership_id")
+  manualHotAt                DateTime?                   @map("manual_hot_at")
+  manualHotSource            String?                     @map("manual_hot_source")
+  archivedAt                 DateTime?                   @map("archived_at")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  organization               Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  pipeline                   CRMPipeline                 @relation(fields: [pipelineId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  stage                      CRMStage                    @relation(fields: [stageId, pipelineId, organizationId], references: [id, pipelineId, organizationId], onDelete: Restrict)
+  legacyLead                 Lead?                       @relation(fields: [legacyLeadId], references: [id], onDelete: SetNull)
+  ownerMembership            OrganizationMembership?     @relation("CRMContactOwnerMembership", fields: [ownerMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  legacyAssignedManager      AdminUser?                  @relation("CRMContactLegacyAdminOwner", fields: [legacyAssignedManagerId], references: [id], onDelete: SetNull)
+  registrations              Registration[]
+  events                     CRMContactEvent[]
+  transitions                CRMStageTransition[]
+  tasks                      CRMTask[]
+  scoreRuleSet               CRMScoringRuleSet?          @relation("CRMContactScoreRuleSet", fields: [scoreRuleSetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  manualHotByMembership      OrganizationMembership?     @relation("CRMContactManualHotMembership", fields: [manualHotByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  scoreFactors               CRMScoreFactor[]
+  tags                       CRMContactTag[]
+  deliveries                 CRMDelivery[]
+  telegramManagerCallbacks   TelegramManagerCallback[]
+  telegramBotEvents          TelegramBotEvent[]
+  telegramConsultantMessages TelegramConsultantMessage[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, emailNormalized])
+  @@unique([organizationId, legacyLeadId])
+  @@index([organizationId, pipelineId, stageId, updatedAt])
+  @@index([organizationId, ownerMembershipId, nextContactAt])
+  @@index([organizationId, nextContactAt])
+  @@index([organizationId, score, updatedAt])
+  @@index([organizationId, manualHot, updatedAt])
+  @@index([legacyAssignedManagerId])
+  @@map("crm_contacts")
+}
+
+model CRMScoringRuleSet {
+  id                    String                  @id @default(cuid())
+  organizationId        String                  @map("organization_id")
+  version               Int
+  name                  String
+  status                CRMScoringRuleSetStatus @default(DRAFT)
+  hotThreshold          Int                     @map("hot_threshold")
+  idempotencyKey        String?                 @map("idempotency_key")
+  createdByMembershipId String?                 @map("created_by_membership_id")
+  activatedAt           DateTime?               @map("activated_at")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+  organization          Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdByMembership   OrganizationMembership? @relation("CRMScoringRuleSetCreatorMembership", fields: [createdByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rules                 CRMScoringRule[]
+  scoredContacts        CRMContact[]            @relation("CRMContactScoreRuleSet")
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, version])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status, version])
+  @@map("crm_scoring_rule_sets")
+}
+
+model CRMScoringRule {
+  id             String            @id @default(cuid())
+  organizationId String            @map("organization_id")
+  ruleSetId      String            @map("rule_set_id")
+  code           String
+  label          String
+  points         Int
+  createdAt      DateTime          @default(now()) @map("created_at")
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  ruleSet        CRMScoringRuleSet @relation(fields: [ruleSetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([ruleSetId, code])
+  @@index([organizationId, code])
+  @@map("crm_scoring_rules")
+}
+
+model CRMScoreFactor {
+  id               String       @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  contactId        String       @map("contact_id")
+  signalCode       String       @map("signal_code")
+  sourceEntityType String       @map("source_entity_type")
+  sourceEntityId   String       @map("source_entity_id")
+  dedupKey         String       @map("dedup_key")
+  occurredAt       DateTime     @map("occurred_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  contact          CRMContact   @relation(fields: [contactId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, dedupKey])
+  @@index([organizationId, contactId, signalCode, occurredAt])
+  @@map("crm_score_factors")
+}
+
+model CRMTag {
+  id                    String                 @id @default(cuid())
+  organizationId        String                 @map("organization_id")
+  normalizedName        String                 @map("normalized_name")
+  name                  String
+  colorToken            String                 @default("slate") @map("color_token")
+  status                CRMTagStatus           @default(ACTIVE)
+  createdByMembershipId String                 @map("created_by_membership_id")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdByMembership   OrganizationMembership @relation("CRMTagCreatorMembership", fields: [createdByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  contacts              CRMContactTag[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, normalizedName])
+  @@index([organizationId, status, name])
+  @@map("crm_tags")
+}
+
+model CRMContactTag {
+  organizationId         String                 @map("organization_id")
+  contactId              String                 @map("contact_id")
+  tagId                  String                 @map("tag_id")
+  assignedByMembershipId String                 @map("assigned_by_membership_id")
+  assignedAt             DateTime               @default(now()) @map("assigned_at")
+  organization           Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  contact                CRMContact             @relation(fields: [contactId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  tag                    CRMTag                 @relation(fields: [tagId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  assignedByMembership   OrganizationMembership @relation("CRMContactTagAssignerMembership", fields: [assignedByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@id([contactId, tagId])
+  @@index([organizationId, tagId, assignedAt])
+  @@map("crm_contact_tags")
+}
+
+model CRMTask {
+  id                      String                   @id @default(cuid())
+  organizationId          String                   @map("organization_id")
+  contactId               String                   @map("contact_id")
+  assigneeMembershipId    String                   @map("assignee_membership_id")
+  createdByUserId         String                   @map("created_by_user_id")
+  title                   String
+  description             String?
+  priority                CRMTaskPriority          @default(NORMAL)
+  status                  CRMTaskStatus            @default(OPEN)
+  dueAt                   DateTime                 @map("due_at")
+  reminderAt              DateTime                 @map("reminder_at")
+  completedAt             DateTime?                @map("completed_at")
+  cancelledAt             DateTime?                @map("cancelled_at")
+  bulkActionId            String?                  @map("bulk_action_id")
+  createdAt               DateTime                 @default(now()) @map("created_at")
+  updatedAt               DateTime                 @updatedAt @map("updated_at")
+  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  contact                 CRMContact               @relation(fields: [contactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  assigneeMembership      OrganizationMembership   @relation("CRMTaskAssigneeMembership", fields: [assigneeMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdBy               User                     @relation("CRMTaskCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  bulkAction              CRMBulkAction?           @relation(fields: [bulkActionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  telegramManagerCallback TelegramManagerCallback?
+
+  @@unique([id, organizationId])
+  @@unique([bulkActionId, contactId])
+  @@index([organizationId, status, dueAt])
+  @@index([organizationId, assigneeMembershipId, status, dueAt])
+  @@index([organizationId, status, reminderAt])
+  @@index([contactId, status, dueAt])
+  @@map("crm_tasks")
+}
+
+model CRMBulkAction {
+  id                      String                 @id @default(cuid())
+  organizationId          String                 @map("organization_id")
+  requestedByMembershipId String                 @map("requested_by_membership_id")
+  actionType              CRMBulkActionType      @map("action_type")
+  actionJson              Json                   @map("action_json")
+  filtersJson             Json                   @map("filters_json")
+  contactIdsJson          Json                   @map("contact_ids_json")
+  requestHash             String                 @map("request_hash")
+  expectedCount           Int                    @map("expected_count")
+  status                  CRMBulkActionStatus    @default(PREVIEWED)
+  idempotencyKey          String                 @map("idempotency_key")
+  resultsJson             Json?                  @map("results_json")
+  expiresAt               DateTime               @map("expires_at")
+  executedAt              DateTime?              @map("executed_at")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
+  organization            Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  requestedByMembership   OrganizationMembership @relation("CRMBulkActionRequesterMembership", fields: [requestedByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  tasks                   CRMTask[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status, expiresAt])
+  @@map("crm_bulk_actions")
+}
+
+model CRMContactEvent {
+  id               String       @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  contactId        String       @map("contact_id")
+  type             String
+  source           String
+  sourceEntityType String?      @map("source_entity_type")
+  sourceEntityId   String?      @map("source_entity_id")
+  webinarId        String?      @map("webinar_id")
+  webinarSessionId String?      @map("webinar_session_id")
+  registrationId   String?      @map("registration_id")
+  actorUserId      String?      @map("actor_user_id")
+  correlationId    String?      @map("correlation_id")
+  dedupKey         String?      @map("dedup_key")
+  metadataJson     Json?        @map("metadata_json")
+  occurredAt       DateTime     @default(now()) @map("occurred_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  contact          CRMContact   @relation(fields: [contactId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, dedupKey])
+  @@index([organizationId, contactId, occurredAt])
+  @@index([organizationId, type, occurredAt])
+  @@index([organizationId, webinarId, webinarSessionId])
+  @@index([registrationId])
+  @@map("crm_contact_events")
+}
+
+model CRMDelivery {
+  id                      String                 @id @default(cuid())
+  organizationId          String                 @map("organization_id")
+  contactId               String                 @map("contact_id")
+  registrationId          String                 @map("registration_id")
+  webinarId               String                 @map("webinar_id")
+  webinarSessionId        String                 @map("webinar_session_id")
+  requestedByMembershipId String                 @map("requested_by_membership_id")
+  channel                 CRMDeliveryChannel
+  purpose                 String                 @default("marketing")
+  subject                 String?
+  body                    String
+  status                  CRMDeliveryStatus      @default(PENDING)
+  attempts                Int                    @default(0)
+  consentRecordId         String                 @map("consent_record_id")
+  idempotencyKey          String                 @map("idempotency_key")
+  requestHash             String                 @map("request_hash")
+  claimToken              String?                @unique @map("claim_token")
+  lastErrorCode           String?                @map("last_error_code")
+  nextAttemptAt           DateTime?              @default(now()) @map("next_attempt_at")
+  sentAt                  DateTime?              @map("sent_at")
+  completedAt             DateTime?              @map("completed_at")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
+  organization            Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  contact                 CRMContact             @relation(fields: [contactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  registration            Registration           @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  webinar                 Webinar                @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  webinarSession          WebinarSession         @relation(fields: [webinarSessionId], references: [id], onDelete: Restrict)
+  requestedByMembership   OrganizationMembership @relation("CRMDeliveryRequesterMembership", fields: [requestedByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  consentRecord           ConsentRecord          @relation(fields: [consentRecordId], references: [id], onDelete: Restrict)
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status, nextAttemptAt, createdAt])
+  @@index([organizationId, contactId, createdAt])
+  @@index([registrationId, channel, createdAt])
+  @@index([consentRecordId])
+  @@map("crm_deliveries")
+}
+
+model CRMStageTransition {
+  id                   String       @id @default(cuid())
+  organizationId       String       @map("organization_id")
+  contactId            String       @map("contact_id")
+  pipelineId           String       @map("pipeline_id")
+  fromStageId          String?      @map("from_stage_id")
+  toStageId            String       @map("to_stage_id")
+  actorUserId          String?      @map("actor_user_id")
+  reason               String?
+  source               String
+  correlationId        String?      @map("correlation_id")
+  legacyRegistrationId String?      @map("legacy_registration_id")
+  occurredAt           DateTime     @default(now()) @map("occurred_at")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  contact              CRMContact   @relation(fields: [contactId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  pipeline             CRMPipeline  @relation(fields: [pipelineId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  fromStage            CRMStage?    @relation("CRMTransitionFromStage", fields: [fromStageId, pipelineId, organizationId], references: [id, pipelineId, organizationId], onDelete: Restrict)
+  toStage              CRMStage     @relation("CRMTransitionToStage", fields: [toStageId, pipelineId, organizationId], references: [id, pipelineId, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, legacyRegistrationId])
+  @@index([organizationId, contactId, occurredAt])
+  @@index([organizationId, toStageId, occurredAt])
+  @@map("crm_stage_transitions")
 }
 
 model EmailOutboxJob {
@@ -1434,35 +2162,222 @@ model WorkerSubsystemHealth {
   @@map("worker_subsystem_health")
 }
 
+model TelegramManagerChatBinding {
+  id                String                            @id @default(cuid())
+  organizationId    String                            @map("organization_id")
+  membershipId      String                            @map("membership_id")
+  status            TelegramManagerChatBindingStatus  @default(PENDING_CHAT)
+  chatId            String?                           @map("chat_id")
+  chatIdHash        String?                           @map("chat_id_hash")
+  requestedByUserId String                            @map("requested_by_user_id")
+  confirmedByUserId String?                           @map("confirmed_by_user_id")
+  revokedByUserId   String?                           @map("revoked_by_user_id")
+  claimedAt         DateTime?                         @map("claimed_at")
+  confirmedAt       DateTime?                         @map("confirmed_at")
+  revokedAt         DateTime?                         @map("revoked_at")
+  createdAt         DateTime                          @default(now()) @map("created_at")
+  updatedAt         DateTime                          @updatedAt @map("updated_at")
+  organization      Organization                      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  membership        OrganizationMembership            @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  requestedBy       User                              @relation("TelegramManagerBindingRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  confirmedBy       User?                             @relation("TelegramManagerBindingConfirmer", fields: [confirmedByUserId], references: [id], onDelete: Restrict)
+  revokedBy         User?                             @relation("TelegramManagerBindingRevoker", fields: [revokedByUserId], references: [id], onDelete: Restrict)
+  tokens            TelegramManagerChatBindingToken[]
+  callbacks         TelegramManagerCallback[]
+  events            TelegramBotEvent[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, membershipId, status])
+  @@index([organizationId, chatIdHash, status])
+  @@map("telegram_manager_chat_bindings")
+}
+
+model TelegramManagerChatBindingToken {
+  id            String                     @id @default(cuid())
+  bindingId     String                     @map("binding_id")
+  tokenHash     String                     @unique @map("token_hash")
+  expiresAt     DateTime                   @map("expires_at")
+  consumedAt    DateTime?                  @map("consumed_at")
+  invalidatedAt DateTime?                  @map("invalidated_at")
+  createdAt     DateTime                   @default(now()) @map("created_at")
+  binding       TelegramManagerChatBinding @relation(fields: [bindingId], references: [id], onDelete: Cascade)
+
+  @@index([bindingId, expiresAt])
+  @@index([expiresAt, consumedAt, invalidatedAt])
+  @@map("telegram_manager_chat_binding_tokens")
+}
+
+model TelegramManagerCallback {
+  id                 String                        @id @default(cuid())
+  organizationId     String                        @map("organization_id")
+  bindingId          String                        @map("binding_id")
+  membershipId       String                        @map("membership_id")
+  crmContactId       String                        @map("crm_contact_id")
+  registrationId     String                        @map("registration_id")
+  webinarId          String                        @map("webinar_id")
+  webinarSessionId   String                        @map("webinar_session_id")
+  action             TelegramManagerCallbackAction
+  payloadJson        Json?                         @map("payload_json")
+  status             TelegramManagerCallbackStatus @default(PENDING)
+  idempotencyKey     String                        @map("idempotency_key")
+  expiresAt          DateTime                      @map("expires_at")
+  consumedAt         DateTime?                     @map("consumed_at")
+  providerCallbackId String?                       @unique @map("provider_callback_id")
+  resultCode         String?                       @map("result_code")
+  correlationId      String                        @map("correlation_id")
+  createdTaskId      String?                       @unique @map("created_task_id")
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  updatedAt          DateTime                      @updatedAt @map("updated_at")
+  organization       Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  binding            TelegramManagerChatBinding    @relation(fields: [bindingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  membership         OrganizationMembership        @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  crmContact         CRMContact                    @relation(fields: [crmContactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  registration       Registration                  @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  webinar            Webinar                       @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  webinarSession     WebinarSession                @relation(fields: [webinarSessionId, webinarId, organizationId], references: [id, webinarId, organizationId], onDelete: Restrict)
+  createdTask        CRMTask?                      @relation(fields: [createdTaskId], references: [id], onDelete: Restrict)
+  events             TelegramBotEvent[]
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status, expiresAt])
+  @@index([bindingId, status, createdAt])
+  @@index([crmContactId, createdAt])
+  @@index([registrationId, createdAt])
+  @@map("telegram_manager_callbacks")
+}
+
+model TelegramBotEvent {
+  id                String                      @id @default(cuid())
+  organizationId    String?                     @map("organization_id")
+  webinarId         String?                     @map("webinar_id")
+  webinarSessionId  String?                     @map("webinar_session_id")
+  registrationId    String?                     @map("registration_id")
+  crmContactId      String?                     @map("crm_contact_id")
+  membershipId      String?                     @map("membership_id")
+  managerBindingId  String?                     @map("manager_binding_id")
+  managerCallbackId String?                     @map("manager_callback_id")
+  botIdentity       TelegramBotIdentity         @map("bot_identity")
+  direction         TelegramBotEventDirection
+  eventType         String                      @map("event_type")
+  correlationId     String                      @map("correlation_id")
+  providerMessageId String?                     @map("provider_message_id")
+  dedupKey          String?                     @unique @map("dedup_key")
+  status            String
+  metadataJson      Json?                       @map("metadata_json")
+  occurredAt        DateTime                    @default(now()) @map("occurred_at")
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  organization      Organization?               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar           Webinar?                    @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  webinarSession    WebinarSession?             @relation(fields: [webinarSessionId, webinarId, organizationId], references: [id, webinarId, organizationId], onDelete: Restrict)
+  registration      Registration?               @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  crmContact        CRMContact?                 @relation(fields: [crmContactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  membership        OrganizationMembership?     @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  managerBinding    TelegramManagerChatBinding? @relation(fields: [managerBindingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  managerCallback   TelegramManagerCallback?    @relation(fields: [managerCallbackId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([organizationId, occurredAt])
+  @@index([organizationId, webinarId, webinarSessionId, occurredAt])
+  @@index([registrationId, occurredAt])
+  @@index([correlationId])
+  @@index([providerMessageId])
+  @@map("telegram_bot_events")
+}
+
+model TelegramConsultantMessage {
+  id                    String                          @id @default(cuid())
+  organizationId        String?                         @map("organization_id")
+  webinarId             String?                         @map("webinar_id")
+  webinarSessionId      String?                         @map("webinar_session_id")
+  registrationId        String?                         @map("registration_id")
+  crmContactId          String?                         @map("crm_contact_id")
+  chatIdHash            String                          @map("chat_id_hash")
+  providerMessageId     String                          @map("provider_message_id")
+  providerMessageKey    String                          @unique @map("provider_message_key")
+  correlationId         String                          @map("correlation_id")
+  text                  String
+  topic                 String
+  intent                String
+  urgency               String
+  classificationModel   String                          @map("classification_model")
+  classificationVersion String                          @map("classification_version")
+  status                TelegramConsultantMessageStatus @default(NEW)
+  handedOffAt           DateTime?                       @map("handed_off_at")
+  correctedTopic        String?                         @map("corrected_topic")
+  correctedIntent       String?                         @map("corrected_intent")
+  correctedUrgency      String?                         @map("corrected_urgency")
+  correctionReason      String?                         @map("correction_reason")
+  handledByMembershipId String?                         @map("handled_by_membership_id")
+  correctedAt           DateTime?                       @map("corrected_at")
+  createdAt             DateTime                        @default(now()) @map("created_at")
+  updatedAt             DateTime                        @updatedAt @map("updated_at")
+  organization          Organization?                   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar               Webinar?                        @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  webinarSession        WebinarSession?                 @relation(fields: [webinarSessionId, webinarId, organizationId], references: [id, webinarId, organizationId], onDelete: Restrict)
+  registration          Registration?                   @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  crmContact            CRMContact?                     @relation(fields: [crmContactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  handledByMembership   OrganizationMembership?         @relation(fields: [handledByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, topic, urgency, createdAt])
+  @@index([registrationId, createdAt])
+  @@index([crmContactId, createdAt])
+  @@index([chatIdHash, createdAt])
+  @@index([correlationId])
+  @@map("telegram_consultant_messages")
+}
+
 model TelegramBroadcastJob {
-  id                     String                       @id @default(cuid())
-  status                 String                       @default("pending")
-  kind                   String                       @default("marketing_telegram")
-  text                   String
-  chatIds                Json                         @map("chat_ids")
-  recipientSnapshot      Json?                        @map("recipient_snapshot")
-  consentDocumentId      String?                      @map("consent_document_id")
-  consentDocumentVersion String?                      @map("consent_document_version")
-  initiatedById          String?                      @map("initiated_by_id")
-  idempotencyKey         String?                      @unique @map("idempotency_key")
-  total                  Int
-  sent                   Int                          @default(0)
-  failed                 Int                          @default(0)
-  attempts               Int                          @default(0)
-  nextIndex              Int                          @default(0) @map("next_index")
-  lastError              String?                      @map("last_error")
-  nextAttemptAt          DateTime?                    @map("next_attempt_at")
-  claimToken             String?                      @unique @map("claim_token")
-  startedAt              DateTime?                    @map("started_at")
-  completedAt            DateTime?                    @map("completed_at")
-  createdAt              DateTime                     @default(now()) @map("created_at")
-  updatedAt              DateTime                     @updatedAt @map("updated_at")
-  initiatedBy            AdminUser?                   @relation(fields: [initiatedById], references: [id], onDelete: SetNull)
-  recipients             TelegramBroadcastRecipient[]
+  id                            String                       @id @default(cuid())
+  status                        String                       @default("pending")
+  kind                          String                       @default("marketing_telegram")
+  text                          String
+  chatIds                       Json                         @map("chat_ids")
+  recipientSnapshot             Json?                        @map("recipient_snapshot")
+  consentDocumentId             String?                      @map("consent_document_id")
+  consentDocumentVersion        String?                      @map("consent_document_version")
+  initiatedById                 String?                      @map("initiated_by_id")
+  organizationId                String?                      @map("organization_id")
+  webinarId                     String?                      @map("webinar_id")
+  webinarSessionId              String?                      @map("webinar_session_id")
+  requesterMembershipId         String?                      @map("requester_membership_id")
+  templateId                    String?                      @map("template_id")
+  templateVersion               Int?                         @map("template_version")
+  segmentKey                    String?                      @map("segment_key")
+  previewId                     String?                      @unique @map("preview_id")
+  correlationId                 String?                      @map("correlation_id")
+  idempotencyKey                String?                      @unique @map("idempotency_key")
+  total                         Int
+  sent                          Int                          @default(0)
+  failed                        Int                          @default(0)
+  attempts                      Int                          @default(0)
+  nextIndex                     Int                          @default(0) @map("next_index")
+  lastError                     String?                      @map("last_error")
+  nextAttemptAt                 DateTime?                    @map("next_attempt_at")
+  claimToken                    String?                      @unique @map("claim_token")
+  startedAt                     DateTime?                    @map("started_at")
+  pauseRequestedAt              DateTime?                    @map("pause_requested_at")
+  pauseRequestedByMembershipId  String?                      @map("pause_requested_by_membership_id")
+  pausedAt                      DateTime?                    @map("paused_at")
+  pausedByMembershipId          String?                      @map("paused_by_membership_id")
+  cancelRequestedAt             DateTime?                    @map("cancel_requested_at")
+  cancelRequestedByMembershipId String?                      @map("cancel_requested_by_membership_id")
+  cancelledAt                   DateTime?                    @map("cancelled_at")
+  cancelledByMembershipId       String?                      @map("cancelled_by_membership_id")
+  cancelReason                  String?                      @map("cancel_reason")
+  completedAt                   DateTime?                    @map("completed_at")
+  createdAt                     DateTime                     @default(now()) @map("created_at")
+  updatedAt                     DateTime                     @updatedAt @map("updated_at")
+  initiatedBy                   AdminUser?                   @relation(fields: [initiatedById], references: [id], onDelete: SetNull)
+  recipients                    TelegramBroadcastRecipient[]
 
   @@index([status, nextAttemptAt, createdAt])
   @@index([createdAt])
   @@index([initiatedById])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, webinarId, webinarSessionId, createdAt])
+  @@index([requesterMembershipId, createdAt])
   @@map("telegram_broadcast_jobs")
 }
 
@@ -1470,6 +2385,11 @@ model TelegramBroadcastRecipient {
   id                       String               @id @default(cuid())
   jobId                    String               @map("job_id")
   leadId                   String?              @map("lead_id")
+  organizationId           String?              @map("organization_id")
+  webinarId                String?              @map("webinar_id")
+  webinarSessionId         String?              @map("webinar_session_id")
+  registrationId           String?              @map("registration_id")
+  crmContactId             String?              @map("crm_contact_id")
   chatId                   String               @map("chat_id")
   consentRecordId          String?              @map("consent_record_id")
   consentDocumentVersion   String               @map("consent_document_version")
@@ -1477,6 +2397,9 @@ model TelegramBroadcastRecipient {
   status                   String               @default("pending")
   attempts                 Int                  @default(0)
   sentAt                   DateTime?            @map("sent_at")
+  providerMessageId        String?              @map("provider_message_id")
+  correlationId            String?              @map("correlation_id")
+  cancelledAt              DateTime?            @map("cancelled_at")
   lastError                String?              @map("last_error")
   unsubscribedBeforeSendAt DateTime?            @map("unsubscribed_before_send_at")
   createdAt                DateTime             @default(now()) @map("created_at")
@@ -1489,7 +2412,54 @@ model TelegramBroadcastRecipient {
   @@index([jobId, status, createdAt])
   @@index([leadId])
   @@index([consentRecordId])
+  @@index([organizationId, webinarId, webinarSessionId, status])
+  @@index([registrationId, createdAt])
+  @@index([correlationId])
   @@map("telegram_broadcast_recipients")
+}
+
+model TelegramBroadcastTemplate {
+  id                      String    @id @default(cuid())
+  organizationId          String    @map("organization_id")
+  name                    String
+  text                    String
+  variablesJson           Json      @map("variables_json")
+  version                 Int       @default(1)
+  status                  String    @default("draft")
+  createdByMembershipId   String    @map("created_by_membership_id")
+  publishedByMembershipId String?   @map("published_by_membership_id")
+  publishedAt             DateTime? @map("published_at")
+  archivedAt              DateTime? @map("archived_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@unique([id, organizationId])
+  @@unique([organizationId, name, version])
+  @@index([organizationId, status, updatedAt])
+  @@map("telegram_broadcast_templates")
+}
+
+model TelegramBroadcastPreview {
+  id                    String    @id @default(cuid())
+  organizationId        String    @map("organization_id")
+  webinarId             String    @map("webinar_id")
+  webinarSessionId      String    @map("webinar_session_id")
+  templateId            String    @map("template_id")
+  templateVersion       Int       @map("template_version")
+  segmentKey            String    @map("segment_key")
+  total                 Int
+  snapshotHash          String    @map("snapshot_hash")
+  tokenHash             String    @unique @map("token_hash")
+  expiresAt             DateTime  @map("expires_at")
+  consumedAt            DateTime? @map("consumed_at")
+  createdByMembershipId String    @map("created_by_membership_id")
+  correlationId         String    @map("correlation_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  @@unique([id, organizationId])
+  @@index([organizationId, expiresAt, consumedAt])
+  @@index([organizationId, webinarId, webinarSessionId, createdAt])
+  @@map("telegram_broadcast_previews")
 }
 
 model TelegramBroadcastDeadLetter {
@@ -1504,33 +2474,78 @@ model TelegramBroadcastDeadLetter {
 }
 
 model Question {
-  id                         String              @id @default(cuid())
-  leadId                     String              @map("lead_id")
-  registrationId             String              @map("registration_id")
-  webinarSessionId           String              @map("webinar_session_id")
+  id                         String                    @id @default(cuid())
+  organizationId             String?                   @map("organization_id")
+  webinarId                  String?                   @map("webinar_id")
+  leadId                     String                    @map("lead_id")
+  registrationId             String                    @map("registration_id")
+  webinarSessionId           String                    @map("webinar_session_id")
   text                       String
-  showToParticipants         Boolean             @default(false) @map("show_to_participants")
-  displayMode                String              @default("pseudonym") @map("display_mode")
-  publishedName              String?             @map("published_name")
-  publicationConsentRecordId String?             @unique @map("publication_consent_record_id")
-  isAnswered                 Boolean             @default(false) @map("is_answered")
-  forwardedAt                DateTime?           @map("forwarded_at")
-  adminNote                  String?             @map("admin_note")
-  createdAt                  DateTime            @default(now()) @map("created_at")
-  updatedAt                  DateTime            @updatedAt @map("updated_at")
-  lead                       Lead                @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  registration               Registration        @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  webinarSession             WebinarSession      @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  textFingerprint            String?                   @map("text_fingerprint")
+  moderationStatus           QuestionModerationStatus  @default(NEW) @map("moderation_status")
+  priority                   QuestionPriority          @default(NORMAL)
+  moderationRevision         Int                       @default(0) @map("moderation_revision")
+  handledByMembershipId      String?                   @map("handled_by_membership_id")
+  showToParticipants         Boolean                   @default(false) @map("show_to_participants")
+  displayMode                String                    @default("pseudonym") @map("display_mode")
+  publishedName              String?                   @map("published_name")
+  publicationConsentRecordId String?                   @unique @map("publication_consent_record_id")
+  isAnswered                 Boolean                   @default(false) @map("is_answered")
+  forwardedAt                DateTime?                 @map("forwarded_at")
+  adminNote                  String?                   @map("admin_note")
+  createdAt                  DateTime                  @default(now()) @map("created_at")
+  updatedAt                  DateTime                  @updatedAt @map("updated_at")
+  organization               Organization?             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar                    Webinar?                  @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lead                       Lead                      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  registration               Registration              @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  webinarSession             WebinarSession            @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
   chatMessage                WebinarChatMessage?
-  publicationConsentRecord   ConsentRecord?      @relation("QuestionPublicationConsent", fields: [publicationConsentRecordId], references: [id], onDelete: SetNull)
-  consentRecords             ConsentRecord[]     @relation("QuestionConsentRecords")
+  publicationConsentRecord   ConsentRecord?            @relation("QuestionPublicationConsent", fields: [publicationConsentRecordId], references: [id], onDelete: SetNull)
+  consentRecords             ConsentRecord[]           @relation("QuestionConsentRecords")
+  handledByMembership        OrganizationMembership?   @relation("QuestionHandledByMembership", fields: [handledByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  moderationEvents           QuestionModerationEvent[]
+  aiSuggestions              AiSuggestion[]
 
+  @@unique([id, organizationId])
+  @@index([organizationId, webinarId, webinarSessionId, moderationStatus, createdAt])
+  @@index([organizationId, webinarSessionId, priority, moderationStatus, createdAt])
+  @@index([organizationId, webinarSessionId, textFingerprint])
   @@index([leadId])
   @@index([registrationId])
   @@index([webinarSessionId])
   @@index([createdAt])
   @@index([isAnswered])
   @@map("questions")
+}
+
+model QuestionModerationEvent {
+  id                String                    @id @default(cuid())
+  organizationId    String                    @map("organization_id")
+  webinarId         String                    @map("webinar_id")
+  webinarSessionId  String                    @map("webinar_session_id")
+  registrationId    String                    @map("registration_id")
+  questionId        String                    @map("question_id")
+  actorMembershipId String?                   @map("actor_membership_id")
+  fromStatus        QuestionModerationStatus? @map("from_status")
+  toStatus          QuestionModerationStatus  @map("to_status")
+  fromPriority      QuestionPriority?         @map("from_priority")
+  toPriority        QuestionPriority          @map("to_priority")
+  reason            String
+  source            String
+  correlationId     String?                   @map("correlation_id")
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  organization      Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar           Webinar                   @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  webinarSession    WebinarSession            @relation(fields: [webinarSessionId], references: [id], onDelete: Restrict)
+  registration      Registration              @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  question          Question                  @relation(fields: [questionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  actorMembership   OrganizationMembership?   @relation(fields: [actorMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([organizationId, webinarSessionId, toStatus, createdAt])
+  @@index([questionId, createdAt])
+  @@index([registrationId, createdAt])
+  @@map("question_moderation_events")
 }
 
 model ConsentRecord {
@@ -1564,6 +2579,7 @@ model ConsentRecord {
   revocations         ConsentRecord[]              @relation("ConsentRevocation")
   publishedQuestion   Question?                    @relation("QuestionPublicationConsent")
   broadcastRecipients TelegramBroadcastRecipient[]
+  crmDeliveries       CRMDelivery[]
 
   @@index([leadId, kind, occurredAt])
   @@index([registrationId, kind])
@@ -1610,35 +2626,53 @@ model RetentionRun {
 }
 
 model WebinarChatMessage {
-  id               String         @id @default(cuid())
-  webinarSessionId String         @map("webinar_session_id")
-  registrationId   String?        @map("registration_id")
-  questionId       String?        @unique @map("question_id")
-  kind             String
-  authorName       String         @map("author_name")
-  authorRole       String?        @map("author_role")
-  message          String
-  isSynthetic      Boolean        @default(false) @map("is_synthetic")
-  visibleAt        DateTime       @default(now()) @map("visible_at")
-  metadataJson     Json?          @map("metadata_json")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  webinarSession   WebinarSession @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
-  registration     Registration?  @relation(fields: [registrationId], references: [id], onDelete: SetNull)
-  question         Question?      @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  id                     String                  @id @default(cuid())
+  webinarSessionId       String                  @map("webinar_session_id")
+  webinarId              String?                 @map("webinar_id")
+  organizationId         String?                 @map("organization_id")
+  registrationId         String?                 @map("registration_id")
+  questionId             String?                 @unique @map("question_id")
+  kind                   String
+  messageType            WebinarChatMessageType? @map("message_type")
+  authorName             String                  @map("author_name")
+  authorRole             String?                 @map("author_role")
+  message                String
+  isSynthetic            Boolean                 @default(false) @map("is_synthetic")
+  visibleAt              DateTime                @default(now()) @map("visible_at")
+  hiddenAt               DateTime?               @map("hidden_at")
+  hiddenReason           String?                 @map("hidden_reason")
+  hiddenByMembershipId   String?                 @map("hidden_by_membership_id")
+  moderationRevision     Int                     @default(0) @map("moderation_revision")
+  metadataJson           Json?                   @map("metadata_json")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  webinarSession         WebinarSession          @relation(fields: [webinarSessionId], references: [id], onDelete: Cascade)
+  webinar                Webinar?                @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization           Organization?           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  registration           Registration?           @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  question               Question?               @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  hiddenByMembership     OrganizationMembership? @relation("WebinarChatMessageHiddenByMembership", fields: [hiddenByMembershipId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  publishedAiSuggestions AiSuggestion[]          @relation("AiSuggestionPublishedChatMessage")
 
   @@index([webinarSessionId, visibleAt])
+  @@index([organizationId, webinarId, webinarSessionId, hiddenAt, visibleAt])
   @@index([registrationId])
-  @@index([kind])
+  @@index([messageType])
+  @@index([hiddenByMembershipId])
   @@map("webinar_chat_messages")
 }
 
 model Event {
   id               String          @id @default(cuid())
+  schemaVersion    Int             @default(0) @map("schema_version")
+  scopeKind        String          @default("legacy") @map("scope_kind")
   eventName        String          @map("event_name")
+  organizationId   String?         @map("organization_id")
+  webinarId        String?         @map("webinar_id")
   visitorId        String?         @map("visitor_id")
   leadId           String?         @map("lead_id")
   registrationId   String?         @map("registration_id")
   webinarSessionId String?         @map("webinar_session_id")
+  userId           String?         @map("user_id")
   page             String?
   source           String?
   utmSource        String?         @map("utm_source")
@@ -1647,12 +2681,28 @@ model Event {
   userAgent        String?         @map("user_agent")
   ipHash           String?         @map("ip_hash")
   metadataJson     Json?           @map("metadata_json")
+  correlationId    String?         @map("correlation_id")
+  dedupKey         String?         @map("dedup_key")
+  payloadHash      String?         @map("payload_hash")
+  occurredAt       DateTime        @default(now()) @map("occurred_at")
+  clientOccurredAt DateTime?       @map("client_occurred_at")
   createdAt        DateTime        @default(now()) @map("created_at")
+  organization     Organization?   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar          Webinar?        @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  user             User?           @relation("EventUser", fields: [userId], references: [id], onDelete: SetNull)
   lead             Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
   registration     Registration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   webinarSession   WebinarSession? @relation(fields: [webinarSessionId], references: [id], onDelete: SetNull)
 
   @@index([eventName, createdAt])
+  @@index([eventName, occurredAt])
+  @@index([organizationId, occurredAt])
+  @@index([organizationId, eventName, occurredAt])
+  @@index([organizationId, webinarSessionId, occurredAt])
+  @@index([webinarSessionId, eventName, occurredAt])
+  @@index([correlationId])
+  @@index([dedupKey])
+  @@index([occurredAt])
   @@index([visitorId, createdAt])
   @@index([visitorId, eventName, createdAt])
   @@index([eventName])

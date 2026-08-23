@@ -8,11 +8,12 @@
 <link rel="stylesheet" href="css/styles.css?v=team-4col-20260613"/>
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg"/>
 <link rel="stylesheet" href="cookie-consent.css?v=compact-1"/>
-<link href="webinar.css?v=remediation-20260804-1" rel="stylesheet"/>
+<link href="webinar.css?v=room-content-20260821-1" rel="stylesheet"/>
 <link href="flow-tabs.css?v=nav-tabs-7" rel="stylesheet"/>
 <link href="fonts.css?v=self-2" rel="stylesheet"/>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
+<a class="room-skip-link" href="#mainContent">Перейти к основному содержимому</a>
 <noscript><div style="padding:1.5rem;text-align:center;background:#fef3c7;color:#92400e;font-family:Manrope,Arial,sans-serif;font-size:15px">Для просмотра вебинара и работы чата необходим включённый JavaScript. Пожалуйста, включите его в настройках браузера.</div></noscript>
 <!-- TopNavBar -->
 <header class="bg-background/90 backdrop-blur-md shadow-sm docked full-width top-0 sticky z-50">
@@ -24,11 +25,12 @@
 <nav class="hidden md:flex gap-8">
 <!-- FIX 1: nav и кнопка регистрации удалены — пользователь уже в комнате -->
 </nav>
-<a data-room-primary-action class="bg-primary text-on-primary px-6 py-2.5 min-h-[44px] inline-flex items-center justify-center rounded-full text-label-md font-label-md scale-95 active:scale-90 transition-transform" href="access.html">Мой доступ</a>
+<a data-room-primary-action class="bg-primary text-on-primary px-6 py-2.5 min-h-[44px] inline-flex items-center justify-center rounded-full text-label-md font-label-md active:scale-[0.96] transition-transform" href="access.html">Мой доступ</a>
 </div>
 </header>
 <div data-current="webinar" data-flow-tabs data-extra-class="webinar-flow-tabs" data-sticky-top="80px"></div>
-<main class="flex-grow max-w-container-max-width mx-auto w-full px-gutter py-8 md:py-12">
+<main id="mainContent" class="flex-grow max-w-container-max-width mx-auto w-full px-gutter py-8 md:py-12">
+<h1 class="sr-only">Вебинарная комната АСПБ</h1>
 <!-- Hero & Player Section -->
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
 <!-- Video & Registration Status -->
@@ -55,9 +57,12 @@
   <!-- Постер НЕ задаём в HTML: до премьеры окно должно быть чисто закрытым (тёмный bg-primary + бэкдроп ожидания),
        иначе лицо с постера/кадр прошлой трансляции мелькает до того, как JS определит состояние.
        Для live/replay постер ставит initializeVideoSource() из данных сервера. -->
-  <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline webkit-playsinline preload="metadata" aria-label="Видео вебинара АСПБ"></video>
+  <video id="webinarVideo" class="w-full h-full object-cover bg-primary pointer-events-none" playsinline webkit-playsinline preload="metadata" aria-label="Видео вебинара АСПБ">
+    <track id="webinarCaptionsTrack" kind="captions" srclang="ru" label="Русские субтитры"/>
+  </video>
   <div id="webinarStandbyBackdrop" class="webinar-standby-backdrop absolute inset-0" aria-hidden="true"></div>
   <p id="webinarPlayerStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+  <div id="playerStateIndicator" class="hidden room-player-state-indicator" role="status" aria-live="polite" aria-atomic="true"></div>
   <!-- Слой презентации: крупный план слайда; при slides-active видео спикера уходит в угол. Управляется js/slides.js -->
   <img id="webinarSlide" class="absolute inset-0 w-full h-full object-contain bg-white z-[5]" alt="Слайд презентации"/>
 
@@ -66,8 +71,14 @@
     <div class="w-20 h-20 bg-surface-container-lowest/10 backdrop-blur-md rounded-full flex items-center justify-center mb-6 border border-white/20">
       <span class="material-symbols-outlined text-white text-4xl">movie</span>
     </div>
-    <h1 class="text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h1>
+    <h2 class="text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h2>
     <p data-video-fallback-text class="text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Поток вебинара временно недоступен. Обновите страницу или попробуйте открыть персональную ссылку позже.</p>
+  </div>
+
+  <div id="videoProcessing" class="hidden absolute inset-0 flex-col items-center justify-center text-center p-8 bg-primary-container z-40" role="status" aria-live="polite" aria-atomic="true">
+    <span class="material-symbols-outlined text-white text-4xl mb-4" aria-hidden="true">hourglass_top</span>
+    <h2 class="text-headline-md text-white font-headline-md">Видео обрабатывается</h2>
+    <p class="text-body-md text-primary-fixed-dim mt-2 max-w-md">Запись появится после проверки формата и подготовки защищённого потока. Обновлять страницу не нужно.</p>
   </div>
 
   <!-- Countdown Overlay — shown before broadcast starts -->
@@ -136,6 +147,11 @@
         <button id="customPlayPauseBtn" type="button" aria-label="Воспроизвести видео" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
           <span class="material-symbols-outlined text-[28px]">play_arrow</span>
         </button>
+        <div id="customTimeDisplay" class="text-white/85 text-xs tabular-nums whitespace-nowrap" aria-hidden="true">
+          <span id="currentTimeText">00:00</span>
+          <span aria-hidden="true"> / </span>
+          <span id="durationTimeText">00:00</span>
+        </div>
 
         <!-- Live Indicator Badge -->
         <div id="customLiveIndicator" class="hidden items-center gap-1.5 text-red-500 font-bold text-xs uppercase tracking-wider bg-red-500/10 px-2.5 py-1 rounded-full border border-red-500/30">
@@ -159,6 +175,10 @@
           <input id="customVolumeSlider" type="range" min="0" max="1" step="0.05" value="1" aria-label="Громкость видео" class="w-16 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-red-600 hover:accent-red-500 transition-[accent-color]"/>
         </div>
 
+        <button id="customCaptionsBtn" type="button" aria-label="Включить субтитры" aria-pressed="false" disabled class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center disabled:opacity-45 disabled:cursor-not-allowed">
+          <span class="material-symbols-outlined text-[24px]" aria-hidden="true">closed_caption</span>
+        </button>
+
         <!-- Fullscreen Button -->
         <button id="customFullscreenBtn" type="button" aria-label="Открыть видео на весь экран" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
           <span class="material-symbols-outlined text-[24px]">fullscreen</span>
@@ -176,6 +196,40 @@
 <h3 class="text-headline-md font-headline-md text-primary">Таймлайн загружается</h3>
 <p class="text-body-md text-on-surface-variant mt-2">Сценарные подсказки синхронизированы с записью и будут вести участника к вопросу или заявке.</p>
 </div>
+
+<section id="roomLearningContent" class="space-y-6" aria-label="Главы и опубликованный транскрипт">
+  <article id="roomChaptersPanel" class="room-content-panel" data-state="loading" aria-labelledby="roomChaptersTitle">
+    <div class="room-content-heading">
+      <div>
+        <p class="room-content-eyebrow">Навигация по записи</p>
+        <h2 id="roomChaptersTitle" class="room-content-title">Главы</h2>
+      </div>
+      <span class="material-symbols-outlined text-primary" aria-hidden="true">list_alt</span>
+    </div>
+    <p class="room-block-state" data-room-block-state role="status" aria-live="polite">Загружаем главы…</p>
+    <ol id="roomChaptersList" class="hidden room-chapter-list"></ol>
+    <button type="button" class="hidden room-content-retry" data-room-content-retry>Повторить загрузку</button>
+  </article>
+
+  <article id="roomTranscriptPanel" class="room-content-panel" data-state="loading" aria-labelledby="roomTranscriptTitle">
+    <div class="room-content-heading">
+      <div>
+        <p class="room-content-eyebrow">Только опубликованная версия</p>
+        <h2 id="roomTranscriptTitle" class="room-content-title">Транскрипт</h2>
+      </div>
+      <span id="roomTranscriptVersion" class="room-content-version"></span>
+    </div>
+    <p class="room-block-state" data-room-block-state role="status" aria-live="polite">Загружаем опубликованный транскрипт…</p>
+    <div id="roomTranscriptControls" class="hidden room-transcript-controls">
+      <label for="roomTranscriptSearch" class="room-search-label">Поиск по транскрипту</label>
+      <input id="roomTranscriptSearch" type="search" inputmode="search" autocomplete="off" class="room-search-input" placeholder="Например, субсидиарная ответственность" aria-describedby="roomTranscriptResultCount"/>
+      <p id="roomTranscriptResultCount" class="room-result-count" role="status" aria-live="polite" aria-atomic="true"></p>
+    </div>
+    <ol id="roomTranscriptResults" class="hidden room-transcript-results" aria-label="Фрагменты опубликованного транскрипта"></ol>
+    <button type="button" class="hidden room-content-retry" data-room-content-retry>Повторить загрузку</button>
+  </article>
+  <p id="roomContentActionStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+</section>
 </div>
 <!-- Questions Panel -->
 <div class="lg:col-span-4">
@@ -183,7 +237,7 @@
 <div id="webinarChatPanel" class="bg-surface-container-lowest rounded-lg shadow-sm border border-outline-variant/20 flex flex-col h-[400px] md:h-[600px] overflow-hidden">
 <div class="p-4 border-b border-outline-variant/10 flex items-center justify-between gap-4">
 <div>
-<h3 class="text-label-md font-bold text-primary">Вопросы к премьере</h3>
+<h2 class="text-label-md font-bold text-primary" data-chat-heading>Вопросы к премьере</h2>
 <div class="text-[11px] text-on-surface-variant" id="chatActivity">Сообщения появляются по ходу премьеры записи</div>
 </div>
 <div class="flex items-center gap-2 text-[11px] text-on-surface-variant">
@@ -221,6 +275,37 @@
 </div>
 </div>
 </div>
+<section id="roomMaterialsPanel" class="room-content-panel mt-8" data-state="loading" aria-labelledby="roomMaterialsTitle">
+  <div class="room-content-heading">
+    <div>
+      <p class="room-content-eyebrow">К вебинару</p>
+      <h2 id="roomMaterialsTitle" class="room-content-title">Материалы и источники</h2>
+    </div>
+    <span class="material-symbols-outlined text-primary" aria-hidden="true">library_books</span>
+  </div>
+  <p class="room-block-state" data-room-block-state role="status" aria-live="polite">Загружаем материалы и источники…</p>
+  <ul id="roomMaterialsList" class="hidden room-material-list"></ul>
+  <button type="button" class="hidden room-content-retry" data-room-content-retry>Повторить загрузку</button>
+</section>
+<section id="roomNotesPanel" class="room-content-panel mt-8" data-state="loading" aria-labelledby="roomNotesTitle">
+  <div class="room-content-heading">
+    <div>
+      <p class="room-content-eyebrow">Видны только вам</p>
+      <h2 id="roomNotesTitle" class="room-content-title">Личные заметки</h2>
+    </div>
+    <span class="material-symbols-outlined text-primary" aria-hidden="true">edit_note</span>
+  </div>
+  <p class="room-block-state" data-room-block-state role="status" aria-live="polite">Загружаем личные заметки…</p>
+  <form id="roomNoteForm" class="hidden room-note-form">
+    <label for="roomNoteBody" class="room-search-label">Заметка к текущему моменту</label>
+    <textarea id="roomNoteBody" class="room-note-input" maxlength="4000" rows="3" placeholder="Запишите мысль или вопрос" required></textarea>
+    <div class="room-note-actions">
+      <span id="roomNoteTimestamp" class="room-note-timestamp">Таймкод 00:00</span>
+      <button type="submit" class="room-content-retry">Сохранить заметку</button>
+    </div>
+  </form>
+  <ol id="roomNotesList" class="hidden room-note-list" aria-label="Личные заметки по таймкодам"></ol>
+</section>
 <section class="mt-10 grid grid-cols-1 lg:grid-cols-12 gap-8" id="partnerPath">
 <!-- Partner Program Info Panel (Static) -->
 <div class="lg:col-span-7 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-6 md:p-8 shadow-sm">
@@ -388,7 +473,7 @@
 </div>
 </footer>
 
-<script type="module" src="js/main.js?v=remediation-20260804-3"></script>
+<script type="module" src="js/main.js?v=room-content-20260821-1"></script>
 <script type="module" src="js/slides.js?v=sync-20260814-1"></script>
 <script src="live-chat.js?v=prepared-questions-1"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>

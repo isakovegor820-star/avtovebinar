@@ -5,6 +5,8 @@ export type PlatformFeatureFlags = {
   tenantEnforcement: boolean;
   creatorDashboard: boolean;
   publicCatalog: boolean;
+  tenantCrm: boolean;
+  tenantTelegramBots: boolean;
 };
 
 export function getPlatformFeatureFlags(): PlatformFeatureFlags {
@@ -13,5 +15,7 @@ export function getPlatformFeatureFlags(): PlatformFeatureFlags {
     tenantEnforcement: env.PLATFORM_TENANCY_ENFORCEMENT === 'on',
     creatorDashboard: env.CREATOR_DASHBOARD_ENABLED === 'on',
     publicCatalog: env.PUBLIC_CATALOG_ENABLED === 'on',
+    tenantCrm: env.TENANT_CRM_ENABLED === 'on',
+    tenantTelegramBots: env.TENANT_TELEGRAM_BOTS_ENABLED === 'on',
   };
 }

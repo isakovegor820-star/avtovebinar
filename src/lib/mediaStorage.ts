@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { env } from './env.js';
 import { AppError } from './http.js';
+import { createLocalMediaStorageFromEnv } from './mediaStorageLocal.js';
 import { createS3MediaStorageFromEnv } from './mediaStorageS3.js';
 
 export type CompletedUploadPart = { partNumber: number; etag: string };
@@ -37,20 +38,37 @@ export type MediaObjectResponse = {
   lastModified?: Date;
 };
 
+export type MediaStorageCapacity = {
+  totalBytes: bigint;
+  availableBytes: bigint;
+  totalInodes: bigint;
+  availableInodes: bigint;
+};
+
 export interface PrivateMediaStorageAdapter {
   readonly name: string;
   createMultipartUpload(input: {
+    applicationUploadId: string;
     storageKey: string;
     mimeType: string;
     partCount: number;
     expiresAt: Date;
   }): Promise<{ providerUploadKey: string; partUrls: Array<{ partNumber: number; url: string; expiresAt: Date }> }>;
   signMultipartUploadParts(input: {
+    applicationUploadId: string;
     providerUploadKey: string;
     storageKey: string;
     partNumbers: number[];
     expiresAt: Date;
   }): Promise<Array<{ partNumber: number; url: string; expiresAt: Date }>>;
+  writeMultipartUploadPart?(input: {
+    applicationUploadId: string;
+    providerUploadKey: string;
+    storageKey: string;
+    partNumber: number;
+    expectedSizeBytes: number;
+    body: Readable;
+  }): Promise<{ etag: string; sizeBytes: number }>;
   listMultipartUploadParts?(input: { providerUploadKey: string; storageKey: string }): Promise<CompletedUploadPart[]>;
   completeMultipartUpload(input: {
     providerUploadKey: string;
@@ -67,6 +85,8 @@ export interface PrivateMediaStorageAdapter {
   }): Promise<MediaProcessingResult>;
   abortMultipartUpload(input: { providerUploadKey: string; storageKey: string }): Promise<void>;
   readObject?(input: { storageKey: string; range?: string }): Promise<MediaObjectResponse>;
+  checkReady?(): Promise<boolean>;
+  getCapacity?(): Promise<MediaStorageCapacity>;
 }
 
 class UnconfiguredMediaStorage implements PrivateMediaStorageAdapter {
@@ -98,7 +118,13 @@ class TestFakeMediaStorage implements PrivateMediaStorageAdapter {
       throw new AppError(503, 'Test media adapter is unavailable', undefined, 'media_storage_unconfigured');
     }
   }
-  async createMultipartUpload(input: { storageKey: string; mimeType: string; partCount: number; expiresAt: Date }) {
+  async createMultipartUpload(input: {
+    applicationUploadId: string;
+    storageKey: string;
+    mimeType: string;
+    partCount: number;
+    expiresAt: Date;
+  }) {
     this.assertTest();
     const providerUploadKey = `fake_${crypto.randomUUID()}`;
     return {
@@ -111,6 +137,7 @@ class TestFakeMediaStorage implements PrivateMediaStorageAdapter {
     };
   }
   async signMultipartUploadParts(input: {
+    applicationUploadId: string;
     providerUploadKey: string;
     storageKey: string;
     partNumbers: number[];
@@ -209,6 +236,7 @@ const TEST_MEDIA_OBJECTS = new Map<string, { contentType: string; body: Buffer }
 
 export function getPrivateMediaStorageAdapter(): PrivateMediaStorageAdapter {
   if (env.MEDIA_STORAGE_PROVIDER === 'test_fake') return new TestFakeMediaStorage();
+  if (env.MEDIA_STORAGE_PROVIDER === 'local_fs') return createLocalMediaStorageFromEnv();
   if (env.MEDIA_STORAGE_PROVIDER === 's3') return createS3MediaStorageFromEnv();
   return new UnconfiguredMediaStorage();
 }

@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { prisma } from './prisma.js';
+import { env } from './env.js';
+import { getPrivateMediaStorageAdapter } from './mediaStorage.js';
 
 const buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 
@@ -62,6 +64,17 @@ function metricLine(name: string, labels: Record<string, string>, value: number)
   return `${name}{${labelText}} ${value}`;
 }
 
+async function readMediaStorageCapacity() {
+  if (env.MEDIA_STORAGE_PROVIDER !== 'local_fs') return null;
+  try {
+    const storage = getPrivateMediaStorageAdapter();
+    if (!storage.getCapacity) return { ok: false as const };
+    return { ok: true as const, capacity: await storage.getCapacity() };
+  } catch {
+    return { ok: false as const };
+  }
+}
+
 export async function renderPrometheusMetrics() {
   const lines: string[] = [];
   lines.push('# HELP aspb_http_requests_total Total HTTP requests.');
@@ -102,6 +115,10 @@ export async function renderPrometheusMetrics() {
     webinarAccessEmailDeadLetters,
     broadcastPending,
     broadcastDeadLetters,
+    crmDeliveryPending,
+    crmDeliveryBlocked,
+    crmDeliveryDeadLetters,
+    mediaStorage,
   ] = await Promise.all([
     prisma.emailOutboxJob.count({ where: { status: { in: ['pending', 'failed', 'sending'] }, sentAt: null } }),
     prisma.emailOutboxJob.count({ where: { status: 'failed', sentAt: null } }),
@@ -118,6 +135,10 @@ export async function renderPrometheusMetrics() {
       where: { status: { in: ['pending', 'failed', 'sending'] }, completedAt: null },
     }),
     prisma.telegramBroadcastDeadLetter.count(),
+    prisma.cRMDelivery.count({ where: { status: { in: ['PENDING', 'SENDING', 'RETRY_SCHEDULED'] } } }),
+    prisma.cRMDelivery.count({ where: { status: 'BLOCKED' } }),
+    prisma.cRMDelivery.count({ where: { status: 'DEAD_LETTER' } }),
+    readMediaStorageCapacity(),
   ]);
 
   const errorRate = totalRequests ? totalErrors / totalRequests : 0;
@@ -140,6 +161,9 @@ export async function renderPrometheusMetrics() {
   );
   lines.push(metricLine('aspb_queue_depth', { queue: 'telegram_broadcast' }, broadcastPending));
   lines.push(metricLine('aspb_queue_depth', { queue: 'telegram_broadcast_dead_letter' }, broadcastDeadLetters));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'crm_delivery' }, crmDeliveryPending));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'crm_delivery_blocked' }, crmDeliveryBlocked));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'crm_delivery_dead_letter' }, crmDeliveryDeadLetters));
   lines.push('# HELP aspb_alert_state Boolean alert states.');
   lines.push('# TYPE aspb_alert_state gauge');
   lines.push(metricLine('aspb_alert_state', { alert: 'http_5xx_rate_gt_1pct' }, errorRate > 0.01 ? 1 : 0));
@@ -171,6 +195,50 @@ export async function renderPrometheusMetrics() {
   lines.push(
     metricLine('aspb_alert_state', { alert: 'telegram_broadcast_queue_gt_100' }, broadcastPending > 100 ? 1 : 0),
   );
+  lines.push(metricLine('aspb_alert_state', { alert: 'crm_delivery_blocked' }, crmDeliveryBlocked > 0 ? 1 : 0));
+  lines.push(
+    metricLine('aspb_alert_state', { alert: 'crm_delivery_dead_letters' }, crmDeliveryDeadLetters > 0 ? 1 : 0),
+  );
+
+  if (mediaStorage) {
+    lines.push('# HELP aspb_media_storage_probe_success Whether local media capacity is readable.');
+    lines.push('# TYPE aspb_media_storage_probe_success gauge');
+    lines.push(metricLine('aspb_media_storage_probe_success', { provider: 'local_fs' }, mediaStorage.ok ? 1 : 0));
+    if (mediaStorage.ok) {
+      lines.push('# HELP aspb_media_storage_bytes Local media filesystem bytes.');
+      lines.push('# TYPE aspb_media_storage_bytes gauge');
+      lines.push(
+        metricLine(
+          'aspb_media_storage_bytes',
+          { provider: 'local_fs', state: 'total' },
+          Number(mediaStorage.capacity.totalBytes),
+        ),
+      );
+      lines.push(
+        metricLine(
+          'aspb_media_storage_bytes',
+          { provider: 'local_fs', state: 'available' },
+          Number(mediaStorage.capacity.availableBytes),
+        ),
+      );
+      lines.push('# HELP aspb_media_storage_inodes Local media filesystem inodes.');
+      lines.push('# TYPE aspb_media_storage_inodes gauge');
+      lines.push(
+        metricLine(
+          'aspb_media_storage_inodes',
+          { provider: 'local_fs', state: 'total' },
+          Number(mediaStorage.capacity.totalInodes),
+        ),
+      );
+      lines.push(
+        metricLine(
+          'aspb_media_storage_inodes',
+          { provider: 'local_fs', state: 'available' },
+          Number(mediaStorage.capacity.availableInodes),
+        ),
+      );
+    }
+  }
 
   return `${lines.join('\n')}\n`;
 }

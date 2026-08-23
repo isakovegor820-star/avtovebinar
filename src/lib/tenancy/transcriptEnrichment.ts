@@ -436,7 +436,9 @@ export async function listAiSuggestions(db: PrismaClient, context: TenantContext
   });
   if (!webinar) unavailable('Webinar');
   const suggestions = await db.aiSuggestion.findMany({
-    where: { organizationId: context.organizationId, webinarId },
+    // Participant-question moderation is a separate OWNER/MODERATOR surface.
+    // Never expose those drafts through the broader creator suggestion list.
+    where: { organizationId: context.organizationId, webinarId, type: { not: 'CHAT_MODERATOR_REPLY' } },
     orderBy: [{ createdAt: 'desc' }, { type: 'asc' }, { orderIndex: 'asc' }],
   });
   return { suggestions: suggestions.map(publicSuggestion) };
@@ -470,6 +472,8 @@ export async function reviewAiSuggestion(
       where: { id: suggestionId, organizationId: context.organizationId, webinarId },
     });
     if (!suggestion) unavailable();
+    if (suggestion.type === 'CHAT_MODERATOR_REPLY' || !suggestion.transcriptId) unavailable();
+    const transcriptId = suggestion.transcriptId;
     if (suggestion.status !== 'PENDING' || suggestion.revision !== input.expectedRevision) {
       throw new AppError(409, 'Предложение уже изменилось', undefined, 'suggestion_revision_conflict');
     }
@@ -499,14 +503,14 @@ export async function reviewAiSuggestion(
       } else if (suggestion.type === 'CHAPTER') {
         const value = content as z.infer<typeof chapterContentSchema>;
         const max = await tx.webinarChapter.aggregate({
-          where: { webinarId, transcriptId: suggestion.transcriptId },
+          where: { webinarId, transcriptId },
           _max: { orderIndex: true },
         });
         const chapter = await tx.webinarChapter.create({
           data: {
             organizationId: context.organizationId,
             webinarId,
-            transcriptId: suggestion.transcriptId,
+            transcriptId,
             startMs: value.startMs,
             title: value.title,
             description: value.description ?? null,
@@ -558,8 +562,9 @@ export async function reviewAiSuggestion(
             orderIndex: (max._max.orderIndex ?? -1) + 1,
             offsetSeconds: value.offsetSeconds,
             kind: 'PREPARED_QUESTION',
+            status: 'APPROVED',
             text: value.text,
-            authorLabel: 'Подготовленный AI-вопрос',
+            authorLabel: 'Подготовленный вопрос',
             isSynthetic: true,
             metadataJson: { source: 'ai_suggestion', suggestionId: suggestion.id },
           },

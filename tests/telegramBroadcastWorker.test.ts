@@ -7,9 +7,12 @@ process.env.NODE_ENV = 'test';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendTelegramMessageToChat } = vi.hoisted(() => ({ sendTelegramMessageToChat: vi.fn() }));
+const { sendTelegramMessageToChat, sendOperationalTelegramAlert } = vi.hoisted(() => ({
+  sendTelegramMessageToChat: vi.fn(),
+  sendOperationalTelegramAlert: vi.fn(),
+}));
 
-vi.mock('../src/lib/telegram.js', () => ({ sendTelegramMessageToChat }));
+vi.mock('../src/lib/telegram.js', () => ({ sendTelegramMessageToChat, sendOperationalTelegramAlert }));
 
 vi.mock('../src/lib/prisma.js', () => {
   const prisma = {

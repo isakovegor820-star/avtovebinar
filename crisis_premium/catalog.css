@@ -447,6 +447,139 @@ body[data-detail-mode='content'] #detailContent {
   font-size: 0.8125rem;
 }
 
+.catalog-registration-form,
+.catalog-registration-field,
+.catalog-marketing-options {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.catalog-registration-form {
+  margin-block-start: 1.25rem;
+  gap: 1rem;
+}
+
+.catalog-registration-field label,
+.catalog-marketing-options summary {
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.catalog-registration-field input,
+.catalog-registration-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  border: 1px solid #93a2ad;
+  border-radius: 0.55rem;
+  background: #fff;
+  padding-inline: 0.75rem;
+  color: #041627;
+  font: inherit;
+}
+
+.catalog-registration-field input:focus-visible,
+.catalog-registration-field select:focus-visible,
+.catalog-consent-row:has(input:focus-visible),
+.catalog-secondary-button:focus-visible,
+.catalog-marketing-options summary:focus-visible {
+  outline: 3px solid #f4c95d;
+  outline-offset: 3px;
+}
+
+.catalog-consent-row {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem;
+  border-radius: 0.55rem;
+  padding: 0.55rem;
+  color: #e8edf0;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.catalog-consent-row input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-block-start: 0.1rem;
+  accent-color: #f4c95d;
+}
+
+.catalog-consent-row a,
+.catalog-marketing-options a {
+  color: #fff;
+  font-weight: 750;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.15em;
+}
+
+.catalog-marketing-options {
+  border-block: 1px solid rgb(255 255 255 / 24%);
+  padding-block: 0.75rem;
+}
+
+.catalog-marketing-options summary {
+  min-height: 2.75rem;
+  cursor: pointer;
+  line-height: 2.75rem;
+}
+
+.catalog-marketing-options p {
+  margin: 0;
+  color: #cbd2d8;
+  font-size: 0.8125rem;
+}
+
+.catalog-registration-status {
+  min-height: 1.5rem;
+  margin-block: 0.9rem 0;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.catalog-registration-status[data-state='error'] {
+  border-inline-start: 0.25rem solid #ffb4ab;
+  padding-inline-start: 0.75rem;
+}
+
+.catalog-registration-status[data-state='success'] {
+  border-inline-start: 0.25rem solid #8fd5a6;
+  padding-inline-start: 0.75rem;
+}
+
+.catalog-secondary-button {
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid #fff;
+  border-radius: 0.55rem;
+  background: transparent;
+  padding: 0.65rem 1rem;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 750;
+}
+
+.catalog-secondary-button[aria-pressed='true'] {
+  background: #fff;
+  color: #041627;
+}
+
+.catalog-honeypot {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .catalog-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

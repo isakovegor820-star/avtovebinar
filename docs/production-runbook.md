@@ -47,7 +47,7 @@ chmod 600 .env.production
 - `IP_HASH_SECRET`
 - `METRICS_TOKEN` для `Authorization: Bearer ...` на `/metrics`
 - SMTP-поля
-- Telegram bot tokens и usernames: `TELEGRAM_ADMIN_BOT_USERNAME`, `TELEGRAM_PARTICIPANT_BOT_USERNAME`, при необходимости `TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME`
+- Telegram platform bot tokens/usernames; tenant не получает собственный token. Для tenant flow дополнительно: отдельные `TELEGRAM_CALLBACK_SECRET`, `TELEGRAM_OPERATIONAL_CHAT_ID` и rollout flag `TENANT_TELEGRAM_BOTS_ENABLED=off`
 - Видео: внешний private origin в `WEBINAR_VIDEO_HLS_URL`/`WEBINAR_VIDEO_URL` и `WEBINAR_MEDIA_ORIGIN_TOKEN` либо same-origin путь к файлу из read-only mount; если заданы оба формата, HLS используется первым
 - `WORKER_ROLE=api` для API container, `WORKER_ROLE=webinar` для worker container
 - `TRUST_PROXY=1`, если API стоит за Nginx/reverse proxy
@@ -68,6 +68,7 @@ chmod 600 .env.production
 - `METRICS_TOKEN` заполнен непубличным значением длиной минимум 16 символов
 - `TRUST_PROXY` включен только за доверенным reverse proxy
 - защищённый `/health/dependencies/details` проходит и Telegram `getMe.username` совпадает с настроенными bot usernames
+- при `TELEGRAM_NOTIFY_MODE=send` operational chat задан и отличается от legacy `TELEGRAM_ADMIN_CHAT_ID`; tenant callbacks используют отдельный стабильный HMAC secret
 - В production нет localhost URL в `WEBINAR_VIDEO_HLS_URL`, `WEBINAR_VIDEO_URL`, `WEBINAR_POSTER_URL`
 
 ## Миграции и seed
@@ -367,10 +368,35 @@ npm run prisma:deploy
 `CREATOR_DASHBOARD_ENABLED=off`; таблицы и audit не удаляются. Старый image не
 знает новый scenario API, но legacy scripted chat остаётся совместимым.
 
-Public catalog не требует migration и включается отдельным
-`PUBLIC_CATALOG_ENABLED`. До switch держите его `off`: legacy landing скрывает
-ссылку, catalog API и `/sitemap.xml` отвечают 404, registration/room не
-изменяются. Перед включением:
+Public catalog registration и кабинет зрителя добавлены additive migration
+`20260821130000_viewer_account_registration`. Она backfill-ит trusted
+Organization/Webinar/User links у legacy Registration через существующую
+WebinarSession и normalized Lead email, не создаёт membership и никогда не
+копирует `AdminUser`. Новые viewer tables появляются пустыми. До migration и
+switch держите `PUBLIC_CATALOG_ENABLED=off` и сохраните preflight рядом с
+verified backup:
+
+```bash
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821130000_viewer_account_registration_preflight.sql
+npm run prisma:deploy
+node scripts/run-libpq-command.mjs psql \
+  -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821130000_viewer_account_registration_postflight.sql
+npm run prisma:deploy
+```
+
+Preflight обязан показать существующий registration count, ноль registration
+без session scope, ноль ненормализуемых email и ни одной строки duplicate
+normalized Lead email. Не продолжайте автоматически, если любой invariant не
+выполнен. Postflight требует нули для missing scoped links, session-scope
+mismatch, viewer progress/note mismatch и duplicate favorites. Повторный deploy
+должен сообщить `No pending migrations`.
+
+Rollout выполняется отдельным `PUBLIC_CATALOG_ENABLED`. До switch legacy landing
+скрывает ссылку, catalog API/register и `/sitemap.xml` отвечают 404, legacy
+`/api/register`, room и партнёрская воронка не изменяются. Перед включением:
 
 1. Пройдите full CI и targeted catalog integration/browser acceptance на image,
    который содержит `src/lib/catalog.ts` и `crisis_premium/catalog*.html`.
@@ -384,31 +410,92 @@ Public catalog не требует migration и включается отдел�
 4. Проверьте старый slug alias и SUPERSEDED notice. Ссылка на successor
    разрешена только если successor сам eligible; private successor не должен
    раскрываться.
-5. Пока tenant-scoped REG vertical не включена, registration CTA остаётся
-   честно disabled. Не перенаправляйте его на legacy single-Webinar форму:
-   это свяжет заявку с неправильным Webinar.
+5. На показанном PUBLIC Webinar выберите exact session и пройдите anonymous
+   registration → email exchange → room → replay → account. В БД Registration
+   обязана иметь matching Organization/Webinar/Session/User и
+   `access_policy=public_catalog`; повторная отправка не создаёт дубль.
+6. Отдельно отправьте forged `organizationId`, foreign/unknown session и
+   cross-tenant viewer/favorite/progress/note IDs: ответы должны совпадать с
+   safe unknown 404, а foreign rows и Lead/CRM events не должны появиться.
+7. В кабинете проверьте upcoming/recordings/watched/saved, exact timezone и
+   expiry, empty/error/expired/revoked states, favorite без выдачи private
+   access, note privacy/delete и replay position restore. Hidden tab не должна
+   писать progress; duplicate eventId не создаёт второй event/row.
+8. Отключите и включите marketing email/Telegram отдельно от service channels;
+   personal-data consent не отзывается. Обязательная отправка с иным законным
+   основанием всё равно должна проверяться delivery policy, а не только UI
+   preference.
+9. Проверьте 320 px, keyboard/focus flow и отсутствие horizontal overflow.
 
 Rollback — только `PUBLIC_CATALOG_ENABLED=off`. Ничего не удаляйте и не меняйте
-visibility существующих Webinar. При отключении sitemap снова отвечает 404, а
-legacy landing продолжает прежнюю воронку.
+visibility существующих Webinar, Registration scope и viewer rows. При
+отключении sitemap/register снова отвечают 404, а legacy landing продолжает
+прежнюю воронку. Старый application image после migration допустим только если
+он не удаляет/перезаписывает новые nullable Registration links; schema rollback
+не выполнять.
 
 Media foundation разворачивается со значением
 `MEDIA_STORAGE_PROVIDER=unconfigured`. В этом режиме migration и status data
 безопасны, но новый upload init fail-closed отвечает `503`; legacy room/replay
 media gateway не меняется. `MEDIA_STORAGE_PROVIDER=test_fake` запрещён вне
 test. Creator UI при такой конфигурации показывает честную provider error, а legacy flow
-продолжает работать. Для provider rollout задайте точный comma-separated allowlist HTTPS
-origins в `MEDIA_UPLOAD_CSP_ORIGINS` и отдельно проверьте private multipart origin, server
-part checkpoints/resume, CORS, MIME signature,
+продолжает работать.
+
+Для выбранного односерверного контура используйте
+`MEDIA_STORAGE_PROVIDER=local_fs`. В Docker `MEDIA_LOCAL_ROOT` намеренно
+зафиксирован как `/var/lib/aspb/media`, а named volume монтируется в тот же path
+API и worker. Не меняйте внутренний container path через `.env`: host-side
+расположение управляется Docker volume. Для запуска без Docker задайте абсолютный
+private `MEDIA_LOCAL_ROOT` вне repository/web root и права владельца runtime
+`0700`; readiness выполнит безопасную write-проверку без возврата пути.
+
+Local upload идёт streaming-запросами через
+`PUT /api/v1/creator/uploads/:uploadId/parts/:partNumber/content`. Reverse proxy
+должен разрешать как минимум `MEDIA_PART_SIZE_BYTES` на этом route и не
+буферизовать весь request в RAM. Endpoint требует User cookie + CSRF и повторно
+проверяет tenant/author/upload scope; URL сам по себе не является правом. После
+`fsync` SHA-256 ETag и checkpoint сохраняются server-side. API/worker должны
+видеть один volume; не масштабируйте их на hosts с разными локальными дисками.
+
+Перед switch выполните private multipart, server part checkpoints/resume, MIME signature,
 ffprobe duration, checksum, HLS manifest, poster, retry/dead-letter и
-cookie-authorized Range/HLS delivery. Rollback application path — вернуть
-provider в `unconfigured`; таблицы, READY versions и audit не удалять, а
-`current_media_asset_id` не переключать.
-Реальный adapter включается только после acceptance через
-`MEDIA_STORAGE_PROVIDER=s3` и полный набор `MEDIA_S3_*`. API/worker image должен
-содержать `ffmpeg` и `ffprobe`; paths задаются `MEDIA_FFMPEG_PATH` и
-`MEDIA_FFPROBE_PATH`. Перед switch проверьте bucket lifecycle для incomplete multipart,
-provider CORS, worker disk space под source + renditions и outbound access к object storage.
+cookie-authorized Range/HLS delivery, volume capacity/inodes, restart resume и
+backup/restore PostgreSQL + media volume. Rollback application path — вернуть
+provider в `unconfigured`; volume, таблицы, READY versions и audit не удалять, а
+`current_media_asset_id` не переключать. Откат флага не является удалением media.
+
+API/worker image содержит `ffmpeg` и `ffprobe`; paths задаются
+`MEDIA_FFMPEG_PATH` и `MEDIA_FFPROBE_PATH`. Проверяйте свободное место под
+source, HLS/poster/OGG и рабочие временные файлы. Incomplete local multipart
+удаляется application cleanup после 24 часов; проверьте cleanup и audit на
+staging. Media volume не входит в PostgreSQL backup: snapshot/копия volume и
+контрольное восстановление обязательны отдельно.
+
+Когда выбран `MEDIA_STORAGE_PROVIDER=local_fs`, защищённый `/metrics` отдаёт
+`aspb_media_storage_probe_success{provider="local_fs"}` и gauge
+`aspb_media_storage_bytes`/`aspb_media_storage_inodes` со значениями `total` и
+`available`. Метрики не содержат filesystem path или storage keys. До включения
+media на staging задайте внешние warning/critical alerts для свободных bytes и
+inode по фактическому размеру volume, параллельности загрузок и результату load
+test; универсальные пороги в application намеренно не зашиты. Значение probe `0`
+считайте отдельным operational incident: приложение не смогло прочитать capacity.
+
+До сборки image локально выполните `npm run media:acceptance`. В CI тот же gate
+обязательно запускается внутри уже собранного production image командой
+`NODE_ENV=test node dist/src/cli/mediaAcceptance.js`. Успешный результат должен
+содержать `ok:true`, accepted `mp4`/`mov`/`webm` и safe rejection codes для
+повреждённой сигнатуры, MIME mismatch, duration limit, malformed ffprobe и
+transcoder timeout. Fixtures и private storage создаются только во временном
+каталоге и удаляются в `finally`. Это доказывает наличие codecs и корректность
+pipeline конкретного image, но не заменяет фактическую 4 ГБ передачу и
+volume/load/backup acceptance на staging.
+
+S3 остаётся альтернативным, но не выбранным путём. Он включается только после
+legal/budget/provider acceptance через `MEDIA_STORAGE_PROVIDER=s3`, полный набор
+`MEDIA_S3_*` и точный comma-separated HTTPS allowlist
+`MEDIA_UPLOAD_CSP_ORIGINS`. Перед таким switch отдельно проверьте bucket
+lifecycle для incomplete multipart, provider CORS, outbound access и следующий
+recovery case.
 Отдельно сымитируйте потерю ответа после provider-side
 `CompleteMultipartUpload`: `ListParts` вернёт `NoSuchUpload`, resume должен
 вернуть все trusted checkpoints без новых signed parts, а repeat complete —
@@ -876,7 +963,7 @@ npm run e2e:install
 npm run e2e
 ```
 
-`npm run e2e:install` ставит Playwright Chromium. В CI используется эквивалентная команда `npx playwright install --with-deps chromium`. `npm run e2e` поднимает Playwright browser checks для регистрации, success page, cookie/session входа в комнату, очистки token из URL, live/DVR поведения, чата, вопроса и partner application.
+`npm run e2e:install` ставит Playwright Chromium. В CI используется эквивалентная команда `npx playwright install --with-deps chromium`. `npm run e2e` поднимает Playwright browser checks для регистрации, success page, cookie/session входа в комнату, очистки token из URL, live/DVR поведения, published transcript/chapters/search/captions, keyboard player controls, safe media states, 320px layout, чата, вопроса и partner application.
 Сам `playwright.config.ts` запускает test-DB guard до импорта spec-файлов,
 поэтому прямой `npx playwright test` также не сможет выполнить `TRUNCATE` на
 унаследованной внешней или production-like БД.
@@ -891,10 +978,331 @@ npm run e2e
 6. Проверить, что room/timeline/chat работают через cookie/session.
 7. В live-состоянии проверить DVR: отмотку назад в прошедший буфер, отсутствие доступа к будущему видео и кнопку `К эфиру`.
 8. Проверить видео: HLS играет первым, а браузер во всех режимах получает cookie-защищённый `/api/media/*`, не origin URL. Прямой public media path должен давать 401/403/404; внешний origin без `WEBINAR_MEDIA_ORIGIN_TOKEN` должен отклоняться.
-9. Отправить вопрос и увидеть его в чате/CRM.
-10. Дождаться/смоделировать завершение эфира и проверить “Вебинар окончен” на видео и открытый чат.
-11. Отправить partner application и увидеть заявку в CRM.
-12. Проверить admin CRM: карточка регистрации, статусы, заметки, заявки, вопросы.
+9. Проверить главы, поиск опубликованного транскрипта и WebVTT captions: draft/reviewed или transcript прежнего MediaAsset не должны появиться; manifest, segments, poster и captions после expiry/revoke должны отвечать одинаковым safe 404.
+10. Только клавиатурой проверить play/pause, seek, mute, captions, fullscreen, результаты поиска и skip-link; при 320 px горизонтального overflow быть не должно.
+11. Из catalog detail зарегистрироваться на показанную exact session, подтвердить email и проверить trusted Organization/Webinar/Session/User links и отсутствие дубля при repeat submit.
+12. В replay создать личную заметку, сохранить foreground progress, открыть кабинет, проверить timezone/expiry/favorite и восстановить позицию; hidden tab не должна умножать writes.
+13. Из кабинета изменить marketing channel, не меняя service channel и personal-data consent; expired/revoked карточка не должна иметь кнопку входа.
+14. Отправить вопрос и увидеть его в чате/CRM.
+15. Дождаться/смоделировать завершение эфира и проверить понятное состояние завершённого доступа, закрытую media delivery и допустимый следующий путь через «Мой доступ».
+16. Отправить partner application и увидеть заявку в CRM.
+17. С включённым только на принятом staging-контуре `TENANT_CRM_ENABLED` открыть `/crisis_premium/crm.html`: проверить URL-фильтры, masked ANALYST view, timeline без текста личной заметки/chatId, lost reason и audit перехода.
+18. Создать задачу с tenant assignee, due/reminder/priority; проверить timezone воронки, очереди «Сегодня», «Просрочено», «Без задачи», обновление `nextContactAt`, завершение/отмену без отправки email/Telegram и task audit.
+19. Проверить explainable scoring: реальные registration/room/50% progress/question/CTA дают по одному фактору с source/dedup; повтор события не умножает factor, новая OWNER-версия пересчитывает балл, manual hot требует причину и audit, а clearing возвращает automatic status.
+20. Создать tenant tag, назначить/снять его с контакта, архивировать использованный тег; проверить одинаковое имя в другом tenant, normalized-name conflict внутри tenant и safe unknown/foreign contact/tag.
+21. Проверить, что foreign/unknown contact, stage, task, assignee и tag дают одинаковое безопасное отсутствие в своей категории, а выключение `TENANT_CRM_ENABLED` немедленно возвращает новый CRM API/UI в безопасное недоступное состояние без изменения legacy CRM.
+
+## Tenant CRM expand/backfill и rollout
+
+Migration `20260821140000_crm_contact_pipeline` является additive: legacy
+`Lead`, `Registration.crmStatus`, manager/nextContact и старый CRM application
+path не удаляются. До deploy новый API закрыт комбинацией
+`PLATFORM_ACCOUNTS_ENABLED=off`/`TENANT_CRM_ENABLED=off`. Credentials или
+внешний provider для этого batch не требуются.
+
+На read-only production replica либо на свежей восстановленной staging-копии
+сначала сохраните результат preflight (он выполняет только `SELECT`):
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821140000_crm_contact_pipeline_preflight.sql
+```
+
+Отдельно проверьте ненулевые legacy counts, распределение `crm_status`, manager
+и `next_contact_at`. `duplicate_normalized_emails_within_tenant`,
+`invalid_phone_for_crm_normalization` или `invalid_legacy_crm_stage_codes`
+больше нуля блокируют migration; `unrecognized_legacy_status`,
+multi-organization Lead и conflicting legacy statuses требуют явной сверки
+ожидаемого backfill до продолжения. Не исправляйте production data
+импровизированным SQL.
+
+После verified backup и exact-SHA CI/staging gate примените штатный expand:
+
+```bash
+npx prisma migrate deploy
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821140000_crm_contact_pipeline_postflight.sql
+npx prisma migrate deploy
+```
+
+Все postflight violation counts должны быть `0`, повторный deploy — `No pending
+migrations`. Сверьте один в один шесть protected ASPB codes:
+`consultation`, `transferred_to_aspb`, `contract_pending`, `contract_signed`,
+`payout_due`, `paid`, а также counts Registration до/после, manager,
+`nextContactAt`, contact/Lead scope и stage transition history. Следующая
+additive migration `20260821141000_crm_stage_integrity_hardening` должна быть в
+той же deploy history: она делает stage tenant/pipeline/code/category и
+protected-state неизменяемыми на DB boundary и запрещает связать Registration
+с CRMContact другого Lead.
+
+Перед task/SLA expand отдельно сохраните read-only evidence:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821150000_crm_tasks_sla_preflight.sql
+```
+
+`legacy_next_contacts_without_tenant_assignee` — review count, а не разрешение
+создать фиктивного tenant User: такие строки сохраняют legacy `nextContactAt`
+без искусственной задачи. После additive migration
+`20260821150000_crm_tasks_sla` выполните
+`20260821150000_crm_tasks_sla_postflight.sql`; все scope/lifecycle/projection/
+event violation counts должны быть `0`. Ни migration, ни локальная проверка не
+отправляет reminder по email/Telegram.
+
+Перед scoring/tag expand сохраните read-only evidence:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821160000_crm_scoring_tags_preflight.sql
+```
+
+Проверьте legacy counts `is_hot`, `room_entered_at`, реальные
+`room_entered`/`webinar_room_open` events и распределение tenant registrations.
+Migration `20260821160000_crm_scoring_tags` создаёт базовую версию из пяти
+задокументированных правил и backfill только из существующих registration,
+room/progress/question/CTA rows. Следующая additive migration
+`20260821161000_crm_scoring_legacy_room_backfill` добавляет отсутствующий room
+factor только при наличии реального legacy room event. Она не создаёт tags и не
+копирует `AdminUser` в tenant User/membership.
+
+После deploy выполните:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821160000_crm_scoring_tags_postflight.sql
+npx prisma migrate deploy
+```
+
+Все scoring model/rule/factor/score/manual-hot/tag scope и normalization
+violation counts должны быть `0`, повторный deploy — `No pending migrations`.
+На staging отдельно проверьте immutable factor/active-rule DB guards,
+идемпотентные repeat signal/manual hot/version activation, archived used tag и
+cross-tenant safe 404. Изменение scoring points не отправляет email/Telegram и
+не считается согласием на коммуникацию.
+
+Перед bulk/export expand сохраните read-only evidence на восстановленной копии:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821170000_crm_bulk_export_preflight.sql
+```
+
+Зафиксируйте contact/task counts и число уже выданных explicit export
+permissions. `crm_bulk_actions_relation_before_expand` и наличие
+`crm_tasks.bulk_action_id` — evidence состояния схемы, а не основание выполнять
+cleanup. Migration `20260821170000_crm_bulk_export` создаёт только durable
+preview/result и nullable task link; она не создаёт контакты, задачи или
+экспорты. Следующая forward-only migration
+`20260821171000_crm_bulk_integrity_hardening` валидирует discriminator, точный
+terminal result/snapshot и запрещает связать задачу с bulk action другого типа.
+
+После deploy выполните:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821170000_crm_bulk_export_postflight.sql
+npx prisma migrate deploy
+```
+
+Все requester/snapshot/result/task/constraint violation counts должны быть `0`,
+повторный deploy — `No pending migrations`. До выдачи экспорта владелец обязан
+явно установить permission только нужному active membership:
+`permissionsJson.crm.export=true`. Роль сама по себе permission не заменяет;
+ANALYST/AUDITOR с permission всё равно получают masked CSV. Успешный CSV идёт
+только текущим `private, no-store` response, ограничен 10000 rows, экранирует
+spreadsheet formulas и не сохраняется в БД/object storage. Preview действует 10
+минут, фиксирует максимум 1000 contact IDs и требует отдельного execute.
+
+На staging того же SHA проверьте exact preview count, идемпотентный replay,
+partial result после archive одного контакта, все четыре action type,
+foreign/unknown preview и target safe 404, expired preview, DB result guard,
+отказ export без permission, masked analyst export, formula-injection escape и
+audit без ПДн/contact IDs. Этот batch не enqueue-ит и не отправляет
+email/Telegram.
+
+Перед tenant CRM delivery expand сохраните отдельный read-only snapshot:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821180000_crm_consent_delivery_preflight.sql
+```
+
+Зафиксируйте counts CRMContact, exact tenant-scoped Registration и действующих
+marketing email/Telegram grants. `crm_deliveries_relation_before_expand` должен
+быть пустым до первой установки migration; если relation либо запись migration
+уже существуют, сначала сверяйте deploy history, а не повторяйте SQL вручную.
+Migration `20260821180000_crm_consent_delivery` additive: она создаёт только
+durable очередь и tenant/target/consent/requester guards, не backfill-ит и не
+отправляет ни одного сообщения. Recipient email и Telegram chatId в job не
+сохраняются; worker получает их из текущей trusted Registration/Lead/User связи
+только после повторной проверки consent.
+
+После exact-SHA deploy с `TENANT_CRM_ENABLED=off` выполните:
+
+```bash
+npx prisma migrate deploy
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821180000_crm_consent_delivery_postflight.sql
+npx prisma migrate deploy
+```
+
+Все scope/requester/consent/lifecycle/message/idempotency/constraint/trigger
+violation counts должны быть `0`, повторный deploy — `No pending migrations`.
+До provider smoke test оставьте `EMAIL_MODE=log`: такая задача честно переходит
+в `CANCELLED` с безопасным кодом, а не становится фиктивно `SENT`. Локальная
+разработка не должна использовать реальные SMTP/Telegram credentials.
+
+На staging того же SHA и только с тестовыми адресатами проверьте: отсутствие
+enqueue без актуального согласия; exact Webinar/Session scope; одинаковый safe
+404 для foreign/unknown contact, registration и delivery; идемпотентный enqueue
+и retry; отзыв consent после enqueue, но до claim, даёт `BLOCKED` без provider
+call; временная provider-ошибка получает bounded backoff, пятая —
+`DEAD_LETTER`; повторный grant разрешает только явный retry. В карточке и
+timeline должны быть status/attempts/safe code, но не message body, email,
+chatId или provider error. Наблюдайте `aspb_queue_depth{queue="crm_delivery"}`,
+`crm_delivery_blocked`, `crm_delivery_dead_letter` и одноимённые alert states.
+
+Разворачивайте application с `TENANT_CRM_ENABLED=off`. На staging включите флаг
+только после migration/postflight и проверьте OWNER, CRM_MANAGER, ANALYST и
+foreign tenant cases. Текущий флаг глобальный, поэтому production canary одной
+организации ещё не разрешён: до появления принятого tenant allowlist/rollout
+mechanism флаг в production остаётся `off`.
+
+Application rollback: немедленно вернуть `TENANT_CRM_ENABLED=off` и оставить
+additive tables на месте. Stage transition dual-write сохраняет стабильный code
+в `Registration.crmStatus`, поэтому совместимый legacy path продолжает видеть
+статус. Down-migration, удаление CRMContact/Stage/history и запуск старого image,
+не знающего migration contract, запрещены; schema cleanup выполняется только
+будущей отдельной contract migration после observation и нового backup.
+
+## Chat/moderation expand и rollout
+
+До migrations `20260821190000_chat_moderation`,
+`20260821191000_chat_synthetic_identity_hardening`,
+`20260823085000_ai_suggestion_chat_type` и
+`20260823090000_question_moderation_grounding`, а также compatibility migration
+`20260823091000_question_legacy_scope_compatibility` сохраните результаты
+обоих read-only preflight. Первый фиксирует legacy type/synthetic
+counts, осиротевшие session links, foreign registration links, scenario
+status counts и active chat bans; второй — фактические synthetic labels,
+которые additive migration нормализует в честные функциональные имена.
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821190000_chat_moderation_preflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821191000_chat_synthetic_identity_preflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823090000_question_moderation_grounding_preflight.sql
+```
+
+Затем при rollout flags `off`:
+
+```bash
+npx prisma migrate deploy
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821190000_chat_moderation_postflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260821191000_chat_synthetic_identity_postflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823090000_question_moderation_grounding_postflight.sql
+npx prisma migrate deploy
+```
+
+Каждый violation count в postflight должен быть `0`, а повторный deploy —
+`No pending migrations`. Migrations не создают фиктивных сообщений,
+участников или online count. Legacy JSON fallback остаётся, но его flood rows
+не выдаются. Compatibility triggers выводят записи старого image в
+канонический tenant/session/type/identity contract; удалять их до
+отдельного contract cleanup нельзя.
+
+На staging того же SHA примите exact-session room polling, approved-only
+scenario, visible/accessibility synthetic labels, HTML/bidi rejection, duplicate/rate
+limit, immediate hide/restore, registration block/restore, revision conflict, safe
+foreign/unknown 404 и audit reason/actor. Для очереди вопросов отдельно проверьте
+`new`/`repeating`/`priority`, optimistic revision, CRM/participant-history event,
+поиск только по latest `PUBLISHED` transcript и явным `WebinarSource`, отсутствие
+draft/reviewed text, таймкод/HTTPS citation, no-basis handoff и блокировку
+personalized legal advice. До human `PUBLISH` в комнате не должно появляться
+`AI_MODERATOR`-сообщение; после публикации оно обязано иметь synthetic label и
+safe grounding без storage/provider/token данных. OWNER/MODERATOR должны видеть
+только свою Organization; AUTHOR не получает moderation permission.
+
+Application rollback: вернуть `CREATOR_DASHBOARD_ENABLED=off` или
+`PLATFORM_ACCOUNTS_ENABLED=off`. Это скроет creator/moderation UI/API, но не
+удалит normalized rows, moderation audit и legacy room path. Schema rollback,
+денормализация types/identity и запуск image без compatibility с обоими
+chat migrations запрещены.
+
+## Tenant Telegram expand и rollout
+
+Migrations `20260823100000_telegram_manager_callback_foundation`,
+`20260823101000_telegram_manager_crm_source`,
+`20260823102000_telegram_consultant_classification` и
+`20260823103000_tenant_telegram_broadcast` additive. Они не создают bindings,
+callbacks, consultant messages, templates, jobs или recipients и не запускают
+отправку. До deploy сохраните read-only preflight с восстановленной staging-копии:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823100000_telegram_manager_callback_foundation_preflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823101000_telegram_manager_crm_source_preflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823102000_telegram_consultant_classification_preflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823103000_tenant_telegram_broadcast_preflight.sql
+```
+
+Любой conflict с существующей relation/enum, invalid legacy manager-hot source
+или partially scoped broadcast row блокирует deploy до сверки history. Не
+исправляйте production rows вручную во время rollout.
+
+Deploy выполняется с `TENANT_TELEGRAM_BOTS_ENABLED=off`, polling выключен и
+`TELEGRAM_NOTIFY_MODE=log`. После migration:
+
+```bash
+npx prisma migrate deploy
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823100000_telegram_manager_callback_foundation_postflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823101000_telegram_manager_crm_source_postflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823102000_telegram_consultant_classification_postflight.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f prisma/checks/20260823103000_tenant_telegram_broadcast_postflight.sql
+npx prisma migrate deploy
+```
+
+Все violation counts должны быть `0`, повторный deploy — `No pending
+migrations`. До provider smoke test проверьте production guard: platform bot
+identities заданы, tenant token/env отсутствует, `TELEGRAM_CALLBACK_SECRET`
+стабилен, а `TELEGRAM_OPERATIONAL_CHAT_ID` не совпадает с admin/manager chat.
+
+Staging acceptance проводится только на тестовой организации и тестовых
+Telegram accounts: one-time participant/manager token replay, OWNER
+confirm/revoke, callback signature/expiry/idempotency/cross-tenant, все
+participant commands, expired replay/revoked grant, consultant legal-question
+handoff и reasoned classification correction. Для broadcast отдельно проверить
+unknown template variable, mandatory room link, preview без job, expired/wrong
+preview token, exact session segment, отдельный confirm, consent revoke между
+confirm/send, retry/dead-letter, pause/resume/cancel/progress и повторный send
+worker tick. Bot events/logs не должны содержать email, phone, raw chat ID,
+signed URL, callback/start token или provider error; delivery event должен иметь
+correlation ID и provider message ID, когда Telegram его вернул.
+
+После acceptance можно временно включить tenant flag только в изолированном
+staging contour. Текущий flag глобальный: production canary одной организации
+не разрешён до принятого tenant allowlist/rollout mechanism. Реальные
+broadcast/email/Telegram sends и production migration требуют отдельного
+разрешения.
+
+Application rollback: вернуть `TENANT_TELEGRAM_BOTS_ENABLED=off`, отключить
+tenant polling и оставить additive rows/history на месте. Не ротировать platform
+bot/callback secrets как способ обычного rollback: это отдельная incident
+procedure. Down-migration, delete history и старый image без нового enum/schema
+contract запрещены.
 
 ## Минимальный production checklist
 
@@ -909,6 +1317,9 @@ npm run e2e
 - [ ] `VIDEO_ENV_FILE=.env.production bash scripts/check-video.sh` подтверждает настроенный источник и длительность 3860 секунд.
 - [ ] Telegram participant bot протестирован.
 - [ ] Telegram admin bot протестирован.
+- [ ] Tenant Telegram flag выключен до postflight; manager binding OWNER-confirmed/revocable, callback cross-tenant/expiry/replay и participant commands приняты на staging.
+- [ ] Operational Telegram chat отделён от admin/manager chats; structured alert не содержит ПДн, token или signed URL.
+- [ ] Tenant broadcast проходит preview → separate confirm → queue, pause/cancel/retry/dead-letter/progress и immediate pre-send consent recheck только на тестовых адресатах.
 - [ ] Публичный `/health/dependencies` раскрывает только aggregate `ok/status`, без имён компонентов/errors/counts/usernames; полная диагностика доступна только в защищённом `/health/dependencies/details`.
 - [ ] Telegram deep-link `/start` token одноразовый и не работает как room exchange token.
 - [ ] Telegram news работает через durable broadcast jobs: `slot_key`/idempotency уникальны, временная ошибка получает retry, а consent перепроверяется перед каждой отправкой.
@@ -933,8 +1344,32 @@ npm run e2e
 - [ ] Регистрация создает lead/registration.
 - [ ] Регистрация создает `email_outbox_jobs` запись.
 - [ ] Временная SMTP-ошибка не ломает регистрацию, failed job остается в outbox.
+- [ ] Viewer-registration preflight сохранён; migration `20260821130000` и postflight проходят, все violation counts равны нулю, повторный migrate не имеет pending migrations.
+- [ ] CRM read-only preflight `20260821140000` сохранён; non-empty legacy counts/status/manager/nextContact проверены до migration.
+- [ ] CRM migration/postflight на восстановленной staging-копии проходит с нулевыми violation counts; шесть ASPB status codes, registration links и transition history сверены; повторный migrate не имеет pending migrations.
+- [ ] CRM task preflight `20260821150000` сохранён; legacy nextContact без tenant assignee не превращён в фиктивную задачу/AdminUser membership.
+- [ ] CRM task migration/postflight проходит с нулевыми task scope/assignee/lifecycle/nextContact/event violations; повторный migrate не имеет pending migrations.
+- [ ] CRM scoring/tag preflight сохранён; legacy hot/room evidence counts сверены без создания фиктивных events/tags.
+- [ ] CRM scoring/tag migrations/postflight проходят с нулевыми model/rule/factor/score/manual-hot/tag violations; повторный migrate не имеет pending migrations.
+- [ ] CRM bulk/export preflight сохранён; contact/task counts и ранее выданные explicit export permissions проверены до expand.
+- [ ] CRM bulk/export migrations/postflight проходят с нулевыми requester/snapshot/result/task/constraint violations; повторный migrate не имеет pending migrations.
+- [ ] CRM delivery preflight `20260821180000` сохранён; exact tenant registrations и channel consent grants сверены, migration не создала сообщения.
+- [ ] CRM delivery migration/postflight проходит с нулевыми scope/requester/consent/lifecycle/message/idempotency/constraint violations; repeated migrate не имеет pending migrations.
+- [ ] CRM delivery staging acceptance подтверждает enqueue/send consent recheck, revoke-before-send block, idempotent retry, bounded retry/dead-letter, safe cross-tenant 404 и отсутствие message/email/chatId/provider details в API, audit, timeline и логах.
+- [ ] Chat/moderation preflight обоих migrations сохранён; legacy type/synthetic/scenario/ban counts и existing synthetic labels сверены до expand.
+- [ ] Chat/moderation migrations/postflight проходят с нулевыми tenant/session/registration/type/hidden/ban/approved/identity violations; repeated migrate не имеет pending migrations.
+- [ ] Chat staging acceptance подтверждает approved-only exact scenario, честную synthetic-маркировку, sanitization/rate limit и мгновенные reasoned/audited hide/block/restore без cross-tenant disclosure и fake audience.
+- [ ] `TENANT_CRM_ENABLED=off` в production; глобальный switch не используется как canary одной организации до появления tenant allowlist.
+- [ ] CRM OWNER/CRM_MANAGER write, ANALYST masked/read-only, cross-tenant contact/stage/task/assignee/tag/bulk safe 404, lost reason/audit, timezone task queues, explainable scoring/manual hot/tags, exact bulk preview/partial results, permissioned masked CSV и 320 px keyboard path приняты на staging того же SHA.
+- [ ] Catalog CTA регистрирует на показанную exact WebinarSession; forged tenant/session и repeat submit проходят negative/idempotency acceptance без фиктивных CRM events.
+- [ ] Кабинет показывает sections/timezone/expiry/progress/favorites/private notes и честные empty/error/expired/revoked состояния; favorite не открывает PRIVATE Webinar.
+- [ ] Foreground progress throttled/deduplicated, hidden tab не умножает writes, replay восстанавливает позицию.
+- [ ] Marketing/service preferences разделены; marketing revoke сохраняет personal-data consent и отдельно обоснованные обязательные сообщения.
 - [ ] Success page открывается.
 - [ ] Webinar room открывается по персональной exchange-ссылке, после exchange URL без token.
+- [ ] Room snapshot показывает только current published transcript; captions, chapters и search используют одну version/consistency key.
+- [ ] Manifest, каждый HLS segment, poster и captions повторно закрываются после session expiry/private-grant revoke и не раскрывают origin/storage key.
+- [ ] Keyboard и 320 px room acceptance проходят без horizontal overflow.
 - [ ] Вопрос попадает в CRM.
 - [ ] Заявка на партнерский договор попадает в CRM.
 - [ ] Backup создан.
@@ -981,6 +1416,21 @@ production. После bearer-redaction migration не запускайте lega
 label `email-links-v2`: он снова начнёт сохранять bearer-ссылки открытым
 текстом. Если deploy остановился в этом состоянии, оставьте старые API/worker
 выключенными и повторно запустите exact совместимый CI artifact.
+
+Для tenant CRM migrations `20260821140000`–`20260821180000` штатный rollback — только
+`TENANT_CRM_ENABLED=off` и legacy application path. Таблицы, links и история
+остаются; destructive down SQL запрещён. Из-за dual-write stable stage code
+legacy `Registration.crmStatus` продолжает обновляться при включённом новом CRM
+path и остаётся совместимым после выключения флага. `crm_tasks` не удаляются и
+не отправляют внешние reminders сами по себе; старый legacy `nextContactAt`
+остаётся сохранённым до первой новой task mutation конкретного контакта.
+Scoring versions/factors и tag history также остаются additive; выключение CRM
+флага прекращает их application path, но не удаляет данные и не требует
+обратного пересчёта legacy `isHot`. Bulk preview/results и bulk task links
+остаются для audit; CSV на сервере не существует. Delivery jobs/history также
+остаются additive, но выключенный флаг останавливает enqueue и worker; уже
+выданное согласие не является разрешением запускать provider вручную.
+Исправления схемы выполняются только новой forward migration.
 
 ## Следующий уровень после lean-production
 

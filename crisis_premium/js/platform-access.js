@@ -189,6 +189,7 @@ function renderSession(session) {
   setText('platformRole', roleLabels[membership.role] || membership.role);
   node('platformAuthorProfileLink').hidden = !['OWNER', 'AUTHOR'].includes(membership.role);
   node('platformCreatorWebinarsLink').hidden = !['OWNER', 'AUTHOR'].includes(membership.role);
+  node('platformModerationLink').hidden = !['OWNER', 'MODERATOR'].includes(membership.role);
   renderMfaSettings(session, membership);
   const webinarAccess = node('platformWebinarAccess');
   webinarAccess.hidden = !acceptedWebinarAccess;

@@ -193,6 +193,7 @@ async function deliverEmail(input: {
   webinarUrl?: string;
   partnerUrl?: string;
   includeUnsubscribe?: boolean;
+  redactSubjectInLogs?: boolean;
 }) {
   const scheduled = input.scheduledAt ? formatScheduled(input.scheduledAt) : undefined;
 
@@ -200,7 +201,7 @@ async function deliverEmail(input: {
     logger.info(
       {
         to: maskEmail(input.to),
-        subject: input.subject,
+        subject: input.redactSubjectInLogs ? '[redacted-custom-subject]' : input.subject,
         scheduled,
         personalUrl: input.webinarUrl ? '[redacted-personal-link]' : null,
         telegramConfigured: Boolean(env.TELEGRAM_GROUP_URL),
@@ -246,6 +247,15 @@ async function deliverEmail(input: {
   );
 
   return { sent: true, mode: 'send' as const };
+}
+
+export async function sendCrmMarketingEmail(input: { to: string; subject: string; text: string }) {
+  return deliverEmail({
+    to: input.to,
+    subject: input.subject,
+    text: input.text,
+    redactSubjectInLogs: true,
+  });
 }
 
 export async function sendUserPasswordlessLoginEmail(input: PasswordlessLoginEmailInput) {

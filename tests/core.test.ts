@@ -56,7 +56,7 @@ import { eventSchema } from '../src/routes/public/events.js';
 import { getWebinarVideoConfig } from '../src/lib/webinarVideo.js';
 import { getParticipantSessionExpiresAt, PARTICIPANT_SESSION_TTL_DAYS } from '../src/lib/roomLinks.js';
 import { parseVisitorId } from '../src/lib/visitor.js';
-import { checkTelegramConnectivity } from '../src/lib/telegram.js';
+import { checkTelegramConnectivity, sendOperationalTelegramAlert } from '../src/lib/telegram.js';
 
 describe('webinar time logic', () => {
   it('schedules webinar at 19:30 Moscow on the same Moscow day when the slot has not started', () => {
@@ -282,6 +282,7 @@ describe('security configuration', () => {
       TELEGRAM_BOT_TOKEN: '',
       TELEGRAM_BOT_USERNAME: '',
       TELEGRAM_ADMIN_CHAT_ID: '123456',
+      TELEGRAM_OPERATIONAL_CHAT_ID: '654321',
       TELEGRAM_ADMIN_BOT_POLLING: 'off',
       TELEGRAM_NOTIFY_MODE: 'send',
       TELEGRAM_BOT_POLLING: 'off',
@@ -474,6 +475,43 @@ describe('security configuration', () => {
     ).toBe('s3');
   });
 
+  it('requires a private absolute root for self-hosted versioned media', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: 'relative/media',
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+        }),
+      ),
+    ).toThrow(/MEDIA_LOCAL_ROOT/);
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: `${process.cwd()}/crisis_premium/private-media`,
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+        }),
+      ),
+    ).toThrow(/MEDIA_LOCAL_ROOT/);
+    expect(
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: '/var/lib/aspb/media',
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+          WEBINAR_MEDIA_ORIGIN_TOKEN: '',
+        }),
+      ).MEDIA_STORAGE_PROVIDER,
+    ).toBe('local_fs');
+  });
+
   it('requires provider-specific credentials when real STT or AI adapters are selected', () => {
     expect(() =>
       validateProductionSecurity(
@@ -575,6 +613,23 @@ describe('security configuration', () => {
         }),
       ),
     ).toThrow(/TELEGRAM_ADMIN_BOT_TOKEN.*TELEGRAM_PARTICIPANT_BOT_TOKEN/s);
+  });
+
+  it('requires a separate PII-free operational Telegram chat in send mode', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          TELEGRAM_OPERATIONAL_CHAT_ID: '',
+        }),
+      ),
+    ).toThrow(/TELEGRAM_OPERATIONAL_CHAT_ID/);
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          TELEGRAM_OPERATIONAL_CHAT_ID: '123456',
+        }),
+      ),
+    ).toThrow(/must differ from TELEGRAM_ADMIN_CHAT_ID/);
   });
 
   it('rejects localhost production origins and video URLs', () => {
@@ -772,6 +827,48 @@ describe('Telegram health-check', () => {
         /participant bot token returned @wrong_participant_bot, expected @aspb_participant_bot/,
       );
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      Object.assign(env, original);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sends only a structured PII-free alert to the separate operational chat', async () => {
+    const original = {
+      TELEGRAM_NOTIFY_MODE: env.TELEGRAM_NOTIFY_MODE,
+      TELEGRAM_ADMIN_BOT_TOKEN: env.TELEGRAM_ADMIN_BOT_TOKEN,
+      TELEGRAM_BOT_TOKEN: env.TELEGRAM_BOT_TOKEN,
+      TELEGRAM_OPERATIONAL_CHAT_ID: env.TELEGRAM_OPERATIONAL_CHAT_ID,
+    };
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true, result: { message_id: 314 } }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    Object.assign(env, {
+      TELEGRAM_NOTIFY_MODE: 'send',
+      TELEGRAM_ADMIN_BOT_TOKEN: 'admin-token',
+      TELEGRAM_BOT_TOKEN: '',
+      TELEGRAM_OPERATIONAL_CHAT_ID: '654321',
+    });
+
+    try {
+      const result = await sendOperationalTelegramAlert({
+        code: 'telegram_broadcast_worker_failed',
+        subsystem: 'broadcast',
+        severity: 'error',
+        correlationId: 'lead@example.test token=raw-secret',
+      });
+      expect(result).toEqual({ sent: true, mode: 'send', providerMessageId: '314' });
+      const request = fetchMock.mock.calls[0];
+      const body = JSON.parse(String(request?.[1]?.body));
+      expect(body.chat_id).toBe('654321');
+      expect(body.text).toContain('Correlation ID: correlation_unavailable');
+      expect(body.text).not.toContain('lead@example.test');
+      expect(body.text).not.toContain('raw-secret');
+      expect(body).not.toHaveProperty('reply_markup');
     } finally {
       Object.assign(env, original);
       vi.unstubAllGlobals();

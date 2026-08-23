@@ -37,6 +37,7 @@ export const catalogListSchema = z
 
 export const catalogDetailParamsSchema = z.object({ slug: slugSchema }).strict();
 export const catalogDetailQuerySchema = z.object({ organization: slugSchema }).strict();
+export const catalogRegistrationSessionSchema = z.string().trim().min(8).max(64);
 
 type CatalogIdRow = { id: string; next_session_at: Date | null };
 type CatalogCountRow = { count: bigint };
@@ -71,11 +72,13 @@ const catalogInclude = {
     orderBy: [{ scheduledAt: 'asc' as const }],
     take: 12,
     select: {
+      id: true,
       scheduledAt: true,
       timezone: true,
       lifecycleStatus: true,
       durationMinutes: true,
       replayEnabled: true,
+      replayAvailableHours: true,
     },
   },
   supersededBy: {
@@ -216,6 +219,7 @@ function publicBaseProjection(webinar: CatalogWebinar) {
   const specialization = webinar.practiceAreas.find(item => !item.isPrimary)?.practiceArea ?? null;
   const next = nextSession(webinar);
   return {
+    id: webinar.id,
     slug: webinar.slug,
     canonicalPath: publicPath(webinar),
     title: webinar.title,
@@ -238,6 +242,7 @@ function publicBaseProjection(webinar: CatalogWebinar) {
     specialization: specialization ? { slug: specialization.slug, name: specialization.name } : null,
     nextSession: next
       ? {
+          id: next.id,
           scheduledAt: next.scheduledAt,
           timezone: next.timezone,
           lifecycleStatus: next.lifecycleStatus,
@@ -426,11 +431,13 @@ export async function getCatalogWebinar(db: PrismaClient, paramsInput: unknown, 
         note: source.note,
       })),
       sessions: webinar.sessions.map(session => ({
+        id: session.id,
         scheduledAt: session.scheduledAt,
         timezone: session.timezone,
         lifecycleStatus: session.lifecycleStatus,
         durationMinutes: session.durationMinutes,
         replayEnabled: session.replayEnabled,
+        replayAvailableHours: session.replayAvailableHours,
       })),
       author: webinar.authorProfile
         ? {
@@ -446,6 +453,46 @@ export async function getCatalogWebinar(db: PrismaClient, paramsInput: unknown, 
       supersededBy,
     },
   };
+}
+
+export async function getCatalogRegistrationTarget(
+  db: PrismaClient,
+  paramsInput: unknown,
+  queryInput: unknown,
+  sessionIdInput: unknown,
+) {
+  const params = catalogDetailParamsSchema.parse(paramsInput);
+  const query = catalogDetailQuerySchema.parse(queryInput);
+  const sessionId = catalogRegistrationSessionSchema.parse(sessionIdInput);
+  const detail = await getCatalogWebinar(db, params, query);
+  const publicSession = detail.webinar.sessions.find(session => session.id === sessionId);
+  if (!publicSession) catalogUnavailable();
+
+  const session = await db.webinarSession.findFirst({
+    where: {
+      id: sessionId,
+      cancelledAt: null,
+      lifecycleStatus: { not: 'CANCELLED' },
+      organization: { slug: query.organization, status: 'ACTIVE' },
+      webinar: {
+        slug: detail.webinar.canonicalSlug,
+        contentStatus: 'PUBLISHED',
+        archivedAt: null,
+        visibility: { in: ['PUBLIC', 'UNLISTED'] },
+      },
+    },
+    include: { webinar: true, organization: true },
+  });
+  if (!session) catalogUnavailable();
+
+  const now = new Date();
+  const replayExpiresAt = new Date(
+    session.scheduledAt.getTime() + (session.durationMinutes + session.replayAvailableHours * 60) * 60 * 1000,
+  );
+  if (session.scheduledAt < now && (!session.replayEnabled || replayExpiresAt <= now)) {
+    catalogUnavailable();
+  }
+  return session;
 }
 
 export async function getCatalogReferenceData(db: PrismaClient) {

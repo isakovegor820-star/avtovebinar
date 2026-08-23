@@ -11,6 +11,9 @@ type TelegramMessageInput = {
 type TelegramApiPayload = {
   ok: boolean;
   description?: string;
+  result?: {
+    message_id?: number | string;
+  };
   parameters?: {
     retry_after?: number;
   };
@@ -83,6 +86,12 @@ type NotifyTelegramBotStartInput = {
   registrationUrl: string;
 };
 
+export type TelegramSendResult = {
+  sent: boolean;
+  mode: 'log' | 'send';
+  providerMessageId?: string | null;
+};
+
 let warnedAboutMissingChat = false;
 
 function adminBotToken() {
@@ -99,6 +108,10 @@ function consultantBotToken() {
 
 function adminBotUsername() {
   return env.TELEGRAM_ADMIN_BOT_USERNAME || env.TELEGRAM_BOT_USERNAME;
+}
+
+export function getConfiguredAdminBotUsername() {
+  return adminBotUsername();
 }
 
 function participantBotUsername() {
@@ -239,6 +252,126 @@ export async function sendTelegramMessage(input: TelegramMessageInput) {
   return { sent: true, mode: 'send' as const };
 }
 
+export async function sendManagerTelegramMessageToChat(
+  chatId: string,
+  text: string,
+  options: { replyMarkup?: Record<string, unknown>; attempts?: number } = {},
+) {
+  const message = text.slice(0, 3900);
+
+  if (shouldLogAdminTelegram()) {
+    logger.info(
+      { chatIdHint: maskChatId(chatId), textLength: message.length, hasReplyMarkup: Boolean(options.replyMarkup) },
+      '[ASPБ telegram manager log]',
+    );
+    return { sent: false, mode: 'log' as const, providerMessageId: null };
+  }
+
+  const payload = await withCircuitBreaker(
+    'telegram.manager',
+    () =>
+      withRetries(
+        'telegram.manager.sendMessage',
+        async () => {
+          const response = await telegramFetch(telegramApiUrl('sendMessage'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: message,
+              reply_markup: options.replyMarkup,
+              disable_web_page_preview: true,
+            }),
+          });
+          return readTelegramPayload(response);
+        },
+        {
+          attempts: options.attempts ?? 3,
+          baseMs: 1000,
+          maxMs: 15_000,
+          retryAfterMs: getTelegramRetryAfterMs,
+          isRetryable: isTransientTelegramError,
+        },
+      ),
+    { failureThreshold: 3, cooldownMs: 60_000, isFailure: isTransientTelegramError },
+  );
+
+  return {
+    sent: true,
+    mode: 'send' as const,
+    providerMessageId: payload.result?.message_id ? String(payload.result.message_id) : null,
+  };
+}
+
+export async function sendOperationalTelegramAlert(input: {
+  code: 'telegram_broadcast_worker_failed';
+  subsystem: 'broadcast';
+  severity: 'warning' | 'error';
+  correlationId: string;
+}): Promise<TelegramSendResult & { reason?: 'unconfigured' }> {
+  const safeCorrelationId = /^[A-Za-z0-9._:-]{8,128}$/.test(input.correlationId)
+    ? input.correlationId
+    : 'correlation_unavailable';
+  if (shouldLogAdminTelegram()) {
+    logger.info(
+      {
+        alertCode: input.code,
+        subsystem: input.subsystem,
+        severity: input.severity,
+        correlationId: safeCorrelationId,
+      },
+      '[ASPБ telegram operational log]',
+    );
+    return { sent: false, mode: 'log', providerMessageId: null };
+  }
+  const chatId = env.TELEGRAM_OPERATIONAL_CHAT_ID?.trim();
+  if (!chatId) {
+    logger.error(
+      { alertCode: input.code, subsystem: input.subsystem, correlationId: safeCorrelationId },
+      '[ASPБ telegram operational] separate operational chat is not configured',
+    );
+    return { sent: false, mode: 'send', providerMessageId: null, reason: 'unconfigured' };
+  }
+  const payload = await withCircuitBreaker(
+    'telegram.operational',
+    () =>
+      withRetries(
+        'telegram.operational.sendMessage',
+        async () => {
+          const response = await telegramFetch(telegramApiUrl('sendMessage'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: [
+                'Operational alert АСПБ',
+                `Severity: ${input.severity}`,
+                `Subsystem: ${input.subsystem}`,
+                `Code: ${input.code}`,
+                `Correlation ID: ${safeCorrelationId}`,
+              ].join('\n'),
+              disable_web_page_preview: true,
+            }),
+          });
+          return readTelegramPayload(response);
+        },
+        {
+          attempts: 2,
+          baseMs: 1000,
+          maxMs: 5000,
+          retryAfterMs: getTelegramRetryAfterMs,
+          isRetryable: isTransientTelegramError,
+        },
+      ),
+    { failureThreshold: 3, cooldownMs: 60_000, isFailure: isTransientTelegramError },
+  );
+  return {
+    sent: true,
+    mode: 'send',
+    providerMessageId: payload.result?.message_id ? String(payload.result.message_id) : null,
+  };
+}
+
 // Inline-клавиатура из одной кнопки-ссылки (например «Войти в комнату»).
 export function telegramUrlButton(text: string, url: string) {
   return { inline_keyboard: [[{ text, url }]] };
@@ -248,15 +381,15 @@ export async function sendTelegramMessageToChat(
   chatId: string,
   text: string,
   options: { replyMarkup?: Record<string, unknown>; attempts?: number } = {},
-) {
+): Promise<TelegramSendResult> {
   const message = text.slice(0, 3900);
 
   if (shouldLogParticipantTelegram()) {
-    logger.info({ chatId: maskChatId(chatId), textLength: message.length }, '[ASPБ telegram participant log]');
-    return { sent: false, mode: 'log' as const };
+    logger.info({ chatIdHint: maskChatId(chatId), textLength: message.length }, '[ASPБ telegram participant log]');
+    return { sent: false, mode: 'log' as const, providerMessageId: null };
   }
 
-  await withCircuitBreaker(
+  const payload = await withCircuitBreaker(
     'telegram.participant',
     () =>
       withRetries(
@@ -286,18 +419,22 @@ export async function sendTelegramMessageToChat(
     { failureThreshold: 3, cooldownMs: 60_000, isFailure: isTransientTelegramError },
   );
 
-  return { sent: true, mode: 'send' as const };
+  return {
+    sent: true,
+    mode: 'send' as const,
+    providerMessageId: payload.result?.message_id ? String(payload.result.message_id) : null,
+  };
 }
 
-export async function sendConsultantTelegramMessageToChat(chatId: string, text: string) {
+export async function sendConsultantTelegramMessageToChat(chatId: string, text: string): Promise<TelegramSendResult> {
   const message = text.slice(0, 3900);
 
   if (shouldLogConsultantTelegram()) {
-    logger.info({ chatId: maskChatId(chatId), textLength: message.length }, '[ASPБ telegram consultant log]');
-    return { sent: false, mode: 'log' as const };
+    logger.info({ chatIdHint: maskChatId(chatId), textLength: message.length }, '[ASPБ telegram consultant log]');
+    return { sent: false, mode: 'log' as const, providerMessageId: null };
   }
 
-  await withCircuitBreaker(
+  const payload = await withCircuitBreaker(
     'telegram.consultant',
     () =>
       withRetries(
@@ -325,7 +462,11 @@ export async function sendConsultantTelegramMessageToChat(chatId: string, text: 
     { failureThreshold: 3, cooldownMs: 60_000, isFailure: isTransientTelegramError },
   );
 
-  return { sent: true, mode: 'send' as const };
+  return {
+    sent: true,
+    mode: 'send' as const,
+    providerMessageId: payload.result?.message_id ? String(payload.result.message_id) : null,
+  };
 }
 
 export function buildTelegramStartUrl(token?: string) {
@@ -338,6 +479,14 @@ export function buildTelegramStartUrl(token?: string) {
   if (token) {
     url.searchParams.set('start', token);
   }
+  return url.toString();
+}
+
+export function buildManagerTelegramStartUrl(payload: string) {
+  const username = (adminBotUsername() || '').trim();
+  if (!username) return undefined;
+  const url = new URL(`https://t.me/${username.replace(/^@/, '')}`);
+  url.searchParams.set('start', payload);
   return url.toString();
 }
 

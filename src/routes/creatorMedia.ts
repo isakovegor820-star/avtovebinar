@@ -14,6 +14,7 @@ import {
   recordMediaUploadPart,
   resumeMediaUpload,
   retryMediaAsset,
+  writeMediaUploadPart,
 } from '../lib/tenancy/mediaPipeline.js';
 import { requireAuthenticatedUserSession } from '../lib/tenancy/userAuth.js';
 
@@ -22,6 +23,9 @@ export const creatorMediaRouter = Router();
 const idSchema = z.string().trim().min(1).max(191);
 const webinarParamsSchema = z.object({ webinarId: idSchema }).strict();
 const uploadParamsSchema = z.object({ uploadId: idSchema }).strict();
+const uploadPartContentParamsSchema = z
+  .object({ uploadId: idSchema, partNumber: z.coerce.number().int().positive().max(10_000) })
+  .strict();
 const assetParamsSchema = z.object({ assetId: idSchema }).strict();
 const createUploadSchema = z
   .object({
@@ -85,6 +89,43 @@ creatorMediaRouter.post(
     const { webinarId } = webinarParamsSchema.parse(req.params);
     const result = await createMediaUpload(prisma, context, webinarId, createUploadSchema.parse(req.body));
     res.status(201).json({ ok: true, ...result, correlationId: context.correlationId });
+  }),
+);
+
+creatorMediaRouter.put(
+  '/creator/uploads/:uploadId/parts/:partNumber/content',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { uploadId, partNumber } = uploadPartContentParamsSchema.parse(req.params);
+    const rawContentLength = req.get('content-length');
+    if (!rawContentLength || !/^\d{1,13}$/.test(rawContentLength)) {
+      throw new AppError(
+        411,
+        'Для части файла требуется точный Content-Length',
+        undefined,
+        'media_upload_length_required',
+      );
+    }
+    if (req.get('content-encoding')) {
+      throw new AppError(415, 'Сжатие тела загрузки не поддерживается', undefined, 'media_upload_encoding_unsupported');
+    }
+    const contentType = (req.get('content-type') ?? '').split(';', 1)[0]?.trim().toLowerCase();
+    if (!contentType) {
+      throw new AppError(415, 'MIME-тип части не указан', undefined, 'media_upload_part_mime_required');
+    }
+    const result = await writeMediaUploadPart(
+      prisma,
+      context,
+      uploadId,
+      partNumber,
+      Number(rawContentLength),
+      contentType,
+      req,
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('ETag', `"${result.etag}"`);
+    res.json({ ok: true, ...result, correlationId: context.correlationId });
   }),
 );
 

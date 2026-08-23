@@ -1,6 +1,7 @@
 import type { OrganizationMembershipRole, Prisma, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { AppError } from '../http.js';
+import { scenarioAuthorLabel, syntheticScenarioViolation } from '../chatPolicy.js';
 import type { TenantContext } from './context.js';
 import { requireTenantRole } from './context.js';
 import { idempotencyKeySchema, webinarIdSchema } from './webinarContent.js';
@@ -13,10 +14,19 @@ const scenarioMessageSchema = z
   .object({
     offsetSeconds: z.number().int().min(0).max(10_800),
     kind: z.enum(['PREPARED_QUESTION', 'MODERATOR_NOTICE', 'AUTHOR_PROMPT']),
+    status: z.enum(['DRAFT', 'APPROVED', 'REJECTED']).optional().default('APPROVED'),
     text: z.string().trim().min(1).max(1_000),
-    authorLabel: z.string().trim().min(2).max(120),
+    // Compatibility input only. The server derives a non-identifying label so
+    // prepared content cannot impersonate a real participant.
+    authorLabel: z.string().trim().min(2).max(120).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((message, ctx) => {
+    const violation = syntheticScenarioViolation(message.text);
+    if (violation) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['text'], message: violation });
+    }
+  });
 
 export const saveChatScenarioSchema = z.object({ messages: z.array(scenarioMessageSchema).max(500) }).strict();
 
@@ -116,8 +126,9 @@ function scenarioProjection(scenario: ScenarioWithMessages) {
       orderIndex: message.orderIndex,
       offsetSeconds: message.offsetSeconds,
       kind: message.kind,
+      status: message.status,
       text: message.text,
-      authorLabel: message.authorLabel,
+      authorLabel: scenarioAuthorLabel(message.kind),
       isSynthetic: true as const,
     })),
   };
@@ -209,8 +220,9 @@ export async function saveCreatorChatScenario(
           orderIndex,
           offsetSeconds: message.offsetSeconds,
           kind: message.kind,
+          status: message.status,
           text: message.text,
-          authorLabel: message.authorLabel,
+          authorLabel: scenarioAuthorLabel(message.kind),
           isSynthetic: true,
         })),
       });
@@ -288,6 +300,22 @@ export async function publishCreatorChatScenario(
     if (!draft) scenarioUnavailable();
     if (draft.messages.length === 0) {
       throw new AppError(409, 'Добавьте хотя бы одно сообщение', undefined, 'chat_scenario_empty');
+    }
+    if (draft.messages.some(message => message.status === 'DRAFT')) {
+      throw new AppError(
+        409,
+        'Проверьте статус каждого сообщения перед публикацией',
+        undefined,
+        'chat_scenario_review_required',
+      );
+    }
+    if (!draft.messages.some(message => message.status === 'APPROVED')) {
+      throw new AppError(
+        409,
+        'Для публикации нужно одобрить хотя бы одно сообщение',
+        undefined,
+        'chat_scenario_no_approved_messages',
+      );
     }
     const approvedAt = new Date();
     const scenario = await tx.chatScenario.update({

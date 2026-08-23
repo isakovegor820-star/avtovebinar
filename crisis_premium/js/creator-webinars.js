@@ -1,4 +1,4 @@
-import { deleteJson, getJson, patchJson, post } from './utils.js?v=creator-webinars-2';
+import { csrfHeaders, deleteJson, getJson, patchJson, post } from './utils.js?v=creator-webinars-2';
 
 const labels = {
   contentStatus: {
@@ -109,6 +109,8 @@ function errorCopy(error, fallback) {
   if (code === 'webinar_publication_not_ready') return 'Видео, транскрипт и сценарий должны быть опубликованы отдельно.';
   if (code === 'chat_scenario_disclosure_required') return 'Добавьте маркировку подготовленных сообщений в юридические сведения.';
   if (code === 'chat_scenario_empty') return 'Добавьте хотя бы одно подготовленное сообщение.';
+  if (code === 'chat_scenario_review_required') return 'Проверьте статус каждого сообщения: черновики нельзя публиковать.';
+  if (code === 'chat_scenario_no_approved_messages') return 'Одобрите хотя бы одно сообщение перед публикацией.';
   if (code === 'webinar_slug_conflict') return 'Этот slug уже используется. Выберите другой.';
   if (code === 'media_storage_unconfigured') return 'Приватное хранилище ещё не подключено. Выберите провайдера перед загрузкой.';
   if (code === 'transcript_revision_conflict') return 'Расшифровка уже изменилась. Обновите вебинар и повторите.';
@@ -318,14 +320,14 @@ function addScenarioRow(message = {}) {
   for (const [field, labelName] of [
     ['offsetSeconds', 'offset'],
     ['kind', 'kind'],
-    ['authorLabel', 'author'],
+    ['status', 'status'],
     ['text', 'text'],
   ]) {
     const control = row.querySelector(`[data-field="${field}"]`);
     const label = row.querySelector(`[data-label="${labelName}"]`);
     control.id = `creatorScenario${field}-${rowId}`;
     label.htmlFor = control.id;
-    control.value = message[field] ?? (field === 'kind' ? 'PREPARED_QUESTION' : '');
+    control.value = message[field] ?? (field === 'kind' ? 'PREPARED_QUESTION' : field === 'status' ? 'DRAFT' : '');
   }
   row.querySelector('[data-action="remove"]').addEventListener('click', () => {
     row.remove();
@@ -351,7 +353,7 @@ function scenarioPayload() {
   const messages = rows.map(row => ({
     offsetSeconds: Number(row.querySelector('[data-field="offsetSeconds"]').value),
     kind: row.querySelector('[data-field="kind"]').value,
-    authorLabel: row.querySelector('[data-field="authorLabel"]').value.trim(),
+    status: row.querySelector('[data-field="status"]').value,
     text: row.querySelector('[data-field="text"]').value.trim(),
   }));
   const invalid = rows.flatMap(row => [...row.querySelectorAll('input, select, textarea')]).find(control => !control.checkValidity());
@@ -856,6 +858,41 @@ function clearUploadResume() {
   }
 }
 
+async function putUploadPart(part, body, mimeType) {
+  const target = new URL(part.url, window.location.href);
+  const sameOrigin = target.origin === window.location.origin;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(target, {
+        method: 'PUT',
+        body,
+        credentials: sameOrigin ? 'same-origin' : 'omit',
+        headers: {
+          'Content-Type': mimeType,
+          ...(sameOrigin ? await csrfHeaders() : {}),
+        },
+      });
+      if (response.ok) {
+        const etag = response.headers.get('etag');
+        if (!etag) throw new Error('Сервер не подтвердил загруженную часть. Повторите загрузку.');
+        const checkpoint = sameOrigin ? await response.json().catch(() => null) : null;
+        return { etag, completedParts: checkpoint?.checkpointed ? checkpoint.completedParts : null };
+      }
+      const payload = sameOrigin ? await response.json().catch(() => ({})) : {};
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === 3) {
+        const error = new Error(payload.error || 'Не удалось загрузить часть файла. Повторите попытку.');
+        error.status = response.status;
+        throw error;
+      }
+    } catch (error) {
+      if (attempt === 3 || (error?.status && error.status < 500 && error.status !== 429)) throw error;
+    }
+    await new Promise(resolve => window.setTimeout(resolve, attempt * 500));
+  }
+  throw new Error('Не удалось загрузить часть файла. Проверьте соединение и повторите попытку.');
+}
+
 async function uploadVideo(file) {
   const saved = readUploadResume();
   const matchesSavedFile = saved
@@ -892,13 +929,14 @@ async function uploadVideo(file) {
     const part = init.parts[index];
     setText('creatorUploadStatus', `Загружаем часть ${part.partNumber}… Уже готово: ${completedParts.length}.`);
     const body = file.slice((part.partNumber - 1) * partSize, Math.min(file.size, part.partNumber * partSize));
-    const response = await fetch(part.url, { method: 'PUT', body, headers: { 'Content-Type': file.type } });
-    if (!response.ok) throw new Error('Хранилище не приняло часть файла');
-    const etag = response.headers.get('etag');
-    if (!etag) throw new Error('Хранилище не вернуло ETag загруженной части');
+    const uploaded = await putUploadPart(part, body, file.type);
+    if (uploaded.completedParts) {
+      completedParts = uploaded.completedParts;
+      continue;
+    }
     const recorded = await post(`/v1/creator/uploads/${encodeURIComponent(init.uploadId)}/parts`, {
       partNumber: part.partNumber,
-      etag,
+      etag: uploaded.etag,
     });
     completedParts = recorded.completedParts;
   }

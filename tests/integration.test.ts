@@ -6,6 +6,9 @@ process.env.NODE_ENV = 'test';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { execSync } from 'node:child_process';
+import { access, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { app } from '../src/app.js';
 import { env } from '../src/lib/env.js';
 import { prisma } from '../src/lib/prisma.js';
@@ -21,7 +24,10 @@ import {
 } from '../src/lib/emailOutbox.js';
 import { runReminderJobOnce, runReplayFollowupJobOnce, runTelegramLiveJobOnce } from '../src/lib/reminders.js';
 import { handleParticipantTelegramUpdate } from '../src/lib/telegramParticipantBot.js';
+import { handleAdminTelegramUpdate } from '../src/lib/telegramAdminBot.js';
+import { handleConsultantTelegramUpdate } from '../src/lib/telegramConsultantBot.js';
 import { runTelegramNewsJobOnce } from '../src/lib/telegramNews.js';
+import { runTelegramBroadcastJobOnce } from '../src/lib/telegramBroadcastWorker.js';
 import { getDailyBroadcastDate } from '../src/lib/time.js';
 import { findOrCreateWebinarSession } from '../src/lib/webinarSessions.js';
 import {
@@ -34,6 +40,11 @@ import {
 import { SafeMediaProviderError } from '../src/lib/mediaStorageS3.js';
 import { getPublishedTranscript, runContentJobOnce } from '../src/lib/tenancy/transcripts.js';
 import { encryptMfaSecret, generateTotp } from '../src/lib/mfa.js';
+import {
+  createTelegramManagerCallback,
+  executeTelegramManagerCallback,
+  hashTelegramManagerChatId,
+} from '../src/lib/tenancy/telegramBots.js';
 import {
   MARKETING_EMAIL_CONSENT,
   MARKETING_TELEGRAM_CONSENT,
@@ -67,6 +78,8 @@ import {
 import { assertAuthorCanPublish } from '../src/lib/tenancy/authorVerification.js';
 import { runWebinarAccessInvitationEmailOutboxJobOnce } from '../src/lib/tenancy/webinarAccessInvitationEmailOutbox.js';
 import { cleanupExpiredWebinarAccessGrants, hashWebinarAccessEmail } from '../src/lib/tenancy/webinarAccess.js';
+import { linkVerifiedRegistrationToCrm, recordCrmScoreSignalForRegistration } from '../src/lib/tenancy/crm.js';
+import { runCrmDeliveryJobsOnce } from '../src/lib/tenancy/crmDelivery.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -297,6 +310,8 @@ beforeEach(async () => {
   Object.assign(env, {
     TELEGRAM_NOTIFY_MODE: 'log',
     TELEGRAM_ADMIN_BOT_TOKEN: '',
+    TELEGRAM_ADMIN_BOT_USERNAME: undefined,
+    TELEGRAM_CALLBACK_SECRET: undefined,
     TELEGRAM_BOT_TOKEN: '',
     TELEGRAM_PARTICIPANT_BOT_TOKEN: '',
     TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: undefined,
@@ -307,13 +322,16 @@ beforeEach(async () => {
     PLATFORM_TENANCY_ENFORCEMENT: 'off',
     CREATOR_DASHBOARD_ENABLED: 'off',
     PUBLIC_CATALOG_ENABLED: 'off',
+    TENANT_CRM_ENABLED: 'off',
+    TENANT_TELEGRAM_BOTS_ENABLED: 'off',
     MEDIA_STORAGE_PROVIDER: 'unconfigured',
+    MEDIA_LOCAL_ROOT: undefined,
     STT_PROVIDER: 'unconfigured',
     AI_ENRICHMENT_PROVIDER: 'unconfigured',
   });
   // Truncate tables to guarantee absolute test isolation
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
+    'TRUNCATE TABLE telegram_broadcast_previews, telegram_broadcast_templates, telegram_consultant_messages, telegram_bot_events, telegram_manager_callbacks, telegram_manager_chat_binding_tokens, telegram_manager_chat_bindings, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
   );
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
@@ -333,6 +351,3055 @@ beforeEach(async () => {
       scenarioStatus: 'PUBLISHED',
     },
   });
+});
+
+describe('tenant chat moderation batch', () => {
+  it('keeps approved chat, spam controls and moderator actions exact-session and tenant-scoped', async () => {
+    const now = new Date();
+    const tenant = await createTenantFixture({
+      slug: `chat-moderation-${Date.now()}`,
+      email: `chat-owner-${Date.now()}@example.test`,
+    });
+    const foreignTenant = await createTenantFixture({
+      slug: `chat-foreign-${Date.now()}`,
+      email: `chat-foreign-${Date.now()}@example.test`,
+    });
+    const participant = await prisma.user.create({
+      data: {
+        emailNormalized: `chat-participant-${Date.now()}@example.test`,
+        displayName: 'Зритель чата',
+        status: 'ACTIVE',
+        emailVerifiedAt: now,
+      },
+    });
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        slug: `chat-webinar-${Date.now()}`,
+        title: 'Безопасная модерация чата',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        scenarioStatus: 'PUBLISHED',
+        syntheticDisclosure: 'Подготовленные сообщения отмечены отдельно.',
+        publishedAt: now,
+      },
+    });
+    const session = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        title: webinar.title,
+        scheduledAt: new Date(now.getTime() - 60_000),
+        videoDurationSeconds: 3_600,
+        replayAvailableHours: 24,
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Зритель чата',
+        phone: '+79990007701',
+        email: participant.emailNormalized,
+        professionalStatus: 'Юрист',
+        consent: true,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        userId: participant.id,
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        accessPolicy: 'PUBLIC_CATALOG',
+        accessTokenHash: hashToken(createAccessToken()),
+        emailVerifiedAt: now,
+      },
+    });
+    const roomToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registration.id,
+        tokenHash: hashToken(roomToken),
+        purpose: ROOM_SESSION_TOKEN_PURPOSE,
+        expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+      },
+    });
+    const participantMessage = await prisma.webinarChatMessage.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        webinarSessionId: session.id,
+        registrationId: registration.id,
+        kind: 'participant',
+        messageType: 'PARTICIPANT',
+        authorName: 'Зритель чата',
+        message: 'Обычный вопрос участника',
+        isSynthetic: false,
+        visibleAt: new Date(now.getTime() - 30_000),
+      },
+    });
+    await prisma.chatScenario.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        version: 1,
+        status: 'PUBLISHED',
+        createdById: tenant.user.id,
+        approvedById: tenant.user.id,
+        approvedAt: now,
+        messages: {
+          create: [
+            {
+              orderIndex: 0,
+              offsetSeconds: 10,
+              kind: 'PREPARED_QUESTION',
+              status: 'APPROVED',
+              text: 'Одобренный подготовленный вопрос',
+              authorLabel: 'Подготовленный вопрос',
+              isSynthetic: true,
+            },
+            {
+              orderIndex: 1,
+              offsetSeconds: 20,
+              kind: 'PREPARED_QUESTION',
+              status: 'REJECTED',
+              text: 'Отклонённое сообщение не должно попасть в комнату',
+              authorLabel: 'Подготовленный вопрос',
+              isSynthetic: true,
+            },
+          ],
+        },
+      },
+    });
+
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    const moderator = await loginPlatformUser(tenant.user.id);
+    const foreignModerator = await loginPlatformUser(foreignTenant.user.id);
+    const roomCookie = [`aspb_room_token=${roomToken}`];
+
+    const initialRoom = await request(app).get('/api/webinar/chat/session/current').set('Cookie', roomCookie);
+    expect(initialRoom.status).toBe(200);
+    expect(initialRoom.body.scenarioVersion).toBe(1);
+    expect(initialRoom.body.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: participantMessage.id, kind: 'participant', isSynthetic: false }),
+        expect.objectContaining({
+          kind: 'prepared_question',
+          authorName: 'Подготовленный вопрос',
+          authorRole: 'Подготовленный вопрос',
+          isSynthetic: true,
+          message: 'Одобренный подготовленный вопрос',
+        }),
+      ]),
+    );
+    expect(initialRoom.body.messages.map((message: any) => message.message)).not.toContain(
+      'Отклонённое сообщение не должно попасть в комнату',
+    );
+
+    const foreignRead = await foreignModerator.agent.get(`/api/v1/moderation/sessions/${session.id}/messages`);
+    expect(foreignRead.status).toBe(404);
+    const forgedScope = await moderator.agent
+      .patch(`/api/v1/moderation/sessions/${session.id}/messages/${participantMessage.id}`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({
+        action: 'HIDE',
+        reason: 'Персональные данные',
+        expectedRevision: 0,
+        organizationId: foreignTenant.organization.id,
+      });
+    expect(forgedScope.status).toBe(400);
+
+    const hidden = await moderator.agent
+      .patch(`/api/v1/moderation/sessions/${session.id}/messages/${participantMessage.id}`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ action: 'HIDE', reason: 'Персональные данные', expectedRevision: 0 });
+    expect(hidden.status).toBe(200);
+    expect(hidden.body.message).toMatchObject({ hiddenAt: expect.any(String), moderationRevision: 1 });
+    const hiddenRoom = await request(app).get('/api/webinar/chat/session/current').set('Cookie', roomCookie);
+    expect(hiddenRoom.body.messages.map((message: any) => message.id)).not.toContain(participantMessage.id);
+
+    const participantAgent = request.agent(app);
+    participantAgent.jar.setCookie(`aspb_room_token=${roomToken}; Path=/`, '127.0.0.1', '/');
+    const participantCsrf = await getCsrfToken(participantAgent);
+    const markup = await participantAgent
+      .post('/api/questions')
+      .set('x-csrf-token', participantCsrf)
+      .send({ text: '<script>alert(1)</script>' });
+    expect(markup.status).toBe(400);
+    expect(markup.body.code).toBe('chat_markup_not_allowed');
+    const safeQuestion = await participantAgent
+      .post('/api/questions')
+      .set('x-csrf-token', participantCsrf)
+      .send({ text: 'Какие документы нужны для первичной проверки?' });
+    expect(safeQuestion.status).toBe(201);
+    const duplicateQuestion = await participantAgent
+      .post('/api/questions')
+      .set('x-csrf-token', participantCsrf)
+      .send({ text: '  Какие документы нужны для первичной проверки?  ' });
+    expect(duplicateQuestion.status).toBe(429);
+    expect(duplicateQuestion.body.code).toBe('chat_duplicate_limited');
+
+    const blocked = await moderator.agent
+      .patch(`/api/v1/moderation/sessions/${session.id}/registrations/${registration.id}/chat-access`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ action: 'BLOCK', reason: 'Повторный спам' });
+    expect(blocked.status).toBe(200);
+    expect(blocked.body.registration.chatBannedAt).toEqual(expect.any(String));
+    const blockedQuestion = await participantAgent
+      .post('/api/questions')
+      .set('x-csrf-token', participantCsrf)
+      .send({ text: 'Другой вопрос после блокировки' });
+    expect(blockedQuestion.status).toBe(403);
+    expect(blockedQuestion.body.code).toBe('chat_registration_blocked');
+
+    const restoredAccess = await moderator.agent
+      .patch(`/api/v1/moderation/sessions/${session.id}/registrations/${registration.id}/chat-access`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ action: 'RESTORE', reason: 'Нарушение устранено' });
+    expect(restoredAccess.status).toBe(200);
+    expect(restoredAccess.body.registration.chatBannedAt).toBeNull();
+    const restoredMessage = await moderator.agent
+      .patch(`/api/v1/moderation/sessions/${session.id}/messages/${participantMessage.id}`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ action: 'RESTORE', reason: 'Персональные данные удалены', expectedRevision: 1 });
+    expect(restoredMessage.status).toBe(200);
+    expect(restoredMessage.body.message).toMatchObject({ hiddenAt: null, moderationRevision: 2 });
+
+    const restoredRoom = await request(app).get('/api/webinar/chat/session/current').set('Cookie', roomCookie);
+    expect(restoredRoom.body.messages.map((message: any) => message.id)).toContain(participantMessage.id);
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          organizationId: tenant.organization.id,
+          action: {
+            in: [
+              'chat.message.hidden',
+              'chat.message.restored',
+              'chat.registration.blocked',
+              'chat.registration.restored',
+            ],
+          },
+        },
+      }),
+    ).resolves.toBe(4);
+  });
+
+  it('grounds moderator drafts, blocks personalized advice and synchronizes question queues with CRM', async () => {
+    const now = new Date();
+    const suffix = Date.now();
+    const tenant = await createTenantFixture({
+      slug: `question-moderation-${suffix}`,
+      email: `question-owner-${suffix}@example.test`,
+    });
+    const foreignTenant = await createTenantFixture({
+      slug: `question-foreign-${suffix}`,
+      email: `question-foreign-${suffix}@example.test`,
+    });
+    const sameTenantAuthorUser = await prisma.user.create({
+      data: {
+        emailNormalized: `question-author-${suffix}@example.test`,
+        displayName: 'Автор без прав модератора',
+        status: 'ACTIVE',
+        emailVerifiedAt: now,
+      },
+    });
+    await prisma.organizationMembership.create({
+      data: {
+        organizationId: tenant.organization.id,
+        userId: sameTenantAuthorUser.id,
+        role: 'AUTHOR',
+        status: 'ACTIVE',
+      },
+    });
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        slug: `question-webinar-${suffix}`,
+        title: 'Основанная модерация вопросов',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        publishedAt: now,
+      },
+    });
+    const session = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        title: webinar.title,
+        scheduledAt: new Date(now.getTime() - 60_000),
+        videoDurationSeconds: 3_600,
+        replayAvailableHours: 24,
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Участник модерации',
+        phone: '+79990007711',
+        email: `question-viewer-${suffix}@example.test`,
+        consent: true,
+      },
+    });
+    const participantUser = await prisma.user.create({
+      data: {
+        emailNormalized: lead.email,
+        displayName: lead.name,
+        status: 'ACTIVE',
+        emailVerifiedAt: now,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        userId: participantUser.id,
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        accessPolicy: 'PUBLIC_CATALOG',
+        accessTokenHash: hashToken(createAccessToken()),
+        emailVerifiedAt: now,
+      },
+    });
+    await prisma.$transaction(tx => linkVerifiedRegistrationToCrm(tx, registration.id, now));
+    const roomToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: registration.id,
+        tokenHash: hashToken(roomToken),
+        purpose: ROOM_SESSION_TOKEN_PURPOSE,
+        expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+      },
+    });
+    const asset = await prisma.mediaAsset.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        createdByUserId: tenant.user.id,
+        version: 1,
+        originalFileName: 'questions.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 1024n,
+        storageKey: `organizations/${tenant.organization.id}/questions/source`,
+      },
+    });
+    await prisma.transcript.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        mediaAssetId: asset.id,
+        createdByUserId: tenant.user.id,
+        version: 1,
+        status: 'DRAFT',
+        segments: {
+          create: {
+            orderIndex: 0,
+            startMs: 5_000,
+            endMs: 12_000,
+            text: 'Секретный черновой алгоритм, который нельзя показывать зрителю.',
+          },
+        },
+      },
+    });
+    const publishedTranscript = await prisma.transcript.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        mediaAssetId: asset.id,
+        createdByUserId: tenant.user.id,
+        reviewedByUserId: tenant.user.id,
+        version: 2,
+        status: 'PUBLISHED',
+        reviewedAt: now,
+        publishedAt: now,
+        segments: {
+          create: {
+            orderIndex: 0,
+            startMs: 42_000,
+            endMs: 55_000,
+            text: 'Субсидиарная ответственность руководителя: основные признаки устанавливаются по опубликованным материалам дела.',
+          },
+        },
+      },
+    });
+    await prisma.webinarSource.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        type: 'OFFICIAL_SOURCE',
+        title: 'Порядок подачи заявления о несостоятельности',
+        url: 'https://pravo.gov.ru/',
+      },
+    });
+    const groundedQuestion = await prisma.question.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: session.id,
+        text: 'Какие основные признаки субсидиарной ответственности названы?',
+      },
+    });
+    const personalQuestion = await prisma.question.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: session.id,
+        text: 'Что мне делать с моим договором и стоит ли подавать иск?',
+      },
+    });
+    const draftOnlyQuestion = await prisma.question.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: session.id,
+        text: 'Какой секретный черновой алгоритм описан?',
+      },
+    });
+    const sourceQuestion = await prisma.question.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: session.id,
+        text: 'Где найти порядок подачи заявления о несостоятельности?',
+      },
+    });
+
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    const moderator = await loginPlatformUser(tenant.user.id);
+    const foreignModerator = await loginPlatformUser(foreignTenant.user.id);
+    const sameTenantAuthor = await loginPlatformUser(sameTenantAuthorUser.id);
+    const authorRead = await sameTenantAuthor.agent.get(
+      `/api/v1/moderation/sessions/${session.id}/questions?queue=all`,
+    );
+    expect(authorRead.status).toBe(403);
+    const foreignRead = await foreignModerator.agent.get(
+      `/api/v1/moderation/sessions/${session.id}/questions?queue=all`,
+    );
+    expect(foreignRead.status).toBe(404);
+    const forgedBody = await moderator.agent
+      .post(`/api/v1/moderation/sessions/${session.id}/questions/${groundedQuestion.id}/suggestions`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ expectedRevision: 0, organizationId: foreignTenant.organization.id });
+    expect(forgedBody.status).toBe(400);
+    const foreignGenerate = await foreignModerator.agent
+      .post(`/api/v1/moderation/sessions/${session.id}/questions/${groundedQuestion.id}/suggestions`)
+      .set('x-csrf-token', foreignModerator.csrfToken)
+      .send({ expectedRevision: 0 });
+    expect(foreignGenerate.status).toBe(404);
+
+    const grounded = await moderator.agent
+      .post(`/api/v1/moderation/sessions/${session.id}/questions/${groundedQuestion.id}/suggestions`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ expectedRevision: 0 });
+    expect(grounded.status).toBe(201);
+    expect(grounded.body.suggestion).toMatchObject({
+      status: 'PENDING',
+      outcome: 'GROUNDED',
+      grounding: {
+        type: 'transcript',
+        transcriptId: publishedTranscript.id,
+        transcriptVersion: 2,
+        timestampSeconds: 42,
+      },
+    });
+    const creatorSuggestions = await moderator.agent.get(`/api/v1/creator/webinars/${webinar.id}/ai-suggestions`);
+    expect(creatorSuggestions.status).toBe(200);
+    expect(creatorSuggestions.body.suggestions.map((item: any) => item.id)).not.toContain(grounded.body.suggestion.id);
+    await expect(
+      prisma.webinarChatMessage.count({ where: { webinarSessionId: session.id, messageType: 'AI_MODERATOR' } }),
+    ).resolves.toBe(0);
+    const groundedAgain = await moderator.agent
+      .post(`/api/v1/moderation/sessions/${session.id}/questions/${groundedQuestion.id}/suggestions`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ expectedRevision: 1 });
+    expect(groundedAgain.status).toBe(201);
+    expect(groundedAgain.body.suggestion.id).toBe(grounded.body.suggestion.id);
+
+    const personal = await moderator.agent
+      .post(`/api/v1/moderation/sessions/${session.id}/questions/${personalQuestion.id}/suggestions`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ expectedRevision: 0 });
+    expect(personal.status).toBe(201);
+    expect(personal.body.suggestion).toMatchObject({
+      outcome: 'PERSONALIZED_LEGAL_ADVICE',
+      handoffRequired: true,
+      grounding: null,
+    });
+    const draftOnly = await moderator.agent
+      .post(`/api/v1/moderation/sessions/${session.id}/questions/${draftOnlyQuestion.id}/suggestions`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ expectedRevision: 0 });
+    expect(draftOnly.status).toBe(201);
+    expect(draftOnly.body.suggestion).toMatchObject({ outcome: 'NO_BASIS', grounding: null });
+    expect(JSON.stringify(draftOnly.body)).not.toContain('Секретный черновой алгоритм, который нельзя показывать');
+    const source = await moderator.agent
+      .post(`/api/v1/moderation/sessions/${session.id}/questions/${sourceQuestion.id}/suggestions`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ expectedRevision: 0 });
+    expect(source.status).toBe(201);
+    expect(source.body.suggestion).toMatchObject({
+      outcome: 'GROUNDED',
+      grounding: {
+        type: 'source',
+        title: 'Порядок подачи заявления о несостоятельности',
+        url: 'https://pravo.gov.ru/',
+      },
+    });
+
+    const prioritized = await moderator.agent
+      .patch(`/api/v1/moderation/sessions/${session.id}/questions/${personalQuestion.id}`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ priority: 'HIGH', reason: 'Требуется ответ автора', expectedRevision: 1 });
+    expect(prioritized.status).toBe(200);
+    expect(prioritized.body.question).toMatchObject({
+      moderationStatus: 'ACTION_REQUIRED',
+      priority: 'HIGH',
+      moderationRevision: 2,
+    });
+    await prisma.question.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: webinar.id,
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: session.id,
+        text: personalQuestion.text,
+      },
+    });
+    const priorityQueue = await moderator.agent.get(
+      `/api/v1/moderation/sessions/${session.id}/questions?queue=priority`,
+    );
+    expect(priorityQueue.status).toBe(200);
+    expect(priorityQueue.body.questions.map((question: any) => question.id)).toContain(personalQuestion.id);
+    const repeatingQueue = await moderator.agent.get(
+      `/api/v1/moderation/sessions/${session.id}/questions?queue=repeating`,
+    );
+    expect(repeatingQueue.status).toBe(200);
+    expect(repeatingQueue.body.questions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: personalQuestion.id, repeatCount: 2 })]),
+    );
+
+    const published = await moderator.agent
+      .post(
+        `/api/v1/moderation/sessions/${session.id}/questions/${groundedQuestion.id}/suggestions/${grounded.body.suggestion.id}/review`,
+      )
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ action: 'PUBLISH', reason: 'Основание и формулировка проверены', expectedQuestionRevision: 1 });
+    expect(published.status).toBe(200);
+    expect(published.body.question).toMatchObject({ moderationStatus: 'RESOLVED', moderationRevision: 2 });
+    const terminalGenerate = await moderator.agent
+      .post(`/api/v1/moderation/sessions/${session.id}/questions/${groundedQuestion.id}/suggestions`)
+      .set('x-csrf-token', moderator.csrfToken)
+      .send({ expectedRevision: 2 });
+    expect(terminalGenerate.status).toBe(409);
+    expect(terminalGenerate.body.code).toBe('question_terminal_state');
+    const room = await request(app)
+      .get('/api/webinar/chat/session/current')
+      .set('Cookie', [`aspb_room_token=${roomToken}`]);
+    expect(room.status).toBe(200);
+    expect(room.body.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'ai_moderator',
+          authorName: 'AI-модератор',
+          isSynthetic: true,
+          grounding: { type: 'transcript', timestampSeconds: 42, label: '0:42' },
+        }),
+      ]),
+    );
+    await expect(
+      prisma.questionModerationEvent.count({ where: { organizationId: tenant.organization.id } }),
+    ).resolves.toBeGreaterThanOrEqual(6);
+    await expect(
+      prisma.cRMContactEvent.count({
+        where: { organizationId: tenant.organization.id, type: 'question_moderation' },
+      }),
+    ).resolves.toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('tenant CRM contact and pipeline batch', () => {
+  it('keeps contact, filters, timeline and stage writes tenant-scoped and auditable', async () => {
+    const tenantA = await createTenantFixture({
+      slug: `crm-a-${Date.now()}`,
+      email: `crm-owner-a-${Date.now()}@example.test`,
+    });
+    const tenantB = await createTenantFixture({
+      slug: `crm-b-${Date.now()}`,
+      email: `crm-owner-b-${Date.now()}@example.test`,
+    });
+    const analyst = await prisma.user.create({
+      data: {
+        emailNormalized: `crm-analyst-${Date.now()}@example.test`,
+        displayName: 'Аналитик CRM',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    await prisma.organizationMembership.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        userId: analyst.id,
+        role: 'ANALYST',
+        status: 'ACTIVE',
+      },
+    });
+    const crmManager = await prisma.user.create({
+      data: {
+        emailNormalized: `crm-manager-${Date.now()}@example.test`,
+        displayName: 'Менеджер CRM',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+        memberships: {
+          create: { organizationId: tenantA.organization.id, role: 'CRM_MANAGER', status: 'ACTIVE' },
+        },
+      },
+    });
+    const tenantAuthor = await prisma.user.create({
+      data: {
+        emailNormalized: `crm-author-${Date.now()}@example.test`,
+        displayName: 'Автор без CRM-доступа',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+        memberships: {
+          create: { organizationId: tenantA.organization.id, role: 'AUTHOR', status: 'ACTIVE' },
+        },
+      },
+    });
+    const ownerA = await loginPlatformUser(tenantA.user.id);
+    const ownerB = await loginPlatformUser(tenantB.user.id);
+    const analystSession = await loginPlatformUser(analyst.id);
+    const managerSession = await loginPlatformUser(crmManager.id);
+    const authorSession = await loginPlatformUser(tenantAuthor.id);
+
+    const disabled = await ownerA.agent.get('/api/v1/crm/contacts');
+    expect(disabled.status).toBe(404);
+    expect(disabled.body.code).toBe('tenant_crm_disabled');
+    env.TENANT_CRM_ENABLED = 'on';
+
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        slug: `crm-webinar-${Date.now()}`,
+        title: 'CRM webinar',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+      },
+    });
+    const webinarSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        title: 'CRM session',
+        scheduledAt: new Date('2026-08-21T12:00:00.000Z'),
+        timezone: 'Europe/Amsterdam',
+      },
+    });
+    const participant = await prisma.user.create({
+      data: {
+        emailNormalized: 'same-contact@example.test',
+        displayName: 'Мария Контакт',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Мария Контакт',
+        phone: '+7 (999) 555-44-33',
+        email: 'same-contact@example.test',
+        source: 'crm_e2e_source',
+        consent: true,
+        marketingConsent: true,
+        marketingEmailConsent: true,
+        marketingTelegramConsent: true,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: webinarSession.id,
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        userId: participant.id,
+        accessPolicy: 'PUBLIC_CATALOG',
+        accessTokenHash: hashToken(createAccessToken()),
+        status: 'registered',
+        emailVerifiedAt: new Date('2026-08-21T12:05:00.000Z'),
+        roomEnteredAt: new Date('2026-08-21T12:10:00.000Z'),
+        telegramFollowupSentAt: new Date('2026-08-21T12:07:00.000Z'),
+        crmStatus: 'qualified',
+      },
+    });
+    const contact = await prisma.$transaction(tx =>
+      linkVerifiedRegistrationToCrm(tx, registration.id, new Date('2026-08-21T12:05:00.000Z')),
+    );
+    expect(contact).not.toBeNull();
+    await prisma.cRMPipeline.update({ where: { id: contact!.pipelineId }, data: { timezone: 'Europe/Amsterdam' } });
+    const mismatchedLead = await prisma.lead.create({
+      data: {
+        name: 'Другой контакт',
+        phone: '+79995550011',
+        email: `crm-scope-mismatch-${Date.now()}@example.test`,
+        consent: true,
+      },
+    });
+    await expect(
+      prisma.registration.create({
+        data: {
+          leadId: mismatchedLead.id,
+          webinarSessionId: webinarSession.id,
+          organizationId: tenantA.organization.id,
+          webinarId: webinar.id,
+          accessTokenHash: hashToken(createAccessToken()),
+          status: 'registered',
+          emailVerifiedAt: new Date(),
+          crmContactId: contact!.id,
+        },
+      }),
+    ).rejects.toThrow();
+    await prisma.event.create({
+      data: {
+        eventName: 'participant_login',
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: webinarSession.id,
+        source: 'passwordless',
+      },
+    });
+    const scoreQuestion = await prisma.question.create({
+      data: {
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: webinarSession.id,
+        text: '<script>не исполнять</script> Как оформить договор?',
+      },
+    });
+    const scoreCta = await prisma.partnerApplication.create({
+      data: {
+        leadId: lead.id,
+        registrationId: registration.id,
+        webinarSessionId: webinarSession.id,
+        status: 'new',
+      },
+    });
+    const scoreProgress = await prisma.viewerWebinarProgress.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        webinarSessionId: webinarSession.id,
+        userId: participant.id,
+        positionMs: 120_000,
+        durationMs: 200_000,
+      },
+    });
+    await prisma.$transaction(async tx => {
+      await recordCrmScoreSignalForRegistration(
+        tx,
+        registration.id,
+        'room_entered',
+        'registration',
+        registration.id,
+        registration.roomEnteredAt!,
+      );
+      await recordCrmScoreSignalForRegistration(
+        tx,
+        registration.id,
+        'viewed_50_percent',
+        'viewer_progress',
+        scoreProgress.id,
+        scoreProgress.lastObservedAt,
+      );
+      await recordCrmScoreSignalForRegistration(
+        tx,
+        registration.id,
+        'question',
+        'question',
+        scoreQuestion.id,
+        scoreQuestion.createdAt,
+      );
+      await recordCrmScoreSignalForRegistration(
+        tx,
+        registration.id,
+        'cta',
+        'partner_application',
+        scoreCta.id,
+        scoreCta.createdAt,
+      );
+      await recordCrmScoreSignalForRegistration(
+        tx,
+        registration.id,
+        'cta',
+        'partner_application',
+        scoreCta.id,
+        scoreCta.createdAt,
+      );
+    });
+    await prisma.viewerWebinarNote.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        webinarSessionId: webinarSession.id,
+        userId: participant.id,
+        timestampMs: 125_000,
+        body: 'Личная заметка, которую CRM не должна раскрывать',
+      },
+    });
+    await prisma.emailOutboxJob.create({
+      data: {
+        type: 'registration_confirmation',
+        status: 'sent',
+        registrationId: registration.id,
+        webinarSessionId: webinarSession.id,
+        toEmail: lead.email,
+        toName: lead.name,
+        scheduledAt: webinarSession.scheduledAt,
+        webinarUrl: 'https://example.test/room',
+        sentAt: new Date('2026-08-21T12:06:00.000Z'),
+      },
+    });
+    const telegramJob = await prisma.telegramBroadcastJob.create({
+      data: { text: 'CRM test', chatIds: [], total: 1, status: 'completed' },
+    });
+    await prisma.telegramBroadcastRecipient.create({
+      data: {
+        jobId: telegramJob.id,
+        leadId: lead.id,
+        chatId: '999000111',
+        consentDocumentVersion: 'test-v1',
+        inclusionReason: 'explicit_test_consent',
+        status: 'sent',
+        sentAt: new Date('2026-08-21T12:07:00.000Z'),
+      },
+    });
+
+    const pipelineB = await prisma.cRMPipeline.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        name: 'Основная воронка',
+        isDefault: true,
+      },
+    });
+    const stageB = await prisma.cRMStage.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        pipelineId: pipelineB.id,
+        code: 'new',
+        name: 'Новый',
+        semanticCategory: 'OPEN',
+        orderIndex: 10,
+        isProtected: true,
+      },
+    });
+    const foreignContact = await prisma.cRMContact.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        pipelineId: pipelineB.id,
+        stageId: stageB.id,
+        emailNormalized: 'same-contact@example.test',
+        displayName: 'Иной tenant',
+      },
+    });
+    const foreignScoring = await ownerB.agent
+      .post('/api/v1/crm/scoring/versions')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({
+        name: 'Модель tenant B',
+        hotThreshold: 60,
+        points: { registration: 10, roomEntered: 15, viewed50Percent: 25, question: 25, cta: 35 },
+        idempotencyKey: 'score-tenant-b-v1',
+      });
+    expect(foreignScoring.status).toBe(201);
+    expect(foreignContact.emailNormalized).toBe(contact?.emailNormalized);
+    await expect(
+      prisma.cRMContact.create({
+        data: {
+          organizationId: tenantA.organization.id,
+          pipelineId: contact!.pipelineId,
+          stageId: contact!.stageId,
+          emailNormalized: contact!.emailNormalized,
+          displayName: 'Дубликат внутри tenant',
+        },
+      }),
+    ).rejects.toThrow();
+
+    const reference = await ownerA.agent.get('/api/v1/crm/reference-data');
+    expect(reference.status).toBe(200);
+    expect(reference.body).toMatchObject({
+      maskedPersonalData: false,
+      canEditContacts: true,
+      canEditTasks: true,
+      canManageStages: true,
+      pipelines: [expect.objectContaining({ timezone: 'Europe/Amsterdam' })],
+    });
+    expect(reference.body.pipelines[0].stages.map((stage: any) => stage.code)).toEqual(
+      expect.arrayContaining(['new', 'qualified', 'contacted', 'won', 'lost', 'not_target']),
+    );
+    const forgedTenantQuery = await ownerA.agent
+      .get('/api/v1/crm/contacts')
+      .query({ organizationId: tenantB.organization.id });
+    expect(forgedTenantQuery.status).toBe(400);
+    const authorRead = await authorSession.agent.get('/api/v1/crm/contacts');
+    expect(authorRead.status).toBe(403);
+
+    expect(reference.body).toMatchObject({ canEditTags: true, canManageScoring: true });
+    const initialScoring = await ownerA.agent.get('/api/v1/crm/scoring');
+    expect(initialScoring.status).toBe(200);
+    expect(initialScoring.body.active).toMatchObject({
+      version: 1,
+      hotThreshold: 60,
+      rules: expect.arrayContaining([
+        { code: 'registration', label: 'Регистрация', points: 10 },
+        { code: 'room_entered', label: 'Вход в комнату', points: 15 },
+        { code: 'viewed_50_percent', label: 'Просмотрено не менее 50%', points: 25 },
+        { code: 'question', label: 'Задан вопрос', points: 25 },
+        { code: 'cta', label: 'Нажата CTA и отправлена заявка', points: 35 },
+      ]),
+    });
+    await expect(prisma.cRMContact.findUniqueOrThrow({ where: { id: contact!.id } })).resolves.toMatchObject({
+      score: 110,
+    });
+    await expect(
+      prisma.cRMScoreFactor.count({ where: { organizationId: tenantA.organization.id, contactId: contact!.id } }),
+    ).resolves.toBe(5);
+    await expect(prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).resolves.toMatchObject({
+      isHot: true,
+    });
+    await expect(
+      prisma.cRMScoreFactor.updateMany({
+        where: { organizationId: tenantA.organization.id, contactId: contact!.id },
+        data: { signalCode: 'registration' },
+      }),
+    ).rejects.toThrow();
+
+    const manualHotBody = {
+      mode: 'NOT_HOT',
+      reason: 'Менеджер подтвердил отсутствие актуальной потребности',
+      idempotencyKey: 'crm-hot-not-1',
+    };
+    const foreignManualHot = await ownerA.agent
+      .patch(`/api/v1/crm/contacts/${foreignContact.id}/hot`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(manualHotBody);
+    const unknownManualHot = await ownerA.agent
+      .patch('/api/v1/crm/contacts/crm-contact-does-not-exist/hot')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(manualHotBody);
+    expect(foreignManualHot.status).toBe(404);
+    expect(unknownManualHot.status).toBe(404);
+    expect(foreignManualHot.body.code).toBe(unknownManualHot.body.code);
+    const analystManualHot = await analystSession.agent
+      .patch(`/api/v1/crm/contacts/${contact!.id}/hot`)
+      .set('x-csrf-token', analystSession.csrfToken)
+      .send(manualHotBody);
+    expect(analystManualHot.status).toBe(403);
+    const manualHot = await managerSession.agent
+      .patch(`/api/v1/crm/contacts/${contact!.id}/hot`)
+      .set('x-csrf-token', managerSession.csrfToken)
+      .send(manualHotBody);
+    expect(manualHot.status).toBe(200);
+    expect(manualHot.body).toMatchObject({
+      replayed: false,
+      scoring: { value: 110, manualOverride: 'NOT_HOT', automaticHot: true, effectiveHot: false },
+    });
+    const manualHotReplay = await managerSession.agent
+      .patch(`/api/v1/crm/contacts/${contact!.id}/hot`)
+      .set('x-csrf-token', managerSession.csrfToken)
+      .send(manualHotBody);
+    expect(manualHotReplay.body.replayed).toBe(true);
+    await expect(
+      prisma.cRMContactEvent.count({
+        where: { organizationId: tenantA.organization.id, contactId: contact!.id, type: 'manual_hot_changed' },
+      }),
+    ).resolves.toBe(1);
+    await expect(prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).resolves.toMatchObject({
+      isHot: false,
+    });
+
+    const managerScoringWrite = await managerSession.agent
+      .post('/api/v1/crm/scoring/versions')
+      .set('x-csrf-token', managerSession.csrfToken)
+      .send({
+        name: 'Недоступная модель',
+        hotThreshold: 10,
+        points: { registration: 1, roomEntered: 1, viewed50Percent: 1, question: 1, cta: 1 },
+        idempotencyKey: 'score-version-manager-denied',
+      });
+    expect(managerScoringWrite.status).toBe(403);
+    const scoringVersionBody = {
+      name: 'Консервативная модель',
+      hotThreshold: 10,
+      points: { registration: 1, roomEntered: 1, viewed50Percent: 1, question: 1, cta: 1 },
+      idempotencyKey: 'score-version-2',
+    };
+    const scoringVersion = await ownerA.agent
+      .post('/api/v1/crm/scoring/versions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(scoringVersionBody);
+    expect(scoringVersion.status).toBe(201);
+    expect(scoringVersion.body.ruleSet).toMatchObject({ version: 2, hotThreshold: 10, status: 'ACTIVE' });
+    const scoringVersionReplay = await ownerA.agent
+      .post('/api/v1/crm/scoring/versions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(scoringVersionBody);
+    expect(scoringVersionReplay.status).toBe(200);
+    expect(scoringVersionReplay.body).toMatchObject({ replayed: true, ruleSet: { version: 2 } });
+    await expect(prisma.cRMScoringRuleSet.count({ where: { organizationId: tenantA.organization.id } })).resolves.toBe(
+      2,
+    );
+    await expect(prisma.cRMContact.findUniqueOrThrow({ where: { id: contact!.id } })).resolves.toMatchObject({
+      score: 5,
+      manualHot: false,
+    });
+    const automaticHot = await managerSession.agent
+      .patch(`/api/v1/crm/contacts/${contact!.id}/hot`)
+      .set('x-csrf-token', managerSession.csrfToken)
+      .send({
+        mode: 'AUTOMATIC',
+        reason: 'Возвращаем вычисление по утверждённой модели',
+        idempotencyKey: 'crm-hot-auto-1',
+      });
+    expect(automaticHot.body.scoring).toMatchObject({
+      value: 5,
+      ruleSetVersion: 2,
+      manualOverride: 'AUTOMATIC',
+      effectiveHot: false,
+    });
+
+    const foreignTag = await ownerB.agent
+      .post('/api/v1/crm/tags')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ name: 'Приоритет', colorToken: 'red' });
+    expect(foreignTag.status).toBe(201);
+    const forgedTag = await ownerA.agent
+      .post('/api/v1/crm/tags')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ name: 'Нельзя доверять tenant', colorToken: 'slate', organizationId: tenantB.organization.id });
+    expect(forgedTag.status).toBe(400);
+    const createdTag = await managerSession.agent
+      .post('/api/v1/crm/tags')
+      .set('x-csrf-token', managerSession.csrfToken)
+      .send({ name: 'Приоритет', colorToken: 'amber' });
+    expect(createdTag.status).toBe(201);
+    const tagId = createdTag.body.tag.id as string;
+    const duplicateTag = await ownerA.agent
+      .post('/api/v1/crm/tags')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ name: '  ПРИОРИТЕТ  ', colorToken: 'blue' });
+    expect(duplicateTag.status).toBe(409);
+    expect(duplicateTag.body.code).toBe('crm_tag_name_conflict');
+    const foreignTagAssignment = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/tags/${foreignTag.body.tag.id}`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    const unknownTagAssignment = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/tags/crm-tag-does-not-exist`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    expect(foreignTagAssignment.status).toBe(404);
+    expect(unknownTagAssignment.status).toBe(404);
+    expect(foreignTagAssignment.body.code).toBe(unknownTagAssignment.body.code);
+    const foreignTagContact = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${foreignContact.id}/tags/${tagId}`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    const unknownTagContact = await ownerA.agent
+      .post(`/api/v1/crm/contacts/crm-contact-does-not-exist/tags/${tagId}`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    expect(foreignTagContact.status).toBe(404);
+    expect(unknownTagContact.status).toBe(404);
+    expect(foreignTagContact.body.code).toBe(unknownTagContact.body.code);
+    const analystTag = await analystSession.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/tags/${tagId}`)
+      .set('x-csrf-token', analystSession.csrfToken);
+    expect(analystTag.status).toBe(403);
+    const assignedTag = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/tags/${tagId}`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    expect(assignedTag.status).toBe(201);
+    const assignedTagReplay = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/tags/${tagId}`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    expect(assignedTagReplay.status).toBe(200);
+    expect(assignedTagReplay.body.replayed).toBe(true);
+    const tenantATags = await ownerA.agent.get('/api/v1/crm/tags').query({ includeArchived: 'true' });
+    expect(tenantATags.body.tags.map((item: any) => item.id)).toEqual([tagId]);
+    expect(JSON.stringify(tenantATags.body)).not.toContain(foreignTag.body.tag.id);
+    const archivedTag = await ownerA.agent
+      .patch(`/api/v1/crm/tags/${tagId}`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ status: 'ARCHIVED' });
+    expect(archivedTag.body.tag.status).toBe('ARCHIVED');
+    await expect(prisma.cRMTag.delete({ where: { id: tagId } })).rejects.toThrow();
+
+    const removableTag = await ownerA.agent
+      .post('/api/v1/crm/tags')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ name: 'На уточнении', colorToken: 'blue' });
+    const removableTagId = removableTag.body.tag.id as string;
+    await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/tags/${removableTagId}`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    const removedTag = await ownerA.agent
+      .delete(`/api/v1/crm/contacts/${contact!.id}/tags/${removableTagId}`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    expect(removedTag.body).toMatchObject({ assigned: false, replayed: false });
+    const removedTagReplay = await ownerA.agent
+      .delete(`/api/v1/crm/contacts/${contact!.id}/tags/${removableTagId}`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    expect(removedTagReplay.body).toMatchObject({ assigned: false, replayed: true });
+
+    setTestNow(new Date('2026-08-21T12:30:00.000Z'));
+    const initialQueues = await ownerA.agent.get('/api/v1/crm/queues');
+    expect(initialQueues.status).toBe(200);
+    expect(initialQueues.body).toMatchObject({
+      timezone: 'Europe/Amsterdam',
+      localDate: '2026-08-21',
+      counts: { today: 0, overdue: 0, withoutTask: 1, remindersDue: 0 },
+    });
+    const forgedTask = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact?.id}/tasks`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        organizationId: tenantB.organization.id,
+        title: 'Нельзя доверять tenant из клиента',
+        assigneeMembershipId: tenantA.membership.id,
+        priority: 'NORMAL',
+        dueLocal: '2026-08-21T16:00',
+        reminderLocal: '2026-08-21T14:30',
+      });
+    expect(forgedTask.status).toBe(400);
+    const foreignTaskContact = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${foreignContact.id}/tasks`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        title: 'Чужой контакт',
+        assigneeMembershipId: tenantA.membership.id,
+        priority: 'NORMAL',
+        dueLocal: '2026-08-21T16:00',
+        reminderLocal: '2026-08-21T14:30',
+      });
+    const unknownTaskContact = await ownerA.agent
+      .post('/api/v1/crm/contacts/crm-contact-does-not-exist/tasks')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        title: 'Неизвестный контакт',
+        assigneeMembershipId: tenantA.membership.id,
+        priority: 'NORMAL',
+        dueLocal: '2026-08-21T16:00',
+        reminderLocal: '2026-08-21T14:30',
+      });
+    expect(foreignTaskContact.status).toBe(404);
+    expect(unknownTaskContact.status).toBe(404);
+    expect(foreignTaskContact.body.code).toBe(unknownTaskContact.body.code);
+    const foreignAssignee = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact?.id}/tasks`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        title: 'Чужой исполнитель',
+        assigneeMembershipId: tenantB.membership.id,
+        priority: 'NORMAL',
+        dueLocal: '2026-08-21T16:00',
+        reminderLocal: '2026-08-21T14:30',
+      });
+    expect(foreignAssignee.status).toBe(404);
+    expect(foreignAssignee.body.code).toBe('crm_assignee_not_found');
+    const authorTask = await authorSession.agent
+      .post(`/api/v1/crm/contacts/${contact?.id}/tasks`)
+      .set('x-csrf-token', authorSession.csrfToken)
+      .send({
+        title: 'Недоступная задача',
+        assigneeMembershipId: tenantA.membership.id,
+        priority: 'NORMAL',
+        dueLocal: '2026-08-21T16:00',
+        reminderLocal: '2026-08-21T14:30',
+      });
+    expect(authorTask.status).toBe(403);
+    const invalidReminder = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact?.id}/tasks`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        title: 'Неверное напоминание',
+        assigneeMembershipId: tenantA.membership.id,
+        priority: 'HIGH',
+        dueLocal: '2026-08-21T16:00',
+        reminderLocal: '2026-08-21T16:30',
+      });
+    expect(invalidReminder.status).toBe(400);
+    expect(invalidReminder.body.code).toBe('crm_task_reminder_after_due');
+
+    const createdTask = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact?.id}/tasks`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        title: 'Позвонить по договору',
+        description: 'Уточнить перечень документов',
+        assigneeMembershipId: tenantA.membership.id,
+        priority: 'HIGH',
+        dueLocal: '2026-08-21T16:00',
+        reminderLocal: '2026-08-21T14:30',
+      });
+    expect(createdTask.status).toBe(201);
+    expect(createdTask.body.task).toMatchObject({
+      title: 'Позвонить по договору',
+      description: 'Уточнить перечень документов',
+      priority: 'HIGH',
+      status: 'OPEN',
+      timezone: 'Europe/Amsterdam',
+      dueAt: '2026-08-21T14:00:00.000Z',
+      reminderAt: '2026-08-21T12:30:00.000Z',
+      assignee: { id: tenantA.membership.id },
+    });
+    const createdTaskId = createdTask.body.task.id as string;
+    await expect(prisma.cRMContact.findUniqueOrThrow({ where: { id: contact!.id } })).resolves.toMatchObject({
+      nextContactAt: new Date('2026-08-21T14:00:00.000Z'),
+    });
+    const todayQueues = await ownerA.agent.get('/api/v1/crm/queues');
+    expect(todayQueues.body.counts).toMatchObject({ today: 1, overdue: 0, withoutTask: 0, remindersDue: 1 });
+    const todayContacts = await ownerA.agent.get('/api/v1/crm/contacts').query({ queue: 'today' });
+    expect(todayContacts.body.contacts.map((item: any) => item.id)).toEqual([contact?.id]);
+    const foreignTaskRead = await ownerB.agent
+      .patch(`/api/v1/crm/tasks/${createdTaskId}`)
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ status: 'COMPLETED' });
+    const unknownTaskRead = await ownerB.agent
+      .patch('/api/v1/crm/tasks/crm-task-does-not-exist')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ status: 'COMPLETED' });
+    expect(foreignTaskRead.status).toBe(404);
+    expect(unknownTaskRead.status).toBe(404);
+    expect(foreignTaskRead.body.code).toBe(unknownTaskRead.body.code);
+    const completedTask = await managerSession.agent
+      .patch(`/api/v1/crm/tasks/${createdTaskId}`)
+      .set('x-csrf-token', managerSession.csrfToken)
+      .send({ status: 'COMPLETED' });
+    expect(completedTask.status).toBe(200);
+    expect(completedTask.body.task).toMatchObject({ status: 'COMPLETED', completedAt: '2026-08-21T12:30:00.000Z' });
+    await expect(prisma.cRMTask.delete({ where: { id: createdTaskId } })).rejects.toThrow();
+
+    const managerMembership = await prisma.organizationMembership.findFirstOrThrow({
+      where: { organizationId: tenantA.organization.id, userId: crmManager.id },
+    });
+    const overdueTask = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact?.id}/tasks`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        title: 'Проверить просроченный срок',
+        assigneeMembershipId: managerMembership.id,
+        priority: 'URGENT',
+        dueLocal: '2026-08-21T14:00',
+        reminderLocal: '2026-08-21T13:30',
+      });
+    expect(overdueTask.status).toBe(201);
+    const overdueQueues = await ownerA.agent.get('/api/v1/crm/queues');
+    expect(overdueQueues.body.counts).toMatchObject({ today: 0, overdue: 1, withoutTask: 0, remindersDue: 1 });
+    const overdueContacts = await ownerA.agent.get('/api/v1/crm/contacts').query({ queue: 'overdue' });
+    expect(overdueContacts.body.contacts.map((item: any) => item.id)).toEqual([contact?.id]);
+    const cancelledTask = await ownerA.agent
+      .patch(`/api/v1/crm/tasks/${overdueTask.body.task.id}`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ status: 'CANCELLED' });
+    expect(cancelledTask.body.task.status).toBe('CANCELLED');
+    const withoutTaskContacts = await ownerA.agent.get('/api/v1/crm/contacts').query({ queue: 'without_task' });
+    expect(withoutTaskContacts.body.contacts.map((item: any) => item.id)).toEqual([contact?.id]);
+    await expect(prisma.cRMContact.findUniqueOrThrow({ where: { id: contact!.id } })).resolves.toMatchObject({
+      nextContactAt: null,
+    });
+
+    for (const query of [
+      { search: 'Мария' },
+      { search: '5554433' },
+      { webinarId: webinar.id },
+      { sessionId: webinarSession.id },
+      { source: 'crm_e2e_source' },
+      { hasQuestion: 'true' },
+      { hasCta: 'true' },
+      { activity: 'viewed' },
+      { activity: 'note' },
+      { activity: 'telegram' },
+    ]) {
+      const filtered = await ownerA.agent.get('/api/v1/crm/contacts').query(query);
+      expect(filtered.status).toBe(200);
+      expect(filtered.body.contacts.map((item: any) => item.id)).toEqual([contact?.id]);
+    }
+    const nonPhoneSearch = await ownerA.agent.get('/api/v1/crm/contacts').query({ search: 'нет такого' });
+    expect(nonPhoneSearch.status).toBe(200);
+    expect(nonPhoneSearch.body.contacts).toEqual([]);
+
+    const detail = await ownerA.agent.get(`/api/v1/crm/contacts/${contact?.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.timeline.map((item: any) => item.type)).toEqual(
+      expect.arrayContaining([
+        'registration',
+        'room_entered',
+        'participant_login',
+        'question',
+        'cta',
+        'view_progress',
+        'viewer_note_created',
+        'email_delivery',
+        'telegram_delivery',
+        'task_created',
+        'task_completed',
+        'task_cancelled',
+        'manual_hot_changed',
+        'tag_assigned',
+        'tag_removed',
+      ]),
+    );
+    expect(detail.body.contact).toMatchObject({
+      score: { value: 5, ruleSetVersion: 2, hotThreshold: 10, effectiveHot: false },
+      tags: [expect.objectContaining({ id: tagId, name: 'Приоритет', colorToken: 'amber', status: 'ARCHIVED' })],
+    });
+    expect(detail.body.scoring).toMatchObject({
+      value: 5,
+      ruleSetVersion: 2,
+      effectiveHot: false,
+      factors: expect.arrayContaining([
+        expect.objectContaining({ code: 'registration', pointsEach: 1, count: 1, subtotal: 1 }),
+        expect.objectContaining({ code: 'room_entered', pointsEach: 1, count: 1, subtotal: 1 }),
+        expect.objectContaining({ code: 'viewed_50_percent', pointsEach: 1, count: 1, subtotal: 1 }),
+        expect.objectContaining({ code: 'question', pointsEach: 1, count: 1, subtotal: 1 }),
+        expect.objectContaining({ code: 'cta', pointsEach: 1, count: 1, subtotal: 1 }),
+      ]),
+    });
+    expect(detail.body.tasks).toHaveLength(2);
+    expect(detail.body.tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: 'Позвонить по договору', status: 'COMPLETED' }),
+        expect.objectContaining({ title: 'Проверить просроченный срок', status: 'CANCELLED' }),
+      ]),
+    );
+    expect(detail.body.timeline.filter((item: any) => item.type === 'telegram_delivery')).toHaveLength(1);
+    expect(JSON.stringify(detail.body)).not.toContain('Личная заметка, которую CRM не должна раскрывать');
+    expect(JSON.stringify(detail.body)).not.toContain('999000111');
+
+    const analystDetail = await analystSession.agent.get(`/api/v1/crm/contacts/${contact?.id}`);
+    expect(analystDetail.status).toBe(200);
+    expect(analystDetail.body.contact.email).toMatch(/^s\*\*\*@/);
+    expect(analystDetail.body.contact.phone).toBe('***4433');
+    expect(JSON.stringify(analystDetail.body.timeline)).not.toContain('Как оформить договор?');
+    expect(analystDetail.body.tasks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: 'Задача CRM', description: null })]),
+    );
+    expect(JSON.stringify(analystDetail.body)).not.toContain('Уточнить перечень документов');
+    const analystReference = await analystSession.agent.get('/api/v1/crm/reference-data');
+    expect(analystReference.body).toMatchObject({
+      maskedPersonalData: true,
+      canEditContacts: false,
+      canEditTasks: false,
+      canEditTags: false,
+      canManageScoring: false,
+      canManageStages: false,
+    });
+    const analystWrite = await analystSession.agent
+      .patch(`/api/v1/crm/contacts/${contact?.id}/stage`)
+      .set('x-csrf-token', analystSession.csrfToken)
+      .send({ stageId: contact?.stageId });
+    expect(analystWrite.status).toBe(403);
+    const managerNoChange = await managerSession.agent
+      .patch(`/api/v1/crm/contacts/${contact?.id}/stage`)
+      .set('x-csrf-token', managerSession.csrfToken)
+      .send({ stageId: contact?.stageId });
+    expect(managerNoChange.status).toBe(200);
+    expect(managerNoChange.body.changed).toBe(false);
+    const analystSearch = await analystSession.agent.get('/api/v1/crm/contacts').query({ search: 'same-contact' });
+    expect(analystSearch.status).toBe(403);
+    expect(analystSearch.body.code).toBe('crm_pii_search_denied');
+
+    const bulkContactA = await prisma.cRMContact.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        pipelineId: contact!.pipelineId,
+        stageId: contact!.stageId,
+        emailNormalized: 'bulk-a@example.test',
+        displayName: 'Bulk A',
+        source: 'crm_bulk_partial',
+      },
+    });
+    const bulkContactB = await prisma.cRMContact.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        pipelineId: contact!.pipelineId,
+        stageId: contact!.stageId,
+        emailNormalized: 'bulk-b@example.test',
+        displayName: 'Bulk B',
+        source: 'crm_bulk_partial',
+      },
+    });
+    const bulkTagPreviewBody = {
+      mode: 'PREVIEW',
+      filters: { source: 'crm_bulk_partial' },
+      action: { type: 'ADD_TAG', tagId: removableTagId },
+      idempotencyKey: 'crm-bulk-tag-preview-1',
+    };
+    const bulkTagPreview = await ownerA.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(bulkTagPreviewBody);
+    expect(bulkTagPreview.status).toBe(201);
+    expect(bulkTagPreview.body.bulkAction).toMatchObject({ expectedCount: 2, status: 'PREVIEWED' });
+    const bulkPreviewAudit = await prisma.auditLog.findFirstOrThrow({
+      where: { action: 'crm.bulk.previewed', entityId: bulkTagPreview.body.bulkAction.id },
+    });
+    expect(bulkPreviewAudit.afterJson).toMatchObject({ filterKeys: ['source'], expectedCount: 2 });
+    expect(JSON.stringify(bulkPreviewAudit.afterJson)).not.toContain('crm_bulk_partial');
+    const bulkTagPreviewReplay = await ownerA.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(bulkTagPreviewBody);
+    expect(bulkTagPreviewReplay.status).toBe(200);
+    expect(bulkTagPreviewReplay.body.replayed).toBe(true);
+    const conflictingPreview = await ownerA.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ ...bulkTagPreviewBody, filters: { source: 'crm_e2e_source' } });
+    expect(conflictingPreview.status).toBe(409);
+    expect(conflictingPreview.body.code).toBe('crm_bulk_idempotency_conflict');
+    await prisma.cRMContact.update({ where: { id: bulkContactB.id }, data: { archivedAt: new Date() } });
+    const bulkTagExecute = await ownerA.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ mode: 'EXECUTE', previewId: bulkTagPreview.body.bulkAction.id });
+    expect(bulkTagExecute.body.bulkAction).toMatchObject({ status: 'PARTIAL' });
+    expect(bulkTagExecute.body.bulkAction.results.successes).toEqual([{ contactId: bulkContactA.id }]);
+    expect(bulkTagExecute.body.bulkAction.results.failures).toEqual([
+      { contactId: bulkContactB.id, code: 'crm_contact_not_found' },
+    ]);
+    const bulkTagExecuteReplay = await ownerA.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ mode: 'EXECUTE', previewId: bulkTagPreview.body.bulkAction.id });
+    expect(bulkTagExecuteReplay.body).toMatchObject({ replayed: true, bulkAction: { status: 'PARTIAL' } });
+    await expect(
+      prisma.cRMContactTag.count({ where: { organizationId: tenantA.organization.id, tagId: removableTagId } }),
+    ).resolves.toBe(1);
+
+    const expiringPreview = await ownerA.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        mode: 'PREVIEW',
+        filters: { source: 'crm_e2e_source' },
+        action: { type: 'ADD_TAG', tagId: removableTagId },
+        idempotencyKey: 'crm-bulk-expiring-preview-1',
+      });
+    await expect(
+      prisma.cRMBulkAction.update({
+        where: { id: expiringPreview.body.bulkAction.id },
+        data: {
+          status: 'COMPLETED',
+          resultsJson: { successes: [], failures: [] },
+          executedAt: new Date('2026-08-21T12:30:00.000Z'),
+        },
+      }),
+    ).rejects.toThrow();
+    setTestNow(new Date('2026-08-21T12:41:00.000Z'));
+    const expiredPreview = await ownerA.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ mode: 'EXECUTE', previewId: expiringPreview.body.bulkAction.id });
+    expect(expiredPreview.status).toBe(409);
+    expect(expiredPreview.body.code).toBe('crm_bulk_preview_expired');
+    await expect(
+      prisma.cRMBulkAction.findUniqueOrThrow({ where: { id: expiringPreview.body.bulkAction.id } }),
+    ).resolves.toMatchObject({ status: 'EXPIRED', resultsJson: null });
+    setTestNow(new Date('2026-08-21T12:30:00.000Z'));
+
+    const foreignBulk = await ownerB.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ mode: 'EXECUTE', previewId: bulkTagPreview.body.bulkAction.id });
+    const unknownBulk = await ownerB.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ mode: 'EXECUTE', previewId: 'crm-bulk-does-not-exist' });
+    expect(foreignBulk.status).toBe(404);
+    expect(unknownBulk.status).toBe(404);
+    expect(foreignBulk.body.code).toBe(unknownBulk.body.code);
+    const foreignBulkTarget = await ownerA.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        mode: 'PREVIEW',
+        filters: { source: 'crm_e2e_source' },
+        action: { type: 'ADD_TAG', tagId: foreignTag.body.tag.id },
+        idempotencyKey: 'crm-bulk-foreign-tag-1',
+      });
+    const unknownBulkTarget = await ownerA.agent
+      .post('/api/v1/crm/bulk-actions')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        mode: 'PREVIEW',
+        filters: { source: 'crm_e2e_source' },
+        action: { type: 'ADD_TAG', tagId: 'crm-tag-does-not-exist' },
+        idempotencyKey: 'crm-bulk-unknown-tag-1',
+      });
+    expect(foreignBulkTarget.status).toBe(404);
+    expect(unknownBulkTarget.status).toBe(404);
+    expect(foreignBulkTarget.body.code).toBe(unknownBulkTarget.body.code);
+
+    const managerMembershipForBulk = await prisma.organizationMembership.findFirstOrThrow({
+      where: { organizationId: tenantA.organization.id, userId: crmManager.id },
+    });
+    const bulkActions = [
+      {
+        key: 'crm-bulk-manager-1',
+        action: { type: 'ASSIGN_MANAGER', assigneeMembershipId: managerMembershipForBulk.id },
+      },
+      {
+        key: 'crm-bulk-task-1',
+        action: {
+          type: 'CREATE_TASK',
+          task: {
+            title: 'Проверить документы массово',
+            description: null,
+            assigneeMembershipId: managerMembershipForBulk.id,
+            priority: 'NORMAL',
+            dueLocal: '2031-08-21T16:00',
+            reminderLocal: '2031-08-21T15:00',
+          },
+        },
+      },
+      {
+        key: 'crm-bulk-stage-1',
+        action: {
+          type: 'CHANGE_STAGE',
+          stageId: reference.body.pipelines[0].stages.find((stage: any) => stage.code === 'contacted').id,
+        },
+      },
+    ];
+    for (const bulk of bulkActions) {
+      const preview = await ownerA.agent
+        .post('/api/v1/crm/bulk-actions')
+        .set('x-csrf-token', ownerA.csrfToken)
+        .send({
+          mode: 'PREVIEW',
+          filters: { source: 'crm_e2e_source' },
+          action: bulk.action,
+          idempotencyKey: bulk.key,
+        });
+      expect(preview.body.bulkAction.expectedCount).toBe(1);
+      const executed = await ownerA.agent
+        .post('/api/v1/crm/bulk-actions')
+        .set('x-csrf-token', ownerA.csrfToken)
+        .send({ mode: 'EXECUTE', previewId: preview.body.bulkAction.id });
+      expect(executed.body.bulkAction).toMatchObject({ status: 'COMPLETED' });
+      expect(executed.body.bulkAction.results).toMatchObject({ successes: [{ contactId: contact!.id }], failures: [] });
+    }
+    await expect(
+      prisma.cRMTask.count({ where: { organizationId: tenantA.organization.id, bulkActionId: { not: null } } }),
+    ).resolves.toBe(1);
+    await expect(prisma.cRMContact.findUniqueOrThrow({ where: { id: contact!.id } })).resolves.toMatchObject({
+      ownerMembershipId: managerMembershipForBulk.id,
+    });
+
+    const exportDenied = await ownerA.agent
+      .post('/api/v1/crm/exports')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ filters: { source: 'crm_e2e_source' } });
+    expect(exportDenied.status).toBe(403);
+    expect(exportDenied.body.code).toBe('crm_export_permission_required');
+    await prisma.organizationMembership.update({
+      where: { id: tenantA.membership.id },
+      data: { permissionsJson: { crm: { export: true } } },
+    });
+    await prisma.cRMContact.update({
+      where: { id: contact!.id },
+      data: { displayName: '=HYPERLINK("https://invalid.example")' },
+    });
+    const ownerExport = await ownerA.agent
+      .post('/api/v1/crm/exports')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ filters: { source: 'crm_e2e_source' } });
+    expect(ownerExport.status).toBe(200);
+    expect(ownerExport.headers['cache-control']).toContain('no-store');
+    expect(ownerExport.headers['content-type']).toContain('text/csv');
+    expect(ownerExport.headers['content-disposition']).toContain('attachment; filename="crm-contacts-');
+    expect(ownerExport.headers['x-crm-export-row-count']).toBe('1');
+    expect(ownerExport.text).toContain('"\'=HYPERLINK(""https://invalid.example"")"');
+    expect(ownerExport.text).toContain(contact!.emailNormalized);
+    const ownerExportAudit = await prisma.auditLog.findUniqueOrThrow({
+      where: { id: String(ownerExport.headers['x-crm-export-audit-id']) },
+    });
+    expect(ownerExportAudit.afterJson).toMatchObject({ filterKeys: ['source'], rowCount: 1, masked: false });
+    expect(JSON.stringify(ownerExportAudit.afterJson)).not.toContain('crm_e2e_source');
+    expect(JSON.stringify(ownerExportAudit.afterJson)).not.toContain(contact!.emailNormalized);
+    const forgedExport = await ownerA.agent
+      .post('/api/v1/crm/exports')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ organizationId: tenantB.organization.id, filters: {} });
+    expect(forgedExport.status).toBe(400);
+    await prisma.organizationMembership.update({
+      where: { organizationId_userId: { organizationId: tenantA.organization.id, userId: analyst.id } },
+      data: { permissionsJson: { crm: { export: true } } },
+    });
+    const analystExport = await analystSession.agent
+      .post('/api/v1/crm/exports')
+      .set('x-csrf-token', analystSession.csrfToken)
+      .send({ filters: { source: 'crm_e2e_source' } });
+    expect(analystExport.status).toBe(200);
+    expect(analystExport.text).not.toContain(contact!.emailNormalized);
+    expect(analystExport.text).toContain('s***@example.test');
+    const foreignStageExport = await ownerA.agent
+      .post('/api/v1/crm/exports')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ filters: { stageId: stageB.id } });
+    const unknownStageExport = await ownerA.agent
+      .post('/api/v1/crm/exports')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ filters: { stageId: 'crm-stage-does-not-exist' } });
+    expect(foreignStageExport.headers['x-crm-export-row-count']).toBe('0');
+    expect(unknownStageExport.headers['x-crm-export-row-count']).toBe('0');
+    expect(foreignStageExport.text).toBe(unknownStageExport.text);
+    await expect(
+      prisma.auditLog.count({ where: { organizationId: tenantA.organization.id, action: 'crm.contacts.exported' } }),
+    ).resolves.toBe(4);
+    await expect(
+      prisma.auditLog.count({ where: { organizationId: tenantA.organization.id, action: 'crm.bulk.executed' } }),
+    ).resolves.toBe(4);
+
+    const foreignRead = await ownerA.agent.get(`/api/v1/crm/contacts/${foreignContact.id}`);
+    const unknownRead = await ownerA.agent.get('/api/v1/crm/contacts/crm-contact-does-not-exist');
+    expect(foreignRead.status).toBe(404);
+    expect(unknownRead.status).toBe(404);
+    expect(foreignRead.body.code).toBe(unknownRead.body.code);
+
+    const lostStage = reference.body.pipelines[0].stages.find((stage: any) => stage.code === 'lost');
+    const noReason = await ownerA.agent
+      .patch(`/api/v1/crm/contacts/${contact?.id}/stage`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ stageId: lostStage.id });
+    expect(noReason.status).toBe(400);
+    expect(noReason.body.code).toBe('crm_lost_reason_required');
+    const foreignStage = await ownerA.agent
+      .patch(`/api/v1/crm/contacts/${contact?.id}/stage`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ stageId: stageB.id, reason: 'Неверный tenant' });
+    const unknownStage = await ownerA.agent
+      .patch('/api/v1/crm/contacts/crm-contact-does-not-exist/stage')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ stageId: lostStage.id, reason: 'Нет объекта' });
+    expect(foreignStage.status).toBe(404);
+    expect(unknownStage.status).toBe(404);
+    expect(foreignStage.body.code).toBe(unknownStage.body.code);
+
+    const transitioned = await ownerA.agent
+      .patch(`/api/v1/crm/contacts/${contact?.id}/stage`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ stageId: lostStage.id, reason: 'Нет подтверждённой потребности' });
+    expect(transitioned.status).toBe(200);
+    expect(transitioned.body.changed).toBe(true);
+    await expect(prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).resolves.toMatchObject({
+      crmStatus: 'lost',
+    });
+    await expect(
+      prisma.auditLog.count({
+        where: { organizationId: tenantA.organization.id, action: 'crm.contact.stage_changed', entityId: contact?.id },
+      }),
+    ).resolves.toBe(2);
+
+    const customStage = await ownerA.agent
+      .post('/api/v1/crm/stages')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ name: 'Проверка документов', semanticCategory: 'OPEN' });
+    expect(customStage.status).toBe(201);
+    expect(customStage.body.stage.code).toMatch(/^custom_[a-f0-9]+$/);
+    const editedStage = await ownerA.agent
+      .patch(`/api/v1/crm/stages/${customStage.body.stage.id}`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ name: 'Документы проверяются', position: 1 });
+    expect(editedStage.status).toBe(200);
+    expect(editedStage.body.stage).toMatchObject({ name: 'Документы проверяются', orderIndex: 20 });
+    const archivedStage = await ownerA.agent
+      .patch(`/api/v1/crm/stages/${customStage.body.stage.id}`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ status: 'ARCHIVED' });
+    expect(archivedStage.status).toBe(200);
+    const protectedArchive = await ownerA.agent
+      .patch(`/api/v1/crm/stages/${lostStage.id}`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ status: 'ARCHIVED' });
+    expect(protectedArchive.status).toBe(409);
+    expect(protectedArchive.body.code).toBe('crm_stage_protected');
+    await expect(
+      prisma.cRMStage.update({ where: { id: lostStage.id }, data: { isProtected: false } }),
+    ).rejects.toThrow();
+    await expect(
+      prisma.cRMStage.update({ where: { id: lostStage.id }, data: { semanticCategory: 'OPEN' } }),
+    ).rejects.toThrow();
+    await expect(prisma.cRMStage.delete({ where: { id: lostStage.id } })).rejects.toThrow();
+
+    const tenantBList = await ownerB.agent.get('/api/v1/crm/contacts');
+    expect(tenantBList.status).toBe(200);
+    expect(tenantBList.body.contacts.map((item: any) => item.id)).toEqual([foreignContact.id]);
+  }, 60_000);
+
+  it('rechecks tenant channel consent at enqueue and send while exposing safe retry/dead-letter state', async () => {
+    const tenantA = await createTenantFixture({
+      slug: `crm-delivery-a-${Date.now()}`,
+      email: `crm-delivery-owner-a-${Date.now()}@example.test`,
+    });
+    const tenantB = await createTenantFixture({
+      slug: `crm-delivery-b-${Date.now()}`,
+      email: `crm-delivery-owner-b-${Date.now()}@example.test`,
+    });
+    const ownerA = await loginPlatformUser(tenantA.user.id);
+    const ownerB = await loginPlatformUser(tenantB.user.id);
+    env.TENANT_CRM_ENABLED = 'on';
+
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        slug: `crm-delivery-webinar-${Date.now()}`,
+        title: 'CRM consent delivery webinar',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+      },
+    });
+    const webinarSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        title: 'CRM consent delivery session',
+        scheduledAt: new Date('2026-09-01T10:00:00.000Z'),
+        timezone: 'Europe/Amsterdam',
+      },
+    });
+    const participant = await prisma.user.create({
+      data: {
+        emailNormalized: `crm-delivery-participant-${Date.now()}@example.test`,
+        displayName: 'Получатель CRM',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const consentAt = new Date(Date.now() - 10_000);
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Получатель CRM',
+        phone: '+79990000444',
+        email: participant.emailNormalized,
+        consent: true,
+        marketingConsent: true,
+        marketingEmailConsent: true,
+        marketingEmailConsentAt: consentAt,
+        marketingTelegramConsent: true,
+        marketingTelegramConsentAt: consentAt,
+        telegramChatId: '777000444',
+        telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: webinarSession.id,
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        userId: participant.id,
+        accessPolicy: 'PUBLIC_CATALOG',
+        accessTokenHash: hashToken(createAccessToken()),
+        status: 'registered',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const contact = await prisma.$transaction(tx => linkVerifiedRegistrationToCrm(tx, registration.id));
+    expect(contact).not.toBeNull();
+    await prisma.viewerNotificationPreference.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        userId: participant.id,
+        marketingEmailEnabled: true,
+        marketingTelegramEnabled: true,
+      },
+    });
+    const rejectedWithoutConsent = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/deliveries`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        channel: 'EMAIL',
+        registrationId: registration.id,
+        subject: 'Сообщение без согласия',
+        message: 'Эта запись не должна появиться в очереди.',
+        idempotencyKey: 'crm-delivery-without-consent',
+      });
+    expect(rejectedWithoutConsent.status).toBe(409);
+    expect(rejectedWithoutConsent.body.code).toBe('crm_delivery_consent_required');
+    await expect(prisma.cRMDelivery.count({ where: { organizationId: tenantA.organization.id } })).resolves.toBe(0);
+    const consentReq = { headers: { 'user-agent': 'crm-delivery-integration' }, ip: '127.0.0.1' };
+    const emailGrant = await prisma.consentRecord.create({
+      data: consentEvidenceData(MARKETING_EMAIL_CONSENT, {
+        leadId: lead.id,
+        registrationId: registration.id,
+        email: lead.email,
+        kind: 'marketing_email',
+        sourceForm: 'crm-delivery-integration',
+        req: consentReq,
+        occurredAt: consentAt,
+      }),
+    });
+    const telegramGrant = await prisma.consentRecord.create({
+      data: consentEvidenceData(MARKETING_TELEGRAM_CONSENT, {
+        leadId: lead.id,
+        registrationId: registration.id,
+        email: lead.email,
+        kind: 'marketing_telegram',
+        sourceForm: 'crm-delivery-integration',
+        req: consentReq,
+        occurredAt: consentAt,
+      }),
+    });
+
+    const foreignPipeline = await prisma.cRMPipeline.create({
+      data: { organizationId: tenantB.organization.id, name: 'Foreign delivery pipeline', isDefault: true },
+    });
+    const foreignStage = await prisma.cRMStage.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        pipelineId: foreignPipeline.id,
+        code: 'new',
+        name: 'Новый',
+        orderIndex: 10,
+        isProtected: true,
+      },
+    });
+    const foreignContact = await prisma.cRMContact.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        pipelineId: foreignPipeline.id,
+        stageId: foreignStage.id,
+        emailNormalized: `foreign-delivery-${Date.now()}@example.test`,
+      },
+    });
+    const emailBody = {
+      channel: 'EMAIL',
+      registrationId: registration.id,
+      subject: 'Материалы по вебинару',
+      message: 'Новый материал доступен в кабинете участника.',
+      idempotencyKey: 'crm-delivery-email-001',
+    };
+    const foreignEnqueue = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${foreignContact.id}/deliveries`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(emailBody);
+    const unknownEnqueue = await ownerA.agent
+      .post('/api/v1/crm/contacts/crm-contact-does-not-exist/deliveries')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(emailBody);
+    expect(foreignEnqueue.status).toBe(404);
+    expect(unknownEnqueue.status).toBe(404);
+    expect(foreignEnqueue.body.code).toBe(unknownEnqueue.body.code);
+    const forgedTenant = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/deliveries`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ ...emailBody, organizationId: tenantB.organization.id });
+    expect(forgedTenant.status).toBe(400);
+
+    const queuedEmail = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/deliveries`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(emailBody);
+    expect(queuedEmail.status).toBe(201);
+    expect(queuedEmail.body).toMatchObject({ replayed: false, delivery: { channel: 'EMAIL', status: 'PENDING' } });
+    const emailReplay = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/deliveries`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(emailBody);
+    expect(emailReplay.status).toBe(200);
+    expect(emailReplay.body.replayed).toBe(true);
+    const emailConflict = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/deliveries`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ ...emailBody, message: 'Другой текст с тем же ключом.' });
+    expect(emailConflict.status).toBe(409);
+    expect(emailConflict.body.code).toBe('crm_delivery_idempotency_conflict');
+
+    const emailSender = vi.fn(async () => ({ sent: true, mode: 'send' as const }));
+    const emailRun = await runCrmDeliveryJobsOnce(new Date(Date.now() + 1_000), { sendEmail: emailSender });
+    expect(emailRun).toMatchObject({ checked: 1, sent: 1, failed: 0 });
+    expect(emailSender).toHaveBeenCalledWith({
+      to: participant.emailNormalized,
+      subject: emailBody.subject,
+      text: emailBody.message,
+    });
+    await expect(
+      prisma.cRMDelivery.findUniqueOrThrow({ where: { id: queuedEmail.body.delivery.id } }),
+    ).resolves.toMatchObject({
+      status: 'SENT',
+      attempts: 1,
+      consentRecordId: emailGrant.id,
+      lastErrorCode: null,
+    });
+
+    const telegramBody = {
+      channel: 'TELEGRAM',
+      registrationId: registration.id,
+      message: 'Напоминание о новом материале в кабинете.',
+      idempotencyKey: 'crm-delivery-telegram-001',
+    };
+    const queuedTelegram = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/deliveries`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(telegramBody);
+    expect(queuedTelegram.status).toBe(201);
+    const revokedAt = new Date(Date.now() + 2_000);
+    await prisma.$transaction(async tx => {
+      await tx.viewerNotificationPreference.update({
+        where: { userId_organizationId: { userId: participant.id, organizationId: tenantA.organization.id } },
+        data: { marketingTelegramEnabled: false },
+      });
+      await tx.lead.update({
+        where: { id: lead.id },
+        data: {
+          marketingTelegramConsent: false,
+          marketingTelegramConsentAt: null,
+          marketingTelegramRevokedAt: revokedAt,
+        },
+      });
+      await tx.consentRecord.create({
+        data: {
+          ...consentEvidenceData(MARKETING_TELEGRAM_CONSENT, {
+            leadId: lead.id,
+            registrationId: registration.id,
+            email: lead.email,
+            kind: 'marketing_telegram',
+            action: 'revoke',
+            sourceForm: 'crm-delivery-integration',
+            req: consentReq,
+            occurredAt: revokedAt,
+            revocationChannel: 'viewer_account',
+            revocationReason: 'integration_revoke',
+            revokedConsentId: telegramGrant.id,
+          }),
+        },
+      });
+    });
+    const telegramSender = vi.fn(async () => ({ sent: true, mode: 'send' as const }));
+    const blockedRun = await runCrmDeliveryJobsOnce(new Date(Date.now() + 3_000), {
+      sendTelegram: telegramSender,
+    });
+    expect(blockedRun).toMatchObject({ checked: 1, sent: 0, blocked: 1 });
+    expect(telegramSender).not.toHaveBeenCalled();
+    await expect(
+      prisma.cRMDelivery.findUniqueOrThrow({ where: { id: queuedTelegram.body.delivery.id } }),
+    ).resolves.toMatchObject({ status: 'BLOCKED', lastErrorCode: 'crm_delivery_consent_required' });
+    const retryWhileRevoked = await ownerA.agent
+      .post(`/api/v1/crm/deliveries/${queuedTelegram.body.delivery.id}/retry`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ idempotencyKey: 'crm-delivery-retry-revoked' });
+    expect(retryWhileRevoked.status).toBe(409);
+    expect(retryWhileRevoked.body.code).toBe('crm_delivery_consent_required');
+
+    const restoredAt = new Date(Date.now() + 4_000);
+    const restoredGrant = await prisma.$transaction(async tx => {
+      await tx.viewerNotificationPreference.update({
+        where: { userId_organizationId: { userId: participant.id, organizationId: tenantA.organization.id } },
+        data: { marketingTelegramEnabled: true },
+      });
+      await tx.lead.update({
+        where: { id: lead.id },
+        data: {
+          marketingTelegramConsent: true,
+          marketingTelegramConsentAt: restoredAt,
+          marketingTelegramRevokedAt: null,
+        },
+      });
+      return tx.consentRecord.create({
+        data: consentEvidenceData(MARKETING_TELEGRAM_CONSENT, {
+          leadId: lead.id,
+          registrationId: registration.id,
+          email: lead.email,
+          kind: 'marketing_telegram',
+          sourceForm: 'crm-delivery-integration',
+          req: consentReq,
+          occurredAt: restoredAt,
+        }),
+      });
+    });
+    const retryTelegram = await ownerA.agent
+      .post(`/api/v1/crm/deliveries/${queuedTelegram.body.delivery.id}/retry`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ idempotencyKey: 'crm-delivery-retry-restored' });
+    expect(retryTelegram.status).toBe(200);
+    expect(retryTelegram.body).toMatchObject({ replayed: false, delivery: { status: 'PENDING', attempts: 0 } });
+    const retryTelegramReplay = await ownerA.agent
+      .post(`/api/v1/crm/deliveries/${queuedTelegram.body.delivery.id}/retry`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ idempotencyKey: 'crm-delivery-retry-restored' });
+    expect(retryTelegramReplay.body.replayed).toBe(true);
+    const telegramRun = await runCrmDeliveryJobsOnce(new Date(Date.now() + 5_000), {
+      sendTelegram: telegramSender,
+    });
+    expect(telegramRun.sent).toBe(1);
+    expect(telegramSender).toHaveBeenCalledWith('777000444', telegramBody.message, { attempts: 1 });
+    await expect(
+      prisma.cRMDelivery.findUniqueOrThrow({ where: { id: queuedTelegram.body.delivery.id } }),
+    ).resolves.toMatchObject({ status: 'SENT', consentRecordId: restoredGrant.id });
+
+    const failingEmail = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/deliveries`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        ...emailBody,
+        subject: 'Проверка durable retry',
+        message: 'Текст не должен попадать в timeline или provider error.',
+        idempotencyKey: 'crm-delivery-email-failure-001',
+      });
+    expect(failingEmail.status).toBe(201);
+    const providerFailure = vi.fn(async () => {
+      throw new Error(`SMTP failed for ${participant.emailNormalized} token=raw-secret`);
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const current = await prisma.cRMDelivery.findUniqueOrThrow({ where: { id: failingEmail.body.delivery.id } });
+      const runAt = new Date((current.nextAttemptAt?.getTime() ?? Date.now()) + 1_000);
+      await runCrmDeliveryJobsOnce(runAt, { sendEmail: providerFailure });
+    }
+    const deadLetter = await prisma.cRMDelivery.findUniqueOrThrow({ where: { id: failingEmail.body.delivery.id } });
+    expect(deadLetter).toMatchObject({
+      status: 'DEAD_LETTER',
+      attempts: 5,
+      lastErrorCode: 'crm_delivery_provider_temporary_failure',
+    });
+    expect(JSON.stringify(deadLetter.lastErrorCode)).not.toContain(participant.emailNormalized);
+    expect(JSON.stringify(deadLetter.lastErrorCode)).not.toContain('raw-secret');
+    const foreignRetry = await ownerB.agent
+      .post(`/api/v1/crm/deliveries/${deadLetter.id}/retry`)
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ idempotencyKey: 'crm-delivery-foreign-retry' });
+    const unknownRetry = await ownerB.agent
+      .post('/api/v1/crm/deliveries/crm-delivery-does-not-exist/retry')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ idempotencyKey: 'crm-delivery-unknown-retry' });
+    expect(foreignRetry.status).toBe(404);
+    expect(unknownRetry.status).toBe(404);
+    expect(foreignRetry.body.code).toBe(unknownRetry.body.code);
+
+    const retryDeadLetter = await ownerA.agent
+      .post(`/api/v1/crm/deliveries/${deadLetter.id}/retry`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ idempotencyKey: 'crm-delivery-dead-letter-retry' });
+    expect(retryDeadLetter.body.delivery.status).toBe('PENDING');
+    const recovered = await runCrmDeliveryJobsOnce(new Date(Date.now() + 60_000), { sendEmail: emailSender });
+    expect(recovered.sent).toBe(1);
+
+    const logModeEmail = await ownerA.agent
+      .post(`/api/v1/crm/contacts/${contact!.id}/deliveries`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        ...emailBody,
+        subject: 'Проверка отключённого provider',
+        message: 'Log mode не должен считаться реальной доставкой.',
+        idempotencyKey: 'crm-delivery-email-log-mode',
+      });
+    expect(logModeEmail.status).toBe(201);
+    const logModeRun = await runCrmDeliveryJobsOnce(new Date(Date.now() + 120_000));
+    expect(logModeRun).toMatchObject({ checked: 1, sent: 0, cancelled: 1 });
+    await expect(
+      prisma.cRMDelivery.findUniqueOrThrow({ where: { id: logModeEmail.body.delivery.id } }),
+    ).resolves.toMatchObject({
+      status: 'CANCELLED',
+      lastErrorCode: 'crm_delivery_provider_disabled',
+    });
+
+    const detail = await ownerA.agent.get(`/api/v1/crm/contacts/${contact!.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ channel: 'EMAIL', status: 'SENT', canRetry: false }),
+        expect.objectContaining({ channel: 'TELEGRAM', status: 'SENT', canRetry: false }),
+      ]),
+    );
+    expect(detail.body.timeline.map((item: any) => item.type)).toEqual(
+      expect.arrayContaining([
+        'delivery_queued',
+        'sent',
+        'blocked',
+        'delivery_retry_requested',
+        'retry_scheduled',
+        'dead_lettered',
+      ]),
+    );
+    expect(JSON.stringify(detail.body)).not.toContain(emailBody.subject);
+    expect(JSON.stringify(detail.body)).not.toContain(emailBody.message);
+    expect(JSON.stringify(detail.body)).not.toContain(telegramBody.message);
+    expect(JSON.stringify(detail.body)).not.toContain('777000444');
+    await expect(
+      prisma.auditLog.count({ where: { organizationId: tenantA.organization.id, entityType: 'crm_delivery' } }),
+    ).resolves.toBeGreaterThan(8);
+    await expect(
+      prisma.cRMDelivery.update({
+        where: { id: queuedEmail.body.delivery.id },
+        data: { organizationId: tenantB.organization.id },
+      }),
+    ).rejects.toThrow();
+  }, 60_000);
+});
+
+describe('tenant Telegram manager bot foundation', () => {
+  it('requires owner-confirmed chat binding and executes signed exact-scope callbacks idempotently', async () => {
+    const tenantA = await createTenantFixture({
+      slug: `telegram-manager-a-${Date.now()}`,
+      email: `telegram-owner-a-${Date.now()}@example.test`,
+    });
+    const tenantB = await createTenantFixture({
+      slug: `telegram-manager-b-${Date.now()}`,
+      email: `telegram-owner-b-${Date.now()}@example.test`,
+    });
+    const managerUser = await prisma.user.create({
+      data: {
+        emailNormalized: `telegram-manager-${Date.now()}@example.test`,
+        displayName: 'Менеджер Telegram',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const managerMembership = await prisma.organizationMembership.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        userId: managerUser.id,
+        role: 'CRM_MANAGER',
+        status: 'ACTIVE',
+      },
+    });
+    const ownerA = await loginPlatformUser(tenantA.user.id);
+    const ownerB = await loginPlatformUser(tenantB.user.id);
+
+    expect((await ownerA.agent.get('/api/v1/telegram/manager-bindings')).status).toBe(404);
+    env.TENANT_CRM_ENABLED = 'on';
+    env.TENANT_TELEGRAM_BOTS_ENABLED = 'on';
+    env.TELEGRAM_ADMIN_BOT_USERNAME = 'aspb_test_manager_bot';
+
+    const created = await ownerA.agent
+      .post('/api/v1/telegram/manager-bindings')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ membershipId: managerMembership.id });
+    expect(created.status).toBe(201);
+    expect(created.headers['cache-control']).toContain('no-store');
+    expect(created.body.binding).toMatchObject({
+      membershipId: managerMembership.id,
+      status: 'PENDING_CHAT',
+      chatHint: null,
+    });
+    expect(JSON.stringify(created.body)).not.toContain('TELEGRAM_CALLBACK_SECRET');
+    const startPayload = new URL(created.body.startUrl).searchParams.get('start');
+    expect(startPayload).toMatch(/^mgr_[A-Za-z0-9_-]{43}$/);
+    const tokenRow = await prisma.telegramManagerChatBindingToken.findFirstOrThrow({
+      where: { bindingId: created.body.binding.id },
+    });
+    expect(tokenRow.tokenHash).toBe(hashToken(startPayload!.slice(4)));
+    expect(tokenRow.tokenHash).not.toContain(startPayload!.slice(4));
+
+    const foreignConfirm = await ownerB.agent
+      .post(`/api/v1/telegram/manager-bindings/${created.body.binding.id}/confirm`)
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ confirm: true });
+    const unknownConfirm = await ownerB.agent
+      .post('/api/v1/telegram/manager-bindings/telegram-binding-unknown/confirm')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ confirm: true });
+    expect(foreignConfirm.status).toBe(404);
+    expect(unknownConfirm.status).toBe(404);
+    expect(foreignConfirm.body.code).toBe(unknownConfirm.body.code);
+
+    await handleAdminTelegramUpdate({
+      update_id: 501,
+      message: {
+        message_id: 7001,
+        text: `/start ${startPayload}`,
+        chat: { id: 9001001, type: 'private' },
+      },
+    });
+    const claimed = await prisma.telegramManagerChatBinding.findUniqueOrThrow({
+      where: { id: created.body.binding.id },
+    });
+    expect(claimed).toMatchObject({ status: 'PENDING_OWNER', chatId: '9001001' });
+
+    await handleAdminTelegramUpdate({
+      update_id: 502,
+      message: {
+        message_id: 7002,
+        text: `/start ${startPayload}`,
+        chat: { id: 9001002, type: 'private' },
+      },
+    });
+    await expect(
+      prisma.telegramManagerChatBinding.findUniqueOrThrow({ where: { id: created.body.binding.id } }),
+    ).resolves.toMatchObject({ status: 'PENDING_OWNER', chatId: '9001001' });
+
+    const confirmed = await ownerA.agent
+      .post(`/api/v1/telegram/manager-bindings/${created.body.binding.id}/confirm`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ confirm: true });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body).toMatchObject({ binding: { status: 'ACTIVE', chatHint: '***1001' }, replayed: false });
+    const confirmReplay = await ownerA.agent
+      .post(`/api/v1/telegram/manager-bindings/${created.body.binding.id}/confirm`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ confirm: true });
+    expect(confirmReplay.body.replayed).toBe(true);
+    const foreignList = await ownerB.agent.get('/api/v1/telegram/manager-bindings');
+    expect(foreignList.status).toBe(200);
+    expect(foreignList.body.bindings).toEqual([]);
+
+    const pipeline = await prisma.cRMPipeline.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        name: 'Telegram pipeline',
+        isDefault: true,
+        timezone: 'Europe/Amsterdam',
+      },
+    });
+    const newStage = await prisma.cRMStage.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        pipelineId: pipeline.id,
+        code: 'new',
+        name: 'Новый',
+        semanticCategory: 'OPEN',
+        orderIndex: 0,
+        isProtected: true,
+      },
+    });
+    const contactedStage = await prisma.cRMStage.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        pipelineId: pipeline.id,
+        code: 'contacted',
+        name: 'Связались',
+        semanticCategory: 'OPEN',
+        orderIndex: 1,
+        isProtected: true,
+      },
+    });
+    const contact = await prisma.cRMContact.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        pipelineId: pipeline.id,
+        stageId: newStage.id,
+        emailNormalized: `telegram-participant-${Date.now()}@example.test`,
+        displayName: 'Участник Telegram',
+      },
+    });
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        slug: `telegram-webinar-${Date.now()}`,
+        title: 'Telegram scoped webinar',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+      },
+    });
+    const session = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        title: 'Telegram scoped session',
+        scheduledAt: new Date('2026-08-23T12:00:00.000Z'),
+        timezone: 'Europe/Amsterdam',
+      },
+    });
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Участник Telegram',
+        phone: '+79990000123',
+        email: contact.emailNormalized!,
+        consent: true,
+        consentAt: new Date(),
+      },
+    });
+    const participantUser = await prisma.user.create({
+      data: {
+        emailNormalized: lead.email,
+        displayName: lead.name,
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    await prisma.cRMContact.update({ where: { id: contact.id }, data: { legacyLeadId: lead.id } });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: session.id,
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        userId: participantUser.id,
+        accessPolicy: 'PUBLIC_CATALOG',
+        crmContactId: contact.id,
+        accessTokenHash: hashToken(createAccessToken()),
+        status: 'registered',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const contextA = {
+      userId: tenantA.user.id,
+      organizationId: tenantA.organization.id,
+      membershipId: tenantA.membership.id,
+      role: tenantA.membership.role,
+      permissions: null,
+      correlationId: 'telegram-manager-test-a',
+    } as const;
+    const contextB = {
+      userId: tenantB.user.id,
+      organizationId: tenantB.organization.id,
+      membershipId: tenantB.membership.id,
+      role: tenantB.membership.role,
+      permissions: null,
+      correlationId: 'telegram-manager-test-b',
+    } as const;
+
+    await expect(
+      createTelegramManagerCallback(prisma, contextB, {
+        bindingId: claimed.id,
+        registrationId: registration.id,
+        crmContactId: contact.id,
+        action: 'ACCEPT_CONTACT',
+        idempotencyKey: 'telegram-foreign-callback',
+      }),
+    ).rejects.toMatchObject({ statusCode: 404, code: 'telegram_manager_binding_unavailable' });
+
+    const acceptCallback = await createTelegramManagerCallback(prisma, contextA, {
+      bindingId: claimed.id,
+      registrationId: registration.id,
+      crmContactId: contact.id,
+      action: 'ACCEPT_CONTACT',
+      idempotencyKey: 'telegram-accept-contact-001',
+    });
+    expect(acceptCallback.callbackData).toMatch(/^tm1:[a-z0-9]{20,32}:[A-Za-z0-9_-]{16}$/);
+    const wrongChat = await executeTelegramManagerCallback(prisma, {
+      callbackData: acceptCallback.callbackData,
+      chatId: '9001002',
+      providerCallbackId: 'callback-wrong-chat-001',
+    });
+    expect(wrongChat).toMatchObject({ accepted: false, code: 'telegram_manager_callback_unavailable' });
+    await expect(
+      prisma.telegramManagerCallback.findUniqueOrThrow({ where: { id: acceptCallback.callbackId } }),
+    ).resolves.toMatchObject({ status: 'PENDING', consumedAt: null });
+
+    const accepted = await executeTelegramManagerCallback(prisma, {
+      callbackData: acceptCallback.callbackData,
+      chatId: '9001001',
+      providerCallbackId: 'callback-accept-001',
+    });
+    expect(accepted).toMatchObject({ accepted: true, replayed: false, code: 'contact_accepted' });
+    const acceptedReplay = await executeTelegramManagerCallback(prisma, {
+      callbackData: acceptCallback.callbackData,
+      chatId: '9001001',
+      providerCallbackId: 'callback-accept-001',
+    });
+    expect(acceptedReplay).toMatchObject({ accepted: true, replayed: true, code: 'contact_accepted' });
+    await expect(prisma.cRMContact.findUniqueOrThrow({ where: { id: contact.id } })).resolves.toMatchObject({
+      ownerMembershipId: managerMembership.id,
+    });
+
+    const stageCallback = await createTelegramManagerCallback(prisma, contextA, {
+      bindingId: claimed.id,
+      registrationId: registration.id,
+      crmContactId: contact.id,
+      action: 'CHANGE_STAGE',
+      payload: { stageId: contactedStage.id, reason: 'Связались через Telegram' },
+      idempotencyKey: 'telegram-change-stage-001',
+    });
+    expect(
+      await executeTelegramManagerCallback(prisma, {
+        callbackData: stageCallback.callbackData,
+        chatId: '9001001',
+        providerCallbackId: 'callback-stage-001',
+      }),
+    ).toMatchObject({ accepted: true, code: 'stage_changed' });
+
+    const hotCallback = await createTelegramManagerCallback(prisma, contextA, {
+      bindingId: claimed.id,
+      registrationId: registration.id,
+      crmContactId: contact.id,
+      action: 'MARK_HOT',
+      payload: { reason: 'Высокий приоритет после вопроса' },
+      idempotencyKey: 'telegram-mark-hot-001',
+    });
+    expect(
+      await executeTelegramManagerCallback(prisma, {
+        callbackData: hotCallback.callbackData,
+        chatId: '9001001',
+        providerCallbackId: 'callback-hot-001',
+      }),
+    ).toMatchObject({ accepted: true, code: 'hot_marked' });
+
+    const taskCallback = await createTelegramManagerCallback(prisma, contextA, {
+      bindingId: claimed.id,
+      registrationId: registration.id,
+      crmContactId: contact.id,
+      action: 'CREATE_TASK',
+      payload: {
+        title: 'Связаться с участником',
+        priority: 'HIGH',
+        dueAt: '2026-08-24T10:00:00.000Z',
+        reminderAt: '2026-08-24T09:00:00.000Z',
+      },
+      idempotencyKey: 'telegram-create-task-001',
+    });
+    expect(
+      await executeTelegramManagerCallback(prisma, {
+        callbackData: taskCallback.callbackData,
+        chatId: '9001001',
+        providerCallbackId: 'callback-task-001',
+      }),
+    ).toMatchObject({ accepted: true, code: 'task_created' });
+    await expect(
+      prisma.cRMTask.count({ where: { organizationId: tenantA.organization.id, contactId: contact.id } }),
+    ).resolves.toBe(1);
+
+    const pendingBeforeRevoke = await createTelegramManagerCallback(prisma, contextA, {
+      bindingId: claimed.id,
+      registrationId: registration.id,
+      crmContactId: contact.id,
+      action: 'MARK_HOT',
+      payload: { reason: 'Повторная проверка доступа' },
+      idempotencyKey: 'telegram-revoke-fence-001',
+    });
+    const revoked = await ownerA.agent
+      .delete(`/api/v1/telegram/manager-bindings/${claimed.id}`)
+      .set('x-csrf-token', ownerA.csrfToken);
+    expect(revoked.status).toBe(200);
+    expect(revoked.body.binding.status).toBe('REVOKED');
+    expect(
+      await executeTelegramManagerCallback(prisma, {
+        callbackData: pendingBeforeRevoke.callbackData,
+        chatId: '9001001',
+        providerCallbackId: 'callback-after-revoke-001',
+      }),
+    ).toMatchObject({ accepted: false, code: 'telegram_manager_callback_unavailable' });
+
+    const events = await prisma.telegramBotEvent.findMany({
+      where: { organizationId: tenantA.organization.id },
+      orderBy: { occurredAt: 'asc' },
+    });
+    expect(events.map(event => event.eventType)).toEqual(
+      expect.arrayContaining([
+        'manager_binding_requested',
+        'manager_binding_chat_claimed',
+        'manager_binding_claim_acknowledged',
+        'manager_binding_confirmed',
+        'manager_callback_issued',
+        'manager_callback_completed',
+        'manager_binding_revoked',
+      ]),
+    );
+    for (const event of events) {
+      expect(event.correlationId.length).toBeGreaterThanOrEqual(8);
+      expect(JSON.stringify(event.metadataJson ?? {})).not.toMatch(/chatId|email|phone|token|signedUrl/i);
+    }
+    await expect(
+      prisma.auditLog.count({
+        where: { organizationId: tenantA.organization.id, action: { startsWith: 'telegram.' } },
+      }),
+    ).resolves.toBeGreaterThanOrEqual(8);
+  }, 60_000);
+});
+
+describe('tenant Telegram consultant classification', () => {
+  it('classifies an exact-scope message, hands it to confirmed managers and keeps corrections tenant-isolated', async () => {
+    const suffix = Date.now();
+    const tenantA = await createTenantFixture({
+      slug: `telegram-consultant-a-${suffix}`,
+      email: `telegram-consultant-owner-a-${suffix}@example.test`,
+    });
+    const tenantB = await createTenantFixture({
+      slug: `telegram-consultant-b-${suffix}`,
+      email: `telegram-consultant-owner-b-${suffix}@example.test`,
+    });
+    const ownerA = await loginPlatformUser(tenantA.user.id);
+    const ownerB = await loginPlatformUser(tenantB.user.id);
+    env.TENANT_CRM_ENABLED = 'on';
+    env.TENANT_TELEGRAM_BOTS_ENABLED = 'on';
+
+    const pipeline = await prisma.cRMPipeline.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        name: 'Telegram consultant pipeline',
+        isDefault: true,
+        timezone: 'Europe/Amsterdam',
+      },
+    });
+    const stage = await prisma.cRMStage.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        pipelineId: pipeline.id,
+        code: 'new',
+        name: 'Новый',
+        semanticCategory: 'OPEN',
+        orderIndex: 0,
+        isProtected: true,
+      },
+    });
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        slug: `telegram-consultant-webinar-${suffix}`,
+        title: 'Tenant consultant webinar',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+      },
+    });
+    const webinarSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        title: 'Tenant consultant session',
+        scheduledAt: new Date('2026-08-24T12:00:00.000Z'),
+        timezone: 'Europe/Amsterdam',
+      },
+    });
+    const chatId = '880020001';
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Участник консультанта',
+        phone: '+79990002001',
+        email: `telegram-consultant-participant-${suffix}@example.test`,
+        consent: true,
+        consentAt: new Date(),
+        telegramChatId: chatId,
+        telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+        telegramSubscribedAt: new Date(),
+      },
+    });
+    const participantUser = await prisma.user.create({
+      data: {
+        emailNormalized: lead.email,
+        displayName: lead.name,
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const contact = await prisma.cRMContact.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        pipelineId: pipeline.id,
+        stageId: stage.id,
+        emailNormalized: lead.email,
+        displayName: lead.name,
+        legacyLeadId: lead.id,
+      },
+    });
+    const registration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: webinarSession.id,
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        userId: participantUser.id,
+        accessPolicy: 'PUBLIC_CATALOG',
+        crmContactId: contact.id,
+        accessTokenHash: hashToken(createAccessToken()),
+        status: 'registered',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const now = new Date();
+    const managerBinding = await prisma.telegramManagerChatBinding.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        membershipId: tenantA.membership.id,
+        status: 'ACTIVE',
+        chatId: '880029999',
+        chatIdHash: hashTelegramManagerChatId('880029999'),
+        requestedByUserId: tenantA.user.id,
+        confirmedByUserId: tenantA.user.id,
+        claimedAt: now,
+        confirmedAt: now,
+      },
+    });
+
+    const privateText = 'У меня завтра суд по долгам — что мне делать? private-user@example.test +79990009999';
+    const update = {
+      update_id: 9101,
+      message: {
+        message_id: 9201,
+        text: privateText,
+        chat: { id: Number(chatId), type: 'private' },
+        from: { id: 9301, username: 'private_user', first_name: 'Private name' },
+      },
+    };
+    await handleConsultantTelegramUpdate(update);
+    await handleConsultantTelegramUpdate(update);
+
+    const stored = await prisma.telegramConsultantMessage.findMany();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({
+      organizationId: tenantA.organization.id,
+      webinarId: webinar.id,
+      webinarSessionId: webinarSession.id,
+      registrationId: registration.id,
+      crmContactId: contact.id,
+      providerMessageId: '9201',
+      text: privateText,
+      topic: 'debt',
+      intent: 'legal_question',
+      urgency: 'high',
+      classificationModel: 'local_policy',
+      classificationVersion: 'telegram-intent-v1',
+      status: 'HANDED_TO_HUMAN',
+    });
+    expect(stored[0].chatIdHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(stored[0].chatIdHash).not.toContain(chatId);
+    await expect(
+      prisma.telegramConsultantMessage.update({ where: { id: stored[0].id }, data: { topic: 'tax' } }),
+    ).rejects.toThrow();
+
+    const callbacks = await prisma.telegramManagerCallback.findMany({ orderBy: { action: 'asc' } });
+    expect(callbacks).toHaveLength(2);
+    expect(callbacks.map(callback => callback.action)).toEqual(['ACCEPT_CONTACT', 'MARK_HOT']);
+    for (const callback of callbacks) {
+      expect(callback).toMatchObject({
+        organizationId: tenantA.organization.id,
+        bindingId: managerBinding.id,
+        membershipId: tenantA.membership.id,
+        webinarId: webinar.id,
+        webinarSessionId: webinarSession.id,
+        registrationId: registration.id,
+        crmContactId: contact.id,
+      });
+    }
+    await expect(
+      prisma.telegramBotEvent.count({
+        where: { organizationId: tenantA.organization.id, eventType: 'consultant_handoff_notified' },
+      }),
+    ).resolves.toBe(1);
+
+    const legacyEvents = await prisma.event.findMany({ where: { eventName: 'telegram_consultant_message' } });
+    expect(legacyEvents).toHaveLength(1);
+    const botEvents = await prisma.telegramBotEvent.findMany({
+      where: { eventType: { in: ['consultant_message_classified', 'consultant_handoff_notified'] } },
+    });
+    expect(botEvents).toHaveLength(2);
+    for (const event of [...legacyEvents, ...botEvents]) {
+      const metadata = JSON.stringify(event.metadataJson ?? {});
+      expect(metadata).not.toContain(privateText);
+      expect(metadata).not.toMatch(/chatId|private_user|private-user@example\.test|79990009999|telegramUserId/i);
+    }
+    expect(botEvents.find(event => event.eventType === 'consultant_message_classified')).toMatchObject({
+      organizationId: tenantA.organization.id,
+      providerMessageId: '9201',
+      correlationId: expect.any(String),
+    });
+
+    const listA = await ownerA.agent.get('/api/v1/telegram/consultant/messages?urgency=high');
+    expect(listA.status).toBe(200);
+    expect(listA.headers['cache-control']).toContain('no-store');
+    expect(listA.body.messages).toEqual([
+      expect.objectContaining({
+        id: stored[0].id,
+        text: privateText,
+        classification: expect.objectContaining({ topic: 'debt', intent: 'legal_question', urgency: 'high' }),
+      }),
+    ]);
+    const listB = await ownerB.agent.get('/api/v1/telegram/consultant/messages');
+    expect(listB.status).toBe(200);
+    expect(listB.body.messages).toEqual([]);
+
+    const foreignCorrection = await ownerB.agent
+      .patch(`/api/v1/telegram/consultant/messages/${stored[0].id}/classification`)
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ topic: 'tax', reason: 'Исправлено менеджером другой организации' });
+    const missingCorrection = await ownerB.agent
+      .patch('/api/v1/telegram/consultant/messages/telegram-consultant-missing/classification')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ topic: 'tax', reason: 'Проверка неизвестного сообщения' });
+    expect(foreignCorrection.status).toBe(404);
+    expect(missingCorrection.status).toBe(404);
+    expect(foreignCorrection.body).toMatchObject({
+      code: 'telegram_consultant_message_unavailable',
+      error: missingCorrection.body.error,
+    });
+
+    const corrected = await ownerA.agent
+      .patch(`/api/v1/telegram/consultant/messages/${stored[0].id}/classification`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ topic: 'tax', urgency: 'normal', reason: 'Менеджер уточнил тему обращения' });
+    expect(corrected.status).toBe(200);
+    expect(corrected.body.message.classification).toMatchObject({
+      topic: 'tax',
+      intent: 'legal_question',
+      urgency: 'normal',
+      original: { topic: 'debt', intent: 'legal_question', urgency: 'high' },
+      corrected: true,
+      correctionReason: 'Менеджер уточнил тему обращения',
+    });
+    await expect(
+      prisma.auditLog.count({
+        where: {
+          organizationId: tenantA.organization.id,
+          action: 'telegram.consultant_classification.corrected',
+          entityId: stored[0].id,
+        },
+      }),
+    ).resolves.toBe(1);
+  }, 60_000);
+});
+
+describe('tenant Telegram broadcast flow', () => {
+  it('requires a published safe template and expiring preview before exact-scope queueing', async () => {
+    const suffix = Date.now();
+    const tenantA = await createTenantFixture({
+      slug: `telegram-broadcast-a-${suffix}`,
+      email: `telegram-broadcast-owner-a-${suffix}@example.test`,
+    });
+    const tenantB = await createTenantFixture({
+      slug: `telegram-broadcast-b-${suffix}`,
+      email: `telegram-broadcast-owner-b-${suffix}@example.test`,
+    });
+    const ownerA = await loginPlatformUser(tenantA.user.id);
+    const ownerB = await loginPlatformUser(tenantB.user.id);
+    env.TENANT_CRM_ENABLED = 'on';
+    env.TENANT_TELEGRAM_BOTS_ENABLED = 'on';
+    env.TELEGRAM_MANUAL_BROADCAST = 'on';
+
+    const unknownVariable = await ownerA.agent
+      .post('/api/v1/telegram/broadcast-templates')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ name: 'Неверная переменная', text: 'Здравствуйте, {{email}}. Ссылка: {{room_link}}' });
+    expect(unknownVariable.status).toBe(400);
+    expect(unknownVariable.body.code).toBe('telegram_template_variable_invalid');
+
+    const missingLinkDraft = await ownerA.agent
+      .post('/api/v1/telegram/broadcast-templates')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ name: 'Без ссылки', text: 'Здравствуйте, {{participant_name}}' });
+    expect(missingLinkDraft.status).toBe(201);
+    const missingLinkPublish = await ownerA.agent
+      .post(`/api/v1/telegram/broadcast-templates/${missingLinkDraft.body.template.id}/publish`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ confirm: true });
+    expect(missingLinkPublish.status).toBe(400);
+    expect(missingLinkPublish.body.code).toBe('telegram_template_link_required');
+
+    const templateText = [
+      '{{participant_name}}, для вас доступен вебинар «{{webinar_title}}».',
+      'Сессия: {{session_datetime}}',
+      '{{room_link}}',
+    ].join('\n');
+    const createdTemplate = await ownerA.agent
+      .post('/api/v1/telegram/broadcast-templates')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ name: 'Точное напоминание', text: templateText });
+    expect(createdTemplate.status).toBe(201);
+    expect(createdTemplate.headers['cache-control']).toContain('no-store');
+    expect(createdTemplate.body.template).toMatchObject({
+      status: 'draft',
+      variables: ['participant_name', 'room_link', 'session_datetime', 'webinar_title'],
+    });
+    const templateId = createdTemplate.body.template.id as string;
+
+    const foreignPublish = await ownerB.agent
+      .post(`/api/v1/telegram/broadcast-templates/${templateId}/publish`)
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ confirm: true });
+    const missingPublish = await ownerB.agent
+      .post('/api/v1/telegram/broadcast-templates/telegram-template-missing/publish')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ confirm: true });
+    expect(foreignPublish.status).toBe(404);
+    expect(missingPublish.status).toBe(404);
+    expect(foreignPublish.body).toMatchObject({
+      code: 'tenant_telegram_template_unavailable',
+      error: missingPublish.body.error,
+    });
+
+    const published = await ownerA.agent
+      .post(`/api/v1/telegram/broadcast-templates/${templateId}/publish`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ confirm: true });
+    expect(published.status).toBe(200);
+    expect(published.body).toMatchObject({ template: { status: 'published' }, replayed: false });
+
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        slug: `telegram-broadcast-webinar-${suffix}`,
+        title: 'Безопасная tenant-рассылка',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+      },
+    });
+    const webinarSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        title: 'Tenant broadcast session',
+        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+        timezone: 'Europe/Amsterdam',
+      },
+    });
+    const registrations: Array<{ leadId: string; registrationId: string; chatId: string; grantId: string }> = [];
+    for (const index of [1, 2]) {
+      const email = `telegram-broadcast-participant-${index}-${suffix}@example.test`;
+      const chatId = `66001000${index}`;
+      const lead = await prisma.lead.create({
+        data: {
+          name: `Получатель ${index}`,
+          phone: `+7999000100${index}`,
+          email,
+          consent: true,
+          consentAt: new Date(),
+          marketingTelegramConsent: true,
+          marketingTelegramConsentAt: new Date(),
+          telegramChatId: chatId,
+          telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+          telegramSubscribedAt: new Date(),
+        },
+      });
+      const participant = await prisma.user.create({
+        data: { emailNormalized: email, displayName: lead.name, status: 'ACTIVE', emailVerifiedAt: new Date() },
+      });
+      const registration = await prisma.registration.create({
+        data: {
+          leadId: lead.id,
+          webinarSessionId: webinarSession.id,
+          organizationId: tenantA.organization.id,
+          webinarId: webinar.id,
+          userId: participant.id,
+          accessPolicy: 'PUBLIC_CATALOG',
+          accessTokenHash: hashToken(createAccessToken()),
+          status: 'registered',
+          emailVerifiedAt: new Date(),
+        },
+      });
+      const grant = await prisma.consentRecord.create({
+        data: consentEvidenceData(MARKETING_TELEGRAM_CONSENT, {
+          leadId: lead.id,
+          registrationId: registration.id,
+          email,
+          kind: 'marketing_telegram',
+          sourceForm: 'tenant-telegram-broadcast-test',
+          req: { headers: { 'user-agent': 'vitest' }, socket: {} },
+        }),
+      });
+      registrations.push({ leadId: lead.id, registrationId: registration.id, chatId, grantId: grant.id });
+    }
+
+    const previewBody = {
+      templateId,
+      webinarId: webinar.id,
+      webinarSessionId: webinarSession.id,
+      segment: 'registered_session',
+    };
+    const foreignPreview = await ownerB.agent
+      .post('/api/v1/telegram/broadcasts/preview')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send(previewBody);
+    const unknownPreview = await ownerB.agent
+      .post('/api/v1/telegram/broadcasts/preview')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ ...previewBody, webinarId: 'telegram-webinar-missing', webinarSessionId: 'telegram-session-missing' });
+    expect(foreignPreview.status).toBe(404);
+    expect(unknownPreview.status).toBe(404);
+    expect(foreignPreview.body.code).toBe(unknownPreview.body.code);
+
+    const preview = await ownerA.agent
+      .post('/api/v1/telegram/broadcasts/preview')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(previewBody);
+    expect(preview.status).toBe(201);
+    expect(preview.headers['cache-control']).toContain('no-store');
+    expect(preview.body.preview).toMatchObject({
+      total: 2,
+      segment: 'registered_session',
+      webinarId: webinar.id,
+      webinarSessionId: webinarSession.id,
+      previewToken: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+    });
+    const previewId = preview.body.preview.previewId as string;
+    const previewToken = preview.body.preview.previewToken as string;
+    const storedPreview = await prisma.telegramBroadcastPreview.findUniqueOrThrow({ where: { id: previewId } });
+    expect(storedPreview.tokenHash).toBe(hashToken(previewToken));
+    expect(storedPreview.tokenHash).not.toContain(previewToken);
+    await expect(prisma.telegramBroadcastJob.count()).resolves.toBe(0);
+
+    const wrongConfirm = await ownerA.agent
+      .post('/api/v1/telegram/broadcasts/confirm')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        previewId,
+        previewToken: createAccessToken(),
+        confirm: true,
+        idempotencyKey: '10000000-0000-4000-8000-000000000001',
+      });
+    expect(wrongConfirm.status).toBe(404);
+    await expect(prisma.telegramBroadcastJob.count()).resolves.toBe(0);
+
+    const confirmInput = {
+      previewId,
+      previewToken,
+      confirm: true,
+      idempotencyKey: '10000000-0000-4000-8000-000000000002',
+    };
+    const confirmed = await ownerA.agent
+      .post('/api/v1/telegram/broadcasts/confirm')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(confirmInput);
+    expect(confirmed.status).toBe(202);
+    expect(confirmed.body).toMatchObject({ replayed: false, job: { status: 'pending', progress: { total: 2 } } });
+    const jobId = confirmed.body.job.id as string;
+    const confirmReplay = await ownerA.agent
+      .post('/api/v1/telegram/broadcasts/confirm')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(confirmInput);
+    expect(confirmReplay.status).toBe(200);
+    expect(confirmReplay.body).toMatchObject({ replayed: true, job: { id: jobId } });
+    const recipients = await prisma.telegramBroadcastRecipient.findMany({ where: { jobId } });
+    expect(recipients).toHaveLength(2);
+    for (const recipient of recipients) {
+      expect(recipient).toMatchObject({
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        webinarSessionId: webinarSession.id,
+        registrationId: expect.any(String),
+        correlationId: expect.any(String),
+      });
+    }
+
+    const paused = await ownerA.agent
+      .post(`/api/v1/telegram/broadcasts/${jobId}/pause`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ confirm: true });
+    expect(paused.status).toBe(200);
+    expect(paused.body.job.status).toBe('paused');
+    expect((await runTelegramBroadcastJobOnce()).checked).toBe(0);
+    const resumed = await ownerA.agent
+      .post(`/api/v1/telegram/broadcasts/${jobId}/resume`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ confirm: true });
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.job.status).toBe('pending');
+
+    const revokedAt = new Date();
+    await prisma.$transaction(async tx => {
+      await tx.lead.update({
+        where: { id: registrations[1].leadId },
+        data: { marketingTelegramConsent: false, marketingTelegramRevokedAt: revokedAt },
+      });
+      const revokedLead = await tx.lead.findUniqueOrThrow({ where: { id: registrations[1].leadId } });
+      await tx.consentRecord.create({
+        data: consentEvidenceData(MARKETING_TELEGRAM_CONSENT, {
+          leadId: registrations[1].leadId,
+          registrationId: registrations[1].registrationId,
+          email: revokedLead.email,
+          kind: 'marketing_telegram',
+          action: 'revoke',
+          sourceForm: 'tenant-telegram-broadcast-test',
+          req: { headers: { 'user-agent': 'vitest' }, socket: {} },
+          occurredAt: revokedAt,
+          revocationChannel: 'viewer_account',
+          revocationReason: 'integration_revoke',
+          revokedConsentId: registrations[1].grantId,
+        }),
+      });
+    });
+    const run = await runTelegramBroadcastJobOnce(new Date(Date.now() + 1_000), { jobId });
+    expect(run).toMatchObject({ checked: 1, sent: 1, failed: 0, deadLettered: 0 });
+    await expect(prisma.telegramBroadcastJob.findUniqueOrThrow({ where: { id: jobId } })).resolves.toMatchObject({
+      status: 'completed',
+      total: 2,
+      sent: 1,
+      nextIndex: 2,
+      lastError: null,
+    });
+    const processedRecipients = await prisma.telegramBroadcastRecipient.findMany({
+      where: { jobId },
+      orderBy: { status: 'asc' },
+    });
+    expect(processedRecipients.map(recipient => recipient.status).sort()).toEqual(['sent', 'skipped_revoked']);
+    expect(processedRecipients.find(recipient => recipient.status === 'sent')).toMatchObject({
+      registrationId: registrations[0].registrationId,
+      providerMessageId: null,
+    });
+    expect(processedRecipients.find(recipient => recipient.status === 'skipped_revoked')?.lastError).toBe(
+      'recipient_no_longer_eligible',
+    );
+    await expect(
+      prisma.registrationToken.count({
+        where: { registrationId: registrations[0].registrationId, purpose: 'registration' },
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.registrationToken.count({
+        where: { registrationId: registrations[1].registrationId, purpose: 'registration' },
+      }),
+    ).resolves.toBe(0);
+    const deliveryEvent = await prisma.telegramBotEvent.findFirstOrThrow({
+      where: { eventType: 'tenant_broadcast_recipient_delivered', registrationId: registrations[0].registrationId },
+    });
+    expect(deliveryEvent).toMatchObject({
+      organizationId: tenantA.organization.id,
+      webinarId: webinar.id,
+      webinarSessionId: webinarSession.id,
+      status: 'logged',
+      correlationId: expect.any(String),
+    });
+    expect(JSON.stringify(deliveryEvent.metadataJson ?? {})).not.toMatch(/chatId|email|phone|token|signedUrl|text/i);
+
+    const secondPreview = await ownerA.agent
+      .post('/api/v1/telegram/broadcasts/preview')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send(previewBody);
+    expect(secondPreview.body.preview.total).toBe(1);
+    const secondConfirmed = await ownerA.agent
+      .post('/api/v1/telegram/broadcasts/confirm')
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({
+        previewId: secondPreview.body.preview.previewId,
+        previewToken: secondPreview.body.preview.previewToken,
+        confirm: true,
+        idempotencyKey: '10000000-0000-4000-8000-000000000003',
+      });
+    const secondJobId = secondConfirmed.body.job.id as string;
+    const cancelled = await ownerA.agent
+      .post(`/api/v1/telegram/broadcasts/${secondJobId}/cancel`)
+      .set('x-csrf-token', ownerA.csrfToken)
+      .send({ reason: 'Рассылка отменена владельцем после проверки' });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.job).toMatchObject({
+      status: 'cancelled',
+      cancelReason: 'Рассылка отменена владельцем после проверки',
+    });
+    await expect(
+      prisma.telegramBroadcastRecipient.count({ where: { jobId: secondJobId, status: 'cancelled' } }),
+    ).resolves.toBe(1);
+
+    const foreignPause = await ownerB.agent
+      .post(`/api/v1/telegram/broadcasts/${secondJobId}/pause`)
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ confirm: true });
+    const missingPause = await ownerB.agent
+      .post('/api/v1/telegram/broadcasts/telegram-job-missing/pause')
+      .set('x-csrf-token', ownerB.csrfToken)
+      .send({ confirm: true });
+    expect(foreignPause.status).toBe(404);
+    expect(missingPause.status).toBe(404);
+    expect(foreignPause.body).toMatchObject({
+      code: 'tenant_telegram_broadcast_unavailable',
+      error: missingPause.body.error,
+    });
+    const tenantAJobs = await ownerA.agent.get('/api/v1/telegram/broadcasts');
+    const tenantBJobs = await ownerB.agent.get('/api/v1/telegram/broadcasts');
+    expect(tenantAJobs.status).toBe(200);
+    expect(tenantAJobs.headers['cache-control']).toContain('no-store');
+    expect(tenantAJobs.body.jobs).toHaveLength(2);
+    expect(JSON.stringify(tenantAJobs.body)).not.toContain(templateText);
+    expect(JSON.stringify(tenantAJobs.body)).not.toContain(registrations[0].chatId);
+    expect(tenantBJobs.body.jobs).toEqual([]);
+    await expect(
+      prisma.auditLog.count({
+        where: { organizationId: tenantA.organization.id, action: { startsWith: 'telegram.broadcast.' } },
+      }),
+    ).resolves.toBeGreaterThanOrEqual(7);
+    await expect(
+      prisma.auditLog.count({
+        where: { organizationId: tenantA.organization.id, action: { startsWith: 'telegram.broadcast_template.' } },
+      }),
+    ).resolves.toBeGreaterThanOrEqual(3);
+  }, 60_000);
 });
 
 afterEach(() => {
@@ -1443,6 +4510,187 @@ describe('critical path integration scenarios', () => {
     }
   });
 
+  it('scopes participant bot commands to current accessible Webinar sessions', async () => {
+    const suffix = Date.now();
+    const tenantA = await createTenantFixture({
+      slug: `telegram-participant-a-${suffix}`,
+      email: `telegram-participant-owner-a-${suffix}@example.test`,
+    });
+    const tenantB = await createTenantFixture({
+      slug: `telegram-participant-b-${suffix}`,
+      email: `telegram-participant-owner-b-${suffix}@example.test`,
+    });
+    const participantEmail = `telegram-participant-commands-${suffix}@example.test`;
+    const chatId = '770010001';
+    const lead = await prisma.lead.create({
+      data: {
+        name: 'Участник команд Telegram',
+        phone: '+79990001001',
+        email: participantEmail,
+        consent: true,
+        consentAt: new Date(),
+        marketingTelegramConsent: true,
+        marketingTelegramConsentAt: new Date(),
+        telegramChatId: chatId,
+        telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+        telegramSubscribedAt: new Date(),
+      },
+    });
+    const participantUser = await prisma.user.create({
+      data: {
+        emailNormalized: participantEmail,
+        displayName: lead.name,
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const accessibleWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        slug: `participant-accessible-${suffix}`,
+        title: 'Доступный вебинар участника',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+      },
+    });
+    const accessibleSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: accessibleWebinar.id,
+        title: 'Доступная сессия участника',
+        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+        timezone: 'Europe/Amsterdam',
+      },
+    });
+    await prisma.webinarSource.createMany({
+      data: [
+        {
+          organizationId: tenantA.organization.id,
+          webinarId: accessibleWebinar.id,
+          type: 'OFFICIAL_SOURCE',
+          title: 'Разрешённый материал',
+          url: 'https://example.test/participant-material',
+          orderIndex: 0,
+        },
+        {
+          organizationId: tenantA.organization.id,
+          webinarId: accessibleWebinar.id,
+          type: 'OTHER',
+          title: 'Небезопасная внутренняя ссылка',
+          url: 'http://127.0.0.1/private-material',
+          orderIndex: 1,
+        },
+      ],
+    });
+    const accessibleRegistration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: accessibleSession.id,
+        organizationId: tenantA.organization.id,
+        webinarId: accessibleWebinar.id,
+        userId: participantUser.id,
+        accessPolicy: 'PUBLIC_CATALOG',
+        accessTokenHash: hashToken(createAccessToken()),
+        status: 'registered',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const privateWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        slug: `participant-private-${suffix}`,
+        title: 'Чужой закрытый вебинар',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PRIVATE',
+      },
+    });
+    const privateSession = await prisma.webinarSession.create({
+      data: {
+        organizationId: tenantB.organization.id,
+        webinarId: privateWebinar.id,
+        title: 'Чужая закрытая сессия',
+        scheduledAt: new Date(Date.now() + 30 * 60 * 1000),
+        timezone: 'Europe/Moscow',
+      },
+    });
+    const privateRegistration = await prisma.registration.create({
+      data: {
+        leadId: lead.id,
+        webinarSessionId: privateSession.id,
+        organizationId: tenantB.organization.id,
+        webinarId: privateWebinar.id,
+        userId: participantUser.id,
+        accessPolicy: 'PRIVATE_GRANT',
+        accessTokenHash: hashToken(createAccessToken()),
+        status: 'registered',
+        emailVerifiedAt: new Date(),
+      },
+    });
+
+    const commands = ['/webinars', '/my', '/status', '/room', '/materials', '/help', '/unsubscribe'];
+    for (const [index, text] of commands.entries()) {
+      await handleParticipantTelegramUpdate({
+        update_id: 10_000 + index,
+        message: {
+          message_id: 11_000 + index,
+          text,
+          chat: { id: Number(chatId), type: 'private' },
+          from: { id: 12_001, username: 'participant_commands', first_name: 'Participant' },
+        },
+      });
+    }
+    await handleParticipantTelegramUpdate({
+      update_id: 10_100,
+      message: {
+        message_id: 11_100,
+        text: '/room',
+        chat: { id: -77_001, type: 'group' },
+      },
+    });
+
+    const commandEvents = await prisma.telegramBotEvent.findMany({
+      where: { eventType: 'telegram_participant_command' },
+      orderBy: { providerMessageId: 'asc' },
+    });
+    expect(commandEvents).toHaveLength(commands.length);
+    expect(commandEvents.map(event => (event.metadataJson as { command?: string })?.command)).toEqual(commands);
+    for (const event of commandEvents) {
+      expect(event).toMatchObject({
+        organizationId: tenantA.organization.id,
+        webinarId: accessibleWebinar.id,
+        webinarSessionId: accessibleSession.id,
+        registrationId: accessibleRegistration.id,
+        botIdentity: 'PARTICIPANT',
+        direction: 'INBOUND',
+        correlationId: expect.any(String),
+        providerMessageId: expect.any(String),
+      });
+      expect(JSON.stringify(event.metadataJson ?? {})).not.toMatch(/chatId|email|phone|token|signedUrl/i);
+    }
+    await expect(prisma.telegramBotEvent.count({ where: { organizationId: tenantB.organization.id } })).resolves.toBe(
+      0,
+    );
+    const roomTokens = await prisma.registrationToken.findMany({ where: { purpose: 'registration' } });
+    expect(roomTokens).toHaveLength(3);
+    expect(new Set(roomTokens.map(token => token.registrationId))).toEqual(new Set([accessibleRegistration.id]));
+    expect(roomTokens.some(token => token.registrationId === privateRegistration.id)).toBe(false);
+    await expect(prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).resolves.toMatchObject({
+      marketingTelegramConsent: false,
+      marketingTelegramRevokedAt: expect.any(Date),
+      telegramChatId: chatId,
+    });
+    await expect(
+      prisma.consentRecord.count({
+        where: {
+          leadId: lead.id,
+          kind: 'marketing_telegram',
+          action: 'revoke',
+          sourceForm: 'telegram_participant_bot',
+        },
+      }),
+    ).resolves.toBe(1);
+  }, 60_000);
+
   it('scopes admin registration PII by role', async () => {
     const managerAccess = await loginAdmin('manager', 'manager-scope@aspb.ru');
     const viewerAccess = await loginAdmin('viewer', 'viewer-scope@aspb.ru');
@@ -2133,7 +5381,7 @@ describe('critical path integration scenarios', () => {
 
   it('sends the live "эфир начался" telegram message once per registration (idempotent)', async () => {
     const startedAt = new Date(Date.now() - 5 * 60 * 1000); // эфир начался 5 минут назад
-    const { registration, lead } = await createRegisteredParticipant('live-notify@aspb.ru', startedAt);
+    const { registration, lead, webinarSession } = await createRegisteredParticipant('live-notify@aspb.ru', startedAt);
     await prisma.lead.update({
       where: { id: lead.id },
       data: { telegramChatId: '900900900', telegramBindingVersion: TELEGRAM_BINDING_VERSION },
@@ -2145,6 +5393,28 @@ describe('critical path integration scenarios', () => {
 
     const updated = await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } });
     expect(updated.telegramLiveSentAt).not.toBeNull();
+    const deliveryEvents = await prisma.telegramBotEvent.findMany({
+      where: {
+        webinarSessionId: webinarSession.id,
+        eventType: 'session_live',
+        dedupKey: `participant:${registration.id}:session:${webinarSession.id}:session_live:schedule:${webinarSession.scheduleVersion}`,
+      },
+    });
+    expect(deliveryEvents).toHaveLength(1);
+    expect(deliveryEvents[0]).toMatchObject({
+      organizationId: webinarSession.organizationId,
+      webinarId: webinarSession.webinarId,
+      webinarSessionId: webinarSession.id,
+      registrationId: null,
+      botIdentity: 'PARTICIPANT',
+      direction: 'OUTBOUND',
+      providerMessageId: null,
+      dedupKey: `participant:${registration.id}:session:${webinarSession.id}:session_live:schedule:${webinarSession.scheduleVersion}`,
+      status: 'logged',
+      metadataJson: { scheduleVersion: webinarSession.scheduleVersion, deliveryMode: 'log' },
+    });
+    expect(JSON.stringify(deliveryEvents[0].metadataJson)).not.toContain(lead.email);
+    expect(JSON.stringify(deliveryEvents[0].metadataJson)).not.toContain('900900900');
   });
 
   it('serves published recordings to registered account sessions only', async () => {
@@ -2525,9 +5795,10 @@ describe('critical path integration scenarios', () => {
     await prisma.webinarChatMessage.create({
       data: {
         webinarSessionId: dailySession.id,
-        registrationId: registration.id,
-        kind: 'participant',
-        authorName: 'Bound Session',
+        registrationId: null,
+        kind: 'system',
+        messageType: 'SYSTEM',
+        authorName: 'Система АСПБ',
         message: 'Persisted message from daily broadcast',
         isSynthetic: false,
         visibleAt: new Date(Date.now() - 60 * 1000),
@@ -3116,13 +6387,13 @@ describe('critical path integration scenarios', () => {
     expect(scriptedQuestion).toMatchObject({
       id: expect.any(String),
       authorName: expect.any(String),
-      authorRole: 'подготовленный вопрос',
+      authorRole: 'Подготовленный вопрос',
       message: expect.any(String),
+      isSynthetic: true,
     });
     expect(scriptedQuestion).not.toHaveProperty('agentId');
     expect(scriptedQuestion).not.toHaveProperty('answerStartSeconds');
     expect(scriptedQuestion).not.toHaveProperty('topic');
-    expect(scriptedQuestion).not.toHaveProperty('isSynthetic');
   });
 
   it('keeps the ASPB bootstrap tenant and legacy webinar creation compatible', async () => {
@@ -5045,6 +8316,413 @@ describe('critical path integration scenarios', () => {
     );
   });
 
+  it('registers the shown tenant session and keeps the viewer account private, scoped and idempotent', async () => {
+    env.PUBLIC_CATALOG_ENABLED = 'on';
+    const tenant = await createTenantFixture({
+      slug: 'viewer-account-tenant',
+      email: 'viewer-account-author@example.test',
+      role: 'AUTHOR',
+    });
+    const foreignTenant = await createTenantFixture({
+      slug: 'viewer-account-foreign',
+      email: 'viewer-account-foreign-author@example.test',
+      role: 'AUTHOR',
+    });
+    const [profile, foreignProfile] = await Promise.all([
+      prisma.authorProfile.create({
+        data: {
+          organizationId: tenant.organization.id,
+          userId: tenant.user.id,
+          slug: 'viewer-account-author',
+          publicName: 'Автор кабинета',
+          verificationStatus: 'VERIFIED',
+        },
+      }),
+      prisma.authorProfile.create({
+        data: {
+          organizationId: foreignTenant.organization.id,
+          userId: foreignTenant.user.id,
+          slug: 'viewer-account-foreign-author',
+          publicName: 'Чужой автор',
+          verificationStatus: 'VERIFIED',
+        },
+      }),
+    ]);
+    const firstWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'viewer-account-current',
+        title: 'Доступная запись',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        freshnessStatus: 'CURRENT',
+        publishedAt: new Date(),
+      },
+    });
+    const futureWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'viewer-account-future',
+        title: 'Будущий вебинар',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        freshnessStatus: 'CURRENT',
+        publishedAt: new Date(),
+      },
+    });
+    const privateWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: 'viewer-account-private',
+        title: 'Закрытый материал',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PRIVATE',
+        freshnessStatus: 'CURRENT',
+        publishedAt: new Date(),
+      },
+    });
+    const foreignWebinar = await prisma.webinar.create({
+      data: {
+        organizationId: foreignTenant.organization.id,
+        authorProfileId: foreignProfile.id,
+        slug: 'viewer-account-foreign',
+        title: 'Чужой вебинар',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        freshnessStatus: 'CURRENT',
+        publishedAt: new Date(),
+      },
+    });
+    const [firstSession, futureSession, foreignSession] = await Promise.all([
+      prisma.webinarSession.create({
+        data: {
+          organizationId: tenant.organization.id,
+          webinarId: firstWebinar.id,
+          title: firstWebinar.title,
+          scheduledAt: new Date(Date.now() - 5 * 60_000),
+          durationMinutes: 60,
+          replayAvailableHours: 168,
+          timezone: 'Europe/Moscow',
+        },
+      }),
+      prisma.webinarSession.create({
+        data: {
+          organizationId: tenant.organization.id,
+          webinarId: futureWebinar.id,
+          title: futureWebinar.title,
+          scheduledAt: new Date(Date.now() + 24 * 60 * 60_000),
+          durationMinutes: 60,
+          timezone: 'Asia/Yekaterinburg',
+        },
+      }),
+      prisma.webinarSession.create({
+        data: {
+          organizationId: foreignTenant.organization.id,
+          webinarId: foreignWebinar.id,
+          title: foreignWebinar.title,
+          scheduledAt: new Date(Date.now() - 5 * 60_000),
+          durationMinutes: 60,
+        },
+      }),
+    ]);
+
+    const viewer = request.agent(app);
+    const csrfToken = await getCsrfToken(viewer);
+    const registrationBody = {
+      sessionId: firstSession.id,
+      name: 'Зритель Кабинета',
+      phone: '+79990007766',
+      email: 'viewer-account@example.test',
+      personalDataConsent: true,
+      termsAccepted: true,
+      marketingEmailConsent: false,
+      marketingTelegramConsent: false,
+      source: 'catalog_detail',
+    };
+    const registrationPath = `/api/v1/catalog/webinars/${firstWebinar.slug}/register?organization=${tenant.organization.slug}`;
+    const registered = await viewer.post(registrationPath).set('x-csrf-token', csrfToken).send(registrationBody);
+    expect(registered.status).toBe(202);
+    const repeated = await viewer.post(registrationPath).set('x-csrf-token', csrfToken).send(registrationBody);
+    expect(repeated.status).toBe(202);
+    const storedRegistration = await prisma.registration.findFirstOrThrow({
+      where: { webinarSessionId: firstSession.id },
+      include: { participantUser: true },
+    });
+    expect(storedRegistration).toMatchObject({
+      organizationId: tenant.organization.id,
+      webinarId: firstWebinar.id,
+      webinarSessionId: firstSession.id,
+      accessPolicy: 'PUBLIC_CATALOG',
+      status: 'pending_verification',
+      userId: expect.any(String),
+    });
+    expect(storedRegistration.participantUser?.emailNormalized).toBe(registrationBody.email);
+    await expect(prisma.registration.count({ where: { webinarSessionId: firstSession.id } })).resolves.toBe(1);
+    await expect(
+      prisma.consentRecord.count({ where: { registrationId: storedRegistration.id, kind: 'personal_data' } }),
+    ).resolves.toBe(1);
+
+    const injectedScope = await viewer
+      .post(registrationPath)
+      .set('x-csrf-token', csrfToken)
+      .send({ ...registrationBody, organizationId: foreignTenant.organization.id });
+    expect(injectedScope.status).toBe(400);
+
+    const foreignSessionAttempt = await viewer
+      .post(registrationPath)
+      .set('x-csrf-token', csrfToken)
+      .send({ ...registrationBody, sessionId: foreignSession.id });
+    const unknownSessionAttempt = await viewer
+      .post(registrationPath)
+      .set('x-csrf-token', csrfToken)
+      .send({ ...registrationBody, sessionId: '00000000-0000-4000-8000-000000000000' });
+    expect(foreignSessionAttempt.status).toBe(404);
+    expect(foreignSessionAttempt.body).toMatchObject({
+      code: 'catalog_webinar_not_found',
+      error: unknownSessionAttempt.body.error,
+    });
+    await expect(prisma.registration.count({ where: { webinarSessionId: foreignSession.id } })).resolves.toBe(0);
+
+    const exchangeToken = createAccessToken();
+    await prisma.registrationToken.create({
+      data: {
+        registrationId: storedRegistration.id,
+        tokenHash: hashToken(exchangeToken),
+        purpose: 'registration',
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const exchanged = await viewer
+      .post('/api/registration/exchange')
+      .set('x-csrf-token', csrfToken)
+      .send({ token: exchangeToken });
+    expect(exchanged.status).toBe(200);
+    await expect(prisma.user.findUniqueOrThrow({ where: { id: storedRegistration.userId! } })).resolves.toMatchObject({
+      status: 'ACTIVE',
+      emailVerifiedAt: expect.any(Date),
+    });
+
+    const futureRegistered = await viewer
+      .post(`/api/v1/catalog/webinars/${futureWebinar.slug}/register?organization=${tenant.organization.slug}`)
+      .set('x-csrf-token', csrfToken)
+      .send({ ...registrationBody, sessionId: futureSession.id });
+    expect(futureRegistered.status).toBe(201);
+    expect(futureRegistered.body.registration).toMatchObject({
+      webinarId: futureWebinar.id,
+      webinarSessionId: futureSession.id,
+      status: 'registered',
+    });
+
+    const dashboard = await viewer.get('/api/v1/viewer/dashboard');
+    expect(dashboard.status).toBe(200);
+    expect(dashboard.headers['cache-control']).toContain('no-store');
+    expect(dashboard.body.sections.recordings).toEqual([
+      expect.objectContaining({
+        webinarId: firstWebinar.id,
+        timezone: 'Europe/Moscow',
+        accessState: 'available',
+        accessExpiresAt: expect.any(String),
+      }),
+    ]);
+    expect(dashboard.body.sections.upcoming).toEqual([
+      expect.objectContaining({ webinarId: futureWebinar.id, timezone: 'Asia/Yekaterinburg' }),
+    ]);
+
+    const favoritePath = `/api/v1/viewer/favorites/${firstWebinar.id}`;
+    expect((await viewer.put(favoritePath).set('x-csrf-token', csrfToken).send({})).status).toBe(200);
+    expect((await viewer.put(favoritePath).set('x-csrf-token', csrfToken).send({})).status).toBe(200);
+    await expect(
+      prisma.viewerWebinarFavorite.count({
+        where: {
+          userId: storedRegistration.userId!,
+          organizationId: tenant.organization.id,
+          webinarId: firstWebinar.id,
+        },
+      }),
+    ).resolves.toBe(1);
+    const privateFavorite = await viewer
+      .put(`/api/v1/viewer/favorites/${privateWebinar.id}`)
+      .set('x-csrf-token', csrfToken)
+      .send({});
+    const foreignFavorite = await viewer
+      .put(`/api/v1/viewer/favorites/${foreignWebinar.id}`)
+      .set('x-csrf-token', csrfToken)
+      .send({});
+    expect(privateFavorite.status).toBe(404);
+    expect(foreignFavorite.status).toBe(404);
+    expect(privateFavorite.body).toMatchObject({ code: 'viewer_object_not_found', error: foreignFavorite.body.error });
+    await expect(prisma.registration.count({ where: { webinarId: privateWebinar.id } })).resolves.toBe(0);
+    expect((await viewer.delete(favoritePath).set('x-csrf-token', csrfToken)).status).toBe(200);
+    expect((await viewer.delete(favoritePath).set('x-csrf-token', csrfToken)).status).toBe(200);
+    const foreignFavoriteDelete = await viewer
+      .delete(`/api/v1/viewer/favorites/${foreignWebinar.id}`)
+      .set('x-csrf-token', csrfToken);
+    const unknownFavoriteDelete = await viewer
+      .delete('/api/v1/viewer/favorites/00000000-0000-4000-8000-000000000000')
+      .set('x-csrf-token', csrfToken);
+    expect(foreignFavoriteDelete.status).toBe(404);
+    expect(foreignFavoriteDelete.body).toMatchObject({
+      code: 'viewer_object_not_found',
+      error: unknownFavoriteDelete.body.error,
+    });
+
+    const activated = await viewer
+      .post(`/api/v1/viewer/registrations/${storedRegistration.id}/activate`)
+      .set('x-csrf-token', csrfToken)
+      .send({});
+    expect(activated.status).toBe(200);
+    const foreignLead = await prisma.lead.create({
+      data: { name: 'Чужой зритель', phone: '+79990007767', email: 'viewer-account-foreign-viewer@example.test' },
+    });
+    const foreignRegistration = await prisma.registration.create({
+      data: {
+        leadId: foreignLead.id,
+        webinarSessionId: foreignSession.id,
+        organizationId: foreignTenant.organization.id,
+        webinarId: foreignWebinar.id,
+        userId: foreignTenant.user.id,
+        accessPolicy: 'PUBLIC_CATALOG',
+        accessTokenHash: hashToken(createAccessToken()),
+        status: 'registered',
+        emailVerifiedAt: new Date(),
+      },
+    });
+    const foreignActivation = await viewer
+      .post(`/api/v1/viewer/registrations/${foreignRegistration.id}/activate`)
+      .set('x-csrf-token', csrfToken)
+      .send({});
+    const unknownActivation = await viewer
+      .post('/api/v1/viewer/registrations/00000000-0000-4000-8000-000000000000/activate')
+      .set('x-csrf-token', csrfToken)
+      .send({});
+    expect(foreignActivation.status).toBe(404);
+    expect(foreignActivation.body).toMatchObject({
+      code: 'viewer_object_not_found',
+      error: unknownActivation.body.error,
+    });
+    const firstProgress = await viewer
+      .put(`/api/v1/viewer/progress/${firstSession.id}`)
+      .set('x-csrf-token', csrfToken)
+      .send({ positionSeconds: 120, durationSeconds: 3600, eventId: 'viewer-progress-event-0001' });
+    expect(firstProgress.status).toBe(200);
+    const duplicateProgress = await viewer
+      .put(`/api/v1/viewer/progress/${firstSession.id}`)
+      .set('x-csrf-token', csrfToken)
+      .send({ positionSeconds: 120, durationSeconds: 3600, eventId: 'viewer-progress-event-0001' });
+    expect(duplicateProgress.body).toMatchObject({ writeAccepted: true, duplicate: true });
+    const throttledProgress = await viewer
+      .put(`/api/v1/viewer/progress/${firstSession.id}`)
+      .set('x-csrf-token', csrfToken)
+      .send({ positionSeconds: 121, durationSeconds: 3600, eventId: 'viewer-progress-event-0002' });
+    expect(throttledProgress.status).toBe(202);
+    expect(throttledProgress.body).toMatchObject({ writeAccepted: false, duplicate: false });
+    await expect(prisma.viewerWebinarProgress.count({ where: { webinarSessionId: firstSession.id } })).resolves.toBe(1);
+    const foreignProgress = await viewer
+      .put(`/api/v1/viewer/progress/${foreignSession.id}`)
+      .set('x-csrf-token', csrfToken)
+      .send({ positionSeconds: 10, durationSeconds: 3600, eventId: 'viewer-progress-foreign-0001' });
+    expect(foreignProgress.status).toBe(404);
+    expect(foreignProgress.body.code).toBe('viewer_object_not_found');
+    const foreignProgressRead = await viewer.get(`/api/v1/viewer/progress/${foreignSession.id}`);
+    const unknownProgressRead = await viewer.get('/api/v1/viewer/progress/00000000-0000-4000-8000-000000000000');
+    expect(foreignProgressRead.status).toBe(404);
+    expect(foreignProgressRead.body).toMatchObject({
+      code: 'viewer_object_not_found',
+      error: unknownProgressRead.body.error,
+    });
+
+    const note = await viewer
+      .post('/api/v1/viewer/notes')
+      .set('x-csrf-token', csrfToken)
+      .send({ sessionId: firstSession.id, timestampSeconds: 125, body: 'Личная заметка <script>' });
+    expect(note.status).toBe(201);
+    const notes = await viewer.get('/api/v1/viewer/notes').query({ sessionId: firstSession.id });
+    expect(notes.body.notes).toEqual([
+      expect.objectContaining({ timestampSeconds: 125, body: 'Личная заметка <script>' }),
+    ]);
+    const foreignNotes = await viewer.get('/api/v1/viewer/notes').query({ sessionId: foreignSession.id });
+    expect(foreignNotes.status).toBe(404);
+    expect(foreignNotes.body).toMatchObject({ code: 'viewer_object_not_found', error: foreignProgress.body.error });
+    const foreignNote = await prisma.viewerWebinarNote.create({
+      data: {
+        organizationId: foreignTenant.organization.id,
+        webinarId: foreignWebinar.id,
+        webinarSessionId: foreignSession.id,
+        userId: foreignTenant.user.id,
+        timestampMs: 5_000,
+        body: 'Чужая приватная заметка',
+      },
+    });
+    const foreignNoteDelete = await viewer
+      .delete(`/api/v1/viewer/notes/${foreignNote.id}`)
+      .set('x-csrf-token', csrfToken);
+    const unknownNoteDelete = await viewer
+      .delete('/api/v1/viewer/notes/00000000-0000-4000-8000-000000000000')
+      .set('x-csrf-token', csrfToken);
+    expect(foreignNoteDelete.status).toBe(404);
+    expect(foreignNoteDelete.body).toMatchObject({
+      code: 'viewer_object_not_found',
+      error: unknownNoteDelete.body.error,
+    });
+    await expect(prisma.viewerWebinarNote.findUnique({ where: { id: foreignNote.id } })).resolves.toBeTruthy();
+
+    const serviceOnlyUpdate = await viewer
+      .patch('/api/v1/viewer/notifications')
+      .set('x-csrf-token', csrfToken)
+      .send({ serviceTelegramEnabled: false });
+    expect(serviceOnlyUpdate.body.preferences).toMatchObject({
+      marketingEmailEnabled: false,
+      marketingTelegramEnabled: false,
+      serviceEmailEnabled: true,
+      serviceTelegramEnabled: false,
+    });
+    await expect(prisma.lead.findUniqueOrThrow({ where: { id: storedRegistration.leadId } })).resolves.toMatchObject({
+      marketingEmailRevokedAt: null,
+      marketingTelegramRevokedAt: null,
+    });
+    await expect(
+      prisma.consentRecord.count({
+        where: { leadId: storedRegistration.leadId, kind: { in: ['marketing_email', 'marketing_telegram'] } },
+      }),
+    ).resolves.toBe(0);
+
+    const marketingEnabled = await viewer
+      .patch('/api/v1/viewer/notifications')
+      .set('x-csrf-token', csrfToken)
+      .send({ marketingEmailEnabled: true });
+    expect(marketingEnabled.body.preferences).toMatchObject({
+      marketingEmailEnabled: true,
+      serviceEmailEnabled: true,
+      serviceTelegramEnabled: false,
+    });
+    const marketingDisabled = await viewer
+      .patch('/api/v1/viewer/notifications')
+      .set('x-csrf-token', csrfToken)
+      .send({ marketingEmailEnabled: false });
+    expect(marketingDisabled.body.preferences).toMatchObject({
+      marketingEmailEnabled: false,
+      serviceEmailEnabled: true,
+      serviceTelegramEnabled: false,
+    });
+    await expect(prisma.lead.findUniqueOrThrow({ where: { id: storedRegistration.leadId } })).resolves.toMatchObject({
+      consent: true,
+      marketingEmailConsent: false,
+      personalDataConsentRevokedAt: null,
+    });
+    await expect(
+      prisma.consentRecord.count({
+        where: { leadId: storedRegistration.leadId, kind: 'marketing_email', action: { in: ['grant', 'revoke'] } },
+      }),
+    ).resolves.toBe(2);
+
+    const deletedNote = await viewer.delete(`/api/v1/viewer/notes/${note.body.note.id}`).set('x-csrf-token', csrfToken);
+    expect(deletedNote.status).toBe(200);
+    await expect(prisma.viewerWebinarNote.count({ where: { id: note.body.note.id } })).resolves.toBe(0);
+  });
+
   it('creates bounded timezone-aware recurrence and hides every foreign session operation', async () => {
     const tenantA = await createTenantFixture({
       slug: 'session-scope-a',
@@ -5618,7 +9296,7 @@ describe('critical path integration scenarios', () => {
         offsetSeconds: 180,
         kind: 'MODERATOR_NOTICE',
         text: 'Это подготовленное сообщение, а не реплика реального участника.',
-        authorLabel: 'Модератор',
+        authorLabel: 'Подготовленный вопрос',
         isSynthetic: true,
       }),
     ]);
@@ -5656,6 +9334,21 @@ describe('critical path integration scenarios', () => {
       });
     expect(falseSynthetic.status).toBe(400);
 
+    const fabricatedAudience = await creator.agent
+      .patch(`/api/v1/creator/webinars/${duplicateId}/chat-scenario`)
+      .set('x-csrf-token', creator.csrfToken)
+      .send({
+        messages: [
+          {
+            offsetSeconds: 120,
+            kind: 'PREPARED_QUESTION',
+            status: 'APPROVED',
+            text: 'Сейчас онлайн 247 участников',
+          },
+        ],
+      });
+    expect(fabricatedAudience.status).toBe(400);
+
     const savedScenario = await creator.agent
       .patch(`/api/v1/creator/webinars/${duplicateId}/chat-scenario`)
       .set('x-csrf-token', creator.csrfToken)
@@ -5681,7 +9374,7 @@ describe('critical path integration scenarios', () => {
           offsetSeconds: 120,
           kind: 'AUTHOR_PROMPT',
           text: 'Подготовленный переход к следующей теме.',
-          authorLabel: 'Автор',
+          authorLabel: 'Подготовленный вопрос',
           isSynthetic: true,
         },
       ],
@@ -6038,6 +9731,188 @@ describe('critical path integration scenarios', () => {
     });
   });
 
+  it('streams self-hosted multipart bytes only after tenant, author, CSRF and size checks', async () => {
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    env.MEDIA_STORAGE_PROVIDER = 'local_fs';
+    const localRoot = await mkdtemp(join(tmpdir(), 'aspb-integration-media-'));
+    env.MEDIA_LOCAL_ROOT = localRoot;
+    try {
+      const tenantA = await createTenantFixture({
+        slug: 'local-media-a',
+        email: 'local-media-a@example.test',
+        role: 'OWNER',
+      });
+      const tenantB = await createTenantFixture({
+        slug: 'local-media-b',
+        email: 'local-media-b@example.test',
+        role: 'OWNER',
+      });
+      const webinar = await prisma.webinar.create({
+        data: { organizationId: tenantA.organization.id, slug: 'local-media', title: 'Локальное видео' },
+      });
+      const unrelatedAuthor = await prisma.user.create({
+        data: {
+          emailNormalized: 'local-media-author@example.test',
+          displayName: 'Другой автор',
+          status: 'ACTIVE',
+          emailVerifiedAt: new Date(),
+        },
+      });
+      await prisma.organizationMembership.create({
+        data: { organizationId: tenantA.organization.id, userId: unrelatedAuthor.id, role: 'AUTHOR', status: 'ACTIVE' },
+      });
+      const owner = await loginPlatformUser(tenantA.user.id);
+      const foreignOwner = await loginPlatformUser(tenantB.user.id);
+      const unrelated = await loginPlatformUser(unrelatedAuthor.id);
+      const created = await owner.agent
+        .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+        .set('x-csrf-token', owner.csrfToken)
+        .send({ fileName: 'local.mp4', mimeType: 'video/mp4', sizeBytes: '10' });
+      expect(created.status).toBe(201);
+      expect(created.body.parts).toEqual([
+        expect.objectContaining({
+          partNumber: 1,
+          url: `/api/v1/creator/uploads/${created.body.uploadId}/parts/1/content`,
+        }),
+      ]);
+      expect(JSON.stringify(created.body)).not.toContain(localRoot);
+      expect(JSON.stringify(created.body)).not.toContain('organizations/');
+      const uploadId = created.body.uploadId as string;
+      const partPath = `/api/v1/creator/uploads/${uploadId}/parts/1/content`;
+
+      const missingCsrf = await owner.agent
+        .put(partPath)
+        .set('Content-Type', 'video/mp4')
+        .send(Buffer.from('0123456789'));
+      expect(missingCsrf.status).toBe(403);
+      expect(missingCsrf.body).toMatchObject({ code: 'csrf_invalid' });
+      const foreign = await foreignOwner.agent
+        .put(partPath)
+        .set('x-csrf-token', foreignOwner.csrfToken)
+        .set('Content-Type', 'video/mp4')
+        .send(Buffer.from('0123456789'));
+      const unrelatedAuthorAttempt = await unrelated.agent
+        .put(partPath)
+        .set('x-csrf-token', unrelated.csrfToken)
+        .set('Content-Type', 'video/mp4')
+        .send(Buffer.from('0123456789'));
+      expect(foreign.status).toBe(404);
+      expect(unrelatedAuthorAttempt.status).toBe(404);
+      expect(foreign.body.code).toBe(unrelatedAuthorAttempt.body.code);
+
+      const wrongMime = await owner.agent
+        .put(partPath)
+        .set('x-csrf-token', owner.csrfToken)
+        .set('Content-Type', 'video/webm')
+        .send(Buffer.from('0123456789'));
+      expect(wrongMime.status).toBe(400);
+      expect(wrongMime.body).toMatchObject({ code: 'media_upload_part_mime_mismatch' });
+      const wrongSize = await owner.agent
+        .put(partPath)
+        .set('x-csrf-token', owner.csrfToken)
+        .set('Content-Type', 'video/mp4')
+        .send(Buffer.from('short'));
+      expect(wrongSize.status).toBe(400);
+      expect(wrongSize.body).toMatchObject({ code: 'media_upload_part_size_mismatch' });
+
+      const uploaded = await owner.agent
+        .put(partPath)
+        .set('x-csrf-token', owner.csrfToken)
+        .set('Content-Type', 'video/mp4')
+        .send(Buffer.from('0123456789'));
+      expect(uploaded.status).toBe(200);
+      expect(uploaded.headers.etag).toMatch(/^"[0-9a-f]{64}"$/);
+      expect(uploaded.body).toMatchObject({
+        checkpointed: true,
+        completedParts: [{ partNumber: 1, etag: expect.stringMatching(/^[0-9a-f]{64}$/) }],
+      });
+      expect(JSON.stringify(uploaded.body)).not.toContain(localRoot);
+
+      const repeated = await owner.agent
+        .put(partPath)
+        .set('x-csrf-token', owner.csrfToken)
+        .set('Content-Type', 'video/mp4')
+        .send(Buffer.from('0123456789'));
+      expect(repeated.status).toBe(200);
+      expect(repeated.body.idempotent).toBe(true);
+      const conflict = await owner.agent
+        .put(partPath)
+        .set('x-csrf-token', owner.csrfToken)
+        .set('Content-Type', 'video/mp4')
+        .send(Buffer.from('abcdefghij'));
+      expect(conflict.status).toBe(409);
+      expect(conflict.body).toMatchObject({ code: 'media_upload_part_conflict' });
+
+      const resumed = await owner.agent
+        .post(`/api/v1/creator/uploads/${uploadId}/resume`)
+        .set('x-csrf-token', owner.csrfToken)
+        .send({});
+      expect(resumed.status).toBe(200);
+      expect(resumed.body.parts).toEqual([]);
+      expect(resumed.body.completedParts).toEqual(uploaded.body.completedParts);
+      const crossComplete = await foreignOwner.agent
+        .post(`/api/v1/creator/uploads/${uploadId}/complete`)
+        .set('x-csrf-token', foreignOwner.csrfToken)
+        .send({ parts: uploaded.body.completedParts });
+      expect(crossComplete.status).toBe(404);
+      const completed = await owner.agent
+        .post(`/api/v1/creator/uploads/${uploadId}/complete`)
+        .set('x-csrf-token', owner.csrfToken)
+        .send({ parts: uploaded.body.completedParts });
+      expect(completed.status).toBe(200);
+      expect(completed.body).toMatchObject({ idempotent: false, asset: { status: 'VALIDATING' } });
+      const completedAgain = await owner.agent
+        .post(`/api/v1/creator/uploads/${uploadId}/complete`)
+        .set('x-csrf-token', owner.csrfToken)
+        .send({ parts: uploaded.body.completedParts });
+      expect(completedAgain.status).toBe(200);
+      expect(completedAgain.body.idempotent).toBe(true);
+      await expect(prisma.mediaJob.count({ where: { assetId: created.body.asset.id } })).resolves.toBe(1);
+
+      const expiring = await owner.agent
+        .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+        .set('x-csrf-token', owner.csrfToken)
+        .send({ fileName: 'expired.mp4', mimeType: 'video/mp4', sizeBytes: '10' });
+      expect(expiring.status).toBe(201);
+      const expiringUpload = await prisma.mediaUpload.findUniqueOrThrow({
+        where: { id: expiring.body.uploadId as string },
+      });
+      const providerUploadDirectory = join(localRoot, 'multipart', expiringUpload.providerUploadKey);
+      await expect(access(providerUploadDirectory)).resolves.toBeUndefined();
+      await prisma.mediaUpload.update({
+        where: { id: expiringUpload.id },
+        data: { expiresAt: new Date(Date.now() - 60_000) },
+      });
+
+      await expect(cleanupExpiredMediaUploads(prisma)).resolves.toEqual({ checked: 1, cancelled: 1, failed: 0 });
+      await expect(access(providerUploadDirectory)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(prisma.mediaUpload.findUniqueOrThrow({ where: { id: expiringUpload.id } })).resolves.toMatchObject({
+        status: 'CANCELLED',
+        abortAttemptedAt: expect.any(Date),
+      });
+      await expect(
+        prisma.auditLog.count({
+          where: {
+            organizationId: tenantA.organization.id,
+            action: 'media.upload.expired_cleanup',
+            entityId: expiringUpload.id,
+          },
+        }),
+      ).resolves.toBe(1);
+
+      const mediaMetrics = await request(app).get('/metrics');
+      expect(mediaMetrics.status).toBe(200);
+      expect(mediaMetrics.text).toContain('aspb_media_storage_probe_success{provider="local_fs"} 1');
+      expect(mediaMetrics.text).toContain('aspb_media_storage_bytes{provider="local_fs",state="available"} ');
+      expect(mediaMetrics.text).toContain('aspb_media_storage_inodes{provider="local_fs",state="available"} ');
+      expect(mediaMetrics.text).not.toContain(localRoot);
+    } finally {
+      await rm(localRoot, { recursive: true, force: true });
+      env.MEDIA_LOCAL_ROOT = undefined;
+    }
+  });
+
   it('keeps resumable media uploads tenant-scoped, idempotent and version-switched only after READY', async () => {
     env.PLATFORM_ACCOUNTS_ENABLED = 'on';
     env.CREATOR_DASHBOARD_ENABLED = 'on';
@@ -6245,14 +10120,164 @@ describe('critical path integration scenarios', () => {
       },
     });
     const viewerCookie = `aspb_room_token=${viewerToken}`;
+    const draftTranscript = await prisma.transcript.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        mediaAssetId: assetId,
+        createdByUserId: tenantA.user.id,
+        version: 1,
+        status: 'DRAFT',
+        segments: {
+          create: {
+            orderIndex: 0,
+            startMs: 0,
+            endMs: 4_000,
+            speaker: 'Черновик',
+            text: 'СЕКРЕТНЫЙ ЧЕРНОВИК НЕ ДЛЯ ЗРИТЕЛЯ',
+          },
+        },
+      },
+    });
+    const publishedTranscript = await prisma.transcript.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        mediaAssetId: assetId,
+        createdByUserId: tenantA.user.id,
+        reviewedByUserId: tenantA.user.id,
+        version: 2,
+        revision: 3,
+        status: 'PUBLISHED',
+        reviewedAt: new Date(),
+        publishedAt: new Date(),
+        segments: {
+          create: [
+            {
+              orderIndex: 0,
+              startMs: 5_000,
+              endMs: 12_000,
+              speaker: 'Эксперт <АСПБ>',
+              text: 'Проверенный фрагмент <script>alert(1)</script>\nWEBVTT --> безопасно',
+            },
+            {
+              orderIndex: 1,
+              startMs: 12_000,
+              endMs: 24_000,
+              speaker: 'Эксперт',
+              text: 'Субсидиарная ответственность: основные признаки.',
+            },
+          ],
+        },
+      },
+    });
+    await prisma.webinarChapter.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        transcriptId: publishedTranscript.id,
+        startMs: 12_000,
+        title: 'Основные признаки',
+        description: 'Проверенная глава опубликованной версии',
+        orderIndex: 0,
+      },
+    });
+    await prisma.webinarSource.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        type: 'OFFICIAL_SOURCE',
+        title: 'Официальный источник',
+        url: 'https://example.test/legal-source',
+        accessedAt: new Date('2026-08-21T00:00:00.000Z'),
+        note: 'Проверено автором вебинара',
+        orderIndex: 0,
+      },
+    });
+
     const timeline = await request(app).get('/api/webinar/timeline/session/current').set('Cookie', viewerCookie);
     expect(timeline.status).toBe(200);
     expect(timeline.body.video).toMatchObject({
+      state: 'ready',
       src: null,
       hlsSrc: `/api/media/webinar/${playbackSession.id}/manifest`,
       poster: `/api/media/webinar/${playbackSession.id}/poster`,
       provider: 'versioned_private',
     });
+
+    const roomContent = await request(app).get('/api/webinar/content/session/current').set('Cookie', viewerCookie);
+    expect(roomContent.status).toBe(200);
+    expect(roomContent.headers['cache-control']).toContain('no-store');
+    expect(roomContent.body).toMatchObject({
+      mediaState: 'ready',
+      consistencyKey: `${publishedTranscript.id}:v2`,
+      transcript: {
+        id: publishedTranscript.id,
+        version: 2,
+        captionsUrl: `/api/media/webinar/${playbackSession.id}/captions/${publishedTranscript.id}`,
+      },
+      chapters: [{ startMs: 12_000, title: 'Основные признаки' }],
+      materials: [{ title: 'Официальный источник', type: 'OFFICIAL_SOURCE' }],
+    });
+    expect(JSON.stringify(roomContent.body)).toContain('Проверенный фрагмент');
+    expect(JSON.stringify(roomContent.body)).not.toContain('СЕКРЕТНЫЙ ЧЕРНОВИК');
+    expect(JSON.stringify(roomContent.body)).not.toContain('organizations/');
+
+    const captionsPath = `/api/media/webinar/${playbackSession.id}/captions/${publishedTranscript.id}`;
+    const anonymousCaptions = await request(app).get(captionsPath);
+    expect(anonymousCaptions.status).toBe(404);
+    expect(anonymousCaptions.body).toMatchObject({ code: 'media_not_found' });
+    const captions = await request(app).get(captionsPath).set('Cookie', viewerCookie);
+    expect(captions.status).toBe(200);
+    expect(captions.headers['cache-control']).toContain('no-store');
+    expect(captions.headers['content-type']).toContain('text/vtt');
+    expect(captions.headers['x-aspb-transcript-version']).toBe('2');
+    expect(captions.text).toContain('WEBVTT\n\n1\n00:00:05.000 --> 00:00:12.000');
+    expect(captions.text).toContain('&lt;script&gt;alert(1)&lt;/script&gt; WEBVTT --&gt; безопасно');
+    expect(captions.text).not.toContain('<script>');
+    expect(captions.text).not.toContain('СЕКРЕТНЫЙ ЧЕРНОВИК');
+    const draftCaptions = await request(app)
+      .get(`/api/media/webinar/${playbackSession.id}/captions/${draftTranscript.id}`)
+      .set('Cookie', viewerCookie);
+    expect(draftCaptions.status).toBe(404);
+    expect(draftCaptions.body).toMatchObject({ code: 'media_not_found' });
+
+    const transientCurrentAsset = await prisma.mediaAsset.create({
+      data: {
+        organizationId: tenantA.organization.id,
+        webinarId: webinar.id,
+        createdByUserId: tenantA.user.id,
+        version: 2,
+        status: 'READY',
+        originalFileName: 'new-current.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 1_024n,
+        storageKey: `test/${tenantA.organization.id}/new-current-source`,
+        manifestStorageKey: `test/${tenantA.organization.id}/new-current-manifest`,
+        posterStorageKey: `test/${tenantA.organization.id}/new-current-poster`,
+        checksumSha256: 'a'.repeat(64),
+        durationSeconds: 3_600,
+        readyAt: new Date(),
+      },
+    });
+    await prisma.webinar.update({
+      where: { id: webinar.id },
+      data: { currentMediaAssetId: transientCurrentAsset.id },
+    });
+    const staleTranscriptSnapshot = await request(app)
+      .get('/api/webinar/content/session/current')
+      .set('Cookie', viewerCookie);
+    expect(staleTranscriptSnapshot.status).toBe(200);
+    expect(staleTranscriptSnapshot.body).toMatchObject({
+      consistencyKey: null,
+      transcript: null,
+      chapters: [],
+    });
+    const stalePublishedCaptions = await request(app).get(captionsPath).set('Cookie', viewerCookie);
+    expect(stalePublishedCaptions.status).toBe(404);
+    expect(stalePublishedCaptions.body).toMatchObject({ code: 'media_not_found' });
+    await prisma.webinar.update({ where: { id: webinar.id }, data: { currentMediaAssetId: assetId } });
+    await prisma.mediaAsset.delete({ where: { id: transientCurrentAsset.id } });
 
     const anonymousManifest = await request(app).get(`/api/media/webinar/${playbackSession.id}/manifest`);
     expect(anonymousManifest.status).toBe(404);
@@ -6298,6 +10323,11 @@ describe('critical path integration scenarios', () => {
       .set('Cookie', viewerCookie);
     expect(sameTenantWrongSessionManifest.status).toBe(404);
     expect(sameTenantWrongSessionManifest.body).toMatchObject({ code: 'media_not_found' });
+    const sameTenantWrongSessionCaptions = await request(app)
+      .get(`/api/media/webinar/${unrelatedSameTenantSession.id}/captions/${publishedTranscript.id}`)
+      .set('Cookie', viewerCookie);
+    expect(sameTenantWrongSessionCaptions.status).toBe(404);
+    expect(sameTenantWrongSessionCaptions.body).toMatchObject({ code: 'media_not_found' });
 
     const foreignPlaybackSession = await prisma.webinarSession.create({
       data: {
@@ -6316,6 +10346,11 @@ describe('critical path integration scenarios', () => {
       .set('Cookie', viewerCookie);
     expect(crossTenantManifest.status).toBe(404);
     expect(crossTenantManifest.body).toMatchObject({ code: 'media_not_found' });
+    const crossTenantCaptions = await request(app)
+      .get(`/api/media/webinar/${foreignPlaybackSession.id}/captions/${publishedTranscript.id}`)
+      .set('Cookie', viewerCookie);
+    expect(crossTenantCaptions.status).toBe(404);
+    expect(crossTenantCaptions.body).toMatchObject({ code: 'media_not_found' });
 
     await prisma.webinarSession.update({
       where: { id: playbackSession.id },
@@ -6326,6 +10361,13 @@ describe('critical path integration scenarios', () => {
       .set('Cookie', viewerCookie);
     expect(expiredManifest.status).toBe(404);
     expect(expiredManifest.body).toMatchObject({ code: 'media_not_found' });
+    const expiredCaptions = await request(app).get(captionsPath).set('Cookie', viewerCookie);
+    expect(expiredCaptions.status).toBe(404);
+    expect(expiredCaptions.body).toMatchObject({ code: 'media_not_found' });
+    const expiredRoomContent = await request(app)
+      .get('/api/webinar/content/session/current')
+      .set('Cookie', viewerCookie);
+    expect(expiredRoomContent.status).toBe(404);
     await prisma.webinarSession.update({
       where: { id: playbackSession.id },
       data: { scheduledAt: new Date(Date.now() - 2 * 60_000), durationMinutes: 60, replayAvailableHours: 168 },
@@ -6351,6 +10393,13 @@ describe('critical path integration scenarios', () => {
       .set('Cookie', viewerCookie);
     expect(revokedManifest.status).toBe(404);
     expect(revokedManifest.body).toMatchObject({ code: 'media_not_found' });
+    const revokedCaptions = await request(app).get(captionsPath).set('Cookie', viewerCookie);
+    expect(revokedCaptions.status).toBe(404);
+    expect(revokedCaptions.body).toMatchObject({ code: 'media_not_found' });
+    const revokedRoomContent = await request(app)
+      .get('/api/webinar/content/session/current')
+      .set('Cookie', viewerCookie);
+    expect(revokedRoomContent.status).toBe(404);
     await prisma.webinar.update({ where: { id: webinar.id }, data: { visibility: 'UNLISTED' } });
 
     const replacement = await sessionA.agent
@@ -6528,6 +10577,23 @@ describe('critical path integration scenarios', () => {
       status: 'CANCELLED',
       abortAttemptedAt: expect.any(Date),
     });
+
+    const maximumAllowed = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({ fileName: 'maximum.mp4', mimeType: 'video/mp4', sizeBytes: String(env.MEDIA_MAX_UPLOAD_BYTES) });
+    expect(maximumAllowed.status).toBe(201);
+    expect(maximumAllowed.body.parts).toHaveLength(Math.ceil(env.MEDIA_MAX_UPLOAD_BYTES / env.MEDIA_PART_SIZE_BYTES));
+    const overMaximum = await sessionA.agent
+      .post(`/api/v1/creator/webinars/${webinar.id}/uploads`)
+      .set('x-csrf-token', sessionA.csrfToken)
+      .send({
+        fileName: 'too-large.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: String(BigInt(env.MEDIA_MAX_UPLOAD_BYTES) + 1n),
+      });
+    expect(overMaximum.status).toBe(400);
+    expect(overMaximum.body).toMatchObject({ code: 'media_size_limit_exceeded' });
   });
 
   it('recovers an S3 completion committed before the application transaction', async () => {
@@ -6872,7 +10938,7 @@ describe('critical path integration scenarios', () => {
       }),
     ).resolves.toMatchObject({
       kind: 'PREPARED_QUESTION',
-      authorLabel: 'Подготовленный AI-вопрос',
+      authorLabel: 'Подготовленный вопрос',
       isSynthetic: true,
     });
     await expect(

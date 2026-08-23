@@ -25,7 +25,11 @@ import {
   submitWebinarCorrection,
   transitionModerationReport,
 } from '../src/lib/moderationCases.js';
-import { updatePlatformFeatureFlag, updatePlatformOrganization } from '../src/lib/platformGovernance.js';
+import {
+  rollbackPlatformChange,
+  updatePlatformFeatureFlag,
+  updatePlatformOrganization,
+} from '../src/lib/platformGovernance.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import { encryptMfaSecret, generateTotp } from '../src/lib/mfa.js';
 import { createAccessToken, hashToken } from '../src/lib/tokens.js';
@@ -590,19 +594,30 @@ describe('MOD-001..MOD-005 moderation and governance', () => {
       moderationRevision: 1,
     });
     expect(await prisma.registration.count()).toBe(0);
-    await applyModerationAction(
-      prisma,
-      report.id,
-      {
-        action: 'RESTORE_WEBINAR',
-        expectedRevision: 0,
-        expectedTargetRevision: 1,
-        reason: 'Основание устранено и проверено',
-        confirmation: 'APPLY_MODERATION_ACTION',
-      },
-      admin.id,
-      'action_correlation_3',
+    const concurrentRestores = await Promise.allSettled(
+      ['action_correlation_3', 'action_correlation_4'].map(correlationId =>
+        applyModerationAction(
+          prisma,
+          report.id,
+          {
+            action: 'RESTORE_WEBINAR',
+            expectedRevision: 0,
+            expectedTargetRevision: 1,
+            reason: 'Основание устранено и проверено',
+            confirmation: 'APPLY_MODERATION_ACTION',
+          },
+          admin.id,
+          correlationId,
+        ),
+      ),
     );
+    expect(concurrentRestores.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(concurrentRestores.filter(result => result.status === 'rejected')).toHaveLength(1);
+    expect(
+      (concurrentRestores.find(result => result.status === 'rejected') as PromiseRejectedResult).reason,
+    ).toMatchObject({
+      statusCode: 409,
+    });
     expect(await prisma.webinar.findUnique({ where: { id: scope.webinar.id } })).toMatchObject({
       contentStatus: 'PUBLISHED',
       visibility: 'PUBLIC',
@@ -672,18 +687,30 @@ describe('MOD-001..MOD-005 moderation and governance', () => {
         content: { title: 'Параллельная версия', description: 'Параллельное изменение должно быть отклонено.' },
       }),
     ).rejects.toMatchObject({ statusCode: 409, code: 'moderation_correction_conflict' });
-    await reviewWebinarCorrection(
-      prisma,
-      correction.id,
-      {
-        decision: 'APPROVE',
-        expectedRevision: 1,
-        reason: 'Исправление проверено человеком',
-        confirmation: 'REVIEW_CORRECTION',
-      },
-      admin.id,
-      'correction_correlation_3',
+    const concurrentReviews = await Promise.allSettled(
+      ['correction_correlation_3', 'correction_correlation_4'].map(correlationId =>
+        reviewWebinarCorrection(
+          prisma,
+          correction.id,
+          {
+            decision: 'APPROVE',
+            expectedRevision: 1,
+            reason: 'Исправление проверено человеком',
+            confirmation: 'REVIEW_CORRECTION',
+          },
+          admin.id,
+          correlationId,
+        ),
+      ),
     );
+    expect(concurrentReviews.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(concurrentReviews.filter(result => result.status === 'rejected')).toHaveLength(1);
+    expect(
+      (concurrentReviews.find(result => result.status === 'rejected') as PromiseRejectedResult).reason,
+    ).toMatchObject({
+      statusCode: 409,
+      code: 'moderation_correction_conflict',
+    });
     expect(await prisma.webinar.findUnique({ where: { id: scope.webinar.id } })).toMatchObject({
       title: 'Исправленный заголовок',
       contentVersion: 2,
@@ -759,8 +786,37 @@ describe('MOD-001..MOD-005 moderation and governance', () => {
       'governance_correlation_4',
     );
     expect(organization).toMatchObject({ status: 'SUSPENDED', platformRevision: 2 });
-    expect(await prisma.platformConfigChange.count()).toBe(2);
-    expect(await prisma.auditLog.count()).toBe(2);
+    const organizationChange = await prisma.platformConfigChange.findFirstOrThrow({
+      where: { targetType: 'organization', targetId: scope.organization.id },
+    });
+    const concurrentRollbacks = await Promise.allSettled(
+      ['governance_correlation_5', 'governance_correlation_6'].map(correlationId =>
+        rollbackPlatformChange(
+          prisma,
+          organizationChange.id,
+          {
+            expectedRevision: 2,
+            reason: 'Параллельная проверка безопасного отката',
+            confirmation: 'CONFIRM_PLATFORM_ROLLBACK',
+          },
+          admin.id,
+          correlationId,
+        ),
+      ),
+    );
+    expect(concurrentRollbacks.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(concurrentRollbacks.filter(result => result.status === 'rejected')).toHaveLength(1);
+    expect(
+      (concurrentRollbacks.find(result => result.status === 'rejected') as PromiseRejectedResult).reason,
+    ).toMatchObject({
+      statusCode: 409,
+    });
+    expect(await prisma.organization.findUniqueOrThrow({ where: { id: scope.organization.id } })).toMatchObject({
+      status: 'ACTIVE',
+      platformRevision: 3,
+    });
+    expect(await prisma.platformConfigChange.count()).toBe(3);
+    expect(await prisma.auditLog.count()).toBe(3);
   });
 
   it('keeps tenant and unauthenticated callers out of platform-admin aggregates', async () => {

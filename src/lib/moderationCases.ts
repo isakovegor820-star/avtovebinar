@@ -102,7 +102,11 @@ function conflict(code = 'moderation_revision_conflict'): never {
 }
 
 function reporterHash(value: string) {
-  return crypto.createHmac('sha256', env.ADMIN_COOKIE_SECRET).update(value.trim().toLowerCase()).digest('hex');
+  return crypto
+    .createHmac('sha256', env.ADMIN_COOKIE_SECRET)
+    .update('aspb:public-report:contact:v1\0')
+    .update(value.trim().toLowerCase())
+    .digest('hex');
 }
 
 export async function createPublicContentReport(
@@ -406,8 +410,12 @@ export async function applyModerationAction(
         const webinar = await tx.webinar.findFirst({ where: { id: targetId, organizationId: report.organizationId } });
         if (!webinar || webinar.moderationRevision !== data.expectedTargetRevision)
           conflict('moderation_target_revision_conflict');
-        await tx.webinar.update({
-          where: { id: webinar.id },
+        const restored = await tx.webinar.updateMany({
+          where: {
+            id: webinar.id,
+            organizationId: report.organizationId,
+            moderationRevision: data.expectedTargetRevision,
+          },
           data: {
             contentStatus: beforeState.contentStatus as never,
             visibility: beforeState.visibility as never,
@@ -415,6 +423,7 @@ export async function applyModerationAction(
             moderationRevision: { increment: 1 },
           },
         });
+        if (restored.count !== 1) conflict('moderation_target_revision_conflict');
         await tx.moderationPlatformAction.create({
           data: {
             organizationId: report.organizationId,
@@ -435,10 +444,15 @@ export async function applyModerationAction(
         });
         if (!author || author.moderationRevision !== data.expectedTargetRevision)
           conflict('moderation_target_revision_conflict');
-        await tx.authorProfile.update({
-          where: { id: author.id },
+        const restored = await tx.authorProfile.updateMany({
+          where: {
+            id: author.id,
+            organizationId: report.organizationId,
+            moderationRevision: data.expectedTargetRevision,
+          },
           data: { verificationStatus: beforeState.verificationStatus as never, moderationRevision: { increment: 1 } },
         });
+        if (restored.count !== 1) conflict('moderation_target_revision_conflict');
         await tx.moderationPlatformAction.create({
           data: {
             organizationId: report.organizationId,
@@ -620,6 +634,17 @@ export async function reviewWebinarCorrection(
     if (!webinar || webinar.contentVersion !== revision.baseContentVersion) conflict('moderation_correction_conflict');
     const approved = data.decision === 'APPROVE';
     const reason = cleanNarrative(data.reason);
+    const claimed = await tx.moderationCorrectionRequest.updateMany({
+      where: { id: request.id, status: 'SUBMITTED', revision: data.expectedRevision },
+      data: {
+        status: approved ? 'APPROVED' : 'REJECTED',
+        reviewedByAdminUserId: adminUserId,
+        reviewReason: reason,
+        reviewedAt: new Date(),
+        revision: { increment: 1 },
+      },
+    });
+    if (claimed.count !== 1) conflict('moderation_correction_conflict');
     await tx.webinarContentRevision.update({
       where: { id: revision.id },
       data: {
@@ -627,16 +652,6 @@ export async function reviewWebinarCorrection(
         reviewedByAdminUserId: adminUserId,
         reviewReason: reason,
         reviewedAt: new Date(),
-      },
-    });
-    await tx.moderationCorrectionRequest.update({
-      where: { id: request.id },
-      data: {
-        status: approved ? 'APPROVED' : 'REJECTED',
-        reviewedByAdminUserId: adminUserId,
-        reviewReason: reason,
-        reviewedAt: new Date(),
-        revision: { increment: 1 },
       },
     });
     if (approved) {

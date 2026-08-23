@@ -1,8 +1,8 @@
 # Consolidated interface review — analytics and moderation
 
-Date: 2026-08-23  
+Date: 2026-08-23
 Scope: tenant analytics, author corrections, platform moderation, public report,
-and CAT-006 catalog sorting.  
+and CAT-006 catalog sorting.
 Mode: full manual review. The standalone `better-interface` workflow was not
 available in this environment, so all six installed interface disciplines were
 applied directly: accessibility, layout, writing, typography, colors and UI.

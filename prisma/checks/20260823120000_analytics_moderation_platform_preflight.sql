@@ -13,4 +13,3 @@ SELECT COUNT(*) AS existing_case_table
 FROM information_schema.tables
 WHERE table_schema = current_schema()
   AND table_name IN ('content_reports', 'moderation_correction_requests', 'platform_feature_flags');
-

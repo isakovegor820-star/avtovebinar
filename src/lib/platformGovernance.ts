@@ -266,20 +266,22 @@ export async function rollbackPlatformChange(
       if (current.revision !== data.expectedRevision) conflict();
       before = { enabled: current.enabled, revision: current.revision };
       after = { enabled: Boolean(previous.enabled), revision: current.revision + 1 };
-      await tx.platformFeatureFlag.update({
-        where: { key: current.key },
+      const changed = await tx.platformFeatureFlag.updateMany({
+        where: { key: current.key, revision: data.expectedRevision },
         data: { enabled: Boolean(previous.enabled), revision: { increment: 1 }, updatedByAdminUserId: adminUserId },
       });
+      if (changed.count !== 1) conflict();
     } else if (change.targetType === 'organization') {
       const current = await tx.organization.findUnique({ where: { id: change.targetId } });
       if (!current) unavailable();
       if (current.platformRevision !== data.expectedRevision) conflict();
       before = { name: current.name, status: current.status, platformRevision: current.platformRevision };
       after = { name: String(previous.name), status: previous.status, platformRevision: current.platformRevision + 1 };
-      await tx.organization.update({
-        where: { id: current.id },
+      const changed = await tx.organization.updateMany({
+        where: { id: current.id, platformRevision: data.expectedRevision },
         data: { name: String(previous.name), status: previous.status as never, platformRevision: { increment: 1 } },
       });
+      if (changed.count !== 1) conflict();
     } else if (change.targetType === 'practice_area') {
       const current = await tx.legalPracticeArea.findUnique({ where: { id: change.targetId } });
       if (!current) unavailable();
@@ -296,8 +298,8 @@ export async function rollbackPlatformChange(
         orderIndex: Number(previous.orderIndex),
         platformRevision: current.platformRevision + 1,
       };
-      await tx.legalPracticeArea.update({
-        where: { id: current.id },
+      const changed = await tx.legalPracticeArea.updateMany({
+        where: { id: current.id, platformRevision: data.expectedRevision },
         data: {
           name: String(previous.name),
           status: previous.status as never,
@@ -305,16 +307,18 @@ export async function rollbackPlatformChange(
           platformRevision: { increment: 1 },
         },
       });
+      if (changed.count !== 1) conflict();
     } else if (change.targetType === 'jurisdiction') {
       const current = await tx.jurisdiction.findUnique({ where: { id: change.targetId } });
       if (!current) unavailable();
       if (current.platformRevision !== data.expectedRevision) conflict();
       before = { name: current.name, status: current.status, platformRevision: current.platformRevision };
       after = { name: String(previous.name), status: previous.status, platformRevision: current.platformRevision + 1 };
-      await tx.jurisdiction.update({
-        where: { id: current.id },
+      const changed = await tx.jurisdiction.updateMany({
+        where: { id: current.id, platformRevision: data.expectedRevision },
         data: { name: String(previous.name), status: previous.status as never, platformRevision: { increment: 1 } },
       });
+      if (changed.count !== 1) conflict();
     } else {
       unavailable();
     }

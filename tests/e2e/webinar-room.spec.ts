@@ -1391,6 +1391,44 @@ test('platform moderation is keyboard-usable, revisioned and confirmed at 320px'
   expect(overflow).toBeLessThanOrEqual(1);
 });
 
+test('public report is keyboard-usable, privacy-labeled and safe at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  let submitted: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/reports', async route => {
+    submitted = route.request().postDataJSON();
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        report: { id: 'report-public-1', category: 'RIGHTS', status: 'NEW', createdAt: '2026-08-23T10:00:00.000Z' },
+        correlationId: 'public_report_e2e',
+      }),
+    });
+  });
+
+  await page.goto('/crisis_premium/report.html?targetType=WEBINAR&targetId=webinar-public-1', {
+    waitUntil: 'domcontentloaded',
+  });
+  await expect(page.getByRole('heading', { level: 1, name: 'Сообщить о нарушении' })).toBeVisible();
+  await expect(page.getByLabel(/Email для уточнений/)).toHaveAccessibleName(/необязательно/);
+  await page.getByLabel('Категория').selectOption('RIGHTS');
+  await page.getByLabel('Описание').fill('Материал нарушает исключительные права правообладателя.');
+  await page.getByLabel(/Email для уточнений/).fill('reporter@example.test');
+  await page.getByRole('button', { name: 'Отправить обращение' }).click();
+  await expect(page.getByRole('status')).toContainText('report-public-1');
+  await expect(page.getByRole('heading', { level: 1, name: 'Сообщить о нарушении' })).toBeFocused();
+  expect(submitted).toEqual({
+    targetType: 'WEBINAR',
+    targetId: 'webinar-public-1',
+    category: 'RIGHTS',
+    description: 'Материал нарушает исключительные права правообладателя.',
+    reporterContact: 'reporter@example.test',
+  });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
 test('catalog registration opens a private viewer account with progress, notes and separate consent settings', async ({
   page,
 }) => {

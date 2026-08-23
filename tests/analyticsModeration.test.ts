@@ -463,16 +463,13 @@ describe('MOD-001..MOD-005 moderation and governance', () => {
     const agent = request.agent(app);
     const csrfToken = await csrf(agent);
     const contact = `reporter-${crypto.randomUUID()}@example.test`;
-    const created = await agent
-      .post('/api/v1/reports')
-      .set('x-csrf-token', csrfToken)
-      .send({
-        targetType: 'WEBINAR',
-        targetId: scope.webinar.id,
-        category: 'RIGHTS',
-        description: '  Проверяемое\u0000 описание нарушения исключительных прав.  ',
-        reporterContact: contact,
-      });
+    const created = await agent.post('/api/v1/reports').set('x-csrf-token', csrfToken).send({
+      targetType: 'WEBINAR',
+      targetId: scope.webinar.id,
+      category: 'RIGHTS',
+      description: '  Проверяемое\u0000 описание нарушения исключительных прав.  ',
+      reporterContact: contact,
+    });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({
       ok: true,
@@ -486,15 +483,12 @@ describe('MOD-001..MOD-005 moderation and governance', () => {
     expect(stored.reporterContactHash).not.toContain(contact);
     expect(stored.createdAt.getTime()).toBeGreaterThan(0);
     for (const targetId of ['unknown-target', privateWebinar.id]) {
-      const rejected = await agent
-        .post('/api/v1/reports')
-        .set('x-csrf-token', csrfToken)
-        .send({
-          targetType: 'WEBINAR',
-          targetId,
-          category: 'CONTENT',
-          description: 'Описание жалобы с достаточной проверяемой длиной.',
-        });
+      const rejected = await agent.post('/api/v1/reports').set('x-csrf-token', csrfToken).send({
+        targetType: 'WEBINAR',
+        targetId,
+        category: 'CONTENT',
+        description: 'Описание жалобы с достаточной проверяемой длиной.',
+      });
       expect(rejected.status).toBe(404);
       expect(rejected.body.code).toBe('moderation_item_not_found');
       expect(rejected.body.correlationId).toEqual(expect.any(String));
@@ -716,6 +710,12 @@ describe('MOD-001..MOD-005 moderation and governance', () => {
         'governance_correlation_1',
       ),
     ).rejects.toMatchObject({ name: 'ZodError' });
+    const providerSideEffectsBefore = await Promise.all([
+      prisma.emailOutboxJob.count(),
+      prisma.telegramBroadcastJob.count(),
+      prisma.mediaJob.count(),
+      prisma.contentJob.count(),
+    ]);
     const flag = await updatePlatformFeatureFlag(
       prisma,
       'provider_jobs',
@@ -729,6 +729,14 @@ describe('MOD-001..MOD-005 moderation and governance', () => {
       'governance_correlation_2',
     );
     expect(flag).toMatchObject({ enabled: true, revision: 2 });
+    expect(
+      await Promise.all([
+        prisma.emailOutboxJob.count(),
+        prisma.telegramBroadcastJob.count(),
+        prisma.mediaJob.count(),
+        prisma.contentJob.count(),
+      ]),
+    ).toEqual(providerSideEffectsBefore);
     await expect(
       updatePlatformFeatureFlag(
         prisma,

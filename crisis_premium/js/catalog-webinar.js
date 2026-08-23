@@ -282,6 +282,9 @@ function render(webinar) {
   renderSessions(webinar.sessions);
   renderSources(webinar.sources);
   configureRegistration(webinar);
+  const reportLink = node('detailReportLink');
+  reportLink.href = `report.html?${new URLSearchParams({ targetType: 'WEBINAR', targetId: webinar.id }).toString()}`;
+  reportLink.hidden = false;
   void hydrateFavoriteState(webinar.id);
 }
 

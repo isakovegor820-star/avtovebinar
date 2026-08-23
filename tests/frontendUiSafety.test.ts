@@ -41,6 +41,8 @@ describe('frontend player safety regressions', () => {
   const platformModerationCss = readProjectFile('crisis_premium/platform-moderation.css');
   const correctionsHtml = readProjectFile('crisis_premium/creator-corrections.html');
   const correctionsJs = readProjectFile('crisis_premium/js/creator-corrections.js');
+  const publicReportHtml = readProjectFile('crisis_premium/report.html');
+  const publicReportJs = readProjectFile('crisis_premium/js/public-report.js');
 
   it('stops media before rendering an ended webinar and never initializes an ended source', () => {
     const endedBranch = videoJs.indexOf('if (isPreLive || isEnded)');
@@ -267,5 +269,12 @@ describe('frontend player safety regressions', () => {
     expect(correctionsJs).not.toContain('innerHTML');
     expect(correctionsJs).toContain('baseContentVersion: request.baselineContentVersion');
     expect(correctionsHtml).toContain('не попадёт зрителям, пока её не одобрит platform admin');
+    expect(publicReportJs).not.toContain('innerHTML');
+    expect(publicReportJs).not.toContain('localStorage');
+    expect(publicReportJs).toContain("post('/v1/reports'");
+    expect(publicReportHtml).toContain('role="status" aria-live="polite"');
+    expect(publicReportHtml).toContain('maxlength="2000"');
+    expect(publicReportHtml).toContain('Email для уточнений');
+    expect(catalogDetailHtml).toContain('id="detailReportLink"');
   });
 });

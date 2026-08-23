@@ -112,6 +112,16 @@
   font-weight: 700;
 }
 
+.analytics-wide-field {
+  grid-column: 1 / -1;
+}
+
+.analytics-filter-grid p {
+  margin-block: -.35rem 0;
+  color: #4a5560;
+  line-height: 1.5;
+}
+
 .analytics-filter-grid input,
 .analytics-filter-grid select,
 .analytics-filter-grid textarea {

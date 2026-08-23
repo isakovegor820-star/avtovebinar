@@ -323,21 +323,26 @@ const eventLimiter = rateLimit({
   },
 });
 
-const publicReportLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 5,
-  skip: () => env.NODE_ENV === 'test',
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (_req, res) => {
-    res.status(429).json({
-      ok: false,
-      error: 'Слишком много жалоб. Попробуйте позже.',
-      code: 'public_report_rate_limited',
-      correlationId: getRequestContext()?.correlationId,
-    });
-  },
-});
+export function createPublicReportLimiter(options: { skipInTest?: boolean } = {}) {
+  const skipInTest = options.skipInTest ?? true;
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    skip: () => skipInTest && env.NODE_ENV === 'test',
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => {
+      res.status(429).json({
+        ok: false,
+        error: 'Слишком много жалоб. Попробуйте позже.',
+        code: 'public_report_rate_limited',
+        correlationId: getRequestContext()?.correlationId,
+      });
+    },
+  });
+}
+
+const publicReportLimiter = createPublicReportLimiter();
 
 const adminLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

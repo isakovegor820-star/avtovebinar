@@ -219,8 +219,19 @@ function setRoomInteractionLocked(locked) {
   if (submit) submit.disabled = locked;
 }
 
+function setChatUnavailable(message) {
+  if (typeof window.__liveChatSetState === 'function') {
+    window.__liveChatSetState('unavailable', message);
+  }
+}
+
+function setProtectedRoomContentHidden(hidden) {
+  document.getElementById('roomLearningContent')?.classList.toggle('hidden', hidden);
+  document.getElementById('roomMaterialsPanel')?.classList.toggle('hidden', hidden);
+}
+
 function ensureRoomAccessStyles() {
-  const href = 'webinar.css?v=player-gate-2';
+  const href = 'webinar.css?v=room-content-20260821-1';
   if (document.querySelector(`link[href="${href}"]`)) {
     return;
   }
@@ -240,7 +251,7 @@ export function renderLockedRoom(message) {
       <div class="room-access-entry">
         <span class="room-access-icon material-symbols-outlined" aria-hidden="true">lock</span>
         <p class="room-access-eyebrow">Видео доступно участникам</p>
-        <h1 id="roomAccessTitle" class="room-access-title">Войдите по email, чтобы открыть премьеру записи</h1>
+        <h2 id="roomAccessTitle" class="room-access-title">Войдите по email, чтобы открыть премьеру записи</h2>
         <p class="room-access-text">${safeMessage} Если вы уже регистрировались, не заполняйте форму повторно: восстановите доступ по email без пароля.</p>
 
         <div class="room-access-recovery room-access-recovery--open">
@@ -267,6 +278,8 @@ export function renderLockedRoom(message) {
   if (!overlay) return;
 
   setRoomInteractionLocked(true);
+  setProtectedRoomContentHidden(true);
+  setChatUnavailable('Войдите по email, чтобы открыть сообщения и форму вопросов.');
   document.getElementById('timelineActive')?.classList.add('hidden');
   document.getElementById('countdownContainer')?.classList.add('hidden');
   const statusText = document.getElementById('webinarStatusText');
@@ -316,7 +329,7 @@ function renderRoomUnavailable(message) {
     <section class="room-access-panel room-access-panel--status" aria-labelledby="roomUnavailableTitle" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">
       <span class="room-access-icon material-symbols-outlined" aria-hidden="true">wifi_off</span>
       <p class="room-access-eyebrow">Техническая ошибка</p>
-      <h1 id="roomUnavailableTitle" class="room-access-title">Не удалось подключиться к комнате</h1>
+      <h2 id="roomUnavailableTitle" class="room-access-title">Не удалось подключиться к комнате</h2>
       <p class="room-access-text">${safeMessage}</p>
       <div class="room-access-actions room-access-actions--centered">
         <button class="room-access-submit" type="button" data-room-retry>Повторить попытку</button>
@@ -325,6 +338,8 @@ function renderRoomUnavailable(message) {
     </section>`,
   );
   setRoomInteractionLocked(true);
+  setProtectedRoomContentHidden(true);
+  setChatUnavailable('Комната временно недоступна. Повторите попытку после восстановления соединения.');
   document.getElementById('timelineActive')?.classList.add('hidden');
   const retry = overlay?.querySelector('[data-room-retry]');
   retry?.addEventListener('click', () => window.location.reload());
@@ -341,13 +356,13 @@ export function renderWaitingRoom(data) {
     : '19:30 МСК';
   const title =
     data.accessStatus === 'closed'
-      ? 'Премьера на сегодня завершена'
+      ? 'Доступ к этой сессии завершён'
       : data.accessStatus === 'pre_live'
         ? 'Трансляция скоро начнется'
         : `Трансляция начнется ${scheduledAtLabel}`;
   const text =
     data.accessStatus === 'closed'
-      ? `Следующая премьера этой записи пройдет ${scheduledAtLabel}. Постоянная запись доступна зарегистрированным участникам в разделе “Записи”.`
+      ? 'Срок просмотра этой сессии истёк. Если вам доступна другая запись или новая сессия, она появится в разделе «Мой доступ».'
       : data.accessStatus === 'pre_live'
         ? `Премьера записи стартует ${scheduledAtLabel}. До старта видео и вопросы закрыты, окно ожидания обновится автоматически.`
         : `До премьеры доступ к записи закрыт. Оставайтесь в этом окне: счетчик идет до ${scheduledAtLabel}, затем комната откроется автоматически.`;
@@ -366,7 +381,7 @@ export function renderWaitingRoom(data) {
 
   const action =
     data.accessStatus === 'closed'
-      ? '<a class="room-schedule-action" href="recordings.html">Смотреть записи</a>'
+      ? '<a class="room-schedule-action" href="access.html">Проверить мой доступ</a>'
       : '<a class="room-schedule-action" href="access.html">Открыть “Мой доступ”</a>';
 
   ensureRoomAccessStyles();
@@ -376,13 +391,19 @@ export function renderWaitingRoom(data) {
     <section class="room-schedule-panel" aria-labelledby="roomScheduleTitle">
       <span class="room-access-icon material-symbols-outlined" aria-hidden="true">schedule</span>
       <p class="room-access-eyebrow">АСПБ автовебинар</p>
-      <h1 id="roomScheduleTitle" class="room-access-title">${escapeHtml(title)}</h1>
+      <h2 id="roomScheduleTitle" class="room-access-title">${escapeHtml(title)}</h2>
       <p class="room-access-text">${escapeHtml(text)}</p>
       ${countdownHtml}
       ${action}
     </section>`,
   );
   setRoomInteractionLocked(true);
+  setProtectedRoomContentHidden(true);
+  setChatUnavailable(
+    data.accessStatus === 'closed'
+      ? 'Срок доступа к сообщениям этой сессии завершён.'
+      : 'Сообщения и форма вопросов откроются вместе с премьерой записи.',
+  );
   document.getElementById('timelineActive')?.classList.add('hidden');
 
   const scheduledAtMs = new Date(data.webinar.scheduledAt).getTime();
@@ -401,7 +422,7 @@ export function renderWaitingRoom(data) {
 export function updateRoomStatus(webinar) {
   const node = document.getElementById('webinarStatusText');
   const countdownContainer = document.getElementById('countdownContainer');
-  const chatTitle = document.querySelector('#webinarChatPanel h3');
+  const chatTitle = document.querySelector('[data-chat-heading]');
   const chatActivity = document.getElementById('chatActivity');
   const onlineLabel = document.getElementById('chatOnlineLabel');
   if (!node || !webinar) return;
@@ -456,6 +477,8 @@ function applyRoomAccessChrome(data) {
   if (partnerPath) {
     partnerPath.classList.toggle('hidden', beforeLive);
   }
+
+  setProtectedRoomContentHidden(beforeLive);
 
   if (timelinePanel) {
     timelinePanel.classList.toggle('hidden', beforeLive);
@@ -549,7 +572,7 @@ export async function hydrateWebinarRoom(onSuccess) {
       );
       document.body.classList.remove('room-hydrating');
       document.body.removeAttribute('aria-busy');
-      await onSuccess();
+      await onSuccess(data);
       return;
     } catch (err) {
       if (isAccessError(err)) {

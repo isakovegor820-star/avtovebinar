@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { Router, type Request, type Response } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
@@ -9,14 +10,77 @@ import { getScriptedChatMessagesUntil } from '../../lib/scriptedChat.js';
 import { buildModeratorIntroMessage } from '../../lib/moderator.js';
 import { buildTelegramStartUrl } from '../../lib/telegram.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
-import { buildDailyRoomAccessPayload, findRegistrationForRequest, getFirstSeen, roomAccessError } from './helpers.js';
+import {
+  buildAccessPayload,
+  buildDailyRoomAccessPayload,
+  findRegistrationForRequest,
+  getFirstSeen,
+  roomAccessError,
+} from './helpers.js';
 import { getCache, setCache } from '../../lib/responseCache.js';
 import { getWebinarVideoConfig } from '../../lib/webinarVideo.js';
+import { publicScenarioMessageType, scenarioAuthorLabel } from '../../lib/chatPolicy.js';
 
 export const webinarRouter = Router();
 
+const MEDIA_PROCESSING_STATUSES = new Set([
+  'CREATED',
+  'UPLOADING',
+  'VALIDATING',
+  'TRANSCODING',
+  'TRANSCRIBING',
+  'ENRICHING',
+]);
+
 function publicTelegramUrl() {
   return buildTelegramStartUrl() ?? env.TELEGRAM_GROUP_URL;
+}
+
+function persistedMessageType(message: { messageType?: string | null; kind: string }) {
+  if (message.messageType) return message.messageType.toLowerCase();
+  if (message.kind === 'user' || message.kind === 'participant') return 'participant';
+  if (message.kind === 'moderator') return 'moderator';
+  if (message.kind === 'prepared_question' || message.kind === 'agent_question' || message.kind === 'scripted_user') {
+    return 'prepared_question';
+  }
+  if (message.kind === 'ai_manager' || message.kind === 'ai_moderator') return 'ai_moderator';
+  // Unknown legacy values are deliberately not presented as participants.
+  return 'system';
+}
+
+function publicMessageGrounding(metadata: unknown) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const grounding = (metadata as Record<string, unknown>).grounding;
+  if (!grounding || typeof grounding !== 'object' || Array.isArray(grounding)) return null;
+  const value = grounding as Record<string, unknown>;
+  if (
+    value.type === 'transcript' &&
+    typeof value.timestampSeconds === 'number' &&
+    Number.isInteger(value.timestampSeconds) &&
+    value.timestampSeconds >= 0 &&
+    typeof value.label === 'string'
+  ) {
+    return { type: 'transcript' as const, timestampSeconds: value.timestampSeconds, label: value.label.slice(0, 16) };
+  }
+  if (value.type === 'source' && typeof value.title === 'string' && typeof value.url === 'string') {
+    try {
+      const url = new URL(value.url);
+      const hostname = url.hostname.toLocaleLowerCase('en-US');
+      if (
+        url.protocol === 'https:' &&
+        !url.username &&
+        !url.password &&
+        hostname !== 'localhost' &&
+        !hostname.endsWith('.local') &&
+        isIP(hostname) === 0
+      ) {
+        return { type: 'source' as const, title: value.title.slice(0, 240), url: url.toString() };
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 webinarRouter.get(
@@ -120,31 +184,45 @@ async function sendTimeline(req: Request, res: Response) {
 
   const videoConfig = getWebinarVideoConfig(access.webinarSession);
   const mediaBase = `/api/media/webinar/${encodeURIComponent(access.webinarSession.id)}`;
-  const currentMediaAsset =
+  const webinarMedia =
     registration.webinarSessionId === access.webinarSession.id
-      ? (
-          await prisma.webinar.findFirst({
-            where: {
-              id: access.webinarSession.webinarId,
-              organizationId: access.webinarSession.organizationId,
-            },
-            select: {
-              currentMediaAsset: {
-                select: {
-                  id: true,
-                  status: true,
-                  manifestStorageKey: true,
-                  posterStorageKey: true,
-                  durationSeconds: true,
-                },
+      ? await prisma.webinar.findFirst({
+          where: {
+            id: access.webinarSession.webinarId,
+            organizationId: access.webinarSession.organizationId,
+          },
+          select: {
+            currentMediaAsset: {
+              select: {
+                id: true,
+                status: true,
+                manifestStorageKey: true,
+                posterStorageKey: true,
+                durationSeconds: true,
               },
             },
-          })
-        )?.currentMediaAsset
+            mediaAssets: {
+              orderBy: { version: 'desc' },
+              take: 1,
+              select: { status: true },
+            },
+          },
+        })
       : null;
+  const currentMediaAsset = webinarMedia?.currentMediaAsset ?? null;
+  const latestMediaStatus = webinarMedia?.mediaAssets[0]?.status ?? null;
   const versionedMediaReady = Boolean(
     currentMediaAsset?.status === 'READY' && currentMediaAsset.manifestStorageKey && currentMediaAsset.posterStorageKey,
   );
+  const configuredMediaReady = Boolean(videoConfig.hlsSrc || videoConfig.src);
+  const mediaState =
+    versionedMediaReady || configuredMediaReady
+      ? 'ready'
+      : latestMediaStatus && MEDIA_PROCESSING_STATUSES.has(latestMediaStatus)
+        ? 'processing'
+        : latestMediaStatus === 'FAILED'
+          ? 'error'
+          : 'unavailable';
 
   const dbEvents = await getTimelineEvents(access.webinarSession.id, access.webinarSession.videoDurationSeconds);
 
@@ -165,6 +243,7 @@ async function sendTimeline(req: Request, res: Response) {
   res.json({
     ...basePayload,
     video: {
+      state: mediaState,
       src: versionedMediaReady ? null : videoConfig.src ? `${mediaBase}/video` : null,
       hlsSrc: versionedMediaReady ? `${mediaBase}/manifest` : videoConfig.hlsSrc ? `${mediaBase}/hls` : null,
       provider: versionedMediaReady ? 'versioned_private' : videoConfig.provider,
@@ -173,9 +252,123 @@ async function sendTimeline(req: Request, res: Response) {
       fallbackAllowed: videoConfig.fallbackAllowed,
       localFallbackAllowed: videoConfig.localFallbackAllowed,
       externalMp4Allowed: versionedMediaReady ? false : Boolean(videoConfig.src),
-      expected: versionedMediaReady || Boolean(videoConfig.hlsSrc || videoConfig.src),
+      expected: versionedMediaReady || configuredMediaReady,
     },
     timeline,
+  });
+}
+
+async function sendRoomContent(req: Request, res: Response) {
+  const registration = await findRegistrationForRequest(req);
+  if (!registration) {
+    throw new AppError(404, 'Room content not found', undefined, 'room_content_not_found');
+  }
+
+  const now = new Date();
+  // Versioned room content is bound to the exact Registration/WebinarSession.
+  // Legacy daily-slot rollover must not extend replay access or switch the
+  // transcript/media scope behind an already issued participant cookie.
+  const access = buildAccessPayload(registration, now);
+  if (!access.canViewRoom || !access.canEnterRoom) {
+    throw new AppError(404, 'Room content not found', undefined, 'room_content_not_found');
+  }
+
+  const snapshot = await prisma.$transaction(
+    async tx => {
+      const webinar = await tx.webinar.findFirst({
+        where: {
+          id: access.webinarSession.webinarId,
+          organizationId: access.webinarSession.organizationId,
+        },
+        select: {
+          currentMediaAssetId: true,
+          currentMediaAsset: { select: { status: true } },
+          mediaAssets: {
+            orderBy: { version: 'desc' },
+            take: 1,
+            select: { status: true },
+          },
+          sources: {
+            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+            select: { id: true, type: true, title: true, url: true, accessedAt: true, note: true },
+          },
+        },
+      });
+      if (!webinar) return null;
+
+      const transcript = webinar.currentMediaAssetId
+        ? await tx.transcript.findFirst({
+            where: {
+              organizationId: access.webinarSession.organizationId,
+              webinarId: access.webinarSession.webinarId,
+              mediaAssetId: webinar.currentMediaAssetId,
+              status: 'PUBLISHED',
+            },
+            orderBy: { version: 'desc' },
+            include: {
+              segments: { orderBy: { orderIndex: 'asc' } },
+              chapters: { orderBy: [{ orderIndex: 'asc' }, { startMs: 'asc' }] },
+            },
+          })
+        : null;
+
+      return { webinar, transcript };
+    },
+    { isolationLevel: 'RepeatableRead' },
+  );
+  if (!snapshot) {
+    throw new AppError(404, 'Room content not found', undefined, 'room_content_not_found');
+  }
+
+  const { webinar, transcript } = snapshot;
+  const latestStatus = webinar.mediaAssets[0]?.status ?? null;
+  const mediaState =
+    webinar.currentMediaAsset?.status === 'READY'
+      ? 'ready'
+      : latestStatus && MEDIA_PROCESSING_STATUSES.has(latestStatus)
+        ? 'processing'
+        : latestStatus === 'FAILED'
+          ? 'error'
+          : 'unavailable';
+
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({
+    ok: true,
+    serverTime: now.toISOString(),
+    webinarSessionId: access.webinarSession.id,
+    mediaState,
+    consistencyKey: transcript ? `${transcript.id}:v${transcript.version}` : null,
+    transcript: transcript
+      ? {
+          id: transcript.id,
+          version: transcript.version,
+          language: transcript.language,
+          publishedAt: transcript.publishedAt?.toISOString() ?? null,
+          captionsUrl: `/api/media/webinar/${encodeURIComponent(access.webinarSession.id)}/captions/${encodeURIComponent(transcript.id)}`,
+          segments: transcript.segments.map(segment => ({
+            startMs: segment.startMs,
+            endMs: segment.endMs,
+            speaker: segment.speaker,
+            text: segment.text,
+          })),
+        }
+      : null,
+    chapters: transcript
+      ? transcript.chapters.map(chapter => ({
+          id: chapter.id,
+          startMs: chapter.startMs,
+          title: chapter.title,
+          description: chapter.description,
+        }))
+      : [],
+    materials: webinar.sources.map(source => ({
+      id: source.id,
+      type: source.type,
+      title: source.title,
+      url: source.url,
+      accessedAt: source.accessedAt?.toISOString().slice(0, 10) ?? null,
+      note: source.note,
+    })),
   });
 }
 
@@ -183,6 +376,13 @@ webinarRouter.get(
   '/webinar/timeline/session/current',
   asyncHandler(async (req, res) => {
     await sendTimeline(req, res);
+  }),
+);
+
+webinarRouter.get(
+  '/webinar/content/session/current',
+  asyncHandler(async (req, res) => {
+    await sendRoomContent(req, res);
   }),
 );
 
@@ -194,7 +394,12 @@ async function sendChat(req: Request, res: Response) {
   }
 
   const now = new Date();
-  const access = await buildDailyRoomAccessPayload(registration, now);
+  const versionedRoom = registration.accessPolicy !== 'LEGACY';
+  // New registrations are always bound to their exact WebinarSession. Only the
+  // legacy daily funnel keeps its historical rollover behavior.
+  const access = versionedRoom
+    ? buildAccessPayload(registration, now)
+    : await buildDailyRoomAccessPayload(registration, now);
   if (!access.canViewRoom) {
     throw roomAccessError(access.accessStatus);
   }
@@ -212,7 +417,10 @@ async function sendChat(req: Request, res: Response) {
       persistedMessages = await prisma.webinarChatMessage.findMany({
         where: {
           webinarSessionId: access.webinarSession.id,
+          organizationId: access.webinarSession.organizationId,
+          webinarId: access.webinarSession.webinarId,
           visibleAt: { lte: now },
+          hiddenAt: null,
           // Сообщения забаненных модератором участников скрыты из публичной ленты.
           // Системные сообщения (модератор/сценарий) имеют registrationId=null — их оставляем.
           OR: [{ registrationId: null }, { registration: { is: { chatBannedAt: null } } }],
@@ -223,17 +431,35 @@ async function sendChat(req: Request, res: Response) {
     }
   }
 
-  const scriptedMessages =
-    canExposeChatMessages && (liveState.chatStatus === 'live' || access.testMode || access.accessStatus === 'replay')
-      ? getScriptedChatMessagesUntil(
-          access.testMode || access.accessStatus === 'replay'
-            ? access.webinarSession.videoDurationSeconds
-            : liveState.liveOffsetSeconds,
-          {
-            durationSeconds: access.webinarSession.videoDurationSeconds,
-            validateDuration: false,
+  const scenarioOffset =
+    access.testMode || access.accessStatus === 'replay'
+      ? access.webinarSession.videoDurationSeconds
+      : liveState.liveOffsetSeconds;
+  const canExposeScenario =
+    canExposeChatMessages && (liveState.chatStatus === 'live' || access.testMode || access.accessStatus === 'replay');
+  const publishedScenario =
+    versionedRoom && canExposeScenario
+      ? await prisma.chatScenario.findFirst({
+          where: {
+            organizationId: access.webinarSession.organizationId,
+            webinarId: access.webinarSession.webinarId,
+            status: 'PUBLISHED',
           },
-        ).map(message => ({
+          orderBy: { version: 'desc' },
+          include: {
+            messages: {
+              where: { status: 'APPROVED', offsetSeconds: { lte: scenarioOffset } },
+              orderBy: [{ offsetSeconds: 'asc' }, { orderIndex: 'asc' }],
+            },
+          },
+        })
+      : null;
+
+  const scriptedMessages = !versionedRoom && canExposeScenario
+    ? getScriptedChatMessagesUntil(scenarioOffset, {
+        durationSeconds: access.webinarSession.videoDurationSeconds,
+        validateDuration: false,
+      }).map(message => ({
           // Наружу отдаём только поля, нужные для интерфейса. Внутренние метаданные
           // сценария (agentId, videoBlock, topic, priority, answer/relatedVideoSeconds)
           // не являются частью публичного контракта.
@@ -241,12 +467,27 @@ async function sendChat(req: Request, res: Response) {
           offsetSeconds: message.offsetSeconds,
           visibleAt: new Date(access.webinarSession.scheduledAt.getTime() + message.offsetSeconds * 1000),
           // Подготовленные вопросы нельзя выдавать за сообщения зрителей в реальном времени.
-          kind:
-            message.kind === 'agent_question' || message.kind === 'scripted_user' ? 'prepared_question' : message.kind,
-          authorName: message.authorName,
-          authorRole: 'подготовленный вопрос',
+          kind: 'prepared_question' as const,
+          authorName: 'Подготовленный вопрос',
+          authorRole: 'Подготовленный вопрос',
           message: message.message,
+          isSynthetic: true as const,
         }))
+    : publishedScenario
+      ? publishedScenario.messages.map(message => {
+          const kind = publicScenarioMessageType(message.kind);
+          const disclosure = scenarioAuthorLabel(message.kind);
+          return {
+            id: message.id,
+            offsetSeconds: message.offsetSeconds,
+            visibleAt: new Date(access.webinarSession.scheduledAt.getTime() + message.offsetSeconds * 1000),
+            kind,
+            authorName: disclosure,
+            authorRole: disclosure,
+            message: message.text,
+            isSynthetic: true as const,
+          };
+        })
       : [];
 
   const realMessages = persistedMessages.map(message => ({
@@ -257,10 +498,12 @@ async function sendChat(req: Request, res: Response) {
       Math.floor((message.visibleAt.getTime() - access.webinarSession.scheduledAt.getTime()) / 1000),
     ),
     visibleAt: message.visibleAt,
-    kind: message.kind,
+    kind: persistedMessageType(message),
     authorName: message.authorName,
     authorRole: message.authorRole,
     message: message.message,
+    isSynthetic: message.isSynthetic,
+    grounding: publicMessageGrounding(message.metadataJson),
   }));
 
   // Закреплённое приветствие модератора: всегда первым, когда чат открыт. offsetSeconds=0
@@ -296,6 +539,7 @@ async function sendChat(req: Request, res: Response) {
       name: registration.lead.name,
       professionalStatus: registration.lead.professionalStatus,
     },
+    scenarioVersion: publishedScenario?.version ?? (versionedRoom ? null : 'legacy-file'),
     messages,
   });
 }

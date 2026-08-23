@@ -193,7 +193,7 @@ export async function applyRetentionPolicy(now = new Date(), onProgress?: () => 
       const chatMessagesDeleted = await tx.webinarChatMessage.deleteMany({
         where: {
           createdAt: { lt: cutoffs.questionsAndChat },
-          kind: 'user',
+          OR: [{ messageType: 'PARTICIPANT' }, { messageType: null, kind: { in: ['user', 'participant'] } }],
         },
       });
       const questionsAnonymized = await tx.question.updateMany({

@@ -90,6 +90,10 @@ requireAbsent(deploy, '${DOCKER_BUILD_CACHE_PRUNE:-on}', 'default-on global Buil
 requireText(dockerfile, 'node:22-alpine@sha256:', 'pinned Node base image');
 requireText(dockerfile, 'org.opencontainers.image.revision', 'OCI revision label');
 requireText(dockerfile, 'com.aspb.schema.compatibility="email-links-v2"', 'schema compatibility label');
+requireText(workflow, 'node dist/src/cli/mediaAcceptance.js', 'real media acceptance in the production image');
+requireText(workflow, 'Persistent media restart acceptance', 'persistent media restart gate');
+requireText(workflow, 'MEDIA_ACCEPTANCE_RESTART=on', 'restart acceptance guard');
+requireText(workflow, '"--restart-$phase"', 'two-process media resume command');
 for (const [name, compose] of [
   ['docker-compose.production.yml', productionCompose],
   ['docker-compose.native-postgres.yml', nativeCompose],

@@ -14,6 +14,12 @@
 
 Постоянные endpoints с token в path отключены. Frontend не хранит room token в `localStorage` и не отправляет token в analytics, questions или partner application.
 
+Комната получает главы, материалы и только опубликованный транскрипт одним
+`private, no-store` snapshot. WebVTT captions запрашиваются отдельным
+cookie-защищённым endpoint, который повторно проверяет server-selected tenant,
+WebinarSession, current MediaAsset, private grant и replay expiry; storage key и
+постоянный origin URL браузеру не выдаются.
+
 ## Tenant foundation (этап 1)
 
 `User`, `Organization` и `OrganizationMembership` существуют отдельно от
@@ -45,6 +51,7 @@ PLATFORM_ACCOUNTS_ENABLED=off
 PLATFORM_TENANCY_ENFORCEMENT=off
 CREATOR_DASHBOARD_ENABLED=off
 PUBLIC_CATALOG_ENABLED=off
+TENANT_CRM_ENABLED=off
 ```
 
 Это сохраняет действующие registration/room/replay/CRM/email/Telegram и
@@ -117,14 +124,107 @@ registration, CRM event или delivery и честно сообщает, есл
 Server-side projection и `/sitemap.xml` включают только published PUBLIC
 Webinar проверенных активных авторов. UNLISTED доступен только по полной прямой
 ссылке и получает `noindex`; PRIVATE, draft и archived возвращают тот же 404,
-что неизвестный объект. Регистрация из нового каталога пока намеренно отключена
-до отдельной tenant-scoped REG vertical; действующая legacy-регистрация не
-подменяется и не получает фиктивных заявок.
+что неизвестный объект. Основная CTA регистрирует на exact WebinarSession через
+server-resolved Organization/Webinar graph; client `organizationId` не
+принимается. Anonymous/existing-mailbox ответы не раскрывают наличие аккаунта,
+повторная отправка идемпотентна, а действующая legacy-регистрация и партнёрская
+воронка не подменяются.
+
+Additive migration `20260821130000_viewer_account_registration` связывает новые
+Registration с trusted Organization, Webinar и participant User и добавляет
+tenant-scoped favorites, progress, private timestamped notes и notification
+preferences. Кабинет доступен по `/crisis_premium/account.html`: показывает
+upcoming/recordings/watched/saved, timezone и срок replay. Прогресс пишется
+только из foreground, дедуплицируется по event ID и throttled на клиенте и
+сервере; favorite никогда не выдаёт private access. Marketing email/Telegram и
+service email/Telegram настраиваются отдельно, а marketing revoke не отменяет
+personal-data consent или отдельное законное основание обязательного сообщения.
+
+Additive migration `20260821140000_crm_contact_pipeline` вводит первый
+tenant-scoped CRM slice без замены действующей партнёрской воронки: `CRMContact`,
+default `CRMPipeline`/`CRMStage`, unified contact events и stage transitions.
+Старые `Registration.crmStatus`, manager и `nextContactAt` сохраняются; для АСПБ
+шесть действующих кодов этапов мигрируются один в один и защищаются от удаления.
+Следующая additive integrity migration `20260821141000_crm_stage_integrity_hardening`
+закрывает прямой обход immutable stage/protected-state и проверяет совпадение
+Registration Organization/Lead с привязанным CRMContact на DB boundary.
+Новый API `/api/v1/crm/*` определяет Organization только из User session и
+membership, маскирует ПДн для ANALYST/AUDITOR и возвращает одинаковый safe 404
+для unknown/cross-tenant contact или stage. Интерфейс доступен по
+`/crisis_premium/crm.html` при `PLATFORM_ACCOUNTS_ENABLED=on` и
+`TENANT_CRM_ENABLED=on`. CRM расширяется только отдельными законченными batch.
+Additive migration `20260821150000_crm_tasks_sla` закрывает task/SLA batch:
+задача всегда относится к tenant CRMContact, назначается только активному
+OWNER/CRM_MANAGER membership и хранит обязательные due/reminder, priority и
+status. Сервер считает очереди «Сегодня», «Просрочено» и «Без задачи» в IANA
+timezone воронки, а DB trigger поддерживает `CRMContact.nextContactAt` по
+ближайшей открытой задаче. Физического delete API и внешней рассылки reminder
+нет: задачу завершают или отменяют с event/audit.
+Additive migrations `20260821160000_crm_scoring_tags` и
+`20260821161000_crm_scoring_legacy_room_backfill` добавляют отдельный
+версионированный scoring-контур и tenant-scoped tags. Балл строится только из
+immutable/deduplicated факторов реальных registration, room, 50% progress,
+question и CTA событий; новая версия правил пересчитывает проекцию без
+умножения факторов. Ручной hot требует причины, actor/idempotency/event/audit и
+сохраняет `Registration.isHot` только как compatibility projection. Теги
+уникальны по нормализованному имени внутри Organization, допускают одинаковое
+имя в разных tenant, а использованные теги архивируются вместо физического
+удаления. Внешние сообщения scoring/tag batch не отправляет.
+
+Additive migrations `20260821170000_crm_bulk_export` и
+`20260821171000_crm_bulk_integrity_hardening` добавляют durable snapshot для
+двухшаговых массовых действий: preview фиксирует точный tenant-scoped набор не
+более 1000 контактов на 10 минут, а execute возвращает отдельные successes и
+безопасные failure codes. Поддержаны назначение менеджера, создание задачи,
+смена этапа и добавление тега; повторное выполнение идемпотентно, результат и
+scope защищены DB constraints/triggers и audit. CSV export ограничен 10000
+контактами и требует явного permission `permissionsJson.crm.export=true` у
+активного membership: ответ `private, no-store` не сохраняется как файл,
+формулы экранируются, а ANALYST/AUDITOR получают только маскированные ПДн.
+Внешних email/Telegram действий этот batch не создаёт.
+
+Additive migration `20260821180000_crm_consent_delivery` добавляет отдельную
+tenant-scoped очередь маркетинговых email/Telegram сообщений. Enqueue всегда
+указывает trusted Registration конкретных Webinar/WebinarSession и допускается
+только OWNER/CRM_MANAGER при актуальном согласии на выбранный канал. Worker
+повторяет проверку consent непосредственно перед provider call под тем же
+channel lock, имеет bounded retry/dead-letter и не считает `EMAIL_MODE=log`
+успешной отправкой. Recipient email/chatId не сохраняются в job, а API,
+timeline, audit, metrics и логи не возвращают message body или provider details.
+Повторный enqueue/retry идемпотентен; unknown/cross-tenant объекты дают тот же
+safe 404. Реальные сообщения локально не отправляются, а rollout остаётся под
+`TENANT_CRM_ENABLED=off` до staging acceptance.
+
+Additive migrations `20260821190000_chat_moderation` и
+`20260821191000_chat_synthetic_identity_hardening` закрепляют exact
+Organization/Webinar/WebinarSession/Registration scope чата, canonical
+message type и per-message approval. Комната выдаёт только approved
+messages одной published ChatScenario; synthetic-сообщения имеют
+видимую и screen-reader маркировку без выдуманных личностей,
+отзывов и online count. Participant question проходит Unicode/markup
+sanitization и bounded anti-spam; автоматическая AI-публикация
+отключена. OWNER/MODERATOR могут с обязательной причиной скрыть/
+восстановить сообщение и закрыть/восстановить чат registration в
+`/crisis_premium/moderation.html`; все действия tenant-scoped и пишут audit.
+Интерфейс и API скрыты platform/creator flags до staging acceptance.
+
+Additive migrations `20260823085000_ai_suggestion_chat_type`,
+`20260823090000_question_moderation_grounding` и
+`20260823091000_question_legacy_scope_compatibility` расширяют существующие
+`Question`/`AiOperationProvenance`/`AiSuggestion`: очереди
+`new`/`repeating`/`priority`, reasoned status/priority history, CRM timeline и
+grounded draft. Retrieval читает только latest `PUBLISHED` transcript либо
+явный `WebinarSource`; draft/reviewed text и personalized legal advice дают
+human handoff. До отдельного HUMAN `PUBLISH` public chat message не создаётся.
+Внешний AI provider не вызывается, production default остаётся
+`AI_ENRICHMENT_PROVIDER=unconfigured`.
 
 Migration `20260821090000_media_pipeline_foundation` добавляет versioned
 `MediaAsset`, resumable `MediaUpload` и durable `MediaJob`. Creator API выдаёт
-временные multipart operations, но не проксирует video bytes и не возвращает
-storage keys/origin URL. Без выбранного provider безопасный default
+временные multipart operations и не возвращает storage keys/origin URL. В
+выбранном self-hosted режиме bytes идут streaming через tenant/author/CSRF-
+защищённый same-origin PUT в private persistent volume; external S3 PUT по-
+прежнему обходит application bytes. Без выбранного provider безопасный default
 `MEDIA_STORAGE_PROVIDER=unconfigured` отвечает `503`; `test_fake` работает
 только при `NODE_ENV=test` и запрещён production guard. Лимиты задаются
 `MEDIA_MAX_UPLOAD_BYTES` (4 ГБ), `MEDIA_MAX_DURATION_SECONDS` (180 минут) и
@@ -132,18 +232,37 @@ storage keys/origin URL. Без выбранного provider безопасны
 переключает опубликованную версию раньше явного запроса.
 Завершённые parts фиксируются на сервере по `partNumber`/ETag; resume выдаёт fresh
 15-minute operations только для недостающих частей. Browser хранит только
-upload ID и identity файла, а не signed URLs. Для direct PUT origins нужно явно задать
-comma-separated HTTPS origins в `MEDIA_UPLOAD_CSP_ORIGINS`.
-S3-compatible adapter (`MEDIA_STORAGE_PROVIDER=s3`) добавляет provider ListParts,
-private object reads, magic-byte/ffprobe checks, ffmpeg HLS/poster и OGG/Opus rendition для STT.
+upload ID и identity файла, а не signed URLs. Local adapter
+(`MEDIA_STORAGE_PROVIDER=local_fs`) требует absolute `MEDIA_LOCAL_ROOT` вне web
+root; Docker API/worker используют один named volume `/var/lib/aspb/media`.
+Parts получают SHA-256 ETag после `fsync`, conflicting retry не перезаписывает
+checkpoint, а complete повторно проверяет checksum каждой части. Для external
+direct PUT origins нужно явно задать comma-separated HTTPS origins в
+`MEDIA_UPLOAD_CSP_ORIGINS`. S3-compatible adapter
+(`MEDIA_STORAGE_PROVIDER=s3`) сохранён как optional future path. Оба real
+adapter используют общие magic-byte/ffprobe checks и ffmpeg HLS/poster/OGG
+pipeline.
 `MediaJob` использует возобновляемый lease: после падения worker зависший `RUNNING` claim
 возвращается в очередь либо попадает в dead-letter на исчерпанном лимите. Manifest,
 каждый segment/poster и Range проходят повторную cookie/session/WebinarSession/replay/grant
 проверку через application gateway; storage keys и origin URL наружу не выдаются.
 Техническая рекомендация и ограничения CDN зафиксированы в
 [`docs/DEC-05-MEDIA-STORAGE-CDN-TRANSCODER.md`](docs/DEC-05-MEDIA-STORAGE-CDN-TRANSCODER.md).
-До legal/budget/provider acceptance credentials и provider не включаются; полный env-контракт
-указан в `.env.production.example`.
+Local media не включается до staging backup/restore/capacity/failure/load
+acceptance. External S3 требует отдельного legal/budget/provider approval;
+полный env-контракт указан в `.env.production.example`.
+Важно: local streaming проходит через Express и потому не закрывает буквальный
+direct-object-storage критерий MED-001; актуальный статус требования указан в
+implementation ledger.
+
+Реальный локальный media gate запускается командой `npm run media:acceptance`.
+Он создаёт временные MP4/MOV/WebM fixtures, пропускает их через production
+ffprobe/ffmpeg pipeline, проверяет HLS/poster/OGG/Range и ожидаемые безопасные
+отказы. CI повторяет gate внутри собранного production image. Команда не заменяет
+staging-проверку фактической передачи 4 ГБ, capacity, restart и backup/restore.
+При `MEDIA_STORAGE_PROVIDER=local_fs` защищённый `/metrics` также публикует
+total/available bytes и inodes без filesystem path; пороги alerts выбираются по
+реальному staging volume и load test, а не задаются приложением произвольно.
 
 Migrations `20260821100000_transcript_foundation` и
 `20260821110000_transcript_enrichment` добавляют versioned transcript segments,
@@ -190,6 +309,12 @@ npm run check          # build + tests + audit
 npm run prisma:deploy  # production migrations
 npm run seed           # seed webinar/timeline/admin data
 ```
+
+Обычные `npm test` и `npm run e2e` не удаляют локальную test-схему: setup
+проверяет loopback/test-only `DATABASE_URL` и выполняет additive `prisma migrate
+deploy`. Destructive reset возможен только при отдельном явном
+`ASPB_ALLOW_TEST_SCHEMA_RESET=on`; не используйте его для общей, staging или
+production базы.
 
 На чистой машине перед первым `npm run e2e` выполните:
 
@@ -286,6 +411,20 @@ POST /api/v1/author-verification/evidence
 GET  /api/v1/author-verification/evidence/:evidenceId
 DELETE /api/v1/author-verification/evidence/:evidenceId
 GET  /api/v1/catalog/authors/:slug
+GET  /api/v1/catalog/webinars
+GET  /api/v1/catalog/webinars/:slug?organization=:publicSlug
+POST /api/v1/catalog/webinars/:slug/register?organization=:publicSlug
+GET  /api/v1/viewer/dashboard
+POST /api/v1/viewer/registrations/:registrationId/activate
+PUT  /api/v1/viewer/favorites/:webinarId
+DELETE /api/v1/viewer/favorites/:webinarId
+GET  /api/v1/viewer/progress/:sessionId
+PUT  /api/v1/viewer/progress/:sessionId
+GET  /api/v1/viewer/notes?sessionId=:sessionId
+POST /api/v1/viewer/notes
+DELETE /api/v1/viewer/notes/:noteId
+GET  /api/v1/viewer/notifications
+PATCH /api/v1/viewer/notifications
 GET  /api/v1/creator/reference-data
 GET  /api/v1/creator/webinars
 POST /api/v1/creator/webinars
@@ -349,9 +488,12 @@ EMAIL_FROM=...
 TELEGRAM_ADMIN_BOT_TOKEN=...
 TELEGRAM_ADMIN_BOT_USERNAME=...
 TELEGRAM_ADMIN_CHAT_ID=...
+TELEGRAM_OPERATIONAL_CHAT_ID=... # отдельный PII-free infrastructure chat, не admin/manager chat
 TELEGRAM_PARTICIPANT_BOT_TOKEN=...
 TELEGRAM_PARTICIPANT_BOT_USERNAME=...
 TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME=... # должен совпадать с username фактического participant bot
+TELEGRAM_CALLBACK_SECRET=... # HMAC tenant manager callbacks; хранить только в secret/env
+TENANT_TELEGRAM_BOTS_ENABLED=off # глобальный flag; до изолированного staging acceptance не включать
 WEBINAR_VIDEO_HLS_URL=https://cdn.example.com/webinar/master.m3u8 # optional but preferred
 WEBINAR_VIDEO_URL=https://private-cdn.example.com/webinar/webinar.mp4 # private origin, not a public playback URL
 WEBINAR_POSTER_URL=https://cdn.example.com/webinar/poster.jpg
@@ -360,7 +502,7 @@ WEBINAR_VIDEO_DURATION_SECONDS=3860
 WEBINAR_TEST_ROOM_MODE=off
 ```
 
-Production guard запрещает дефолтные admin-секреты, пустой `METRICS_TOKEN`, HTTP `PUBLIC_SITE_URL`, wildcard CORS, test-room mode и localhost video URLs. `EMAIL_MODE=log` разрешён как явно degraded-режим без обещания доставки; при `send` обязательны SMTP-реквизиты и предварительный verify. Видео выдаётся только через cookie-защищённые `/api/media/*`: внешний private CDN/origin требует Bearer token, а same-origin файл может читаться приложением из read-only mount без сетевого origin. `DATABASE_URL` должен включать pooling параметры, например `connection_limit=10&pool_timeout=20`. `TRUST_PROXY` включайте только за доверенным reverse proxy. `/health/dependencies` без токена показывает только `checks.smtp`, `checks.telegram` и `checks.emailOutbox` со значениями `ok/degraded` — без ошибок провайдера, username, адресов, heartbeat timestamps и размеров очереди. Полные детали, включая SLA очереди и per-subsystem worker deadlines, доступны по `/health/dependencies/details` с metrics token.
+Production guard запрещает дефолтные admin-секреты, пустой `METRICS_TOKEN`, HTTP `PUBLIC_SITE_URL`, wildcard CORS, test-room mode и localhost video URLs. `EMAIL_MODE=log` разрешён как явно degraded-режим без обещания доставки; при `send` обязательны SMTP-реквизиты и предварительный verify. Telegram send mode требует отдельный `TELEGRAM_OPERATIONAL_CHAT_ID`, отличный от legacy admin chat; tenant bot flow дополнительно требует accounts/CRM flags, platform bot identities и `TELEGRAM_CALLBACK_SECRET`. Организациям bot token не выдаётся. Видео выдаётся только через cookie-защищённые `/api/media/*`: внешний private CDN/origin требует Bearer token, а same-origin файл может читаться приложением из read-only mount без сетевого origin. `DATABASE_URL` должен включать pooling параметры, например `connection_limit=10&pool_timeout=20`. `TRUST_PROXY` включайте только за доверенным reverse proxy. `/health/dependencies` без токена показывает только `checks.smtp`, `checks.telegram` и `checks.emailOutbox` со значениями `ok/degraded` — без ошибок провайдера, username, адресов, heartbeat timestamps и размеров очереди. Полные детали, включая SLA очереди и per-subsystem worker deadlines, доступны по `/health/dependencies/details` с metrics token.
 
 Docker production:
 
@@ -372,7 +514,7 @@ docker compose --env-file .env.production -f docker-compose.production.yml up -d
 Production compose запускает два deployment units из одного image:
 
 - `api` с `WORKER_ROLE=api`: Express, public/admin API, static frontend, `/health/*`, `/metrics`.
-- `webinar-worker` с `WORKER_ROLE=webinar`: reminders, email outbox consumer, Telegram polling/news/broadcast worker.
+- `webinar-worker` с `WORKER_ROLE=webinar`: reminders, email outbox consumer, Telegram polling/news и legacy/tenant broadcast worker. Tenant path остаётся fail-closed при `TENANT_TELEGRAM_BOTS_ENABLED=off`.
 
 Без `WORKER_ROLE` старый запуск остается совместимым и стартует роль `all`.
 
@@ -387,6 +529,9 @@ Observability: каждый request получает `x-correlation-id`, pino lo
 ## QA checklist
 
 - Регистрация создает lead/registration и outbox email job.
+- Catalog CTA создаёт trusted tenant/Webinar/Session/User scope, не доверяет `organizationId` и повторяется без дублей.
+- Кабинет восстанавливает replay progress, не пишет из background tab и не выдаёт private access через favorite.
+- Личные заметки недоступны другому User/tenant; marketing и service preferences сохраняются раздельно.
 - API регистрации успешен при временно недоступном SMTP.
 - Success page открывается без token в URL.
 - Вход из email/Telegram с одноразовым `webinar.html#token=...` выполняет exchange и очищает URL.

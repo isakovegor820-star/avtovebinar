@@ -172,7 +172,7 @@ export async function findRegistrationForRequest(req: Request) {
   }
   const registration = await findRegistrationBySessionToken(cookieToken);
   if (registration) {
-    setContextIdentity({ userId: registration.leadId });
+    setContextIdentity({ userId: registration.userId ?? registration.leadId });
   }
   return registration;
 }

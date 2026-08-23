@@ -14,7 +14,7 @@ import { errorMiddleware } from './lib/http.js';
 import { getCachedDependencyStatus, getDependencySummary, getReadiness } from './lib/health.js';
 import { csrfProtection, ensureCsrfToken } from './lib/csrf.js';
 import { cspStyleAttributeHashes, cspStyleElementHashes } from './lib/cspInlineHashes.js';
-import { requestContextMiddleware } from './lib/requestContext.js';
+import { getRequestContext, requestContextMiddleware } from './lib/requestContext.js';
 import { metricsMiddleware, renderPrometheusMetrics } from './lib/metrics.js';
 import { getVideoCspOrigins } from './lib/webinarVideo.js';
 import { visitorIdentityMiddleware } from './lib/visitor.js';
@@ -129,6 +129,10 @@ app.use(csrfProtection);
 const formLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 20,
+  // Vitest reuses one Express instance across isolated database fixtures. The
+  // production limiter must not leak request counts between otherwise isolated
+  // tests; endpoint-specific persistence/rate policies are tested separately.
+  skip: () => env.NODE_ENV === 'test',
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -156,6 +160,61 @@ const registrationEmailLimiter = rateLimit({
     return `ip:${ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? '0.0.0.0')}`;
   },
   message: { ok: false, error: 'Слишком много попыток с этим email. Попробуйте позже.' },
+});
+
+const catalogRegistrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  skip: req => env.NODE_ENV === 'test' || req.method !== 'POST' || !req.path.endsWith('/register'),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    return email
+      ? `catalog-registration:${email}`
+      : `catalog-registration-ip:${ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? '0.0.0.0')}`;
+  },
+  message: { ok: false, error: 'Слишком много запросов. Попробуйте позже.' },
+});
+
+const viewerMutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  skip: req => env.NODE_ENV === 'test' || ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const crmMutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 40,
+  skip: req => env.NODE_ENV === 'test' || ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Слишком много изменений CRM. Подождите и повторите.',
+      code: 'crm_mutation_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
+});
+
+const crmReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 90,
+  skip: req => env.NODE_ENV === 'test' || !['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Слишком много запросов к CRM. Подождите и повторите.',
+      code: 'crm_read_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
 });
 
 const participantLoginEmailLimiter = rateLimit({
@@ -194,17 +253,52 @@ const platformLoginEmailLimiter = rateLimit({
   },
 });
 
+function isLocalMediaPartUpload(req: Request) {
+  return (
+    req.method === 'PUT' && /^\/api\/v1\/creator\/uploads\/[^/]+\/parts\/\d+\/content(?:\?|$)/.test(req.originalUrl)
+  );
+}
+
 const platformMutationLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 20,
+  skip: req => env.NODE_ENV === 'test' || isLocalMediaPartUpload(req),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const mediaUploadPartLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Math.ceil(env.MEDIA_MAX_UPLOAD_BYTES / env.MEDIA_PART_SIZE_BYTES) * 3,
   skip: () => env.NODE_ENV === 'test',
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Слишком много частей файла. Подождите и продолжите загрузку.',
+      code: 'media_upload_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
 });
 
 const tokenReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 90,
+  skip: () => env.NODE_ENV === 'test',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Viewer reads are frequent during normal playback (dashboard hydration,
+// notes, progress restore). Keep their budget separate from one-time token
+// exchange so opening the account cannot starve authentication for users on
+// the same office/NAT address.
+const viewerReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 90,
+  skip: () => env.NODE_ENV === 'test',
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -235,6 +329,7 @@ const adminBroadcastLimiter = rateLimit({
 app.use('/api/register', registrationLimiter);
 app.use('/api/register', registrationEmailLimiter);
 app.use('/api/register', formLimiter);
+app.use('/api/v1/catalog/webinars', catalogRegistrationLimiter);
 app.use('/api/participant/login/request', participantLoginEmailLimiter);
 app.use('/api/participant/login/request', formLimiter);
 app.use('/api/participant/login/consume', tokenReadLimiter);
@@ -245,7 +340,17 @@ app.use('/api/v1/auth/passwordless/request', platformMutationLimiter);
 app.use('/api/v1/auth/passwordless/consume', tokenReadLimiter);
 app.use('/api/v1/auth', platformMutationLimiter);
 app.use('/api/v1/organization', platformMutationLimiter);
+app.use('/api/v1/viewer', viewerReadLimiter);
+app.use('/api/v1/viewer', viewerMutationLimiter);
+app.use('/api/v1/crm', crmReadLimiter);
+app.use('/api/v1/crm', crmMutationLimiter);
+app.use((req, res, next) => {
+  if (isLocalMediaPartUpload(req)) return mediaUploadPartLimiter(req, res, next);
+  return next();
+});
 app.use('/api/v1/creator', platformMutationLimiter);
+app.use('/api/v1/moderation', platformMutationLimiter);
+app.use('/api/v1/telegram', platformMutationLimiter);
 app.use('/api/questions', formLimiter);
 app.use('/api/partner-application', formLimiter);
 app.use('/api/events', eventLimiter);

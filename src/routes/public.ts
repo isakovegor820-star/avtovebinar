@@ -13,6 +13,10 @@ import { creatorWebinarsRouter } from './creatorWebinars.js';
 import { catalogRouter } from './catalog.js';
 import { creatorMediaRouter } from './creatorMedia.js';
 import { creatorTranscriptsRouter } from './creatorTranscripts.js';
+import { viewerAccountRouter } from './viewerAccount.js';
+import { tenantCrmRouter } from './tenantCrm.js';
+import { tenantModerationRouter } from './tenantModeration.js';
+import { tenantTelegramRouter } from './tenantTelegram.js';
 
 export const publicRouter = Router();
 
@@ -43,6 +47,10 @@ publicRouter.use('/v1', creatorWebinarsRouter);
 publicRouter.use('/v1', creatorMediaRouter);
 publicRouter.use('/v1', creatorTranscriptsRouter);
 publicRouter.use('/v1', catalogRouter);
+publicRouter.use('/v1', viewerAccountRouter);
+publicRouter.use('/v1', tenantCrmRouter);
+publicRouter.use('/v1', tenantModerationRouter);
+publicRouter.use('/v1', tenantTelegramRouter);
 
 // Sub-routers (all paths are defined inside each module)
 publicRouter.use(registrationRouter);

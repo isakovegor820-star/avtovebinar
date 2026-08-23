@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { z } from 'zod';
 
 const optionalUrl = z.preprocess(value => (value === '' ? undefined : value), z.string().url().optional());
@@ -40,7 +41,8 @@ const envSchema = z.object({
   // Allows deterministic outbox assertions without enabling SMTP. The
   // registration layer activates it only under NODE_ENV=test.
   E2E_EMAIL_OUTBOX_ENABLED: z.enum(['on', 'off']).default('off'),
-  MEDIA_STORAGE_PROVIDER: z.enum(['unconfigured', 's3', 'test_fake']).default('unconfigured'),
+  MEDIA_STORAGE_PROVIDER: z.enum(['unconfigured', 'local_fs', 's3', 'test_fake']).default('unconfigured'),
+  MEDIA_LOCAL_ROOT: optionalProviderValue(2),
   MEDIA_S3_ENDPOINT: optionalUrl,
   MEDIA_S3_REGION: z.string().trim().min(1).default('ru-central1'),
   MEDIA_S3_BUCKET: z.preprocess(
@@ -92,8 +94,10 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_BOT_USERNAME: optionalTelegramUsername,
   TELEGRAM_ADMIN_CHAT_ID: z.string().optional(),
+  TELEGRAM_OPERATIONAL_CHAT_ID: z.string().optional(),
   TELEGRAM_ADMIN_BOT_POLLING: z.enum(['on', 'off']),
   TELEGRAM_NOTIFY_MODE: z.enum(['send', 'log']),
+  TELEGRAM_CALLBACK_SECRET: optionalSecret,
   TELEGRAM_BOT_POLLING: z.enum(['on', 'off']),
   TELEGRAM_PARTICIPANT_BOT_TOKEN: z.string().optional(),
   TELEGRAM_PARTICIPANT_BOT_USERNAME: optionalTelegramUsername,
@@ -129,6 +133,8 @@ const envSchema = z.object({
   PLATFORM_TENANCY_ENFORCEMENT: z.enum(['on', 'off']).default('off'),
   CREATOR_DASHBOARD_ENABLED: z.enum(['on', 'off']).default('off'),
   PUBLIC_CATALOG_ENABLED: z.enum(['on', 'off']).default('off'),
+  TENANT_CRM_ENABLED: z.enum(['on', 'off']).default('off'),
+  TENANT_TELEGRAM_BOTS_ENABLED: z.enum(['on', 'off']).default('off'),
   // Имя и роль модератора эфира: показываются участникам в чате (приветствие +
   // ручные ответы из админки). Настраиваются без правки кода — поменять в .env.
   MODERATOR_NAME: z.string().trim().min(2).max(80).default('Юлия, модератор АСПБ'),
@@ -159,6 +165,8 @@ type ProductionSecurityConfig = Omit<
   | 'PLATFORM_TENANCY_ENFORCEMENT'
   | 'CREATOR_DASHBOARD_ENABLED'
   | 'PUBLIC_CATALOG_ENABLED'
+  | 'TENANT_CRM_ENABLED'
+  | 'TENANT_TELEGRAM_BOTS_ENABLED'
   | 'STT_PROVIDER'
   | 'AI_ENRICHMENT_PROVIDER'
   | DefaultedProviderConfigKey
@@ -170,6 +178,8 @@ type ProductionSecurityConfig = Omit<
       | 'PLATFORM_TENANCY_ENFORCEMENT'
       | 'CREATOR_DASHBOARD_ENABLED'
       | 'PUBLIC_CATALOG_ENABLED'
+      | 'TENANT_CRM_ENABLED'
+      | 'TENANT_TELEGRAM_BOTS_ENABLED'
       | 'STT_PROVIDER'
       | 'AI_ENRICHMENT_PROVIDER'
       | DefaultedProviderConfigKey
@@ -281,6 +291,20 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
       errors.push('MEDIA_S3_ENDPOINT must use non-local HTTPS in production');
     }
   }
+  if (config.MEDIA_STORAGE_PROVIDER === 'local_fs') {
+    const configuredRoot = config.MEDIA_LOCAL_ROOT ? path.resolve(config.MEDIA_LOCAL_ROOT) : null;
+    const publicRoot = path.resolve(process.cwd(), 'crisis_premium');
+    const relativeToPublic = configuredRoot ? path.relative(publicRoot, configuredRoot) : '';
+    if (
+      !config.MEDIA_LOCAL_ROOT ||
+      !path.isAbsolute(config.MEDIA_LOCAL_ROOT) ||
+      configuredRoot === path.parse(configuredRoot ?? '/').root ||
+      (configuredRoot !== null &&
+        (relativeToPublic === '' || (!relativeToPublic.startsWith('..') && !path.isAbsolute(relativeToPublic))))
+    ) {
+      errors.push('MEDIA_LOCAL_ROOT must be an absolute private directory outside the public web root');
+    }
+  }
   if (
     config.STT_PROVIDER === 'yandex_speechkit' &&
     (!config.STT_YANDEX_API_KEY || !config.STT_YANDEX_FOLDER_ID || !config.STT_YANDEX_AUDIO_URI_PREFIX)
@@ -331,19 +355,42 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
       break;
     }
   }
-  const needsTelegramAdmin =
+  const needsTelegramAdminIdentity =
     config.TELEGRAM_NOTIFY_MODE === 'send' ||
     config.TELEGRAM_ADMIN_BOT_POLLING === 'on' ||
     config.TELEGRAM_BOT_POLLING === 'on';
   if (
-    needsTelegramAdmin &&
+    needsTelegramAdminIdentity &&
     (!(config.TELEGRAM_ADMIN_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
-      !(config.TELEGRAM_ADMIN_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME) ||
-      !config.TELEGRAM_ADMIN_CHAT_ID)
+      !(config.TELEGRAM_ADMIN_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME))
   ) {
     errors.push(
-      'TELEGRAM_ADMIN_BOT_TOKEN or TELEGRAM_BOT_TOKEN, admin bot username and TELEGRAM_ADMIN_CHAT_ID are required when Telegram admin notifications are enabled',
+      'TELEGRAM_ADMIN_BOT_TOKEN or TELEGRAM_BOT_TOKEN and admin bot username are required when Telegram admin runtime is enabled',
     );
+  }
+  if (config.TELEGRAM_NOTIFY_MODE === 'send' && !config.TELEGRAM_ADMIN_CHAT_ID) {
+    errors.push('TELEGRAM_ADMIN_CHAT_ID is required for manager notifications in send mode');
+  }
+  if (config.TELEGRAM_NOTIFY_MODE === 'send' && !config.TELEGRAM_OPERATIONAL_CHAT_ID) {
+    errors.push('TELEGRAM_OPERATIONAL_CHAT_ID is required for PII-free operational alerts in send mode');
+  }
+  if (
+    config.TELEGRAM_NOTIFY_MODE === 'send' &&
+    config.TELEGRAM_OPERATIONAL_CHAT_ID &&
+    config.TELEGRAM_OPERATIONAL_CHAT_ID === config.TELEGRAM_ADMIN_CHAT_ID
+  ) {
+    errors.push('TELEGRAM_OPERATIONAL_CHAT_ID must differ from TELEGRAM_ADMIN_CHAT_ID');
+  }
+  if (config.TENANT_TELEGRAM_BOTS_ENABLED === 'on') {
+    if (config.PLATFORM_ACCOUNTS_ENABLED !== 'on' || config.TENANT_CRM_ENABLED !== 'on') {
+      errors.push('TENANT_TELEGRAM_BOTS_ENABLED requires PLATFORM_ACCOUNTS_ENABLED and TENANT_CRM_ENABLED');
+    }
+    if (config.TELEGRAM_ADMIN_BOT_POLLING !== 'on') {
+      errors.push('TELEGRAM_ADMIN_BOT_POLLING must be "on" when tenant Telegram bots are enabled');
+    }
+    if (!config.TELEGRAM_CALLBACK_SECRET) {
+      errors.push('TELEGRAM_CALLBACK_SECRET is required when tenant Telegram bots are enabled');
+    }
   }
   if (
     !(config.TELEGRAM_PARTICIPANT_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
@@ -370,7 +417,7 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
   if (config.WEBINAR_PREVIEW_MODE === 'on') {
     errors.push('WEBINAR_PREVIEW_MODE must be "off" in production');
   }
-  const usesVersionedMediaAssets = config.MEDIA_STORAGE_PROVIDER === 's3';
+  const usesVersionedMediaAssets = ['local_fs', 's3'].includes(config.MEDIA_STORAGE_PROVIDER);
   if (!usesVersionedMediaAssets && !config.WEBINAR_VIDEO_HLS_URL && !config.WEBINAR_VIDEO_URL) {
     errors.push('WEBINAR_VIDEO_HLS_URL or WEBINAR_VIDEO_URL is required in production');
   }
@@ -435,6 +482,7 @@ function runtimeEnv() {
     EMAIL_MODE: process.env.EMAIL_MODE ?? 'log',
     E2E_EMAIL_OUTBOX_ENABLED: process.env.E2E_EMAIL_OUTBOX_ENABLED ?? 'off',
     MEDIA_STORAGE_PROVIDER: process.env.MEDIA_STORAGE_PROVIDER ?? 'unconfigured',
+    MEDIA_LOCAL_ROOT: process.env.MEDIA_LOCAL_ROOT,
     STT_PROVIDER: process.env.STT_PROVIDER ?? 'unconfigured',
     AI_ENRICHMENT_PROVIDER: process.env.AI_ENRICHMENT_PROVIDER ?? 'unconfigured',
     MEDIA_MAX_UPLOAD_BYTES: process.env.MEDIA_MAX_UPLOAD_BYTES ?? '4294967296',
@@ -447,7 +495,9 @@ function runtimeEnv() {
     TELEGRAM_GROUP_URL: process.env.TELEGRAM_GROUP_URL ?? 'https://t.me/example',
     TELEGRAM_ADMIN_BOT_POLLING: process.env.TELEGRAM_ADMIN_BOT_POLLING ?? 'off',
     TELEGRAM_ADMIN_BOT_USERNAME: process.env.TELEGRAM_ADMIN_BOT_USERNAME,
+    TELEGRAM_OPERATIONAL_CHAT_ID: process.env.TELEGRAM_OPERATIONAL_CHAT_ID,
     TELEGRAM_NOTIFY_MODE: process.env.TELEGRAM_NOTIFY_MODE ?? 'log',
+    TELEGRAM_CALLBACK_SECRET: process.env.TELEGRAM_CALLBACK_SECRET,
     TELEGRAM_BOT_POLLING: process.env.TELEGRAM_BOT_POLLING ?? 'off',
     TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: process.env.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME,
     TELEGRAM_PARTICIPANT_BOT_POLLING: process.env.TELEGRAM_PARTICIPANT_BOT_POLLING ?? 'off',
@@ -472,6 +522,8 @@ function runtimeEnv() {
     PLATFORM_TENANCY_ENFORCEMENT: process.env.PLATFORM_TENANCY_ENFORCEMENT ?? 'off',
     CREATOR_DASHBOARD_ENABLED: process.env.CREATOR_DASHBOARD_ENABLED ?? 'off',
     PUBLIC_CATALOG_ENABLED: process.env.PUBLIC_CATALOG_ENABLED ?? 'off',
+    TENANT_CRM_ENABLED: process.env.TENANT_CRM_ENABLED ?? 'off',
+    TENANT_TELEGRAM_BOTS_ENABLED: process.env.TENANT_TELEGRAM_BOTS_ENABLED ?? 'off',
   };
 }
 

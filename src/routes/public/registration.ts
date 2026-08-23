@@ -47,6 +47,10 @@ import {
 } from '../../lib/leadSecurity.js';
 import { canAccessRegisteredWebinar } from '../../lib/tenancy/webinarAccess.js';
 import { getEmailDeliveryReadiness } from '../../lib/health.js';
+import { activateViewerUser, ensureViewerUser } from '../../lib/tenancy/viewerIdentity.js';
+import { getCatalogRegistrationTarget } from '../../lib/catalog.js';
+import { getPlatformFeatureFlags } from '../../lib/featureFlags.js';
+import { linkVerifiedRegistrationToCrm, recordCrmScoreSignalForRegistration } from '../../lib/tenancy/crm.js';
 
 export const registrationRouter = Router();
 
@@ -83,6 +87,28 @@ export const registerSchema = z.object({
   marketingTelegramConsent: explicitBooleanSchema.optional().default(false),
   ...utmSchema,
 });
+
+const catalogRegisterSchema = registerSchema
+  .pick({
+    name: true,
+    phone: true,
+    email: true,
+    companyWebsite: true,
+    city: true,
+    professionalStatus: true,
+    personalDataConsent: true,
+    termsAccepted: true,
+    marketingEmailConsent: true,
+    marketingTelegramConsent: true,
+    source: true,
+    utmSource: true,
+    utmMedium: true,
+    utmCampaign: true,
+    utmContent: true,
+    utmTerm: true,
+  })
+  .extend({ sessionId: z.string().trim().min(8).max(64) })
+  .strict();
 
 const exchangeBodySchema = z.object({
   token: z.string().min(20),
@@ -350,6 +376,12 @@ async function exchangeRegistrationToken(
           pendingMetadataJson: Prisma.DbNull,
         },
       });
+      await activateViewerUser(tx, {
+        userId: activeTokenRecord.registration.userId,
+        email: activeTokenRecord.registration.lead.email,
+        displayName: activeTokenRecord.registration.lead.name,
+        verifiedAt: now,
+      });
       // Resends and ambiguous SMTP outcomes can produce several one-time
       // confirmation hashes. Once one succeeds, revoke every sibling link.
       await tx.registrationToken.deleteMany({
@@ -380,6 +412,8 @@ async function exchangeRegistrationToken(
         data: { accessTokenHash: sessionTokenHash },
       });
     }
+
+    await linkVerifiedRegistrationToCrm(tx, activeTokenRecord.registrationId, now);
 
     await tx.registrationToken.create({
       data: {
@@ -566,6 +600,20 @@ registrationRouter.post(
             })()
           : await tx.lead.create({ data: newLead });
 
+        const participantUser = await ensureViewerUser(tx, {
+          email: lead.email,
+          displayName: lead.name,
+          verifiedAt: issueImmediateParticipantSession ? now : null,
+        });
+        if (issueImmediateParticipantSession) {
+          await activateViewerUser(tx, {
+            userId: participantUser.id,
+            email: lead.email,
+            displayName: lead.name,
+            verifiedAt: now,
+          });
+        }
+
         const registration = await tx.registration.upsert({
           where: {
             leadId_webinarSessionId: {
@@ -574,6 +622,10 @@ registrationRouter.post(
             },
           },
           update: {
+            organizationId: session.organizationId,
+            webinarId: session.webinarId,
+            userId: participantUser.id,
+            accessPolicy: 'LEGACY',
             status: registrationStatus,
             emailVerifiedAt: issueImmediateParticipantSession ? now : null,
             ...(issueImmediateParticipantSession ? { pendingMetadataJson: Prisma.DbNull } : {}),
@@ -582,6 +634,10 @@ registrationRouter.post(
           create: {
             leadId: lead.id,
             webinarSessionId: session.id,
+            organizationId: session.organizationId,
+            webinarId: session.webinarId,
+            userId: participantUser.id,
+            accessPolicy: 'LEGACY',
             // This required legacy column is not an authentication source. For
             // an unverified registration it receives an unreachable random hash;
             // the email worker later stores only a one-time token hash.
@@ -766,6 +822,266 @@ registrationRouter.post(
         id: registration.id,
         scheduledAt: session.scheduledAt.toISOString(),
         status: registration.status,
+      },
+    });
+  }),
+);
+
+registrationRouter.post(
+  '/v1/catalog/webinars/:slug/register',
+  asyncHandler(async (req, res) => {
+    if (!getPlatformFeatureFlags().publicCatalog) {
+      throw new AppError(404, 'Каталог ещё не включён', undefined, 'public_catalog_disabled');
+    }
+    const data = catalogRegisterSchema.parse(req.body);
+    if (clean(data.companyWebsite)) {
+      res.status(202).json({
+        ok: true,
+        message: 'Если адрес можно подтвердить, ссылка для входа будет отправлена на почту.',
+      });
+      return;
+    }
+
+    const target = await getCatalogRegistrationTarget(prisma, req.params, req.query, data.sessionId);
+    const authenticatedRegistration = await findRegistrationForRequest(req);
+    const email = data.email.toLowerCase();
+    const now = new Date();
+    const consentIpHash = hashIp(getClientIp(req));
+    const sessionToken = createAccessToken();
+    const sessionTokenHash = hashToken(sessionToken);
+    const sessionExpiresAt = getParticipantSessionExpiresAt(now);
+
+    const result = await prisma.$transaction(async tx => {
+      // Serialize a first registration for the same normalized mailbox without
+      // relying on a client idempotency key or leaking whether the mailbox exists.
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(48192735, hashtext(${email}))`);
+      let lead = await tx.lead.findUnique({ where: { email } });
+      if (lead) {
+        await acquireLeadSecurityLock(tx, lead.id);
+        lead = await tx.lead.findUnique({ where: { id: lead.id } });
+        if (!lead || lead.email.toLowerCase() !== email || !isLeadIdentityActive(lead)) {
+          throw new AppError(404, 'Registration target not found', undefined, 'catalog_registration_not_found');
+        }
+      } else {
+        lead = await tx.lead.create({
+          data: {
+            name: data.name,
+            phone: data.phone,
+            email,
+            city: clean(data.city),
+            professionalStatus: clean(data.professionalStatus),
+            consent: false,
+            marketingConsent: false,
+            marketingEmailConsent: false,
+            marketingTelegramConsent: false,
+            source: clean(data.source) ?? 'public_catalog',
+            utmSource: clean(data.utmSource),
+            utmMedium: clean(data.utmMedium),
+            utmCampaign: clean(data.utmCampaign),
+            utmContent: clean(data.utmContent),
+            utmTerm: clean(data.utmTerm),
+            firstSeenAt: getFirstSeen(req, res),
+          },
+        });
+      }
+
+      const participantUser = await ensureViewerUser(tx, {
+        email: lead.email,
+        displayName: lead.name,
+        verifiedAt: null,
+      });
+      const authenticatedSameUser = Boolean(
+        authenticatedRegistration &&
+          (authenticatedRegistration.userId === participantUser.id ||
+            (!authenticatedRegistration.userId && authenticatedRegistration.leadId === lead.id)),
+      );
+      if (authenticatedSameUser) {
+        await activateViewerUser(tx, {
+          userId: participantUser.id,
+          email: lead.email,
+          displayName: data.name,
+          verifiedAt: now,
+        });
+      }
+
+      const existingRegistration = await tx.registration.findUnique({
+        where: { leadId_webinarSessionId: { leadId: lead.id, webinarSessionId: target.id } },
+        include: { lead: true },
+      });
+      if (
+        existingRegistration &&
+        ((existingRegistration.organizationId && existingRegistration.organizationId !== target.organizationId) ||
+          (existingRegistration.webinarId && existingRegistration.webinarId !== target.webinarId) ||
+          (existingRegistration.userId && existingRegistration.userId !== participantUser.id))
+      ) {
+        throw new AppError(404, 'Registration target not found', undefined, 'catalog_registration_not_found');
+      }
+
+      const alreadyActive = existingRegistration ? isParticipantRegistrationActive(existingRegistration) : false;
+      const issueParticipantSession = authenticatedSameUser;
+      const status = issueParticipantSession || alreadyActive ? 'registered' : 'pending_verification';
+      const emailVerifiedAt = issueParticipantSession ? now : (existingRegistration?.emailVerifiedAt ?? null);
+      const shouldWriteEvidence = !existingRegistration || (issueParticipantSession && !alreadyActive);
+
+      if (issueParticipantSession) {
+        lead = await tx.lead.update({
+          where: { id: lead.id },
+          data: {
+            name: data.name,
+            phone: data.phone,
+            city: clean(data.city) ?? lead.city,
+            professionalStatus: clean(data.professionalStatus) ?? lead.professionalStatus,
+            consent: true,
+            consentAt: now,
+            consentPolicyVersion: CONSENT_POLICY_VERSION,
+            consentIpHash,
+            personalDataConsentRevokedAt: null,
+            ...(data.marketingEmailConsent
+              ? { marketingConsent: true, marketingConsentAt: now, marketingEmailConsent: true, marketingEmailConsentAt: now }
+              : {}),
+            ...(data.marketingTelegramConsent
+              ? {
+                  marketingConsent: true,
+                  marketingConsentAt: now,
+                  marketingTelegramConsent: true,
+                  marketingTelegramConsentAt: now,
+                }
+              : {}),
+          },
+        });
+      }
+
+      const registration = existingRegistration
+        ? await tx.registration.update({
+            where: { id: existingRegistration.id },
+            data: {
+              organizationId: target.organizationId,
+              webinarId: target.webinarId,
+              userId: participantUser.id,
+              accessPolicy: 'PUBLIC_CATALOG',
+              status,
+              emailVerifiedAt,
+              ...(issueParticipantSession
+                ? { accessTokenHash: sessionTokenHash, pendingMetadataJson: Prisma.DbNull }
+                : {}),
+            },
+          })
+        : await tx.registration.create({
+            data: {
+              leadId: lead.id,
+              webinarSessionId: target.id,
+              organizationId: target.organizationId,
+              webinarId: target.webinarId,
+              userId: participantUser.id,
+              accessPolicy: 'PUBLIC_CATALOG',
+              accessTokenHash: issueParticipantSession ? sessionTokenHash : hashToken(createAccessToken()),
+              status,
+              emailVerifiedAt,
+            },
+          });
+
+      if (shouldWriteEvidence) {
+        const evidenceAction = issueParticipantSession ? 'grant' : 'pending_verification';
+        await tx.consentRecord.create({
+          data: {
+            ...consentEvidenceData(PERSONAL_DATA_CONSENT, {
+              leadId: lead.id,
+              registrationId: registration.id,
+              email,
+              kind: 'personal_data',
+              sourceForm: '/crisis_premium/catalog-webinar.html',
+              req,
+              occurredAt: now,
+            }),
+            action: evidenceAction,
+          },
+        });
+        await tx.legalAcceptance.create({
+          data: legalAcceptanceEvidenceData({
+            leadId: lead.id,
+            registrationId: registration.id,
+            email,
+            sourceForm: '/crisis_premium/catalog-webinar.html',
+            req,
+            acceptedAt: now,
+          }),
+        });
+        for (const consent of [
+          data.marketingEmailConsent ? MARKETING_EMAIL_CONSENT : null,
+          data.marketingTelegramConsent ? MARKETING_TELEGRAM_CONSENT : null,
+        ]) {
+          if (!consent) continue;
+          const kind = consent.id === MARKETING_EMAIL_CONSENT.id ? 'marketing_email' : 'marketing_telegram';
+          await tx.consentRecord.create({
+            data: {
+              ...consentEvidenceData(consent, {
+                leadId: lead.id,
+                registrationId: registration.id,
+                email,
+                kind,
+                sourceForm: '/crisis_premium/catalog-webinar.html',
+                req,
+                occurredAt: now,
+              }),
+              action: evidenceAction,
+            },
+          });
+        }
+      }
+
+      if (issueParticipantSession) {
+        await linkVerifiedRegistrationToCrm(tx, registration.id, now);
+        await tx.registrationToken.create({
+          data: {
+            registrationId: registration.id,
+            tokenHash: sessionTokenHash,
+            purpose: ROOM_SESSION_TOKEN_PURPOSE,
+            expiresAt: sessionExpiresAt,
+          },
+        });
+      }
+
+      if (shouldEnqueueEmailOutbox()) {
+        const enqueue = alreadyActive && !issueParticipantSession ? enqueueParticipantLoginEmail : enqueueRegistrationEmail;
+        await enqueue(tx, {
+          registrationId: registration.id,
+          webinarSessionId: target.id,
+          toEmail: lead.email,
+          toName: lead.name,
+          scheduledAt: target.scheduledAt,
+        });
+      }
+
+      return { registration, lead, issueParticipantSession };
+    });
+
+    if (!result.issueParticipantSession) {
+      await sendGenericEmailResponse(res, 'registration');
+      return;
+    }
+
+    setRoomTokenCookie(res, sessionToken, sessionExpiresAt);
+    await saveEventSafely(
+      {
+        eventName: 'registration_submit',
+        req,
+        registration: result.registration,
+        page: '/crisis_premium/catalog-webinar.html',
+        source: clean(data.source) ?? 'public_catalog',
+        webinarSessionId: target.id,
+      },
+      'catalog_registration',
+    );
+    res.status(201).json({
+      ok: true,
+      verificationRequired: false,
+      accountUrl: buildFrontendUrl('/crisis_premium/account.html'),
+      roomUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
+      registration: {
+        id: result.registration.id,
+        webinarId: target.webinarId,
+        webinarSessionId: target.id,
+        status: result.registration.status,
       },
     });
   }),
@@ -1038,9 +1354,19 @@ async function sendRegistrationState(req: Request, res: Response) {
 
   if (view === 'room') {
     if (access.canViewRoom) {
-      await prisma.registration.updateMany({
-        where: { id: registration.id, status: 'registered' },
-        data: { roomEnteredAt: registration.roomEnteredAt ?? now },
+      await prisma.$transaction(async tx => {
+        await tx.registration.updateMany({
+          where: { id: registration.id, status: 'registered' },
+          data: { roomEnteredAt: registration.roomEnteredAt ?? now },
+        });
+        await recordCrmScoreSignalForRegistration(
+          tx,
+          registration.id,
+          'room_entered',
+          'registration',
+          registration.id,
+          registration.roomEnteredAt ?? now,
+        );
       });
       await saveEventSafely(
         {

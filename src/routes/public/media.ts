@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Router, type Request, type Response } from 'express';
+import { z } from 'zod';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { getPrivateMediaStorageAdapter, type MediaObjectResponse } from '../../lib/mediaStorage.js';
@@ -10,12 +11,19 @@ import { prisma } from '../../lib/prisma.js';
 import { getWebinarVideoConfig } from '../../lib/webinarVideo.js';
 import { canAccessRegisteredWebinar } from '../../lib/tenancy/webinarAccess.js';
 import { buildAccessPayload, buildDailyRoomAccessPayload, findRegistrationForRequest } from './helpers.js';
+import { renderTranscriptVtt } from '../../lib/tenancy/transcripts.js';
 
 export const mediaRouter = Router();
 
 const frontendDir = path.resolve(process.cwd(), 'crisis_premium');
 const MEDIA_FETCH_TIMEOUT_MS = 15_000;
 const MAX_MANIFEST_BYTES = 1_048_576;
+const captionsParamsSchema = z
+  .object({
+    sessionId: z.string().min(1).max(191),
+    transcriptId: z.string().min(1).max(191),
+  })
+  .strict();
 
 type MediaContext = {
   resourcePath: (encoded: string) => string;
@@ -182,6 +190,47 @@ async function requireCurrentVersionedMedia(req: Request) {
   const storage = getPrivateMediaStorageAdapter();
   if (!storage.readObject) versionedMediaUnavailable();
   return { asset, storage };
+}
+
+async function requireCurrentPublishedTranscript(req: Request) {
+  const { sessionId, transcriptId } = captionsParamsSchema.parse(req.params);
+  const registration = await findRegistrationForRequest(req);
+  if (!registration) versionedMediaUnavailable();
+  const access = await buildDailyRoomAccessPayload(registration, new Date());
+  if (!access.canEnterRoom || access.webinarSession.id !== sessionId) versionedMediaUnavailable();
+
+  const transcript = await prisma.$transaction(
+    async tx => {
+      const webinar = await tx.webinar.findFirst({
+        where: {
+          id: access.webinarSession.webinarId,
+          organizationId: access.webinarSession.organizationId,
+        },
+        select: { currentMediaAssetId: true },
+      });
+      if (!webinar?.currentMediaAssetId) return null;
+      return tx.transcript.findFirst({
+        where: {
+          id: transcriptId,
+          organizationId: access.webinarSession.organizationId,
+          webinarId: access.webinarSession.webinarId,
+          mediaAssetId: webinar.currentMediaAssetId,
+          status: 'PUBLISHED',
+        },
+        select: {
+          id: true,
+          version: true,
+          segments: {
+            orderBy: { orderIndex: 'asc' },
+            select: { startMs: true, endMs: true, speaker: true, text: true },
+          },
+        },
+      });
+    },
+    { isolationLevel: 'RepeatableRead' },
+  );
+  if (!transcript) versionedMediaUnavailable();
+  return transcript;
 }
 
 function validRangeHeader(req: Request) {
@@ -419,6 +468,18 @@ mediaRouter.get(
     const { asset, storage } = await requireCurrentVersionedMedia(req);
     const posterKey = asset.posterStorageKey ?? versionedMediaUnavailable();
     await sendVersionedObject(res, await readVersionedObject(storage, posterKey, validRangeHeader(req)));
+  }),
+);
+
+mediaRouter.get(
+  '/media/webinar/:sessionId/captions/:transcriptId',
+  asyncHandler(async (req, res) => {
+    const transcript = await requireCurrentPublishedTranscript(req);
+    setVersionedMediaHeaders(res);
+    res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="captions.vtt"');
+    res.setHeader('X-ASPB-Transcript-Version', String(transcript.version));
+    res.send(renderTranscriptVtt(transcript.segments));
   }),
 );
 

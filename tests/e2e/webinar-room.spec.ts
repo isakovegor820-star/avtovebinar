@@ -14,10 +14,16 @@ import {
 import { hashWebinarAccessEmail } from '../../src/lib/tenancy/webinarAccess.js';
 import { runMediaJobOnce } from '../../src/lib/tenancy/mediaPipeline.js';
 import { runContentJobOnce } from '../../src/lib/tenancy/transcripts.js';
+import { linkVerifiedRegistrationToCrm } from '../../src/lib/tenancy/crm.js';
+import {
+  MARKETING_EMAIL_CONSENT,
+  MARKETING_TELEGRAM_CONSENT,
+  consentEvidenceData,
+} from '../../src/lib/consentDocuments.js';
 
 async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, user_auth_tokens, user_sessions, user_auth_email_jobs, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
+    'TRUNCATE TABLE crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, user_auth_tokens, user_sessions, user_auth_email_jobs, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
   );
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
@@ -205,8 +211,16 @@ test('anonymous visitor sees the access gate only inside the video window', asyn
   await expect(page.locator('#webinarChatPanel')).toBeVisible();
   await expect(page.locator('#questionInput')).toBeDisabled();
   await expect(page.locator('#timelineActive')).toBeHidden();
+  await expect(page.locator('#roomLearningContent')).toBeHidden();
+  await expect(page.locator('#roomMaterialsPanel')).toBeHidden();
+  await expect(page.locator('#liveChatMessages')).toHaveAttribute('data-state', 'unavailable');
   await expect(page.locator('#webinarStatusText')).toContainText('Войдите по email');
   await expect(page.locator('header')).toBeVisible();
+
+  await page.goto('/crisis_premium/account.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-account-mode', 'error');
+  await expect(page.getByRole('heading', { level: 1, name: 'Кабинет недоступен' })).toBeVisible();
+  await expect(page.locator('#accountErrorText')).toContainText('безопасной ссылке из письма');
 });
 
 test('platform magic link creates a cookie-only tenant session and removes the fragment token', async ({ page }) => {
@@ -264,6 +278,270 @@ test('platform magic link creates a cookie-only tenant session and removes the f
   await page.locator('#platformLogoutButton').click();
   await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'login');
   expect((await page.context().cookies()).find(cookie => cookie.name === 'aspb_user_session')).toBeUndefined();
+});
+
+test('owner filters tenant CRM, manages a task and records an audited stage transition', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  const organization = await prisma.organization.create({
+    data: { name: 'CRM-команда E2E', slug: `crm-e2e-${Date.now()}`, status: 'ACTIVE' },
+  });
+  const owner = await prisma.user.create({
+    data: {
+      emailNormalized: `crm-e2e-owner-${Date.now()}@example.test`,
+      displayName: 'Владелец CRM',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+      memberships: {
+        create: {
+          organizationId: organization.id,
+          role: 'OWNER',
+          status: 'ACTIVE',
+          permissionsJson: { crm: { export: true } },
+        },
+      },
+    },
+  });
+  const ownerMembership = await prisma.organizationMembership.findFirstOrThrow({
+    where: { organizationId: organization.id, userId: owner.id },
+  });
+  const webinar = await prisma.webinar.create({
+    data: {
+      organizationId: organization.id,
+      slug: `crm-e2e-webinar-${Date.now()}`,
+      title: 'Договорные риски для CRM',
+      contentStatus: 'PUBLISHED',
+      visibility: 'PUBLIC',
+    },
+  });
+  const session = await prisma.webinarSession.create({
+    data: {
+      organizationId: organization.id,
+      webinarId: webinar.id,
+      title: webinar.title,
+      scheduledAt: new Date('2032-01-15T16:30:00.000Z'),
+      timezone: 'Europe/Moscow',
+    },
+  });
+  const participant = await prisma.user.create({
+    data: {
+      emailNormalized: `crm-e2e-contact-${Date.now()}@example.test`,
+      displayName: 'Мария Договорова',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  const lead = await prisma.lead.create({
+    data: {
+      name: 'Мария Договорова',
+      phone: '+7 999 555-44-33',
+      email: participant.emailNormalized,
+      source: 'crm_browser_e2e',
+      consent: true,
+      marketingConsent: true,
+      marketingEmailConsent: true,
+      marketingEmailConsentAt: new Date(),
+      marketingTelegramConsent: true,
+      marketingTelegramConsentAt: new Date(),
+      telegramChatId: '777000555',
+      telegramBindingVersion: TELEGRAM_BINDING_VERSION,
+    },
+  });
+  const registration = await prisma.registration.create({
+    data: {
+      leadId: lead.id,
+      webinarSessionId: session.id,
+      organizationId: organization.id,
+      webinarId: webinar.id,
+      userId: participant.id,
+      accessPolicy: 'PUBLIC_CATALOG',
+      accessTokenHash: hashToken(createAccessToken()),
+      status: 'registered',
+      emailVerifiedAt: new Date('2026-08-21T12:05:00.000Z'),
+      roomEnteredAt: new Date('2026-08-21T12:10:00.000Z'),
+    },
+  });
+  const contact = await prisma.$transaction(tx =>
+    linkVerifiedRegistrationToCrm(tx, registration.id, new Date('2026-08-21T12:05:00.000Z')),
+  );
+  await prisma.viewerNotificationPreference.create({
+    data: {
+      organizationId: organization.id,
+      userId: participant.id,
+      marketingEmailEnabled: true,
+      marketingTelegramEnabled: true,
+    },
+  });
+  const consentReq = { headers: { 'user-agent': 'crm-e2e' }, ip: '127.0.0.1' };
+  await prisma.consentRecord.createMany({
+    data: [
+      consentEvidenceData(MARKETING_EMAIL_CONSENT, {
+        leadId: lead.id,
+        registrationId: registration.id,
+        email: lead.email,
+        kind: 'marketing_email',
+        sourceForm: 'crm-e2e',
+        req: consentReq,
+      }),
+      consentEvidenceData(MARKETING_TELEGRAM_CONSENT, {
+        leadId: lead.id,
+        registrationId: registration.id,
+        email: lead.email,
+        kind: 'marketing_telegram',
+        sourceForm: 'crm-e2e',
+        req: consentReq,
+      }),
+    ],
+  });
+  await prisma.question.create({
+    data: {
+      leadId: lead.id,
+      registrationId: registration.id,
+      webinarSessionId: session.id,
+      text: 'Какие условия договора проверить?',
+    },
+  });
+  const rawToken = createAccessToken();
+  await prisma.userAuthToken.create({
+    data: {
+      userId: owner.id,
+      tokenHash: hashToken(rawToken),
+      purpose: 'PASSWORDLESS_LOGIN',
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+  });
+
+  await page.goto(`/crisis_premium/platform-access.html#token=${rawToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'ready');
+  await page.goto('/crisis_premium/crm.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-crm-mode', 'content');
+  await expect(page.locator('#crmContactCount')).toHaveText('Найдено контактов: 1');
+
+  await page.locator('#crmFilters input[name="source"]').fill('crm_browser_e2e');
+  const filteredContactsResponse = page.waitForResponse(
+    response => response.url().includes('/api/v1/crm/contacts?') && response.status() === 200,
+  );
+  await page.getByRole('button', { name: 'Применить фильтры' }).click();
+  await filteredContactsResponse;
+  await expect(page).toHaveURL(/source=crm_browser_e2e/);
+  const contactButton = page.locator('.crm-contact-button');
+  await contactButton.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#crmContactName')).toHaveText('Мария Договорова');
+  await expect(page.locator('#crmTimeline')).toContainText('Какие условия договора проверить?');
+  await expect(page.locator('#crmScoreValue')).toHaveText('10 баллов');
+  await expect(page.locator('#crmScoreFactors')).toContainText('Регистрация: 1 × 10 = 10');
+
+  const crmEmailSubject = 'Материалы по договорным рискам';
+  const crmEmailMessage = 'В кабинете доступен новый материал по теме вебинара.';
+  await expect(page.locator('#crmDeliveryForm select[name="registrationId"]')).toHaveAccessibleName('Регистрация и сессия');
+  await page.locator('#crmDeliveryForm select[name="channel"]').selectOption('EMAIL');
+  await page.locator('#crmDeliveryForm input[name="subject"]').fill(crmEmailSubject);
+  await page.locator('#crmDeliveryForm textarea[name="message"]').fill(crmEmailMessage);
+  await page.locator('#crmDeliverySubmit').click();
+  await expect(page.locator('#crmDeliveryStatus')).toContainText('Worker повторно проверит согласие');
+  await expect(page.locator('#crmDeliveryList')).toContainText('Email · ожидает');
+  await expect(page.locator('#crmTimeline')).toContainText('Email поставлено в очередь');
+  await expect(page.locator('#crmDeliverySection')).not.toContainText(crmEmailSubject);
+  await expect(page.locator('#crmDeliverySection')).not.toContainText(crmEmailMessage);
+  await expect(
+    prisma.cRMDelivery.findFirstOrThrow({ where: { organizationId: organization.id, contactId: contact!.id } }),
+  ).resolves.toMatchObject({ status: 'PENDING', registrationId: registration.id, channel: 'EMAIL' });
+
+  await page.locator('#crmCreateTagForm input[name="name"]').fill('Нужна консультация');
+  await page.locator('#crmCreateTagForm select[name="colorToken"]').selectOption('amber');
+  await page.locator('#crmCreateTagForm button[type="submit"]').click();
+  await expect(page.locator('#crmTagManagementStatus')).toHaveText('Тег создан внутри организации.');
+  await page.locator('#crmAssignTagForm select[name="tagId"]').selectOption({ label: 'Нужна консультация' });
+  await page.locator('#crmAssignTagForm button[type="submit"]').click();
+  await expect(page.locator('#crmAssignTagStatus')).toHaveText('Тег добавлен к контакту.');
+  await expect(page.locator('#crmContactTags')).toContainText('Нужна консультация');
+
+  await page.locator('#crmManualHotForm select[name="mode"]').selectOption('HOT');
+  await page.locator('#crmManualHotForm textarea[name="reason"]').fill('Подтверждён запрос на консультацию');
+  await page.locator('#crmManualHotForm button[type="submit"]').click();
+  await expect(page.locator('#crmManualHotStatus')).toHaveText('Ручное решение сохранено с причиной.');
+  await expect(page.locator('#crmHotStatus')).toContainText('Горячий — ручное решение');
+  await expect(page.locator('#crmHotStatus')).toContainText('Подтверждён запрос на консультацию');
+  await expect(
+    prisma.auditLog.count({
+      where: {
+        organizationId: organization.id,
+        entityId: contact!.id,
+        action: { in: ['crm.contact.tag_assigned', 'crm.contact.manual_hot_changed'] },
+      },
+    }),
+  ).resolves.toBe(2);
+
+  await page.locator('#crmCreateTagForm input[name="name"]').fill('Массовая проверка');
+  await page.locator('#crmCreateTagForm select[name="colorToken"]').selectOption('blue');
+  await page.locator('#crmCreateTagForm button[type="submit"]').click();
+  await expect(page.locator('#crmTagManagementStatus')).toHaveText('Тег создан внутри организации.');
+  await page.locator('#crmBulkForm select[name="tagId"]').selectOption({ label: 'Массовая проверка' });
+  await page.locator('#crmBulkPreviewButton').click();
+  await expect(page.locator('#crmBulkPreviewStatus')).toContainText('Проверено: 1 контакт.');
+  await expect(page.locator('#crmBulkExecuteButton')).toBeEnabled();
+  await page.locator('#crmBulkExecuteButton').click();
+  await expect(page.locator('#crmBulkResultSummary')).toHaveText('Успешно: 1. Не выполнено: 0.');
+  await expect(page.locator('#crmContactTags')).toContainText('Массовая проверка');
+  await expect(
+    prisma.auditLog.count({
+      where: { organizationId: organization.id, action: 'crm.bulk.executed' },
+    }),
+  ).resolves.toBe(1);
+
+  const exportDownload = page.waitForEvent('download');
+  await page.locator('#crmExportButton').click();
+  const download = await exportDownload;
+  expect(download.suggestedFilename()).toMatch(/^crm-contacts-\d{4}-\d{2}-\d{2}\.csv$/);
+  await expect(page.locator('#crmExportStatus')).toHaveText('CSV сформирован. Строк данных: 1.');
+  await expect(
+    prisma.auditLog.count({
+      where: { organizationId: organization.id, action: 'crm.contacts.exported' },
+    }),
+  ).resolves.toBe(1);
+
+  await expect(page.locator('#crmQueueWithoutTask strong')).toHaveText('1');
+  await page.locator('#crmTaskForm input[name="title"]').fill('Позвонить по условиям договора');
+  await page.locator('#crmTaskForm select[name="assigneeMembershipId"]').selectOption(ownerMembership.id);
+  await page.locator('#crmTaskForm select[name="priority"]').selectOption('HIGH');
+  await page.locator('#crmTaskForm input[name="dueLocal"]').fill('2031-01-15T16:00');
+  await page.locator('#crmTaskForm input[name="reminderLocal"]').fill('2031-01-15T15:00');
+  await page.locator('#crmTaskForm textarea[name="description"]').fill('Уточнить перечень документов');
+  await page.locator('#crmTaskForm button[type="submit"]').click();
+  await expect(page.locator('#crmTaskFormStatus')).toHaveText('Задача создана.');
+  await expect(page.locator('#crmTaskList')).toContainText('Позвонить по условиям договора');
+  await expect(page.locator('#crmTaskList')).toContainText('высокий');
+  await expect(page.locator('#crmNextContact')).toContainText('2031');
+  await expect(page.locator('#crmQueueWithoutTask strong')).toHaveText('0');
+  await page.getByRole('button', { name: 'Завершить задачу «Позвонить по условиям договора»' }).click();
+  await expect(page.locator('#crmTaskFormStatus')).toHaveText('Задача завершена.');
+  await expect(page.locator('#crmTaskList')).toContainText('завершена');
+  await expect(page.locator('#crmNextContact')).toHaveText('Не назначен');
+  await expect(page.locator('#crmQueueWithoutTask strong')).toHaveText('1');
+  await expect(
+    prisma.auditLog.count({
+      where: { organizationId: organization.id, entityType: 'crm_task', action: { in: ['crm.task.created', 'crm.task.updated'] } },
+    }),
+  ).resolves.toBe(2);
+
+  const lostStage = await prisma.cRMStage.findFirstOrThrow({
+    where: { organizationId: organization.id, pipelineId: contact!.pipelineId, code: 'lost' },
+  });
+  await page.locator('#crmStageForm select[name="stageId"]').selectOption(lostStage.id);
+  await expect(page.locator('#crmLostReasonField')).toBeVisible();
+  await page.locator('#crmLostReasonField textarea').fill('Нет подтверждённой потребности');
+  await page.locator('#crmStageForm button[type="submit"]').click();
+  await expect(page.locator('#crmStageStatus')).toHaveText('Этап контакта сохранён.');
+  await expect(prisma.registration.findUniqueOrThrow({ where: { id: registration.id } })).resolves.toMatchObject({
+    crmStatus: 'lost',
+  });
+  await expect(
+    prisma.auditLog.count({
+      where: { organizationId: organization.id, entityId: contact!.id, action: 'crm.contact.stage_changed' },
+    }),
+  ).resolves.toBe(1);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
 });
 
 test('organization invitation creates the bound membership and signs the invitee in', async ({ page }) => {
@@ -675,7 +953,7 @@ test('creator builds a private Webinar scenario and previews it without particip
   interruptSecondPart = false;
   await page.locator('#creatorUploadButton').click();
   await expect.poll(async () => prisma.mediaJob.count({ where: { status: 'PENDING' } })).toBe(1);
-  expect(uploadedPartNumbers).toEqual([1, 2, 2]);
+  expect(uploadedPartNumbers).toEqual([1, 2, 2, 2, 2]);
   await expect(runMediaJobOnce(prisma)).resolves.toMatchObject({ checked: 1, ready: 1 });
   await page.locator('#creatorMediaRefreshButton').click();
   await expect(page.locator('#creatorMediaSummary')).toContainText('Готово');
@@ -709,7 +987,7 @@ test('creator builds a private Webinar scenario and previews it without particip
   const scenarioRow = page.locator('.creator-scenario-row').first();
   await scenarioRow.locator('[data-field="offsetSeconds"]').fill('120');
   await scenarioRow.locator('[data-field="kind"]').selectOption('PREPARED_QUESTION');
-  await scenarioRow.locator('[data-field="authorLabel"]').fill('Подготовленный вопрос');
+  await scenarioRow.locator('[data-field="status"]').selectOption('APPROVED');
   await scenarioRow
     .locator('[data-field="text"]')
     .fill('Какие условия договора чаще всего создают риск для предпринимателя?');
@@ -917,8 +1195,12 @@ test('public catalog restores URL filters and never exposes closed Webinar recor
   await expect(page.locator('#detailTitle')).toHaveText(webinar.title);
   await expect(page.locator('#detailAuthor')).toHaveText('Мария Юристова');
   await expect(page.locator('#detailSources')).toContainText('Официальный источник по договорному праву');
-  await expect(page.locator('#detailRegistrationButton')).toBeDisabled();
-  await expect(page.locator('#detailRegistrationHint')).toContainText('не отправляет заявку');
+  await expect(page.locator('#detailRegistrationButton')).toBeEnabled();
+  await expect(page.locator('#detailRegistrationButton')).toHaveText('Зарегистрироваться');
+  await expect(page.locator('#detailRegistrationName')).toHaveAccessibleName('Имя');
+  await expect(page.locator('#detailRegistrationEmail')).toHaveAccessibleName('Email');
+  await expect(page.locator('#detailRegistrationPhone')).toHaveAccessibleName('Телефон');
+  await expect(page.locator('#detailRegistrationHint')).toContainText('подтвердите email');
   await expect(
     Promise.all([
       prisma.lead.count(),
@@ -929,6 +1211,266 @@ test('public catalog restores URL filters and never exposes closed Webinar recor
   ).resolves.toEqual(sideEffectsBefore);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test('catalog registration opens a private viewer account with progress, notes and separate consent settings', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await installDeterministicMediaClock(page);
+  const suffix = Date.now();
+  const organization = await prisma.organization.create({
+    data: { name: 'Кабинет юридической практики', slug: `viewer-flow-${suffix}`, status: 'ACTIVE' },
+  });
+  const authorUser = await prisma.user.create({
+    data: {
+      emailNormalized: `viewer-flow-author-${suffix}@example.test`,
+      displayName: 'Автор кабинета',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: { organizationId: organization.id, userId: authorUser.id, role: 'AUTHOR', status: 'ACTIVE' },
+  });
+  const author = await prisma.authorProfile.create({
+    data: {
+      organizationId: organization.id,
+      userId: authorUser.id,
+      slug: `viewer-flow-author-${suffix}`,
+      publicName: 'Анна Правова',
+      verificationStatus: 'VERIFIED',
+    },
+  });
+  const webinar = await prisma.webinar.create({
+    data: {
+      organizationId: organization.id,
+      authorProfileId: author.id,
+      slug: `viewer-flow-webinar-${suffix}`,
+      title: 'Договорная работа без лишних рисков',
+      description: 'Практический вебинар для проверки полного пути зрителя.',
+      contentStatus: 'PUBLISHED',
+      visibility: 'PUBLIC',
+      freshnessStatus: 'CURRENT',
+      format: 'PREMIERE',
+      durationMinutes: 65,
+      publishedAt: new Date(),
+    },
+  });
+  const session = await prisma.webinarSession.create({
+    data: {
+      organizationId: organization.id,
+      webinarId: webinar.id,
+      title: webinar.title,
+      scheduledAt: new Date(Date.now() - 70 * 60_000),
+      timezone: 'Europe/Moscow',
+      durationMinutes: 65,
+      videoDurationSeconds: 3860,
+      replayAvailableHours: 168,
+    },
+  });
+  const mediaAsset = await prisma.mediaAsset.create({
+    data: {
+      organizationId: organization.id,
+      webinarId: webinar.id,
+      createdByUserId: authorUser.id,
+      version: 1,
+      status: 'READY',
+      progressPercent: 100,
+      originalFileName: 'viewer-replay.mp4',
+      mimeType: 'video/mp4',
+      sizeBytes: 1_024n,
+      checksumSha256: 'a'.repeat(64),
+      storageKey: `e2e/viewer-replay-${suffix}/source.mp4`,
+      manifestStorageKey: `e2e/viewer-replay-${suffix}/master.m3u8`,
+      posterStorageKey: `e2e/viewer-replay-${suffix}/poster.jpg`,
+      durationSeconds: 3860,
+      readyAt: new Date(),
+      integrityVerifiedAt: new Date(),
+    },
+  });
+  await prisma.webinar.update({
+    where: { id: webinar.id },
+    data: { currentMediaAssetId: mediaAsset.id, mediaStatus: 'READY' },
+  });
+  const viewerEmail = `viewer-flow-${suffix}@example.test`;
+  const detailUrl = `/crisis_premium/catalog-webinar.html?organization=${organization.slug}&webinar=${webinar.slug}`;
+
+  await page.goto(detailUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-detail-mode', 'content');
+  await page.locator('#detailRegistrationName').fill('Зритель Кабинета');
+  await page.locator('#detailRegistrationEmail').fill(viewerEmail);
+  await page.locator('#detailRegistrationPhone').fill('+79990001234');
+  await page.locator('input[name="personalDataConsent"]').check();
+  await page.locator('input[name="termsAccepted"]').check();
+  await page.locator('#detailRegistrationButton').click();
+  await expect(page.locator('#detailRegistrationStatus')).toContainText('Проверьте почту');
+
+  await expect
+    .poll(() =>
+      prisma.registration.findFirst({
+        where: { webinarSessionId: session.id },
+        select: { id: true, organizationId: true, webinarId: true, userId: true, status: true },
+      }),
+    )
+    .toMatchObject({
+      organizationId: organization.id,
+      webinarId: webinar.id,
+      userId: expect.any(String),
+      status: 'pending_verification',
+    });
+
+  const token = await deliverNextEmailToken();
+  await page.goto(`/crisis_premium/webinar.html#token=${token}`, { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/webinar\.html$/);
+  await expect(page.locator('#roomNoteForm')).toBeVisible();
+  await expect(page.locator('#roomNotesPanel [data-room-block-state]')).toContainText('Заметок пока нет');
+
+  await page.locator('#webinarVideo').evaluate(async element => {
+    const video = element as HTMLVideoElement;
+    await video.play();
+    video.currentTime = 125;
+  });
+  await expect
+    .poll(async () =>
+      (
+        await prisma.viewerWebinarProgress.findUnique({
+          where: {
+            userId_organizationId_webinarSessionId: {
+              userId: (await prisma.registration.findFirstOrThrow({ where: { webinarSessionId: session.id } })).userId!,
+              organizationId: organization.id,
+              webinarSessionId: session.id,
+            },
+          },
+        })
+      )?.positionMs ?? 0,
+    )
+    .toBeGreaterThanOrEqual(124_000);
+  await page.locator('#webinarVideo').evaluate(element => {
+    const video = element as HTMLVideoElement;
+    video.pause();
+    video.currentTime = 125;
+  });
+  await expect(page.locator('#roomNoteTimestamp')).toContainText('02:05');
+  await page.locator('#roomNoteBody').fill('Проверить условие о неустойке <script>');
+  await page.getByRole('button', { name: 'Сохранить заметку' }).click();
+  await expect(page.locator('#roomNotesList')).toContainText('Проверить условие о неустойке <script>');
+  await expect(page.locator('#roomNotesList script')).toHaveCount(0);
+
+  const activeRegistration = await prisma.registration.findFirstOrThrow({
+    where: { webinarSessionId: session.id },
+  });
+  const expiredWebinar = await prisma.webinar.create({
+    data: {
+      organizationId: organization.id,
+      authorProfileId: author.id,
+      slug: `viewer-expired-${suffix}`,
+      title: 'Запись с истёкшим сроком',
+      contentStatus: 'PUBLISHED',
+      visibility: 'PUBLIC',
+      publishedAt: new Date(),
+    },
+  });
+  const revokedWebinar = await prisma.webinar.create({
+    data: {
+      organizationId: organization.id,
+      authorProfileId: author.id,
+      slug: `viewer-revoked-${suffix}`,
+      title: 'Вебинар с отозванным доступом',
+      contentStatus: 'PUBLISHED',
+      visibility: 'PUBLIC',
+      publishedAt: new Date(),
+    },
+  });
+  const [expiredSession, revokedSession] = await Promise.all([
+    prisma.webinarSession.create({
+      data: {
+        organizationId: organization.id,
+        webinarId: expiredWebinar.id,
+        title: expiredWebinar.title,
+        scheduledAt: new Date(Date.now() - 14 * 24 * 60 * 60_000),
+        durationMinutes: 60,
+        replayAvailableHours: 1,
+        timezone: 'Europe/Moscow',
+      },
+    }),
+    prisma.webinarSession.create({
+      data: {
+        organizationId: organization.id,
+        webinarId: revokedWebinar.id,
+        title: revokedWebinar.title,
+        scheduledAt: new Date(Date.now() + 24 * 60 * 60_000),
+        durationMinutes: 60,
+        timezone: 'Asia/Yekaterinburg',
+      },
+    }),
+  ]);
+  await prisma.registration.createMany({
+    data: [
+      {
+        leadId: activeRegistration.leadId,
+        webinarSessionId: expiredSession.id,
+        organizationId: organization.id,
+        webinarId: expiredWebinar.id,
+        userId: activeRegistration.userId,
+        accessPolicy: 'PUBLIC_CATALOG',
+        accessTokenHash: hashToken(createAccessToken()),
+        status: 'registered',
+        emailVerifiedAt: new Date(),
+      },
+      {
+        leadId: activeRegistration.leadId,
+        webinarSessionId: revokedSession.id,
+        organizationId: organization.id,
+        webinarId: revokedWebinar.id,
+        userId: activeRegistration.userId,
+        accessPolicy: 'PUBLIC_CATALOG',
+        accessTokenHash: hashToken(createAccessToken()),
+        status: 'revoked',
+        emailVerifiedAt: new Date(),
+      },
+    ],
+  });
+
+  await page.goto(detailUrl, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-detail-mode', 'content');
+  await page.locator('#detailFavoriteButton').click();
+  await expect(page.locator('#detailFavoriteButton')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#detailRegistrationStatus')).toContainText('не меняет правила доступа');
+
+  await page.goto('/crisis_premium/account.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-account-mode', 'content');
+  await expect(page.getByRole('heading', { level: 1, name: 'Мой кабинет' })).toBeVisible();
+  await expect(page.locator('#accountRecordings')).toContainText(webinar.title);
+  await expect(page.locator('#accountWatched')).toContainText(webinar.title);
+  await expect(page.locator('#accountWatched')).toContainText('1 заметка');
+  await expect(page.locator('#accountSaved')).toContainText(webinar.title);
+  await expect(page.locator('#accountRecordings')).toContainText('Europe/Moscow');
+  await expect(page.locator('#accountRecordings progress')).toHaveAttribute('aria-label', /Прогресс просмотра: [1-9]\d*%/);
+  await expect(page.locator('#accountUpcomingEmpty')).toContainText('Нет предстоящих вебинаров');
+  await expect(page.locator('#accountUnavailable')).toContainText(expiredWebinar.title);
+  await expect(page.locator('#accountUnavailable')).toContainText(revokedWebinar.title);
+  await expect(page.locator('#accountUnavailable button[data-action="activate-registration"]')).toHaveCount(0);
+  await expect(page.locator('input[name="serviceEmailEnabled"]')).toBeChecked();
+  await expect(page.locator('input[name="marketingEmailEnabled"]')).not.toBeChecked();
+  await page.locator('input[name="marketingEmailEnabled"]').check();
+  await page.getByRole('button', { name: 'Сохранить настройки' }).click();
+  await expect(page.locator('#accountSettingsStatus')).toContainText('Настройки сохранены');
+  await expect(page.locator('input[name="serviceEmailEnabled"]')).toBeChecked();
+  await expect(
+    prisma.viewerNotificationPreference.findFirstOrThrow({
+      where: { organizationId: organization.id, marketingEmailEnabled: true },
+    }),
+  ).resolves.toMatchObject({ serviceEmailEnabled: true });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+
+  await page.getByRole('button', { name: 'Продолжить просмотр' }).first().click();
+  await expect(page).toHaveURL(/webinar\.html$/);
+  await expect
+    .poll(() => page.locator('#webinarVideo').evaluate(element => (element as HTMLVideoElement).currentTime))
+    .toBeGreaterThanOrEqual(124);
+  await expect(page.locator('#roomNotesList')).toContainText('Проверить условие о неустойке');
 });
 
 test('registered waiting state keeps the room visible and the video closed', async ({ page }) => {
@@ -1414,6 +1956,256 @@ test('exchange token is removed from URL and daily room stays cookie-only', asyn
   await expect(page.locator('#partnerApplicationStatus')).toContainText('Заявка отправлена');
 });
 
+test('published room content, captions and player controls stay consistent and keyboard accessible', async ({ page }) => {
+  await installDeterministicMediaClock(page);
+  await page.addInitScript(() => {
+    let fullscreenElement: Element | null = null;
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => fullscreenElement,
+    });
+    HTMLElement.prototype.requestFullscreen = function requestFullscreen() {
+      fullscreenElement = document.getElementById('videoPlayerContainer');
+      document.dispatchEvent(new Event('fullscreenchange'));
+      return Promise.resolve();
+    };
+    document.exitFullscreen = function exitFullscreen() {
+      fullscreenElement = null;
+      document.dispatchEvent(new Event('fullscreenchange'));
+      return Promise.resolve();
+    };
+  });
+
+  const mediaAsset = await prisma.mediaAsset.create({
+    data: {
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      webinarId: DEFAULT_WEBINAR_ID,
+      createdByUserId: DEFAULT_SYSTEM_OWNER_USER_ID,
+      version: 1,
+      status: 'VALIDATING',
+      originalFileName: 'published-room.mp4',
+      mimeType: 'video/mp4',
+      sizeBytes: 1_024n,
+      storageKey: `e2e/published-room-${Date.now()}.mp4`,
+      durationSeconds: 3_860,
+    },
+  });
+  await prisma.webinar.update({
+    where: { id: DEFAULT_WEBINAR_ID },
+    data: { currentMediaAssetId: mediaAsset.id, mediaStatus: 'READY', transcriptStatus: 'PUBLISHED' },
+  });
+  const draft = await prisma.transcript.create({
+    data: {
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      webinarId: DEFAULT_WEBINAR_ID,
+      mediaAssetId: mediaAsset.id,
+      createdByUserId: DEFAULT_SYSTEM_OWNER_USER_ID,
+      version: 1,
+      status: 'DRAFT',
+      segments: {
+        create: {
+          orderIndex: 0,
+          startMs: 0,
+          endMs: 500,
+          speaker: 'Черновик',
+          text: 'СЕКРЕТНЫЙ ЧЕРНОВИК',
+        },
+      },
+    },
+  });
+  const published = await prisma.transcript.create({
+    data: {
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      webinarId: DEFAULT_WEBINAR_ID,
+      mediaAssetId: mediaAsset.id,
+      createdByUserId: DEFAULT_SYSTEM_OWNER_USER_ID,
+      reviewedByUserId: DEFAULT_SYSTEM_OWNER_USER_ID,
+      version: 2,
+      revision: 3,
+      status: 'PUBLISHED',
+      reviewedAt: new Date(),
+      publishedAt: new Date(),
+      segments: {
+        create: [
+          {
+            orderIndex: 0,
+            startMs: 0,
+            endMs: 500,
+            speaker: 'Эксперт АСПБ',
+            text: 'Проверенное введение в тему.',
+          },
+          {
+            orderIndex: 1,
+            startMs: 500,
+            endMs: 1_500,
+            speaker: 'Эксперт АСПБ',
+            text: 'Субсидиарная ответственность: основные признаки.',
+          },
+        ],
+      },
+    },
+  });
+  await prisma.webinarChapter.createMany({
+    data: [
+      {
+        organizationId: DEFAULT_ORGANIZATION_ID,
+        webinarId: DEFAULT_WEBINAR_ID,
+        transcriptId: published.id,
+        startMs: 500,
+        title: 'Основные признаки',
+        orderIndex: 0,
+      },
+      {
+        organizationId: DEFAULT_ORGANIZATION_ID,
+        webinarId: DEFAULT_WEBINAR_ID,
+        transcriptId: published.id,
+        startMs: 999_000,
+        title: 'За текущим моментом премьеры',
+        orderIndex: 1,
+      },
+    ],
+  });
+  await prisma.webinarSource.create({
+    data: {
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      webinarId: DEFAULT_WEBINAR_ID,
+      type: 'OFFICIAL_SOURCE',
+      title: 'Официальный источник E2E',
+      url: 'https://example.test/e2e-source',
+      accessedAt: new Date('2026-08-21T00:00:00.000Z'),
+      orderIndex: 0,
+    },
+  });
+
+  const { exchangeToken, session } = await createExchangeRegistration(`published-room-${Date.now()}@aspb.ru`);
+  await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/webinar\.html$/);
+  const cookieBanner = page.getByRole('dialog', { name: 'Уведомление об использовании cookie' });
+  if (await cookieBanner.isVisible()) {
+    await cookieBanner.getByRole('button', { name: 'Отклонить' }).click();
+  }
+
+  await expect(page.locator('#roomTranscriptPanel')).toContainText('Проверенное введение');
+  await expect(page.locator('#roomTranscriptPanel')).not.toContainText('СЕКРЕТНЫЙ ЧЕРНОВИК');
+  await expect(page.locator('#roomTranscriptVersion')).toHaveText('Версия 2');
+  await expect(page.locator('#roomChaptersList .room-chapter-item')).toHaveCount(2);
+  await expect(page.locator('#roomMaterialsPanel')).toContainText('Официальный источник E2E');
+  await expect(page.locator('#roomMaterialsPanel')).toContainText('Официальный источник');
+  await page.locator('#webinarVideo').dispatchEvent('waiting');
+  await expect(page.locator('#playerStateIndicator')).toHaveText('Видео загружается…');
+  await page.locator('#webinarVideo').dispatchEvent('canplay');
+  await expect(page.locator('#playerStateIndicator')).toBeHidden();
+
+  const search = page.locator('#roomTranscriptSearch');
+  await search.fill('субсидиарная');
+  await expect(page.locator('#roomTranscriptResultCount')).toHaveText('Найдено результатов: 1');
+  await search.press('ArrowDown');
+  await expect(page.locator('#roomTranscriptResults .room-transcript-seek')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#roomContentActionStatus')).toContainText('Переходим к 00:00');
+  const transcriptSeek = await page.locator('#customSeekBarContainer').evaluate((element: HTMLElement) => ({
+    live: Number(element.dataset.livePosition || 0),
+    viewer: Number(element.dataset.viewerPosition || 0),
+  }));
+  expect(transcriptSeek.viewer).toBeGreaterThanOrEqual(0);
+  expect(transcriptSeek.viewer).toBeLessThanOrEqual(transcriptSeek.live + 0.5);
+
+  const lateChapter = page.getByRole('button', { name: /За текущим моментом премьеры/ });
+  await lateChapter.click();
+  const liveBounded = await page.locator('#customSeekBarContainer').evaluate((element: HTMLElement) => ({
+    live: Number(element.dataset.livePosition || 0),
+    viewer: Number(element.dataset.viewerPosition || 0),
+  }));
+  expect(liveBounded.viewer).toBeLessThanOrEqual(liveBounded.live + 0.5);
+
+  await page.locator('#videoPlayerContainer').hover();
+  const captions = page.locator('#customCaptionsBtn');
+  await expect(captions).toBeEnabled();
+  await captions.focus();
+  await page.keyboard.press('Enter');
+  await expect(captions).toHaveAttribute('aria-pressed', 'true');
+
+  const playPause = page.locator('#customPlayPauseBtn');
+  await playPause.focus();
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(() => page.locator('#webinarVideo').evaluate((video: HTMLVideoElement) => video.paused))
+    .toBe(false);
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(() => page.locator('#webinarVideo').evaluate((video: HTMLVideoElement) => video.paused))
+    .toBe(true);
+
+  const mute = page.locator('#customMuteBtn');
+  await mute.focus();
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(() => page.locator('#webinarVideo').evaluate((video: HTMLVideoElement) => video.muted))
+    .toBe(false);
+
+  const seek = page.locator('#customSeekBarContainer');
+  await seek.focus();
+  const beforeKeyboardSeek = await page.locator('#webinarVideo').evaluate((video: HTMLVideoElement) => video.currentTime);
+  await page.keyboard.press('ArrowLeft');
+  const afterKeyboardSeek = await page.locator('#webinarVideo').evaluate((video: HTMLVideoElement) => video.currentTime);
+  expect(afterKeyboardSeek).toBeLessThanOrEqual(beforeKeyboardSeek);
+
+  const fullscreen = page.locator('#customFullscreenBtn');
+  await fullscreen.focus();
+  await page.keyboard.press('Enter');
+  await expect(fullscreen).toHaveAttribute('aria-label', 'Выйти из полноэкранного режима');
+  await page.keyboard.press('Enter');
+  await expect(fullscreen).toHaveAttribute('aria-label', 'Открыть видео на весь экран');
+
+  const captionsResponse = await page.request.get(
+    `/api/media/webinar/${session.id}/captions/${published.id}`,
+  );
+  expect(captionsResponse.ok()).toBeTruthy();
+  expect(await captionsResponse.text()).not.toContain('СЕКРЕТНЫЙ ЧЕРНОВИК');
+  expect(draft.id).not.toBe(published.id);
+
+  await page.setViewportSize({ width: 320, height: 760 });
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true);
+});
+
+test('player renders safe processing, error and unavailable states', async ({ page }) => {
+  const { exchangeToken } = await createExchangeRegistration(`media-states-${Date.now()}@aspb.ru`);
+  let mediaState: 'processing' | 'error' | 'unavailable' = 'processing';
+  await page.route('**/api/webinar/timeline/session/current', async route => {
+    const upstream = await route.fetch();
+    const payload = await upstream.json();
+    await route.fulfill({
+      response: upstream,
+      json: {
+        ...payload,
+        video: {
+          ...(payload.video || {}),
+          state: mediaState,
+          expected: false,
+          src: null,
+          hlsSrc: null,
+        },
+      },
+    });
+  });
+
+  await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#videoProcessing')).toBeVisible();
+  await expect(page.locator('#videoProcessing')).toContainText('Видео обрабатывается');
+
+  mediaState = 'error';
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#videoFallback')).toBeVisible();
+  await expect(page.locator('#videoFallback')).toContainText('Не удалось подготовить запись');
+
+  mediaState = 'unavailable';
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#videoFallback')).toBeVisible();
+  await expect(page.locator('#videoFallback')).toContainText('Запись для этой сессии пока недоступна');
+});
+
 test('registered participant does not see registration CTA in landing header', async ({ page }) => {
   const { exchangeToken } = await createExchangeRegistration(`landing-nav-${Date.now()}@aspb.ru`);
 
@@ -1459,4 +2251,284 @@ test('published recording stays available before the daily broadcast', async ({ 
   await expect(page.locator('#recordingsCount')).toContainText('запис');
   await expect(page.locator('#recordingVideo')).toHaveAttribute('src', /\/api\/media\/recording\/.+\/video/);
   await expect(page.locator('#recordingVideoFallback')).toBeHidden();
+});
+
+test('tenant moderator hides a message with a reason and keeps the screen usable at 320px', async ({ page }) => {
+  let hidden = false;
+  let revision = 0;
+  let mutationPayload: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/auth/session', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        authenticated: true,
+        activeOrganizationId: 'org_e2e',
+        memberships: [{ organizationId: 'org_e2e', role: 'MODERATOR' }],
+      }),
+    });
+  });
+  await page.route('**/api/v1/moderation/sessions', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        sessions: [
+          {
+            id: 'session_e2e',
+            webinarId: 'webinar_e2e',
+            webinarTitle: 'Безопасный чат',
+            title: 'Сессия модерации',
+            scheduledAt: '2026-08-21T18:00:00.000Z',
+            timezone: 'Europe/Moscow',
+            lifecycleStatus: 'SCHEDULED',
+            messageCount: 1,
+            hiddenCount: hidden ? 1 : 0,
+            blockedRegistrationCount: 0,
+          },
+        ],
+      }),
+    });
+  });
+  await page.route('**/api/v1/moderation/sessions/session_e2e/messages', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        session: {
+          id: 'session_e2e',
+          webinarId: 'webinar_e2e',
+          title: 'Сессия модерации',
+          scheduledAt: '2026-08-21T18:00:00.000Z',
+          timezone: 'Europe/Moscow',
+        },
+        messages: [
+          {
+            id: 'message_e2e',
+            registrationId: 'registration_e2e',
+            type: 'PARTICIPANT',
+            authorName: 'Участник',
+            authorRole: null,
+            message: 'Сообщение с персональными данными',
+            isSynthetic: false,
+            visibleAt: '2026-08-21T18:01:00.000Z',
+            hiddenAt: hidden ? '2026-08-21T18:02:00.000Z' : null,
+            hiddenReason: hidden ? 'Персональные данные' : null,
+            hiddenBy: hidden ? 'Модератор' : null,
+            moderationRevision: revision,
+            registrationChatBlockedAt: null,
+            registrationChatBlockedReason: null,
+          },
+        ],
+      }),
+    });
+  });
+  await page.route('**/api/v1/moderation/sessions/session_e2e/questions?queue=*', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, queue: 'new', questions: [] }),
+    });
+  });
+  await page.route('**/api/v1/moderation/sessions/session_e2e/messages/message_e2e', async route => {
+    mutationPayload = route.request().postDataJSON();
+    hidden = true;
+    revision += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        message: {
+          id: 'message_e2e',
+          hiddenAt: '2026-08-21T18:02:00.000Z',
+          hiddenReason: 'Персональные данные',
+          moderationRevision: revision,
+        },
+      }),
+    });
+  });
+
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.goto('/crisis_premium/moderation.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: 'Модерация вебинара', level: 1 })).toBeVisible();
+  await expect(page.getByText('Сообщение с персональными данными')).toBeVisible();
+  await expect(page.getByText('Участник', { exact: true }).last()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Скрыть сообщение' }).click();
+  await expect(page.locator('#moderationActionStatus')).toContainText('Укажите причину');
+  await expect(page.locator('[id^="moderationReason-"]')).toBeFocused();
+  await page.locator('[id^="moderationReason-"]').fill('Персональные данные');
+  await page.getByRole('button', { name: 'Скрыть сообщение' }).press('Enter');
+  await expect(page.locator('#moderationActionStatus')).toContainText('Сообщение скрыто');
+  expect(mutationPayload).toEqual({ action: 'HIDE', reason: 'Персональные данные', expectedRevision: 0 });
+  await expect(page.getByText('Скрыто', { exact: true })).toBeVisible();
+  const overflowingElements = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('body *')]
+      .filter(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.right > window.innerWidth + 1 || rect.left < -1;
+      })
+      .map(element => ({ tag: element.tagName, id: element.id, className: element.className, width: element.getBoundingClientRect().width })),
+  );
+  expect(overflowingElements).toEqual([]);
+});
+
+test('tenant moderator reviews a grounded question draft by keyboard at 320px', async ({ page }) => {
+  let revision = 0;
+  let status = 'NEW';
+  let suggestion: Record<string, unknown> | null = null;
+  let generatePayload: Record<string, unknown> | null = null;
+  let reviewPayload: Record<string, unknown> | null = null;
+  await page.route('**/api/v1/auth/session', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        authenticated: true,
+        activeOrganizationId: 'org_e2e',
+        memberships: [{ organizationId: 'org_e2e', role: 'MODERATOR' }],
+      }),
+    });
+  });
+  await page.route('**/api/v1/moderation/sessions', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        sessions: [
+          {
+            id: 'session_e2e',
+            webinarId: 'webinar_e2e',
+            webinarTitle: 'Основанная модерация',
+            title: 'Сессия вопросов',
+            scheduledAt: '2026-08-21T18:00:00.000Z',
+            timezone: 'Europe/Moscow',
+            lifecycleStatus: 'SCHEDULED',
+            messageCount: 0,
+            hiddenCount: 0,
+            blockedRegistrationCount: 0,
+          },
+        ],
+      }),
+    });
+  });
+  await page.route('**/api/v1/moderation/sessions/session_e2e/messages', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        session: {
+          id: 'session_e2e',
+          webinarId: 'webinar_e2e',
+          title: 'Сессия вопросов',
+          scheduledAt: '2026-08-21T18:00:00.000Z',
+          timezone: 'Europe/Moscow',
+        },
+        messages: [],
+      }),
+    });
+  });
+  await page.route('**/api/v1/moderation/sessions/session_e2e/questions?queue=*', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        queue: 'new',
+        questions: [
+          {
+            id: 'question_e2e',
+            registrationId: 'registration_e2e',
+            text: 'Какие признаки субсидиарной ответственности названы?',
+            participantLabel: 'Участник',
+            showToParticipants: false,
+            status,
+            priority: 'NORMAL',
+            revision,
+            repeatCount: 2,
+            createdAt: '2026-08-21T18:01:00.000Z',
+            suggestion,
+          },
+        ],
+      }),
+    });
+  });
+  await page.route('**/api/v1/moderation/sessions/session_e2e/questions/question_e2e/suggestions', async route => {
+    generatePayload = route.request().postDataJSON();
+    revision = 1;
+    status = 'IN_REVIEW';
+    suggestion = {
+      id: 'suggestion_e2e',
+      status: 'PENDING',
+      revision: 1,
+      answer: 'В опубликованной расшифровке найден связанный фрагмент.',
+      outcome: 'GROUNDED',
+      handoffRequired: false,
+      grounding: {
+        type: 'transcript',
+        transcriptId: 'transcript_e2e',
+        transcriptVersion: 3,
+        segmentId: 'segment_e2e',
+        timestampSeconds: 42,
+        label: '0:42',
+      },
+      createdAt: '2026-08-21T18:02:00.000Z',
+      reviewedAt: null,
+      publishedChatMessageId: null,
+    };
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ ok: true, suggestion }) });
+  });
+  await page.route(
+    '**/api/v1/moderation/sessions/session_e2e/questions/question_e2e/suggestions/suggestion_e2e/review',
+    async route => {
+      reviewPayload = route.request().postDataJSON();
+      revision = 2;
+      status = 'RESOLVED';
+      suggestion = { ...suggestion, status: 'ACCEPTED', reviewedAt: '2026-08-21T18:03:00.000Z', publishedChatMessageId: 'message_e2e' };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, suggestion, question: { id: 'question_e2e', moderationStatus: status, moderationRevision: revision } }),
+      });
+    },
+  );
+
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.goto('/crisis_premium/moderation.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: 'Очередь вопросов' })).toBeVisible();
+  await expect(page.getByText('Повторяется: 2')).toBeVisible();
+  await page.getByRole('button', { name: 'Подготовить основанный черновик' }).press('Enter');
+  await expect(page.getByText('Черновик AI-модератора', { exact: true })).toBeVisible();
+  await expect(page.getByText(/опубликованная расшифровка, версия 3, таймкод 0:42/)).toBeVisible();
+  expect(generatePayload).toEqual({ expectedRevision: 0 });
+
+  await page.getByRole('button', { name: 'Опубликовать после проверки' }).press('Enter');
+  await expect(page.locator('#moderationQuestionActionStatus')).toContainText('Укажите причину');
+  await expect(page.locator('#questionReason-question_e2e')).toBeFocused();
+  await page.locator('#questionReason-question_e2e').fill('Основание и формулировка проверены');
+  await page.getByRole('button', { name: 'Опубликовать после проверки' }).press('Enter');
+  await expect(page.locator('#moderationQuestionActionStatus')).toContainText('опубликован');
+  expect(reviewPayload).toEqual({
+    action: 'PUBLISH',
+    reason: 'Основание и формулировка проверены',
+    expectedQuestionRevision: 1,
+  });
+  await expect(page.locator('.moderation-message-state', { hasText: 'Решён' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Подготовить основанный черновик' })).toHaveCount(0);
+  const overflowingElements = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('body *')]
+      .filter(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.right > window.innerWidth + 1 || rect.left < -1;
+      })
+      .map(element => ({ tag: element.tagName, id: element.id, className: element.className, width: element.getBoundingClientRect().width })),
+  );
+  expect(overflowingElements).toEqual([]);
 });

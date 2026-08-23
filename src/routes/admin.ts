@@ -1363,7 +1363,10 @@ adminRouter.post(
           action: 'registration.telegram_reminder.send',
           entityType: 'registration',
           entityId: stillActive.id,
-          after: { chatId: stillActive.lead.telegramChatId, textLength: text.length },
+          after: {
+            chatHint: stillActive.lead.telegramChatId ? `***${stillActive.lead.telegramChatId.slice(-4)}` : null,
+            textLength: text.length,
+          },
         },
         tx,
       );
@@ -1718,7 +1721,10 @@ adminRouter.post(
       await acquireLeadSecurityLock(tx, question.registration.leadId);
       const activeQuestion = await tx.question.findFirst({
         where: getQuestionAccessWhere(adminReq, { id: question.id }),
-        include: { registration: { include: { lead: true } } },
+        include: {
+          registration: { include: { lead: true } },
+          webinarSession: { select: { organizationId: true, webinarId: true } },
+        },
       });
       if (!activeQuestion || !isParticipantRegistrationActive(activeQuestion.registration)) {
         throw new AppError(409, 'Регистрация участника больше не активна');
@@ -1726,8 +1732,11 @@ adminRouter.post(
       const chatMessage = await tx.webinarChatMessage.create({
         data: {
           webinarSessionId: activeQuestion.webinarSessionId,
-          registrationId: activeQuestion.registrationId,
+          organizationId: activeQuestion.webinarSession.organizationId,
+          webinarId: activeQuestion.webinarSession.webinarId,
+          registrationId: null,
           kind: MODERATOR_CHAT_KIND,
+          messageType: 'MODERATOR',
           authorName: MODERATOR_NAME,
           authorRole: MODERATOR_ROLE,
           message: text,
@@ -1864,6 +1873,7 @@ adminRouter.get(
           where: {
             webinarSessionId: session.id,
             visibleAt: { lte: now },
+            hiddenAt: null,
             OR: [{ registrationId: null }, { registration: { is: { chatBannedAt: null } } }],
           },
           orderBy: [{ visibleAt: 'asc' }, { createdAt: 'asc' }],

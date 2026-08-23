@@ -4,7 +4,7 @@ const statusLabels = { DRAFT: 'Черновик', NEEDS_REVIEW: 'Нужны из
 const visibilityLabels = { PUBLIC: 'Публичный', UNLISTED: 'По ссылке', PRIVATE: 'По приглашению' };
 const freshnessLabels = { CURRENT: 'Актуален', REVIEW_DUE: 'Требует проверки', OUTDATED: 'Устарел', SUPERSEDED: 'Заменён актуальной версией', UNKNOWN: 'Актуальность не определена' };
 const mediaLabels = { NOT_UPLOADED: 'Видео не загружено', PROCESSING: 'Видео обрабатывается', READY: 'Видео готово', FAILED: 'Ошибка обработки видео' };
-const kindLabels = { PREPARED_QUESTION: 'Подготовленный вопрос', MODERATOR_NOTICE: 'Подготовлено модератором', AUTHOR_PROMPT: 'Подготовлено автором' };
+const kindLabels = { PREPARED_QUESTION: 'Подготовленный вопрос', MODERATOR_NOTICE: 'Подготовленное объявление', AUTHOR_PROMPT: 'Подготовленная реплика автора' };
 
 function node(id) { return document.getElementById(id); }
 function setText(id, value) { node(id).textContent = value ?? ''; }

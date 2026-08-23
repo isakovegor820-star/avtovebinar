@@ -679,6 +679,20 @@ function transcriptTimestamp(milliseconds: number, separator: '.' | ',') {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}${separator}${String(millis).padStart(3, '0')}`;
 }
 
+function webVttText(value: string) {
+  return value.replace(/\s+/g, ' ').trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+export function renderTranscriptVtt(
+  segments: Array<{ startMs: number; endMs: number; speaker?: string | null; text: string }>,
+) {
+  const cues = segments.map((segment, index) => {
+    const speaker = segment.speaker ? `${webVttText(segment.speaker)}: ` : '';
+    return `${index + 1}\n${transcriptTimestamp(segment.startMs, '.')} --> ${transcriptTimestamp(segment.endMs, '.')}\n${speaker}${webVttText(segment.text)}`;
+  });
+  return `WEBVTT\n\n${cues.join('\n\n')}\n`;
+}
+
 export async function exportCreatorTranscript(
   db: PrismaClient,
   context: TenantContext,
@@ -697,14 +711,10 @@ export async function exportCreatorTranscript(
   });
   if (!transcript) unavailable();
   if (format === 'vtt') {
-    const cues = transcript.segments.map((segment, index) => {
-      const speaker = segment.speaker ? `${segment.speaker}: ` : '';
-      return `${index + 1}\n${transcriptTimestamp(segment.startMs, '.')} --> ${transcriptTimestamp(segment.endMs, '.')}\n${speaker}${segment.text}`;
-    });
     return {
       fileName: `${webinar.slug}-transcript-v${transcript.version}.vtt`,
       contentType: 'text/vtt; charset=utf-8',
-      content: `WEBVTT\n\n${cues.join('\n\n')}\n`,
+      content: renderTranscriptVtt(transcript.segments),
     };
   }
   const lines = transcript.segments.map(segment => {

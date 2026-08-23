@@ -4,6 +4,8 @@
 
 import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=remediation-20260804-3';
 import { hydrateTimeline } from './video.js?v=remediation-20260804-3';
+import { hydrateRoomContent } from './room-content.js?v=room-content-20260821-1';
+import { hydrateViewerRoom } from './viewer-room.js?v=viewer-account-1';
 import { hydrateSuccessPage } from './success.js?v=remediation-20260804-1';
 import { hydrateAccessPage } from './access.js?v=remediation-20260804-1';
 import { hydrateRecordingsPage } from './recordings.js?v=remediation-20260804-3';
@@ -27,12 +29,27 @@ async function exchangeCurrentUrlToken() {
   return true;
 }
 
+function canLoadProtectedRoomContent(data) {
+  return Boolean(
+    data?.canEnterRoom &&
+      !['waiting', 'pre_live', 'closed'].includes(data.accessStatus),
+  );
+}
+
+function hydrateRoomFeatures(data) {
+  return Promise.all([
+    hydrateTimeline(),
+    canLoadProtectedRoomContent(data) ? hydrateRoomContent() : Promise.resolve(null),
+    hydrateViewerRoom(data).catch(() => null),
+  ]);
+}
+
 async function refreshAfterTokenExchange() {
   const exchangedRoomToken = await exchangeCurrentUrlToken();
   if (!exchangedRoomToken) return;
 
   if (window.location.pathname.endsWith('webinar.html')) {
-    await hydrateWebinarRoom(() => hydrateTimeline()).catch(() => {});
+    await hydrateWebinarRoom(hydrateRoomFeatures).catch(() => {});
   } else {
     await Promise.all([
       hydrateParticipantCtas().catch(() => {}),
@@ -65,7 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // The protected room response contains its own server time, Telegram URLs and
     // webinar state. Going straight to it avoids two unrelated requests before
     // the access gate can be rendered on a cold visit.
-    await hydrateWebinarRoom(() => hydrateTimeline()).catch(() => {});
+    await hydrateWebinarRoom(hydrateRoomFeatures).catch(() => {});
   } else {
     await Promise.all([
       hydrateCurrentWebinar().catch(() => {}),

@@ -2,21 +2,37 @@
 
 Дата исследования: 21 августа 2026 года
 
-Статус: **техническая рекомендация принята в коде; договор, DPA, бюджет и production switch не утверждены**
+Статус: **для текущего односерверного контура выбран self-hosted persistent volume; production switch и эксплуатационная приёмка не выполнены**
 
 ## Решение
 
-Рекомендуемый production contour:
+Текущий выбранный contour, не требующий передачи видео внешнему провайдеру:
 
-1. Yandex Object Storage в регионе Россия, private bucket, отдельный service account с минимальными правами.
-2. Реализованный generic S3-compatible adapter для multipart upload/ListParts/complete/abort/private read.
-3. Собственный durable worker с `ffprobe`/`ffmpeg`: MP4/MOV/WebM validation, HLS VOD, JPEG poster и private OGG/Opus rendition для STT.
-4. На первом rollout — cookie-authorized application gateway для manifest, каждого segment/poster и Range. Bucket/origin остаётся закрытым.
-5. Yandex Cloud CDN не включать до нагрузочного теста и утверждения edge-auth схемы. Документированный secure-token механизм подписывает отдельные URL/path+expiry, но не заменяет серверную повторную проверку participant session, tenant, private grant и replay expiry.
+1. PostgreSQL хранит только metadata, tenant-связи, checkpoints, jobs, checksums и audit; исходные видео/HLS/poster/OGG не записываются в БД.
+2. Bytes хранятся в private persistent volume, общий для API и worker, вне web root. Каталоги создаются с `0700`, файлы — с `0600`; filesystem path не является публичным контрактом.
+3. Same-origin multipart endpoint перед каждым part проверяет User session, active tenant membership, связь AUTHOR с Webinar, CSRF, expiry, точный part number, `Content-Length` и MIME. После `fsync` сохраняются SHA-256 ETag и server checkpoint; restart восстанавливается из файловых checkpoints.
+4. Собственный durable worker с `ffprobe`/`ffmpeg` выполняет MP4/MOV/WebM signature/size/checksum/duration/codec validation, создаёт HLS VOD, JPEG poster и private OGG/Opus rendition.
+5. Manifest, каждый segment/poster и Range выдаются только через cookie-authorized application gateway с повторной проверкой `Organization`, `Webinar`, `WebinarSession`, registration, private grant и replay expiry.
+6. CDN выключен. S3-compatible adapter сохранён как необязательный будущий путь, но не активируется и не требует закупки/credentials для текущего контура.
 
 Multipart recovery учитывает окно между provider-side `CompleteMultipartUpload` и application transaction: `NoSuchUpload` при повторном `ListParts` не теряет загрузку; server checkpoints позволяют повторить complete, а `HeadObject` подтверждает MIME/размер до создания одного deduplicated job.
 
-Адаптер и worker добавлены, но безопасный default остаётся `MEDIA_STORAGE_PROVIDER=unconfigured`. Никакой provider resource или credential этим решением не создаётся.
+Local adapter, S3 adapter и worker добавлены, но безопасный default остаётся `MEDIA_STORAGE_PROVIDER=unconfigured`. Выбор self-hosted не включает production deploy, не создаёт внешний ресурс и не изменяет реальные credentials.
+
+### Граница соответствия MED-001
+
+Self-hosted endpoint передаёт каждую часть потоково и не буферизует полный файл
+в памяти, однако bytes всё равно проходят через Express. Это осознанное
+следствие выбранного односерверного контура и не равно требуемому в MED-001
+direct upload в object storage. Поэтому MED-001 для выбранного contour остаётся
+`in_progress`. Реализованный S3 adapter предоставляет direct presigned PUT, но
+станет выбранным путём только после отдельного provider/legal/budget решения и
+staging acceptance. Эта граница не переименовывается в «object storage» и не
+считается закрытой тестами local filesystem adapter.
+
+## Почему не PostgreSQL для video bytes
+
+PostgreSQL остаётся источником истины для транзакционных данных и авторизации. Большие исходники и HLS-сегменты имеют другой жизненный цикл и I/O-профиль; размещение их в таблицах увеличило бы WAL, размер backup/restore и конкуренцию дискового I/O с tenant/auth/CRM данными. Persistent media volume резервируется и восстанавливается отдельно, согласованно с DB snapshot.
 
 ## Decision matrix
 
@@ -50,7 +66,8 @@ HLS — это manifest и множество ресурсов. Требован
 
 См. `.env.production.example`:
 
-- `MEDIA_STORAGE_PROVIDER=unconfigured|s3|test_fake`;
+- `MEDIA_STORAGE_PROVIDER=unconfigured|local_fs|s3|test_fake`;
+- `MEDIA_LOCAL_ROOT` — абсолютный private path вне `crisis_premium`; в Docker зафиксирован `/var/lib/aspb/media` на named volume, одинаковый для API и worker;
 - `MEDIA_S3_ENDPOINT`, `MEDIA_S3_REGION`, `MEDIA_S3_BUCKET`;
 - `MEDIA_S3_ACCESS_KEY_ID`, `MEDIA_S3_SECRET_ACCESS_KEY`;
 - `MEDIA_S3_FORCE_PATH_STYLE`, `MEDIA_SIGNED_OPERATION_TTL_SECONDS`;
@@ -58,11 +75,22 @@ HLS — это manifest и множество ресурсов. Требован
 - `MEDIA_FFMPEG_PATH`, `MEDIA_FFPROBE_PATH`;
 - exact HTTPS allowlist `MEDIA_UPLOAD_CSP_ORIGINS`.
 
-`test_fake` разрешён только при `NODE_ENV=test`; production guard требует полный real config и отклоняет HTTP/localhost endpoint. Secrets не входят в репозиторий и не должны использоваться совместно со STT/AI.
+`test_fake` разрешён только при `NODE_ENV=test`. Production guard для `local_fs` требует абсолютный private root вне web root; readiness проверяет доступность и запись в volume без раскрытия пути. S3 guard требует полный real config и отклоняет HTTP/localhost endpoint. Secrets не входят в репозиторий и не должны использоваться совместно со STT/AI.
 
-## Внешняя точка утверждения
+## Операционная точка утверждения self-hosted
 
-До provider smoke обязательны письменные решения владельца бюджета и юриста/DPO:
+До staging switch необходимо утвердить и проверить:
+
+- persistent volume не является ephemeral container layer и одновременно смонтирован в API/worker;
+- capacity/inode alerts и запас под source + временные renditions + повторную обработку;
+- согласованный backup/restore пары PostgreSQL + media volume и контрольный playback после restore;
+- права Unix, запуск container не от root, отсутствие volume/web-root в static routes;
+- MP4/MOV/WebM, max size, повреждение, MIME/signature, duration limit, interrupted multipart, repeat complete, transcoder timeout, protected HLS/Range и cross-tenant acceptance;
+- Node gateway load profile. Переход к нескольким application hosts требует общего private filesystem с доказанной семантикой либо отдельного решения о S3; локальные диски разных hosts не считаются одним storage.
+
+## Внешняя точка утверждения для будущего S3/CDN
+
+Только если позднее выбран внешний S3/CDN, до provider smoke обязательны письменные решения владельца бюджета и юриста/DPO:
 
 - юридическое лицо поставщика, применимое право, DPA/поручение обработки, место всех replicas/backups/logs/support access;
 - перечень субпроцессоров и порядок уведомления;

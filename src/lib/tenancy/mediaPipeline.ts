@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import type { Readable } from 'node:stream';
 import type { OrganizationMembershipRole, Prisma, PrismaClient } from '@prisma/client';
 import { env } from '../env.js';
 import { AppError } from '../http.js';
@@ -211,17 +212,20 @@ export async function createMediaUpload(
   if (!webinar) unavailable();
 
   const assetId = crypto.randomUUID();
+  const uploadId = crypto.randomUUID();
   const storageKey = `organizations/${context.organizationId}/webinars/${webinarId}/assets/${assetId}/source`;
   const expiresAt = new Date(Date.now() + UPLOAD_TTL_MS);
   const signedOperationExpiresAt = new Date(Date.now() + env.MEDIA_SIGNED_OPERATION_TTL_SECONDS * 1_000);
+  const partOperationExpiresAt = storage.name === 'local_fs' ? expiresAt : signedOperationExpiresAt;
   const partCount = Math.ceil(Number(input.sizeBytes) / env.MEDIA_PART_SIZE_BYTES);
   let signed: Awaited<ReturnType<PrivateMediaStorageAdapter['createMultipartUpload']>>;
   try {
     signed = await storage.createMultipartUpload({
+      applicationUploadId: uploadId,
       storageKey,
       mimeType: input.mimeType,
       partCount,
-      expiresAt: signedOperationExpiresAt,
+      expiresAt: partOperationExpiresAt,
     });
   } catch (error) {
     if (error instanceof AppError) throw error;
@@ -261,6 +265,7 @@ export async function createMediaUpload(
       });
       const upload = await tx.mediaUpload.create({
         data: {
+          id: uploadId,
           organizationId: context.organizationId,
           assetId: asset.id,
           provider: storage.name,
@@ -347,6 +352,17 @@ export async function recordMediaUploadPart(
     }
     trustedPart = providerPart;
   }
+  return persistMediaUploadPartCheckpoint(db, context, role, uploadId, trustedPart, Boolean(providerParts));
+}
+
+async function persistMediaUploadPartCheckpoint(
+  db: MediaDb,
+  context: TenantContext,
+  role: OrganizationMembershipRole,
+  uploadId: string,
+  trustedPart: CompletedUploadPart,
+  reconciled: boolean,
+) {
   return db.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${uploadId}, 74185296))`;
     const upload = await tx.mediaUpload.findFirst({
@@ -370,7 +386,7 @@ export async function recordMediaUploadPart(
     const completedParts = [...byNumber.values()].sort((left, right) => left.partNumber - right.partNumber);
     await tx.mediaUpload.update({
       where: { id: upload.id },
-      data: { uploadedPartsJson: completedParts, ...(providerParts ? { lastReconciledAt: new Date() } : {}) },
+      data: { uploadedPartsJson: completedParts, ...(reconciled ? { lastReconciledAt: new Date() } : {}) },
     });
     await tx.mediaAsset.update({
       where: { id: upload.assetId },
@@ -378,6 +394,78 @@ export async function recordMediaUploadPart(
     });
     return { uploadId: upload.id, completedParts, partCount, idempotent };
   });
+}
+
+export async function writeMediaUploadPart(
+  db: MediaDb,
+  context: TenantContext,
+  uploadId: string,
+  partNumber: number,
+  contentLength: number,
+  contentType: string,
+  body: Readable,
+  storage: PrivateMediaStorageAdapter = getPrivateMediaStorageAdapter(),
+) {
+  const role = await requireCreator(db, context);
+  const upload = await db.mediaUpload.findFirst({
+    where: {
+      id: uploadId,
+      organizationId: context.organizationId,
+      ...(role === 'AUTHOR' ? { asset: { webinar: { authorProfile: { userId: context.userId } } } } : {}),
+    },
+    include: { asset: true },
+  });
+  if (!upload) unavailable();
+  assertUploadActive(upload);
+  if (upload.provider !== storage.name || !storage.writeMultipartUploadPart) {
+    throw new AppError(404, 'Media asset not found', undefined, 'media_asset_not_found');
+  }
+  const partCount = partCountForUpload(upload);
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > partCount) {
+    throw new AppError(400, 'Номер части выходит за пределы загрузки', undefined, 'media_upload_part_invalid');
+  }
+  const finalPartBytes = Number(upload.asset.sizeBytes) - upload.partSizeBytes * (partCount - 1);
+  const expectedSizeBytes = partNumber === partCount ? finalPartBytes : upload.partSizeBytes;
+  if (contentLength !== expectedSizeBytes) {
+    throw new AppError(400, 'Размер части не совпадает с ожидаемым', undefined, 'media_upload_part_size_mismatch');
+  }
+  if (contentType.toLowerCase() !== upload.asset.mimeType.toLowerCase()) {
+    throw new AppError(400, 'MIME-тип части не совпадает с файлом', undefined, 'media_upload_part_mime_mismatch');
+  }
+  let written: Awaited<ReturnType<NonNullable<PrivateMediaStorageAdapter['writeMultipartUploadPart']>>>;
+  try {
+    written = await storage.writeMultipartUploadPart({
+      applicationUploadId: upload.id,
+      providerUploadKey: upload.providerUploadKey,
+      storageKey: upload.asset.storageKey,
+      partNumber,
+      expectedSizeBytes,
+      body,
+    });
+  } catch (error) {
+    const code = providerErrorCode(error, 'media_upload_part_failed');
+    const statusCode =
+      code === 'media_upload_part_conflict' ? 409 : code === 'media_upload_part_size_mismatch' ? 400 : 503;
+    throw new AppError(
+      statusCode,
+      statusCode === 409
+        ? 'Эта часть уже загружена с другим содержимым'
+        : statusCode === 400
+          ? 'Размер части не совпадает с ожидаемым'
+          : 'Не удалось сохранить часть файла',
+      undefined,
+      code,
+    );
+  }
+  const checkpoint = await persistMediaUploadPartCheckpoint(
+    db,
+    context,
+    role,
+    uploadId,
+    { partNumber, etag: normalizeEtag(written.etag) },
+    true,
+  );
+  return { ...checkpoint, etag: normalizeEtag(written.etag), checkpointed: true as const };
 }
 
 export async function resumeMediaUpload(
@@ -428,13 +516,15 @@ export async function resumeMediaUpload(
     partNumber => !completedNumbers.has(partNumber),
   );
   const signedOperationExpiresAt = new Date(Date.now() + env.MEDIA_SIGNED_OPERATION_TTL_SECONDS * 1_000);
+  const partOperationExpiresAt = storage.name === 'local_fs' ? upload.expiresAt : signedOperationExpiresAt;
   let parts: Awaited<ReturnType<PrivateMediaStorageAdapter['signMultipartUploadParts']>>;
   try {
     parts = await storage.signMultipartUploadParts({
+      applicationUploadId: upload.id,
       providerUploadKey: upload.providerUploadKey,
       storageKey: upload.asset.storageKey,
       partNumbers: missingPartNumbers,
-      expiresAt: signedOperationExpiresAt,
+      expiresAt: partOperationExpiresAt,
     });
   } catch (error) {
     throw new AppError(

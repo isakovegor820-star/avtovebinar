@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { env } from './env.js';
+import { getPrivateMediaStorageAdapter } from './mediaStorage.js';
 import { verifyEmailConnectivity } from './email.js';
 import { checkTelegramConnectivity } from './telegram.js';
 import { EMAIL_OUTBOX_DUE_PENDING_SLA_MS, EMAIL_OUTBOX_STALE_SENDING_MS } from './emailOutboxPolicy.js';
@@ -48,6 +49,16 @@ export async function checkDatabase(): Promise<HealthCheck> {
     return { ok: true };
   } catch (error) {
     return { ok: false, error: normalizeError(error) };
+  }
+}
+
+export async function checkMediaStorage(): Promise<HealthCheck> {
+  if (env.MEDIA_STORAGE_PROVIDER !== 'local_fs') return { ok: true };
+  try {
+    const storage = getPrivateMediaStorageAdapter();
+    return { ok: Boolean(storage.checkReady && (await storage.checkReady())) };
+  } catch {
+    return { ok: false };
   }
 }
 
@@ -312,8 +323,8 @@ function workerSubsystemsAreHealthy(check: WorkerSubsystemHealthCheck, subsystem
 }
 
 export async function getReadiness() {
-  const database = await checkDatabase();
-  const checks = { database };
+  const [database, mediaStorage] = await Promise.all([checkDatabase(), checkMediaStorage()]);
+  const checks = { database, mediaStorage };
   return {
     ok: Object.values(checks).every(check => check.ok),
     checks,

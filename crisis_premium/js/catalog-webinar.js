@@ -1,4 +1,4 @@
-import { getJson } from './utils.js';
+import { getJson, post, putJson, deleteJson, utm } from './utils.js';
 
 const node = id => document.getElementById(id);
 const labels = {
@@ -11,6 +11,7 @@ const labels = {
   },
   format: { RECORDED: 'Запись', PREMIERE: 'Премьера', ON_DEMAND: 'По запросу' },
 };
+let currentWebinar = null;
 
 function setMode(mode) {
   document.body.dataset.detailMode = mode;
@@ -107,6 +108,125 @@ function renderSources(sources) {
   node('detailSourcesEmpty').hidden = (sources || []).length > 0;
 }
 
+function setRegistrationStatus(message, state = '') {
+  const status = node('detailRegistrationStatus');
+  status.textContent = message;
+  if (state) status.dataset.state = state;
+  else delete status.dataset.state;
+}
+
+function configureRegistration(webinar) {
+  currentWebinar = webinar;
+  const form = node('detailRegistrationForm');
+  const select = node('detailRegistrationSession');
+  const field = node('detailSessionField');
+  const button = node('detailRegistrationButton');
+  const sessions = webinar.sessions || [];
+  select.replaceChildren(
+    ...sessions.map(session => {
+      const option = document.createElement('option');
+      option.value = session.id;
+      option.textContent = `${formatDateTime(session.scheduledAt, session.timezone)} · ${session.timezone}`;
+      option.selected = session.id === webinar.nextSession?.id;
+      return option;
+    }),
+  );
+  field.hidden = sessions.length <= 1;
+  if (!sessions.length) {
+    form.querySelectorAll('input, select, button').forEach(control => {
+      control.disabled = true;
+    });
+    button.textContent = 'Нет доступной даты';
+    setRegistrationStatus('Автор ещё не открыл дату для регистрации.');
+  }
+}
+
+function registrationPayload(form) {
+  const data = new FormData(form);
+  return {
+    sessionId: String(data.get('sessionId') || currentWebinar?.nextSession?.id || ''),
+    name: String(data.get('name') || ''),
+    email: String(data.get('email') || ''),
+    phone: String(data.get('phone') || ''),
+    companyWebsite: String(data.get('companyWebsite') || ''),
+    personalDataConsent: data.get('personalDataConsent') === 'on',
+    termsAccepted: data.get('termsAccepted') === 'on',
+    marketingEmailConsent: data.get('marketingEmailConsent') === 'on',
+    marketingTelegramConsent: data.get('marketingTelegramConsent') === 'on',
+    ...utm(),
+  };
+}
+
+async function submitRegistration(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!form.reportValidity() || !currentWebinar) return;
+  const button = node('detailRegistrationButton');
+  button.disabled = true;
+  button.textContent = 'Регистрируем…';
+  setRegistrationStatus('Проверяем данные и выбранную дату.');
+  const params = new URLSearchParams({ organization: currentWebinar.organization.slug });
+  try {
+    const result = await post(
+      `/v1/catalog/webinars/${encodeURIComponent(currentWebinar.canonicalSlug)}/register?${params.toString()}`,
+      registrationPayload(form),
+    );
+    if (result.verificationRequired === false) {
+      setRegistrationStatus('Вебинар добавлен в кабинет. Откройте «Мой кабинет» в меню.', 'success');
+      button.textContent = 'Зарегистрировано';
+      return;
+    }
+    setRegistrationStatus('Проверьте почту: мы отправили безопасную ссылку для подтверждения.', 'success');
+    button.disabled = false;
+    button.textContent = 'Отправить ссылку ещё раз';
+  } catch (error) {
+    setRegistrationStatus(
+      error?.status === 0
+        ? 'Сервер не ответил. Проверьте подключение и повторите.'
+        : 'Не удалось зарегистрироваться на эту дату. Обновите страницу и повторите.',
+      'error',
+    );
+    button.disabled = false;
+    button.textContent = 'Зарегистрироваться';
+  }
+}
+
+async function toggleFavorite() {
+  if (!currentWebinar) return;
+  const button = node('detailFavoriteButton');
+  const saved = button.getAttribute('aria-pressed') === 'true';
+  button.disabled = true;
+  try {
+    if (saved) {
+      await deleteJson(`/v1/viewer/favorites/${encodeURIComponent(currentWebinar.id)}`);
+      button.setAttribute('aria-pressed', 'false');
+      button.textContent = 'Сохранить в кабинете';
+      setRegistrationStatus('Удалено из сохранённых.');
+    } else {
+      await putJson(`/v1/viewer/favorites/${encodeURIComponent(currentWebinar.id)}`);
+      button.setAttribute('aria-pressed', 'true');
+      button.textContent = 'Сохранено';
+      setRegistrationStatus('Вебинар сохранён. Это не меняет правила доступа.', 'success');
+    }
+  } catch {
+    setRegistrationStatus('Сначала войдите или зарегистрируйтесь. Сохранение не открывает закрытый доступ.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function hydrateFavoriteState(webinarId) {
+  try {
+    const dashboard = await getJson('/v1/viewer/dashboard');
+    const saved = dashboard.sections?.saved?.some(item => item.webinarId === webinarId);
+    if (!saved) return;
+    node('detailFavoriteButton').setAttribute('aria-pressed', 'true');
+    node('detailFavoriteButton').textContent = 'Сохранено';
+  } catch {
+    // Anonymous visitors can register without learning whether another account exists.
+  }
+}
+
 function render(webinar) {
   if (webinar.wasAlias) {
     const params = new URLSearchParams({ organization: webinar.organization.slug, webinar: webinar.canonicalSlug });
@@ -161,6 +281,8 @@ function render(webinar) {
   renderFreshness(webinar);
   renderSessions(webinar.sessions);
   renderSources(webinar.sources);
+  configureRegistration(webinar);
+  void hydrateFavoriteState(webinar.id);
 }
 
 async function initialize() {
@@ -188,4 +310,6 @@ async function initialize() {
   }
 }
 
+node('detailRegistrationForm').addEventListener('submit', submitRegistration);
+node('detailFavoriteButton').addEventListener('click', toggleFavorite);
 initialize();

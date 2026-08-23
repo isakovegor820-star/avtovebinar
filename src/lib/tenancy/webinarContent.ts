@@ -749,6 +749,7 @@ export async function duplicateCreatorWebinar(
             orderIndex: message.orderIndex,
             offsetSeconds: message.offsetSeconds,
             kind: message.kind,
+            status: 'DRAFT',
             text: message.text,
             authorLabel: message.authorLabel,
             isSynthetic: true,

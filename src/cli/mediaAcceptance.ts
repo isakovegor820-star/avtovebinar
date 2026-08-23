@@ -275,7 +275,19 @@ async function resumeAfterRestart() {
     providerUploadKey: state.providerUploadKey,
     storageKey: state.storageKey,
   });
-  invariant(JSON.stringify(reconciled) === JSON.stringify(state.parts), 'Restart reconciliation differs');
+  invariant(reconciled.length === state.parts.length, 'Restart reconciliation part count differs');
+  for (const [index, expected] of state.parts.entries()) {
+    const actual = reconciled[index];
+    invariant(
+      actual?.partNumber === expected.partNumber && actual.etag === expected.etag,
+      'Restart reconciliation checkpoint differs',
+    );
+    invariant(
+      Number.isInteger(actual.sizeBytes) && (actual.sizeBytes ?? 0) > 0,
+      'Restart reconciliation size is absent',
+    );
+    invariant(actual.checksumSha256 === expected.etag, 'Restart reconciliation checksum differs');
+  }
   await storage.completeMultipartUpload({
     providerUploadKey: state.providerUploadKey,
     storageKey: state.storageKey,

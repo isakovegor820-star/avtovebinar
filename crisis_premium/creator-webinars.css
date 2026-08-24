@@ -152,6 +152,7 @@ body[data-creator-mode='error'] #creatorError {
 .creator-sidebar,
 .creator-workspace,
 .creator-workspace > *,
+#creatorEditor > *,
 .creator-two-columns > *,
 .creator-three-columns > * {
   min-width: 0;

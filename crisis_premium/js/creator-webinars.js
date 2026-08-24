@@ -1246,8 +1246,11 @@ async function pollMediaAsset(assetId) {
   for (let attempt = 0; attempt < 120 && state.mediaAsset?.id === assetId; attempt += 1) {
     const asset = await refreshMediaStatus();
     if (!asset || ['READY', 'FAILED', 'CANCELLED'].includes(asset.status)) {
+      const readyMessage = state.current?.currentMediaAsset?.id === asset?.id
+        ? 'Готовая версия видео включена.'
+        : 'Видео готово. Включите эту версию, когда будете готовы к переключению.';
       setText('creatorUploadStatus', asset?.status === 'READY'
-        ? 'Видео готово. Включите эту версию, когда будете готовы к переключению.'
+        ? readyMessage
         : 'Обработка остановлена. Проверьте статус и доступные действия.');
       return;
     }

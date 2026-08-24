@@ -182,7 +182,7 @@ function renderSession(session) {
 
   if (!session.activeOrganizationId && session.memberships.length === 0) {
     setText('platformOnboardingStatus', '');
-    showMode('onboarding', 'platformOrganizationName');
+    showMode('onboarding', 'platformOrganizationNameInput');
     return;
   }
 
@@ -345,7 +345,7 @@ function clearOrganizationCreateIdempotencyKey() {
 }
 
 function clearOnboardingErrors() {
-  for (const id of ['platformOrganizationName', 'platformOrganizationSlug', 'platformInvitationToken']) {
+  for (const id of ['platformOrganizationNameInput', 'platformOrganizationSlug', 'platformInvitationToken']) {
     node(id).removeAttribute('aria-invalid');
   }
   setText('platformOrganizationNameError', '');
@@ -359,7 +359,7 @@ function bindOnboardingForms() {
     event.preventDefault();
     clearOnboardingErrors();
     const form = event.currentTarget;
-    const name = node('platformOrganizationName');
+    const name = node('platformOrganizationNameInput');
     const slug = node('platformOrganizationSlug');
     if (!name.checkValidity()) {
       name.setAttribute('aria-invalid', 'true');

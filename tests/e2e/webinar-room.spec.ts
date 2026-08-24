@@ -18,6 +18,7 @@ import { hashWebinarAccessEmail } from '../../src/lib/tenancy/webinarAccess.js';
 import { runMediaJobOnce } from '../../src/lib/tenancy/mediaPipeline.js';
 import { runContentJobOnce } from '../../src/lib/tenancy/transcripts.js';
 import { linkVerifiedRegistrationToCrm } from '../../src/lib/tenancy/crm.js';
+import { TENANT_ROLLOUT_FEATURES } from '../../src/lib/tenancy/rolloutPolicy.js';
 import {
   MARKETING_EMAIL_CONSENT,
   MARKETING_TELEGRAM_CONSENT,
@@ -25,6 +26,7 @@ import {
 } from '../../src/lib/consentDocuments.js';
 
 async function resetDb() {
+  await prisma.creatorMetadataIdempotencyRecord.deleteMany();
   await prisma.$executeRawUnsafe(
     'TRUNCATE TABLE legal_holds, tenant_rollout_entries, author_service_notifications, author_review_tasks, webinar_material_uploads, webinar_materials, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, user_auth_tokens, user_sessions, user_auth_email_jobs, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
   );
@@ -34,6 +36,24 @@ async function resetDb() {
   });
   await prisma.organization.deleteMany({ where: { id: { not: DEFAULT_ORGANIZATION_ID } } });
   await prisma.user.deleteMany({ where: { id: { not: DEFAULT_SYSTEM_OWNER_USER_ID } } });
+  // TRUNCATE admin_users ... CASCADE removes rollout policies and managed
+  // feature flags through their optional admin audit references. Restore the
+  // explicit E2E-only gates; migration and production defaults remain off.
+  await prisma.platformFeatureFlag.createMany({
+    data: [
+      { key: 'analytics_dashboard', enabled: true, description: 'E2E analytics gate' },
+      { key: 'public_reporting', enabled: true, description: 'E2E public reporting gate' },
+      { key: 'moderation_actions', enabled: true, description: 'E2E moderation gate' },
+      { key: 'provider_jobs', enabled: true, description: 'E2E provider adapter gate' },
+    ],
+  });
+  await prisma.tenantRolloutPolicy.createMany({
+    data: TENANT_ROLLOUT_FEATURES.map(feature => ({ feature, mode: 'ENABLED', revision: 1 })),
+    skipDuplicates: true,
+  });
+  await prisma.tenantRolloutPolicy.updateMany({
+    data: { mode: 'ENABLED', revision: 1, updatedByAdminUserId: null },
+  });
   await prisma.organization.upsert({
     where: { id: DEFAULT_ORGANIZATION_ID },
     update: { status: 'ACTIVE' },
@@ -299,8 +319,24 @@ test('platform magic link creates a cookie-only tenant session and removes the f
   await expect(page.locator('#platformRole')).toHaveText('Владелец');
   expect(page.url()).not.toContain(rawToken);
   expect(new URL(page.url()).hash).toBe('');
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(overflow).toBeLessThanOrEqual(1);
+  const overflow = await page.evaluate(() => ({
+    pixels: document.documentElement.scrollWidth - window.innerWidth,
+    innerWidth: window.innerWidth,
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    offenders: Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .map(element => ({
+        id: element.id,
+        className: element.className,
+        left: Math.round(element.getBoundingClientRect().left),
+        right: Math.round(element.getBoundingClientRect().right),
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+      }))
+      .filter(item => item.left < -1 || item.right > window.innerWidth + 1)
+      .slice(0, 12),
+  }));
+  expect(overflow.pixels, JSON.stringify(overflow)).toBeLessThanOrEqual(1);
 
   const sessionCookie = (await page.context().cookies()).find(cookie => cookie.name === 'aspb_user_session');
   expect(sessionCookie).toMatchObject({ httpOnly: true, sameSite: 'Lax' });
@@ -358,6 +394,7 @@ test('creator wizard preserves the exact eight steps, autosaves and follows brow
   await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'ready');
   await page.goto('/crisis_premium/creator-webinars.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('body')).toHaveAttribute('data-creator-mode', 'content');
+  await page.getByText('Создать вебинар', { exact: true }).click();
   await page.locator('#creatorNewTitle').fill('Восьмишаговый вебинар');
   await page.locator('#creatorNewSlug').fill(`wizard-webinar-${Date.now()}`);
   await page.locator('#creatorCreateButton').click();
@@ -379,7 +416,8 @@ test('creator wizard preserves the exact eight steps, autosaves and follows brow
     await expect(wizardButtons.nth(index)).toContainText(expectedLabels[index]);
   }
 
-  await wizardButtons.nth(1).click();
+  await wizardButtons.nth(1).focus();
+  await page.keyboard.press('Enter');
   await expect(page.locator('#creatorWizardStep2Fields')).toBeVisible();
   await expect(page).toHaveURL(/step=2/);
   await page.locator('#creatorWizardNext').click();
@@ -406,12 +444,77 @@ test('creator wizard preserves the exact eight steps, autosaves and follows brow
   await page.locator('#creatorDuration').fill('60');
   await page.locator('#creatorMetadataHeading').click();
   const autosave = await autosaveResponse;
-  expect(autosave.status(), await autosave.text()).toBe(200);
-  expect(autosave.request().headers()['idempotency-key']).toMatch(/^webinar-metadata:/);
+  const autosaveBody = await autosave.json();
+  const autosaveHeaders = autosave.request().headers();
+  const autosaveKey = autosaveHeaders['idempotency-key'];
+  const csrfToken = autosaveHeaders['x-csrf-token'];
+  expect(autosave.status(), JSON.stringify(autosaveBody)).toBe(200);
+  expect(autosaveKey).toMatch(/^webinar-metadata:/);
   await expect(page.locator('#creatorMetadataStatus')).toContainText('сохранены автоматически');
+  await page.waitForLoadState('networkidle');
+  const beforeReplay = await prisma.webinar.findUniqueOrThrow({ where: { id: autosaveBody.webinar.id } });
+  const auditCountBeforeReplay = await prisma.auditLog.count({
+    where: { entityId: autosaveBody.webinar.id, action: 'webinar.updated' },
+  });
 
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(overflow).toBeLessThanOrEqual(1);
+  const replay = await page.request.patch(autosave.url(), {
+    data: autosave.request().postDataJSON(),
+    headers: { 'idempotency-key': autosaveKey, 'x-csrf-token': csrfToken },
+  });
+  const replayBody = await replay.json();
+  expect(replay.status(), JSON.stringify(replayBody)).toBe(200);
+  expect(replayBody).toMatchObject({ webinar: { id: autosaveBody.webinar.id } });
+  await expect(prisma.webinar.findUniqueOrThrow({ where: { id: autosaveBody.webinar.id } })).resolves.toMatchObject({
+    contentVersion: beforeReplay.contentVersion,
+  });
+  await expect(
+    prisma.auditLog.count({ where: { entityId: autosaveBody.webinar.id, action: 'webinar.updated' } }),
+  ).resolves.toBe(auditCountBeforeReplay);
+  await expect(
+    prisma.creatorMetadataIdempotencyRecord.count({
+      where: { organizationId: organization.id, idempotencyKey: autosaveKey },
+    }),
+  ).resolves.toBe(1);
+
+  const blockedPublish = await page.request.post(`${autosave.url()}/publish`, {
+    data: {},
+    headers: {
+      'idempotency-key': 'wizard-publication-blocker-0001',
+      'x-csrf-token': csrfToken,
+    },
+  });
+  expect(blockedPublish.status()).toBe(409);
+  await expect(blockedPublish.json()).resolves.toMatchObject({
+    code: 'webinar_metadata_incomplete',
+    details: { missingFields: expect.arrayContaining(['jurisdictionId', 'primaryPracticeArea']) },
+  });
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-creator-mode', 'content');
+  await expect(page.locator('#creatorEditor')).toBeVisible();
+  await expect(page.locator('#creatorDescription')).toHaveValue(
+    'Полное описание, достаточное для безопасного автоматического сохранения.',
+  );
+  await expect(page).toHaveURL(/step=1/);
+
+  const overflow = await page.evaluate(() => ({
+    pixels: document.documentElement.scrollWidth - window.innerWidth,
+    innerWidth: window.innerWidth,
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    offenders: Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .map(element => ({
+        id: element.id,
+        className: element.className,
+        left: Math.round(element.getBoundingClientRect().left),
+        right: Math.round(element.getBoundingClientRect().right),
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+      }))
+      .filter(item => item.left < -1 || item.right > window.innerWidth + 1)
+      .slice(0, 12),
+  }));
+  expect(overflow.pixels, JSON.stringify(overflow)).toBeLessThanOrEqual(1);
   await expect(page.locator('#creatorWizardPrevious')).toBeVisible();
   await expect(page.locator('#creatorWizardNext')).toBeVisible();
 });
@@ -1027,34 +1130,35 @@ test('creator builds a private Webinar scenario and previews it without particip
   await page.locator('#creatorNewSlug').fill('dogovornye-riski');
   await page.locator('#creatorCreateButton').click();
   await expect(page.locator('#creatorOverviewHeading')).toHaveText('Договорные риски для бизнеса');
+  const wizardSteps = page.locator('#creatorWizardSteps button');
 
   await page
     .locator('#creatorDescription')
     .fill('Практический вебинар о проверке условий договора и снижении юридических рисков бизнеса.');
   await page.locator('#creatorOutcome').fill('Слушатель сможет проверить ключевые условия договора до подписания.');
+  await page.locator('#creatorTargetAudience').fill('Юристы, руководители и владельцы малого бизнеса');
+  await page.locator('#creatorFormat').selectOption('PREMIERE');
+  await page.locator('#creatorDuration').fill('60');
+  await wizardSteps.nth(1).click();
   await page.locator('#creatorJurisdiction').selectOption(jurisdiction.id);
   await page.locator('#creatorAudienceLevel').selectOption('PRACTITIONER');
   await page.locator('#creatorPrimaryArea').selectOption(rootArea.id);
   await page.locator('#creatorSpecialization').selectOption(specialization.id);
-  await page.locator('#creatorTargetAudience').fill('Юристы, руководители и владельцы малого бизнеса');
-  await page.locator('#creatorFormat').selectOption('PREMIERE');
-  await page.locator('#creatorDuration').fill('60');
   await page.locator('#creatorFreshness').selectOption('CURRENT');
   await page.locator('#creatorCurrentAsOf').fill('2026-08-21');
   await page
     .locator('#creatorDisclaimer')
     .fill('Материал носит информационный характер и не заменяет индивидуальную юридическую консультацию.');
-  await page
-    .locator('#creatorSyntheticDisclosure')
-    .fill('Подготовленные сообщения явно отмечены и не являются репликами реальных зрителей.');
   await page.locator('#creatorSaveButton').click();
-  await expect(page.locator('#creatorMetadataStatus')).toContainText('Сведения сохранены');
+  await expect(page.locator('#creatorMetadataStatus')).toContainText(/сохранены/);
 
+  await wizardSteps.nth(4).click();
   await page.locator('#creatorSourceTitle').fill('Официальный источник по договорному праву');
   await page.locator('#creatorSourceUrl').fill('https://example.org/legal-source');
   await page.locator('#creatorSourceButton').click();
   await expect(page.locator('#creatorSourcesList')).toContainText('Официальный источник по договорному праву');
 
+  await wizardSteps.nth(3).click();
   await page.locator('.creator-tools-disclosure > summary').click();
   await page.locator('#creatorTerm').fill('АПК РФ');
   await page.locator('#creatorTermExpansion').fill('Арбитражный процессуальный кодекс Российской Федерации');
@@ -1079,6 +1183,7 @@ test('creator builds a private Webinar scenario and previews it without particip
       body: '',
     });
   });
+  await wizardSteps.nth(2).click();
   await page.locator('#creatorVideoFile').setInputFiles({
     name: 'creator-e2e.mp4',
     mimeType: 'video/mp4',
@@ -1102,6 +1207,7 @@ test('creator builds a private Webinar scenario and previews it without particip
   await page.locator('#creatorMediaActivateButton').click();
   await expect(page.locator('#creatorUploadStatus')).toContainText('включена');
 
+  await wizardSteps.nth(3).click();
   await page.locator('#creatorTranscriptGenerateButton').click();
   await expect.poll(async () => prisma.contentJob.count({ where: { type: 'TRANSCRIBE', status: 'PENDING' } })).toBe(1);
   await expect(runContentJobOnce(prisma)).resolves.toMatchObject({ checked: 1, succeeded: 0 });
@@ -1130,6 +1236,12 @@ test('creator builds a private Webinar scenario and previews it without particip
   await titleSuggestion.getByRole('button', { name: 'Принять после проверки' }).click();
   await expect(page.locator('#creatorAiStatus')).toContainText('ручное решение');
 
+  await wizardSteps.nth(5).click();
+  await page
+    .locator('#creatorSyntheticDisclosure')
+    .fill('Подготовленные сообщения явно отмечены и не являются репликами реальных зрителей.');
+  await page.locator('#creatorDisclosureSaveButton').click();
+  await expect(page.locator('#creatorMetadataStatus')).toContainText(/сохранены/);
   await page.locator('#creatorScenarioAddButton').click();
   const scenarioRow = page.locator('.creator-scenario-row').first();
   await scenarioRow.locator('[data-field="offsetSeconds"]').fill('120');
@@ -1143,6 +1255,7 @@ test('creator builds a private Webinar scenario and previews it without particip
   await page.locator('#creatorScenarioPublishButton').click();
   await expect(page.locator('#creatorScenarioStatus')).toContainText('Сценарий опубликован');
 
+  await wizardSteps.nth(6).click();
   await page.locator('#creatorRecurrence').selectOption('ONCE');
   await page.locator('#creatorStartsOn').fill('2032-01-15');
   await page.locator('#creatorScheduleButton').click();
@@ -1160,6 +1273,7 @@ test('creator builds a private Webinar scenario and previews it without particip
     prisma.event.count(),
     prisma.emailOutboxJob.count(),
   ]);
+  await wizardSteps.nth(7).click();
   await page.locator('#creatorPreviewLink').click();
   await expect(page.locator('body')).toHaveAttribute('data-preview-mode', 'content');
   await expect(page.locator('#previewTitle')).toHaveText('Практический разбор: Договорные риски для бизнеса');

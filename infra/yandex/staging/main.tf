@@ -43,12 +43,13 @@ resource "yandex_kms_symmetric_key" "media" {
 }
 
 resource "yandex_storage_bucket" "media" {
-  folder_id         = var.folder_id
-  bucket            = var.media_bucket_name
-  acl               = "private"
-  force_destroy     = false
+  folder_id               = var.folder_id
+  bucket                  = var.media_bucket_name
+  force_destroy           = false
   disabled_statickey_auth = true
 
+  # Provider 0.220 defaults the bucket ACL to private. Keep the deprecated
+  # inline acl argument absent and make every anonymous capability explicit.
   anonymous_access_flags {
     read        = false
     list        = false
@@ -169,7 +170,7 @@ resource "yandex_audit_trails_trail" "staging" {
   labels             = local.labels
 
   storage_destination {
-    bucket_name  = yandex_storage_bucket.media.bucket
+    bucket_name   = yandex_storage_bucket.media.bucket
     object_prefix = "audit-trails/staging/"
   }
 

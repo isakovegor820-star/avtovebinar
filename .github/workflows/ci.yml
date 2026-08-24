@@ -244,7 +244,7 @@ jobs:
       - name: Terraform validate without backend or apply
         working-directory: infra/yandex/staging
         run: |
-          terraform init -backend=false -input=false
+          terraform init -backend=false -input=false -lockfile=readonly
           terraform validate
 
   container-build:

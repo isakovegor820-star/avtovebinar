@@ -49,7 +49,11 @@ requireText(
 );
 requireText(workflow, 'terraform_version: 1.15.9', 'pinned Terraform CLI version');
 requireText(workflow, 'terraform fmt -check -recursive', 'Terraform formatting gate');
-requireText(workflow, 'terraform init -backend=false -input=false', 'backend-free Terraform initialization');
+requireText(
+  workflow,
+  'terraform init -backend=false -input=false -lockfile=readonly',
+  'backend-free locked Terraform initialization',
+);
 requireText(workflow, 'terraform validate', 'Terraform validation gate');
 requireAbsent(workflow, 'terraform apply', 'Terraform apply in CI');
 requireAbsent(workflow, 'tofu apply', 'OpenTofu apply in CI');

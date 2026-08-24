@@ -15,7 +15,8 @@ describe('Yandex staging IaC policy', () => {
   });
 
   it('keeps the bucket private, encrypted, versioned and lifecycle guarded', () => {
-    expect(sources).toContain('acl               = "private"');
+    expect(sources).toContain('defaults the bucket ACL to private');
+    expect(sources).not.toMatch(/^\s*acl\s*=/m);
     expect(sources).toContain('read        = false');
     expect(sources).toContain('list        = false');
     expect(sources).toContain('config_read = false');

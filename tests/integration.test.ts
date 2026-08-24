@@ -335,7 +335,11 @@ beforeEach(async () => {
     RETENTION_APPLY_ENABLED: 'off',
   });
   // Truncate tables to guarantee absolute test isolation
+  await prisma.creatorMetadataIdempotencyRecord.deleteMany();
   await prisma.organizationIdempotencyRecord.deleteMany();
+  await prisma.userAuthEmailJob.deleteMany();
+  await prisma.userAuthToken.deleteMany();
+  await prisma.userSession.deleteMany();
   await prisma.$executeRawUnsafe(
     'TRUNCATE TABLE legal_holds, tenant_rollout_entries, author_service_notifications, author_review_tasks, webinar_material_uploads, webinar_materials, telegram_broadcast_previews, telegram_broadcast_templates, telegram_consultant_messages, telegram_bot_events, telegram_manager_callbacks, telegram_manager_chat_binding_tokens, telegram_manager_chat_bindings, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
   );
@@ -429,8 +433,12 @@ describe('gap-closure database concurrency and dry-run invariants', () => {
     expect(mismatchedReplay.status).toBe(409);
     expect(mismatchedReplay.body.code).toBe('idempotency_payload_mismatch');
     await expect(
-      prisma.webinarCommand.count({
-        where: { webinarId: webinar.id, action: 'metadata_update', idempotencyKey: 'wizard-autosave-replay-0001' },
+      prisma.creatorMetadataIdempotencyRecord.count({
+        where: {
+          organizationId: tenant.organization.id,
+          webinarId: webinar.id,
+          idempotencyKey: 'wizard-autosave-replay-0001',
+        },
       }),
     ).resolves.toBe(1);
     await expect(prisma.auditLog.count({ where: { entityId: webinar.id, action: 'webinar.updated' } })).resolves.toBe(
@@ -7389,8 +7397,11 @@ describe('critical path integration scenarios', () => {
       .set('x-csrf-token', csrfToken)
       .send({ email: adminEmail });
     expect(adminOnlyResponse.status).toBe(202);
-    await expect(prisma.userAuthEmailJob.count()).resolves.toBe(0);
-    await expect(prisma.user.count({ where: { emailNormalized: adminEmail } })).resolves.toBe(0);
+    const separateUser = await prisma.user.findUniqueOrThrow({ where: { emailNormalized: adminEmail } });
+    expect(separateUser).toMatchObject({ kind: 'HUMAN', status: 'PENDING' });
+    await expect(prisma.userAuthEmailJob.count({ where: { userId: separateUser.id } })).resolves.toBe(1);
+    await expect(prisma.organizationMembership.count({ where: { userId: separateUser.id } })).resolves.toBe(0);
+    await expect(prisma.adminUser.count({ where: { email: adminEmail } })).resolves.toBe(1);
   });
 
   it('creates, delivers and accepts a role-bound one-time organization invitation', async () => {
@@ -11465,7 +11476,7 @@ describe('critical path integration scenarios', () => {
     expect(crossSuggestions.status).toBe(404);
 
     for (const suggestion of suggestions) {
-      const action = suggestion.type === 'DESCRIPTION' ? 'REJECT' : 'ACCEPT';
+      const action = ['DESCRIPTION', 'CHAPTER'].includes(suggestion.type) ? 'REJECT' : 'ACCEPT';
       const body =
         action === 'ACCEPT'
           ? {
@@ -11499,7 +11510,7 @@ describe('critical path integration scenarios', () => {
       transcriptStatus: 'PUBLISHED',
       scenarioStatus: 'DRAFT',
     });
-    await expect(prisma.webinarChapter.count({ where: { webinarId: webinar.id } })).resolves.toBe(2);
+    await expect(prisma.webinarChapter.count({ where: { webinarId: webinar.id } })).resolves.toBe(0);
     await expect(prisma.webinarTag.count({ where: { webinarId: webinar.id } })).resolves.toBe(2);
     await expect(
       prisma.chatScenarioMessage.findFirstOrThrow({

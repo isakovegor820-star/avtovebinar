@@ -45,7 +45,9 @@ import { buildTenantRetentionPlan, rejectRetentionApply } from '../lib/tenancy/r
 export const platformAuthRouter = Router();
 
 platformAuthRouter.use(
+  ['/auth', '/organizations', '/organization', '/webinar-invitations'],
   asyncHandler(async (_req, _res, next) => {
+    requirePlatformAccounts();
     await requireTenantRolloutBootstrap(prisma, 'PLATFORM_ACCOUNTS_ONBOARDING');
     next();
   }),

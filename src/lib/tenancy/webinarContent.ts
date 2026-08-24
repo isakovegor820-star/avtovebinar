@@ -571,21 +571,20 @@ export async function updateCreatorWebinar(
   return db.$transaction(async tx => {
     if (updateIdempotencyKey) {
       await lockCommandScope(tx, context.organizationId, 'metadata_update', updateIdempotencyKey);
-      const prior = await tx.webinarCommand.findUnique({
+      const prior = await tx.creatorMetadataIdempotencyRecord.findUnique({
         where: {
-          organizationId_action_idempotencyKey: {
+          organizationId_idempotencyKey: {
             organizationId: context.organizationId,
-            action: 'metadata_update',
             idempotencyKey: updateIdempotencyKey,
           },
         },
+        select: { webinarId: true, requestHash: true },
       });
-      if (prior && prior.webinarId !== webinarId) {
-        throw new AppError(409, 'Idempotency key уже использован', undefined, 'idempotency_key_reused');
-      }
       if (prior) {
-        const storedFingerprint = prior.resultStatus.startsWith('v1:') ? prior.resultStatus.split(':')[1] : null;
-        if (storedFingerprint !== updateFingerprint) {
+        if (prior.webinarId !== webinarId) {
+          throw new AppError(409, 'Idempotency key уже использован', undefined, 'idempotency_key_reused');
+        }
+        if (prior.requestHash !== updateFingerprint) {
           throw new AppError(
             409,
             'Idempotency key использован с другими данными',
@@ -657,14 +656,14 @@ export async function updateCreatorWebinar(
     }
     const webinar = await tx.webinar.findUniqueOrThrow({ where: { id: webinarId }, include: webinarInclude });
     if (updateIdempotencyKey) {
-      await tx.webinarCommand.create({
+      await tx.creatorMetadataIdempotencyRecord.create({
         data: {
+          userId: context.userId,
           organizationId: context.organizationId,
           webinarId,
-          requestedById: context.userId,
-          action: 'metadata_update',
           idempotencyKey: updateIdempotencyKey,
-          resultStatus: `v1:${updateFingerprint}:${webinar.contentVersion}`,
+          requestHash: updateFingerprint,
+          responseJson: { webinarId, contentVersion: webinar.contentVersion },
         },
       });
     }

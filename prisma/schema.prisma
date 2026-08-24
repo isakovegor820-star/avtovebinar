@@ -515,54 +515,55 @@ enum TelegramConsultantMessageStatus {
 }
 
 model User {
-  id                               String                          @id @default(cuid())
-  emailNormalized                  String                          @unique @map("email_normalized")
-  displayName                      String?                         @map("display_name")
-  kind                             UserKind                        @default(HUMAN)
-  status                           UserStatus                      @default(PENDING)
-  emailVerifiedAt                  DateTime?                       @map("email_verified_at")
-  mfaSecretEncrypted               String?                         @map("mfa_secret_encrypted")
-  mfaEnabledAt                     DateTime?                       @map("mfa_enabled_at")
-  mfaEnrollmentExpiresAt           DateTime?                       @map("mfa_enrollment_expires_at")
-  sessionVersion                   Int                             @default(1) @map("session_version")
-  createdAt                        DateTime                        @default(now()) @map("created_at")
-  updatedAt                        DateTime                        @updatedAt @map("updated_at")
-  memberships                      OrganizationMembership[]
-  membershipAudits                 AuditLog[]
-  authTokens                       UserAuthToken[]
-  sessions                         UserSession[]
-  authEmailJobs                    UserAuthEmailJob[]
-  invitationsSent                  OrganizationInvitation[]        @relation("OrganizationInvitationInviter")
-  invitationsAccepted              OrganizationInvitation[]        @relation("OrganizationInvitationAcceptor")
-  authorProfiles                   AuthorProfile[]
-  authorVerificationsSubmitted     AuthorVerification[]            @relation("AuthorVerificationSubmitter")
-  createdCrmTasks                  CRMTask[]                       @relation("CRMTaskCreator")
-  webinarCommands                  WebinarCommand[]
-  webinarSchedulesCreated          WebinarSchedule[]               @relation("WebinarScheduleCreator")
-  webinarAccessGrants              WebinarAccessGrant[]            @relation("WebinarAccessGrantUser")
-  webinarAccessGrantsInvited       WebinarAccessGrant[]            @relation("WebinarAccessGrantInviter")
-  chatScenariosCreated             ChatScenario[]                  @relation("ChatScenarioCreator")
-  chatScenariosApproved            ChatScenario[]                  @relation("ChatScenarioApprover")
-  mediaAssetsCreated               MediaAsset[]                    @relation("MediaAssetCreator")
-  webinarMaterialsCreated          WebinarMaterial[]               @relation("WebinarMaterialCreator")
-  authorReviewNotifications        AuthorServiceNotification[]
-  transcriptsCreated               Transcript[]                    @relation("TranscriptCreator")
-  transcriptsReviewed              Transcript[]                    @relation("TranscriptReviewer")
-  contentJobsRequested             ContentJob[]                    @relation("ContentJobRequester")
-  organizationTermsCreated         OrganizationTerm[]              @relation("OrganizationTermCreator")
-  aiSuggestionsReviewed            AiSuggestion[]                  @relation("AiSuggestionReviewer")
-  registrations                    Registration[]                  @relation("RegistrationParticipantUser")
-  analyticsEvents                  Event[]                         @relation("EventUser")
-  moderationReports                ContentReport[]                 @relation("ContentReportReporter")
-  moderationRevisions              WebinarContentRevision[]        @relation("WebinarContentRevisionCreator")
-  viewerFavorites                  ViewerWebinarFavorite[]
-  viewerProgress                   ViewerWebinarProgress[]
-  viewerNotes                      ViewerWebinarNote[]
-  viewerNotificationPreferences    ViewerNotificationPreference[]
-  telegramManagerBindingsRequested TelegramManagerChatBinding[]    @relation("TelegramManagerBindingRequester")
-  telegramManagerBindingsConfirmed TelegramManagerChatBinding[]    @relation("TelegramManagerBindingConfirmer")
-  telegramManagerBindingsRevoked   TelegramManagerChatBinding[]    @relation("TelegramManagerBindingRevoker")
-  organizationIdempotencyRecords   OrganizationIdempotencyRecord[]
+  id                                String                             @id @default(cuid())
+  emailNormalized                   String                             @unique @map("email_normalized")
+  displayName                       String?                            @map("display_name")
+  kind                              UserKind                           @default(HUMAN)
+  status                            UserStatus                         @default(PENDING)
+  emailVerifiedAt                   DateTime?                          @map("email_verified_at")
+  mfaSecretEncrypted                String?                            @map("mfa_secret_encrypted")
+  mfaEnabledAt                      DateTime?                          @map("mfa_enabled_at")
+  mfaEnrollmentExpiresAt            DateTime?                          @map("mfa_enrollment_expires_at")
+  sessionVersion                    Int                                @default(1) @map("session_version")
+  createdAt                         DateTime                           @default(now()) @map("created_at")
+  updatedAt                         DateTime                           @updatedAt @map("updated_at")
+  memberships                       OrganizationMembership[]
+  membershipAudits                  AuditLog[]
+  authTokens                        UserAuthToken[]
+  sessions                          UserSession[]
+  authEmailJobs                     UserAuthEmailJob[]
+  invitationsSent                   OrganizationInvitation[]           @relation("OrganizationInvitationInviter")
+  invitationsAccepted               OrganizationInvitation[]           @relation("OrganizationInvitationAcceptor")
+  authorProfiles                    AuthorProfile[]
+  authorVerificationsSubmitted      AuthorVerification[]               @relation("AuthorVerificationSubmitter")
+  createdCrmTasks                   CRMTask[]                          @relation("CRMTaskCreator")
+  webinarCommands                   WebinarCommand[]
+  webinarSchedulesCreated           WebinarSchedule[]                  @relation("WebinarScheduleCreator")
+  webinarAccessGrants               WebinarAccessGrant[]               @relation("WebinarAccessGrantUser")
+  webinarAccessGrantsInvited        WebinarAccessGrant[]               @relation("WebinarAccessGrantInviter")
+  chatScenariosCreated              ChatScenario[]                     @relation("ChatScenarioCreator")
+  chatScenariosApproved             ChatScenario[]                     @relation("ChatScenarioApprover")
+  mediaAssetsCreated                MediaAsset[]                       @relation("MediaAssetCreator")
+  webinarMaterialsCreated           WebinarMaterial[]                  @relation("WebinarMaterialCreator")
+  authorReviewNotifications         AuthorServiceNotification[]
+  transcriptsCreated                Transcript[]                       @relation("TranscriptCreator")
+  transcriptsReviewed               Transcript[]                       @relation("TranscriptReviewer")
+  contentJobsRequested              ContentJob[]                       @relation("ContentJobRequester")
+  organizationTermsCreated          OrganizationTerm[]                 @relation("OrganizationTermCreator")
+  aiSuggestionsReviewed             AiSuggestion[]                     @relation("AiSuggestionReviewer")
+  registrations                     Registration[]                     @relation("RegistrationParticipantUser")
+  analyticsEvents                   Event[]                            @relation("EventUser")
+  moderationReports                 ContentReport[]                    @relation("ContentReportReporter")
+  moderationRevisions               WebinarContentRevision[]           @relation("WebinarContentRevisionCreator")
+  viewerFavorites                   ViewerWebinarFavorite[]
+  viewerProgress                    ViewerWebinarProgress[]
+  viewerNotes                       ViewerWebinarNote[]
+  viewerNotificationPreferences     ViewerNotificationPreference[]
+  telegramManagerBindingsRequested  TelegramManagerChatBinding[]       @relation("TelegramManagerBindingRequester")
+  telegramManagerBindingsConfirmed  TelegramManagerChatBinding[]       @relation("TelegramManagerBindingConfirmer")
+  telegramManagerBindingsRevoked    TelegramManagerChatBinding[]       @relation("TelegramManagerBindingRevoker")
+  organizationIdempotencyRecords    OrganizationIdempotencyRecord[]
+  creatorMetadataIdempotencyRecords CreatorMetadataIdempotencyRecord[]
 
   @@index([status])
   @@index([kind])
@@ -570,77 +571,78 @@ model User {
 }
 
 model Organization {
-  id                            String                          @id @default(cuid())
-  name                          String
-  slug                          String                          @unique
-  status                        OrganizationStatus              @default(ACTIVE)
-  settingsJson                  Json?                           @map("settings_json")
-  platformRevision              Int                             @default(1) @map("platform_revision")
-  settingsRevision              Int                             @default(1) @map("settings_revision")
-  createdAt                     DateTime                        @default(now()) @map("created_at")
-  updatedAt                     DateTime                        @updatedAt @map("updated_at")
-  memberships                   OrganizationMembership[]
-  webinarSessions               WebinarSession[]
-  auditLogs                     AuditLog[]
-  activeSessions                UserSession[]                   @relation("UserSessionActiveOrganization")
-  invitations                   OrganizationInvitation[]
-  authorProfiles                AuthorProfile[]
-  webinars                      Webinar[]
-  webinarAliases                WebinarSlugAlias[]
-  webinarSources                WebinarSource[]
-  webinarCommands               WebinarCommand[]
-  webinarSchedules              WebinarSchedule[]
-  webinarAccessGrants           WebinarAccessGrant[]
-  chatScenarios                 ChatScenario[]
-  chatScenarioMessages          ChatScenarioMessage[]
-  mediaAssets                   MediaAsset[]
-  mediaUploads                  MediaUpload[]
-  webinarMaterials              WebinarMaterial[]
-  webinarMaterialUploads        WebinarMaterialUpload[]
-  transcripts                   Transcript[]
-  transcriptSegments            TranscriptSegment[]
-  aiOperations                  AiOperationProvenance[]
-  contentJobs                   ContentJob[]
-  organizationTerms             OrganizationTerm[]
-  aiSuggestions                 AiSuggestion[]
-  webinarChapters               WebinarChapter[]
-  webinarTags                   WebinarTag[]
-  registrations                 Registration[]
-  viewerFavorites               ViewerWebinarFavorite[]
-  viewerProgress                ViewerWebinarProgress[]
-  viewerNotes                   ViewerWebinarNote[]
-  viewerNotificationPreferences ViewerNotificationPreference[]
-  crmPipelines                  CRMPipeline[]
-  crmStages                     CRMStage[]
-  crmContacts                   CRMContact[]
-  crmContactEvents              CRMContactEvent[]
-  crmStageTransitions           CRMStageTransition[]
-  crmTasks                      CRMTask[]
-  crmScoringRuleSets            CRMScoringRuleSet[]
-  crmScoringRules               CRMScoringRule[]
-  crmScoreFactors               CRMScoreFactor[]
-  crmTags                       CRMTag[]
-  crmContactTags                CRMContactTag[]
-  crmBulkActions                CRMBulkAction[]
-  crmDeliveries                 CRMDelivery[]
-  webinarChatMessages           WebinarChatMessage[]
-  questions                     Question[]
-  questionModerationEvents      QuestionModerationEvent[]
-  telegramManagerChatBindings   TelegramManagerChatBinding[]
-  telegramManagerCallbacks      TelegramManagerCallback[]
-  telegramBotEvents             TelegramBotEvent[]
-  telegramConsultantMessages    TelegramConsultantMessage[]
-  analyticsEvents               Event[]
-  moderationReports             ContentReport[]
-  moderationReportEvents        ContentReportEvent[]
-  moderationCorrections         ModerationCorrectionRequest[]
-  webinarContentRevisions       WebinarContentRevision[]
-  moderationPlatformActions     ModerationPlatformAction[]
-  idempotencyRecords            OrganizationIdempotencyRecord[]
-  authorReviewTasks             AuthorReviewTask[]
-  authorServiceNotifications    AuthorServiceNotification[]
-  rolloutEntries                TenantRolloutEntry[]
-  legalHolds                    LegalHold[]
+  id                                String                             @id @default(cuid())
+  name                              String
+  slug                              String                             @unique
+  status                            OrganizationStatus                 @default(ACTIVE)
+  settingsJson                      Json?                              @map("settings_json")
+  platformRevision                  Int                                @default(1) @map("platform_revision")
+  settingsRevision                  Int                                @default(1) @map("settings_revision")
+  createdAt                         DateTime                           @default(now()) @map("created_at")
+  updatedAt                         DateTime                           @updatedAt @map("updated_at")
+  memberships                       OrganizationMembership[]
+  webinarSessions                   WebinarSession[]
+  auditLogs                         AuditLog[]
+  activeSessions                    UserSession[]                      @relation("UserSessionActiveOrganization")
+  invitations                       OrganizationInvitation[]
+  authorProfiles                    AuthorProfile[]
+  webinars                          Webinar[]
+  webinarAliases                    WebinarSlugAlias[]
+  webinarSources                    WebinarSource[]
+  webinarCommands                   WebinarCommand[]
+  webinarSchedules                  WebinarSchedule[]
+  webinarAccessGrants               WebinarAccessGrant[]
+  chatScenarios                     ChatScenario[]
+  chatScenarioMessages              ChatScenarioMessage[]
+  mediaAssets                       MediaAsset[]
+  mediaUploads                      MediaUpload[]
+  webinarMaterials                  WebinarMaterial[]
+  webinarMaterialUploads            WebinarMaterialUpload[]
+  transcripts                       Transcript[]
+  transcriptSegments                TranscriptSegment[]
+  aiOperations                      AiOperationProvenance[]
+  contentJobs                       ContentJob[]
+  organizationTerms                 OrganizationTerm[]
+  aiSuggestions                     AiSuggestion[]
+  webinarChapters                   WebinarChapter[]
+  webinarTags                       WebinarTag[]
+  registrations                     Registration[]
+  viewerFavorites                   ViewerWebinarFavorite[]
+  viewerProgress                    ViewerWebinarProgress[]
+  viewerNotes                       ViewerWebinarNote[]
+  viewerNotificationPreferences     ViewerNotificationPreference[]
+  crmPipelines                      CRMPipeline[]
+  crmStages                         CRMStage[]
+  crmContacts                       CRMContact[]
+  crmContactEvents                  CRMContactEvent[]
+  crmStageTransitions               CRMStageTransition[]
+  crmTasks                          CRMTask[]
+  crmScoringRuleSets                CRMScoringRuleSet[]
+  crmScoringRules                   CRMScoringRule[]
+  crmScoreFactors                   CRMScoreFactor[]
+  crmTags                           CRMTag[]
+  crmContactTags                    CRMContactTag[]
+  crmBulkActions                    CRMBulkAction[]
+  crmDeliveries                     CRMDelivery[]
+  webinarChatMessages               WebinarChatMessage[]
+  questions                         Question[]
+  questionModerationEvents          QuestionModerationEvent[]
+  telegramManagerChatBindings       TelegramManagerChatBinding[]
+  telegramManagerCallbacks          TelegramManagerCallback[]
+  telegramBotEvents                 TelegramBotEvent[]
+  telegramConsultantMessages        TelegramConsultantMessage[]
+  analyticsEvents                   Event[]
+  moderationReports                 ContentReport[]
+  moderationReportEvents            ContentReportEvent[]
+  moderationCorrections             ModerationCorrectionRequest[]
+  webinarContentRevisions           WebinarContentRevision[]
+  moderationPlatformActions         ModerationPlatformAction[]
+  idempotencyRecords                OrganizationIdempotencyRecord[]
+  creatorMetadataIdempotencyRecords CreatorMetadataIdempotencyRecord[]
+  authorReviewTasks                 AuthorReviewTask[]
+  authorServiceNotifications        AuthorServiceNotification[]
+  rolloutEntries                    TenantRolloutEntry[]
+  legalHolds                        LegalHold[]
 
   @@index([status])
   @@map("organizations")
@@ -662,6 +664,25 @@ model OrganizationIdempotencyRecord {
   @@index([organizationId, createdAt])
   @@index([createdAt])
   @@map("organization_idempotency_records")
+}
+
+model CreatorMetadataIdempotencyRecord {
+  id             String       @id @default(cuid())
+  userId         String       @map("user_id")
+  organizationId String       @map("organization_id")
+  webinarId      String       @map("webinar_id")
+  idempotencyKey String       @map("idempotency_key")
+  requestHash    String       @map("request_hash")
+  responseJson   Json         @map("response_json")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  webinar        Webinar      @relation(fields: [webinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([webinarId, createdAt])
+  @@map("creator_metadata_idempotency_records")
 }
 
 model OrganizationMembership {
@@ -934,54 +955,55 @@ model Jurisdiction {
 }
 
 model Webinar {
-  id                         String                        @id @default(cuid())
-  organizationId             String                        @map("organization_id")
-  authorProfileId            String?                       @map("author_profile_id")
-  jurisdictionId             String?                       @map("jurisdiction_id")
+  id                         String                             @id @default(cuid())
+  organizationId             String                             @map("organization_id")
+  authorProfileId            String?                            @map("author_profile_id")
+  jurisdictionId             String?                            @map("jurisdiction_id")
   slug                       String
   title                      String
   description                String?
-  outcomeDescription         String?                       @map("outcome_description")
-  contentStatus              WebinarContentStatus          @default(DRAFT) @map("content_status")
-  visibility                 WebinarVisibility             @default(PRIVATE)
-  freshnessStatus            WebinarFreshnessStatus        @default(UNKNOWN) @map("freshness_status")
-  audienceLevel              WebinarAudienceLevel?         @map("audience_level")
-  targetAudience             String?                       @map("target_audience")
+  outcomeDescription         String?                            @map("outcome_description")
+  contentStatus              WebinarContentStatus               @default(DRAFT) @map("content_status")
+  visibility                 WebinarVisibility                  @default(PRIVATE)
+  freshnessStatus            WebinarFreshnessStatus             @default(UNKNOWN) @map("freshness_status")
+  audienceLevel              WebinarAudienceLevel?              @map("audience_level")
+  targetAudience             String?                            @map("target_audience")
   format                     WebinarFormat?
-  durationMinutes            Int?                          @map("duration_minutes")
-  language                   String                        @default("ru")
-  currentAsOf                DateTime?                     @map("current_as_of") @db.Date
-  reviewDueAt                DateTime?                     @map("review_due_at") @db.Date
+  durationMinutes            Int?                               @map("duration_minutes")
+  language                   String                             @default("ru")
+  currentAsOf                DateTime?                          @map("current_as_of") @db.Date
+  reviewDueAt                DateTime?                          @map("review_due_at") @db.Date
   disclaimer                 String?
-  syntheticDisclosure        String?                       @map("synthetic_disclosure")
-  mediaStatus                WebinarMediaStatus            @default(NOT_UPLOADED) @map("media_status")
-  transcriptStatus           WebinarTranscriptStatus       @default(NOT_AVAILABLE) @map("transcript_status")
-  scenarioStatus             WebinarScenarioStatus         @default(NOT_AVAILABLE) @map("scenario_status")
-  contentVersion             Int                           @default(1) @map("content_version")
-  moderationRevision         Int                           @default(0) @map("moderation_revision")
-  supersededByWebinarId      String?                       @map("superseded_by_webinar_id")
-  legacyCompatibility        Boolean                       @default(false) @map("legacy_compatibility")
-  publishedAt                DateTime?                     @map("published_at")
-  archivedAt                 DateTime?                     @map("archived_at")
-  createdAt                  DateTime                      @default(now()) @map("created_at")
-  updatedAt                  DateTime                      @updatedAt @map("updated_at")
-  organization               Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  authorProfile              AuthorProfile?                @relation(fields: [authorProfileId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  jurisdiction               Jurisdiction?                 @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
-  supersededBy               Webinar?                      @relation("WebinarSupersession", fields: [supersededByWebinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  supersedes                 Webinar[]                     @relation("WebinarSupersession")
+  syntheticDisclosure        String?                            @map("synthetic_disclosure")
+  mediaStatus                WebinarMediaStatus                 @default(NOT_UPLOADED) @map("media_status")
+  transcriptStatus           WebinarTranscriptStatus            @default(NOT_AVAILABLE) @map("transcript_status")
+  scenarioStatus             WebinarScenarioStatus              @default(NOT_AVAILABLE) @map("scenario_status")
+  contentVersion             Int                                @default(1) @map("content_version")
+  moderationRevision         Int                                @default(0) @map("moderation_revision")
+  supersededByWebinarId      String?                            @map("superseded_by_webinar_id")
+  legacyCompatibility        Boolean                            @default(false) @map("legacy_compatibility")
+  publishedAt                DateTime?                          @map("published_at")
+  archivedAt                 DateTime?                          @map("archived_at")
+  createdAt                  DateTime                           @default(now()) @map("created_at")
+  updatedAt                  DateTime                           @updatedAt @map("updated_at")
+  organization               Organization                       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  authorProfile              AuthorProfile?                     @relation(fields: [authorProfileId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  jurisdiction               Jurisdiction?                      @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+  supersededBy               Webinar?                           @relation("WebinarSupersession", fields: [supersededByWebinarId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supersedes                 Webinar[]                          @relation("WebinarSupersession")
   practiceAreas              WebinarPracticeArea[]
   sources                    WebinarSource[]
   slugAliases                WebinarSlugAlias[]
   sessions                   WebinarSession[]
   schedules                  WebinarSchedule[]
   commands                   WebinarCommand[]
+  metadataIdempotencyRecords CreatorMetadataIdempotencyRecord[]
   accessGrants               WebinarAccessGrant[]
   chatScenarios              ChatScenario[]
   chatMessages               WebinarChatMessage[]
-  currentMediaAssetId        String?                       @map("current_media_asset_id")
-  currentMediaAsset          MediaAsset?                   @relation("WebinarCurrentMedia", fields: [currentMediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  mediaAssets                MediaAsset[]                  @relation("WebinarMediaAssets")
+  currentMediaAssetId        String?                            @map("current_media_asset_id")
+  currentMediaAsset          MediaAsset?                        @relation("WebinarCurrentMedia", fields: [currentMediaAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  mediaAssets                MediaAsset[]                       @relation("WebinarMediaAssets")
   materials                  WebinarMaterial[]
   authorReviewTasks          AuthorReviewTask[]
   authorServiceNotifications AuthorServiceNotification[]

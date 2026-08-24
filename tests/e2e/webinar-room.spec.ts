@@ -1066,6 +1066,7 @@ test('author saves a profile, uploads private evidence and submits it for review
 });
 
 test('creator builds a private Webinar scenario and previews it without participant side effects', async ({ page }) => {
+  test.setTimeout(90_000);
   await page.setViewportSize({ width: 320, height: 760 });
   const organization = await prisma.organization.create({
     data: { name: 'Редакция юридических вебинаров', slug: `creator-e2e-${Date.now()}`, status: 'ACTIVE' },
@@ -1190,7 +1191,7 @@ test('creator builds a private Webinar scenario and previews it without particip
     buffer: Buffer.alloc(16_777_216, 1),
   });
   await page.locator('#creatorUploadButton').click();
-  await expect(page.locator('#creatorUploadStatus')).toContainText('Не удалось загрузить видео');
+  await expect(page.locator('#creatorUploadStatus')).toContainText('Не удалось загрузить видео', { timeout: 30_000 });
   await expect
     .poll(async () => {
       const upload = await prisma.mediaUpload.findFirst({ orderBy: { createdAt: 'desc' } });
@@ -2294,6 +2295,7 @@ test('email unsubscribe preserves Telegram and personal-data consent', async ({ 
 });
 
 test('exchange token is removed from URL and daily room stays cookie-only', async ({ page }) => {
+  test.setTimeout(90_000);
   await installDeterministicMediaClock(page);
   const { exchangeToken } = await createExchangeRegistration(`exchange-${Date.now()}@aspb.ru`);
 

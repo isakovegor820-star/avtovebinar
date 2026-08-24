@@ -42,6 +42,11 @@ import {
 } from '../src/lib/tenancy/constants.js';
 
 const now = new Date('2026-08-23T12:00:00.000Z');
+const analyticsReferenceTime = new Date();
+const analyticsPeriod = {
+  from: new Date(analyticsReferenceTime.getTime() - 86_400_000).toISOString().slice(0, 10),
+  to: new Date(analyticsReferenceTime.getTime() + 86_400_000).toISOString().slice(0, 10),
+};
 
 async function reset() {
   await prisma.$executeRawUnsafe(
@@ -199,8 +204,8 @@ async function participant(scope: Awaited<ReturnType<typeof fixture>>, index: nu
       webinarSessionId: scope.session.id,
       accessPolicy: 'PUBLIC_CATALOG',
       accessTokenHash: crypto.randomBytes(32).toString('hex'),
-      registeredAt: new Date('2026-08-23T10:30:00Z'),
-      emailVerifiedAt: new Date('2026-08-23T10:30:00Z'),
+      registeredAt: analyticsReferenceTime,
+      emailVerifiedAt: analyticsReferenceTime,
     },
   });
   return { user, lead, registration };
@@ -286,12 +291,7 @@ describe('ANA-001..ANA-005 analytics projection', () => {
       },
     });
 
-    const overview = await getTenantAnalyticsOverview(
-      prisma,
-      scope.context,
-      { from: '2026-08-23', to: '2026-08-23' },
-      now,
-    );
+    const overview = await getTenantAnalyticsOverview(prisma, scope.context, analyticsPeriod, now);
     expect(overview.metrics).toMatchObject({
       registrations: 3,
       uniqueEntries: 3,
@@ -343,14 +343,8 @@ describe('ANA-001..ANA-005 analytics projection', () => {
         `seek-${index}`,
       );
     }
-    const replay = await getTenantRetention(
-      prisma,
-      scope.context,
-      { from: '2026-08-23', to: '2026-08-23' },
-      'REPLAY',
-      now,
-    );
-    const live = await getTenantRetention(prisma, scope.context, { from: '2026-08-23', to: '2026-08-23' }, 'LIVE', now);
+    const replay = await getTenantRetention(prisma, scope.context, analyticsPeriod, 'REPLAY', now);
+    const live = await getTenantRetention(prisma, scope.context, analyticsPeriod, 'LIVE', now);
     expect(replay.intervals.find(item => item.fromPercent === 50)).toMatchObject({ viewers: 3, suppressed: false });
     expect(replay.intervals.find(item => item.fromPercent === 60)).toMatchObject({ viewers: null, suppressed: false });
     expect(live.intervals.every(item => item.viewers === null || item.viewers === 0)).toBe(true);
@@ -420,12 +414,7 @@ describe('ANA-001..ANA-005 analytics projection', () => {
       { webinarId: scope.webinar.id, sessionId: scope.session.id },
       new Date(),
     );
-    const content = await getTenantContentAnalytics(
-      prisma,
-      scope.context,
-      { from: '2026-08-23', to: '2026-08-23' },
-      now,
-    );
+    const content = await getTenantContentAnalytics(prisma, scope.context, analyticsPeriod, now);
     expect(active.activeWindowSeconds).toBe(ANALYTICS_ACTIVE_WINDOW_SECONDS);
     expect(active.syntheticViewersIncluded).toBe(false);
     expect(content.popularChapters).toEqual([{ chapterId: chapter.id, title: 'Важная глава', count: 3 }]);

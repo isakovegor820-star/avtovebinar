@@ -538,6 +538,14 @@ fi
 echo "Applying forward-only database migrations..."
 migration_started=true
 "${compose[@]}" run --rm api npx prisma migrate deploy
+echo "Repeating migration deploy to prove the exact schema is a no-op..."
+migration_repeat_output="$("${compose[@]}" run --rm api npx prisma migrate deploy 2>&1)"
+printf '%s\n' "$migration_repeat_output"
+if [[ "$migration_repeat_output" != *"No pending migrations to apply"* ]]; then
+  echo "Repeated migration deploy did not report a no-op" >&2
+  false
+fi
+"${compose[@]}" run --rm api npx prisma migrate status
 
 echo "Starting deployment services..."
 release_replaced=true
@@ -560,26 +568,37 @@ if [[ "${ALLOW_DEGRADED_DEPENDENCIES:-off}" == "on" ]]; then
   echo "WARNING: operator explicitly allowed degraded dependency status 503." >&2
 fi
 
-echo "Checking API dependencies and worker heartbeat..."
+echo "Checking live, ready, dependency and metrics endpoints without response bodies..."
 "${compose[@]}" exec -T -e DEPLOY_ALLOWED_DEPENDENCY_STATUSES="$allowed_dependency_statuses" api node -e '
   const allowed = new Set(
     String(process.env.DEPLOY_ALLOWED_DEPENDENCY_STATUSES || "200")
       .split(",")
       .map(value => Number(value)),
   );
-  fetch(`http://127.0.0.1:${process.env.PORT || 5174}/health/dependencies/details`, {
-    headers: { authorization: `Bearer ${process.env.METRICS_TOKEN || ""}` },
-  })
-    .then(async response => {
+  const token = process.env.METRICS_TOKEN || "";
+  const checks = [
+    ["live", "/health/live", false, new Set([200])],
+    ["ready", "/health/ready", false, new Set([200])],
+    ["dependencies", "/health/dependencies", false, allowed],
+    ["protected_dependencies", "/health/dependencies/details", true, allowed],
+    ["metrics", "/metrics", true, new Set([200])],
+  ];
+  (async () => {
+    for (const [name, pathname, protectedEndpoint, statuses] of checks) {
+      const response = await fetch(`http://127.0.0.1:${process.env.PORT || 5174}${pathname}`, {
+        headers: protectedEndpoint ? { authorization: `Bearer ${token}` } : {},
+      });
       await response.body?.cancel().catch(() => undefined);
-      console.log(`Protected dependency health returned HTTP ${response.status}.`);
-      if (!allowed.has(response.status)) process.exitCode = 1;
-    })
-    .catch(error => {
-      console.error(error);
-      process.exitCode = 1;
-    });
+      console.log(`${name} returned HTTP ${response.status}.`);
+      if (!statuses.has(response.status)) process.exitCode = 1;
+    }
+  })().catch(() => {
+    console.error("Runtime endpoint acceptance failed without exposing a response body.");
+    process.exitCode = 1;
+  });
 '
+echo "Checking release/provider/retention rollout controls..."
+"${compose[@]}" exec -T api node dist/src/cli/releaseControlsAcceptance.js
 if has_service webinar-worker; then
   "${compose[@]}" exec -T webinar-worker node scripts/worker-healthcheck.mjs
 else

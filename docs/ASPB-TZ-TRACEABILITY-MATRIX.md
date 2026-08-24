@@ -1,6 +1,6 @@
 # Матрица трассировки ТЗ АСПБ
 
-Дата локальной проверки: 24.08.2026. Источник: `docs/ASPB-LEGAL-PLATFORM-TZ.md` и master gap-closure prompt. Статус `verified_staging` не используется: внешние staging-прогоны не выполнялись. `verified_local` означает только фактически выполненную локальную unit/contract/static-проверку, а не измерение NFR.
+Дата локальной проверки: 24.08.2026. Источник: `docs/ASPB-LEGAL-PLATFORM-TZ.md` и master gap-closure prompt. Статус `verified_staging` не используется: внешний staging-прогон ещё не выполнялся. `verified_local` включает фактически выполненные проверки на изолированной PostgreSQL 17, полный Vitest и Chromium Playwright, где это явно указано; это не заменяет staging/NFR acceptance. Гранулярные requirement rows ниже сохраняют исходную карту code evidence, а сводные gap/migration/interface/DoD разделы фиксируют актуальный результат release-аудита.
 
 ## Функциональные требования
 
@@ -170,7 +170,7 @@
 
 ## Migration steps
 
-No migration or IaC apply was executed. Each SQL deploy step stays `blocked_external` until an isolated PostgreSQL target is available.
+The following authored-state rows are retained for file-level traceability. They are superseded for runtime status by the verified execution table below. No IaC apply was executed.
 
 | Step ID | Status | Evidence | Runtime evidence | Residual risk / next action |
 | --- | --- | --- | --- | --- |
@@ -203,18 +203,35 @@ No migration or IaC apply was executed. Each SQL deploy step stays `blocked_exte
 | MIG-20260824110000-POSTFLIGHT | implemented | prisma/checks/20260824110000_retention_legal_hold_postflight.sql | Read-only SQL authored; not executed | Execute after deploy and retain sanitized result; DBA/QA |
 | MIG-20260824110000-REPEAT | blocked_external | prisma/migrations/20260824110000_retention_legal_hold/migration.sql; prisma/checks/20260824110000_retention_legal_hold_postflight.sql | No repeated-deploy database evidence | Run prisma migrate deploy twice, confirm second no-op and app rollback compatibility; DBA/QA |
 
+### Verified isolated PostgreSQL 17 execution
+
+All data used the synthetic marker `ASPB_RELEASE_AUDIT_20260824`. For every row, the read-only preflight returned zero violations, a fresh compressed SQL backup was restored into a distinct recovery database, deploy and postflight passed, and the repeated deploy reported `No pending migrations to apply`. The final `prisma migrate status` reported 78 migrations and an up-to-date schema. No down migration, physical deletion, retention apply, real notification or provider call was performed.
+
+| Migration | Preflight | Backup/restore | Deploy | Postflight | Repeat/status |
+| --- | --- | --- | --- | --- | --- |
+| 20260824090000 | verified_local | verified_local | verified_local | verified_local; 0 violations | verified_local; no-op |
+| 20260824092000 | verified_local | verified_local | verified_local | verified_local; 0 violations | verified_local; no-op |
+| 20260824094000 | verified_local | verified_local | verified_local | verified_local; 0 violations | verified_local; no-op |
+| 20260824100000 | verified_local | verified_local | verified_local | verified_local; 0 violations | verified_local; no-op |
+| 20260824102000 | verified_local | verified_local | verified_local | verified_local; 0 violations | verified_local; no-op |
+| 20260824104000 | verified_local | verified_local | verified_local | verified_local; 0 violations | verified_local; no-op |
+| 20260824110000 | verified_local | verified_local | verified_local | verified_local; 0 violations | verified_local; no-op |
+| 20260824112000 | verified_local | verified_local; SHA-256 `fee0a0adb1c1fb36a43ffaeb6209a41476cfd189380fc1adc50b546101d2e849` | verified_local | verified_local; 0 violations | verified_local; no-op |
+
+Legacy chat backfill was executed dry-run first, then only on the synthetic staging tenant. It imported 167 messages exactly once, remained `DRAFT` with `runtimeEnabled=false`, and the repeated apply was a no-op.
+
 ## Interface sections
 
 | Section | Status | Evidence | Runtime evidence | Residual risk / next action |
 | --- | --- | --- | --- | --- |
-| 12.1 Information architecture | implemented | crisis_premium/platform-access.html; crisis_premium/organization.html; crisis_premium/catalog-author.html; crisis_premium/creator-webinars.html | Consolidated six-domain static full review completed; build/lint pass | Runtime 320 px, 200% zoom and assistive-technology evidence still needs browser run; Frontend/QA |
-| 12.2 Eight-step wizard | implemented | crisis_premium/js/creator-webinars.js; src/routes/creatorWebinars.ts | Consolidated six-domain static full review completed; build/lint pass | Runtime 320 px, 200% zoom and assistive-technology evidence still needs browser run; Frontend/QA |
-| 12.3 Interface states | implemented | crisis_premium/platform-access.html; crisis_premium/creator-webinars.html; crisis_premium/catalog-author.html | Consolidated six-domain static full review completed; build/lint pass | Runtime 320 px, 200% zoom and assistive-technology evidence still needs browser run; Frontend/QA |
-| 12.4 Accessibility | implemented | crisis_premium/platform-access.css; crisis_premium/organization.html; crisis_premium/creator-webinars.html | Consolidated six-domain static full review completed; build/lint pass | Runtime 320 px, 200% zoom and assistive-technology evidence still needs browser run; Frontend/QA |
-| 12.5 Layout | implemented | crisis_premium/creator-webinars.css; crisis_premium/organization.css; crisis_premium/catalog-author.css | Consolidated six-domain static full review completed; build/lint pass | Runtime 320 px, 200% zoom and assistive-technology evidence still needs browser run; Frontend/QA |
-| 12.6 UX writing | implemented | crisis_premium/js/organization.js; crisis_premium/js/creator-webinars.js | Consolidated six-domain static full review completed; build/lint pass | Runtime 320 px, 200% zoom and assistive-technology evidence still needs browser run; Frontend/QA |
-| 12.7 Typography | implemented | crisis_premium/fonts.css; crisis_premium/creator-webinars.css; crisis_premium/catalog-author.css | Consolidated six-domain static full review completed; build/lint pass | Runtime 320 px, 200% zoom and assistive-technology evidence still needs browser run; Frontend/QA |
-| 12.8 Colors/UI polish | implemented | crisis_premium/platform-access.css; crisis_premium/creator-webinars.css; crisis_premium/catalog-author.css | Consolidated six-domain static full review completed; build/lint pass | Runtime 320 px, 200% zoom and assistive-technology evidence still needs browser run; Frontend/QA |
+| 12.1 Information architecture | verified_local | crisis_premium/platform-access.html; crisis_premium/organization.html; crisis_premium/catalog-author.html; crisis_premium/creator-webinars.html | Consolidated six-domain full review plus Chromium creator/author/organization acceptance passed | Staging browser acceptance remains; Frontend/QA |
+| 12.2 Eight-step wizard | verified_local | crisis_premium/js/creator-webinars.js; src/routes/creatorWebinars.ts | Exact eight-step flow, keyboard navigation, Back/Forward, reload/resume, idempotent autosave and server blockers passed | Repeat against exact staging SHA; QA |
+| 12.3 Interface states | verified_local | crisis_premium/platform-access.html; crisis_premium/creator-webinars.html; crisis_premium/catalog-author.html | Loading/error/blocker and safe post-activation media states passed | Repeat against exact staging SHA; QA |
+| 12.4 Accessibility | verified_local | platform/organization/creator UI; tests/e2e/webinar-room.spec.ts | Keyboard paths, visible focus behavior and mobile acceptance passed | Manual assistive-technology and 200% zoom remain for staging; Frontend/QA |
+| 12.5 Layout | verified_local | crisis_premium/creator-webinars.css; crisis_premium/organization.css; crisis_premium/catalog-author.css | 320 px tests passed with zero horizontal overflow in covered screens | Repeat on staging browsers; Frontend/QA |
+| 12.6 UX writing | verified_local | crisis_premium/js/organization.js; crisis_premium/js/creator-webinars.js | Exact step labels, publication blockers and corrective copy reviewed and exercised | Product-owner wording acceptance remains; Product |
+| 12.7 Typography | verified_local | crisis_premium/fonts.css; crisis_premium/creator-webinars.css; crisis_premium/catalog-author.css | Responsive wrapping and narrow-screen readability checks passed | Manual browser/font loading check remains on staging; Frontend/QA |
+| 12.8 Colors/UI polish | verified_local | platform/creator/catalog CSS | Consolidated contrast, focus, reduced-motion and interaction-state review passed | Staging visual acceptance remains; Frontend/QA |
 
 ## Definition of Done rows
 
@@ -224,23 +241,23 @@ No migration or IaC apply was executed. Each SQL deploy step stays `blocked_exte
 | DOD-02 Schema/API/events documented | implemented | prisma/schema.prisma; openapi.yml; tests/openapiContract.test.ts | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
 | DOD-03 Backward-compatible migrations/rollback path | implemented | additive migrations; pre/postflight SQL; docs/production-runbook.md | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
 | DOD-04 Permissions and tenant isolation | implemented | src/lib/tenancy/context.ts; tests/integration.test.ts | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
-| DOD-05 Critical paths have E2E | in_progress | tests/e2e/webinar-room.spec.ts includes creator wizard/cookie-session/320 px/Back-Forward coverage | Playwright scenario authored and TypeScript-checked, but not executed without PostgreSQL | Run full Playwright suite on isolated PostgreSQL; QA |
+| DOD-05 Critical paths have E2E | verified_local | tests/e2e/webinar-room.spec.ts includes creator wizard/cookie-session/320 px/Back-Forward coverage | Chromium 30/30 passed on isolated PostgreSQL 17 | Repeat against exact staging SHA; QA |
 | DOD-06 Loading/empty/error/narrow UI states | implemented | changed crisis_premium pages and responsive CSS | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
 | DOD-07 Consolidated interface review | implemented | six installed interface skills applied; manual full review recorded below | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
-| DOD-08 Logs/metrics/health/alerts | in_progress | infra/monitoring; tests/monitoringTemplates.test.ts | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
+| DOD-08 Logs/metrics/health/alerts | verified_local | infra/monitoring; tests/monitoringTemplates.test.ts; scripts/deploy-production.sh | Static templates and explicit post-deploy live/ready/dependencies/metrics gates pass locally | Native promtool and staging endpoint evidence remain; Platform |
 | DOD-09 Consent/retention/audit | implemented | src/lib/tenancy/retentionPlanning.ts; src/lib/retention.ts; audit writers | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
-| DOD-10 Full quality gate | in_progress | build/lint/targeted tests pass; npm test/e2e blocked by PostgreSQL | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
+| DOD-10 Full quality gate | verified_local | CI workflow; package scripts; release audit evidence | Build/lint/CSS, Vitest 360/360, Playwright 30/30, production audit 0 and secret scans pass | Docker/SAST/Terraform must pass on exact GitHub SHA; QA/Platform |
 | DOD-11 OpenAPI/README/runbook/support | implemented | openapi.yml; README.md; docs/production-runbook.md | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
 | DOD-12 No undocumented security weakening | implemented | kill switches, allowlist rechecks, retention hard guard, private storage | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
 | DOD-13 Product owner acceptance | blocked_external | No product/staging acceptance evidence | No verified_staging claim | Complete the stated blocked runtime/product action; QA/Product/Platform |
 
 ## Consolidated interface review (full)
 
-Reviewed accessibility, layout, writing, typography, colors and UI polish together for onboarding/team, public author and the exact eight-step creator flow. Root-cause fixes applied: stable focus targets for async error/content modes; native dialog with trigger focus restoration; visible focus rings and ≥44 px controls; responsive single-column chapter/team/actions below 30–34 rem; server-derived step status expressed in text and not color alone; exact section labels for steps 5 and 7; long Russian/email/published-URL wrapping; reduced-motion spinner/press behavior; network retry for the public author page; calm corrective copy and corrected last-owner wording. Static review found no new design system, icon set or decorative motion. The 320 px/keyboard/Back-Forward Playwright case is authored but not executed because local PostgreSQL is unavailable. Direct in-app rendering was also unavailable: the sandbox rejected localhost binding and the browser safety policy rejects `file:` navigation, so no screenshot or visual-pass claim is made.
+Reviewed accessibility, layout, writing, typography, colors and UI polish together for onboarding/team, public author and the exact eight-step creator flow. Root-cause fixes applied: stable focus targets for async error/content modes; native dialog with trigger focus restoration; unique form IDs; visible focus rings and ≥44 px controls; responsive `min-width: 0` containment; server-derived step status expressed in text and not color alone; exact section labels; long Russian/email/published-URL wrapping; reduced-motion behavior; safe media activation copy; network retry; and calm corrective copy. Chromium then exercised keyboard navigation, Back/Forward, reload/resume, autosave replay, server publication blockers, author/organization flows and 320 px overflow. The complete suite passed 30/30. Manual screen-reader and 200% zoom evidence remains a staging acceptance item.
 
 ## External blockers
 
-- No isolated PostgreSQL is listening at the configured local test URL, so fresh/non-empty/repeated migration drills, full integration and Playwright were not executed.
-- No staging URL/allowlist, credentials, DPA/no-training approval or budget authority was supplied; provider, load, restore and cloud apply sections remain blocked.
-- Terraform/OpenTofu and promtool are not installed locally; policy tests parse the templates, but native validators still need to run in CI/staging tooling.
+- Staging URL/session fixtures are not exposed locally; guarded network smoke/load/browser acceptance must run only after the exact SHA is deployed by GitHub Actions.
+- Provider network calls remain blocked by the DPA/no-training/budget boundary. Offline fake-adapter and exact 4 GiB stream acceptance passed without an external call.
+- Terraform/OpenTofu and promtool are not installed locally. The exact-SHA CI now fail-closes on pinned Terraform `fmt`/`validate`; promtool remains explicitly unavailable rather than reported as passed.
 - Retention terms are unapproved. Destructive apply is intentionally hard-blocked in code and by the default-off environment guard.

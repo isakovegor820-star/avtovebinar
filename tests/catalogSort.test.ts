@@ -15,6 +15,11 @@ import {
 
 beforeEach(async () => {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE users, organizations, legal_practice_areas, jurisdictions CASCADE');
+  await prisma.tenantRolloutPolicy.upsert({
+    where: { feature: 'PUBLIC_CATALOG' },
+    update: { mode: 'ENABLED', revision: 1, updatedByAdminUserId: null },
+    create: { feature: 'PUBLIC_CATALOG', mode: 'ENABLED', revision: 1 },
+  });
   await prisma.organization.create({
     data: { id: DEFAULT_ORGANIZATION_ID, name: 'АСПБ', slug: DEFAULT_ORGANIZATION_SLUG, status: 'ACTIVE' },
   });

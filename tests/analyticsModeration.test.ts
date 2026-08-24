@@ -40,6 +40,7 @@ import {
   DEFAULT_SYSTEM_OWNER_MEMBERSHIP_ID,
   DEFAULT_SYSTEM_OWNER_USER_ID,
 } from '../src/lib/tenancy/constants.js';
+import { TENANT_ROLLOUT_FEATURES } from '../src/lib/tenancy/rolloutPolicy.js';
 
 const now = new Date('2026-08-23T12:00:00.000Z');
 const analyticsReferenceTime = new Date();
@@ -59,6 +60,9 @@ async function reset() {
       { key: 'moderation_actions', enabled: true, description: 'Moderation test flag' },
       { key: 'provider_jobs', enabled: false, description: 'Provider jobs test flag' },
     ],
+  });
+  await prisma.tenantRolloutPolicy.createMany({
+    data: TENANT_ROLLOUT_FEATURES.map(feature => ({ feature, mode: 'ENABLED', revision: 1 })),
   });
   await prisma.organization.create({
     data: { id: DEFAULT_ORGANIZATION_ID, name: 'АСПБ', slug: DEFAULT_ORGANIZATION_SLUG, status: 'ACTIVE' },

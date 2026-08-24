@@ -14,16 +14,22 @@ import { errorMiddleware } from './lib/http.js';
 import { getCachedDependencyStatus, getDependencySummary, getReadiness } from './lib/health.js';
 import { csrfProtection, ensureCsrfToken } from './lib/csrf.js';
 import { cspStyleAttributeHashes, cspStyleElementHashes } from './lib/cspInlineHashes.js';
-import { requestContextMiddleware } from './lib/requestContext.js';
+import { getRequestContext, requestContextMiddleware } from './lib/requestContext.js';
 import { metricsMiddleware, renderPrometheusMetrics } from './lib/metrics.js';
 import { getVideoCspOrigins } from './lib/webinarVideo.js';
 import { visitorIdentityMiddleware } from './lib/visitor.js';
+import { getPlatformFeatureFlags } from './lib/featureFlags.js';
+import { listCatalogSitemapEntries } from './lib/catalog.js';
+import { prisma } from './lib/prisma.js';
+import { getMediaUploadCspOrigins } from './lib/mediaStorage.js';
+import { platformAdminRouter } from './routes/platformAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = process.cwd();
 const frontendDir = path.join(rootDir, 'crisis_premium');
 const videoCspOrigins = getVideoCspOrigins();
+const mediaUploadCspOrigins = getMediaUploadCspOrigins();
 
 export const app = express();
 
@@ -97,7 +103,7 @@ app.use(
         fontSrc: ["'self'", 'data:'],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
         mediaSrc: ["'self'", 'blob:', 'data:', ...videoCspOrigins],
-        connectSrc: ["'self'", ...videoCspOrigins],
+        connectSrc: ["'self'", ...videoCspOrigins, ...mediaUploadCspOrigins],
         frameSrc: ["'none'"],
         workerSrc: ["'self'"],
         manifestSrc: ["'self'"],
@@ -112,6 +118,10 @@ app.use(
     credentials: true,
   }),
 );
+// Analytics is a small typed envelope. Parse it with its real wire-size limit
+// before the general JSON parser so a large body is rejected before allocation
+// and route-level validation.
+app.use('/api/events', express.json({ limit: '12kb' }));
 app.use(express.json({ limit: '256kb' }));
 // API работает на JSON; urlencoded — с лимитом и extended:false (без вложенных
 // объектов через qs) — меньше поверхность атаки и не растёт без ограничения.
@@ -124,6 +134,10 @@ app.use(csrfProtection);
 const formLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 20,
+  // Vitest reuses one Express instance across isolated database fixtures. The
+  // production limiter must not leak request counts between otherwise isolated
+  // tests; endpoint-specific persistence/rate policies are tested separately.
+  skip: () => env.NODE_ENV === 'test',
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -153,6 +167,61 @@ const registrationEmailLimiter = rateLimit({
   message: { ok: false, error: 'Слишком много попыток с этим email. Попробуйте позже.' },
 });
 
+const catalogRegistrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  skip: req => env.NODE_ENV === 'test' || req.method !== 'POST' || !req.path.endsWith('/register'),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    return email
+      ? `catalog-registration:${email}`
+      : `catalog-registration-ip:${ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? '0.0.0.0')}`;
+  },
+  message: { ok: false, error: 'Слишком много запросов. Попробуйте позже.' },
+});
+
+const viewerMutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  skip: req => env.NODE_ENV === 'test' || ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const crmMutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 40,
+  skip: req => env.NODE_ENV === 'test' || ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Слишком много изменений CRM. Подождите и повторите.',
+      code: 'crm_mutation_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
+});
+
+const crmReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 90,
+  skip: req => env.NODE_ENV === 'test' || !['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Слишком много запросов к CRM. Подождите и повторите.',
+      code: 'crm_read_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
+});
+
 const participantLoginEmailLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -171,9 +240,87 @@ const participantLoginEmailLimiter = rateLimit({
   },
 });
 
+const platformLoginEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (email.includes('@')) {
+      return `platform-email:${email}`;
+    }
+    return `platform-ip:${ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? '0.0.0.0')}`;
+  },
+  message: {
+    ok: true,
+    message: 'Если аккаунт доступен, мы отправим одноразовую ссылку для входа.',
+  },
+});
+
+function isLocalMediaPartUpload(req: Request) {
+  return (
+    req.method === 'PUT' &&
+    /^\/api\/v1\/creator\/(?:uploads|material-uploads)\/[^/]+\/parts\/\d+\/content(?:\?|$)/.test(req.originalUrl)
+  );
+}
+
+const platformMutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  skip: req => env.NODE_ENV === 'test' || isLocalMediaPartUpload(req),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const organizationCreateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 3,
+  skip: req => env.NODE_ENV === 'test' || req.method !== 'POST' || req.path !== '/',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Слишком много попыток создать организацию. Повторите позже.',
+      code: 'organization_create_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
+});
+
+const mediaUploadPartLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Math.ceil(env.MEDIA_MAX_UPLOAD_BYTES / env.MEDIA_PART_SIZE_BYTES) * 3,
+  skip: () => env.NODE_ENV === 'test',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Слишком много частей файла. Подождите и продолжите загрузку.',
+      code: 'media_upload_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
+});
+
 const tokenReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 90,
+  skip: () => env.NODE_ENV === 'test',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Viewer reads are frequent during normal playback (dashboard hydration,
+// notes, progress restore). Keep their budget separate from one-time token
+// exchange so opening the account cannot starve authentication for users on
+// the same office/NAT address.
+const viewerReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 90,
+  skip: () => env.NODE_ENV === 'test',
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -183,7 +330,36 @@ const eventLimiter = rateLimit({
   limit: 120,
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Too many analytics events. Retry later.',
+      code: 'analytics_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
 });
+
+export function createPublicReportLimiter(options: { skipInTest?: boolean } = {}) {
+  const skipInTest = options.skipInTest ?? true;
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    skip: () => skipInTest && env.NODE_ENV === 'test',
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => {
+      res.status(429).json({
+        ok: false,
+        error: 'Слишком много жалоб. Попробуйте позже.',
+        code: 'public_report_rate_limited',
+        correlationId: getRequestContext()?.correlationId,
+      });
+    },
+  });
+}
+
+const publicReportLimiter = createPublicReportLimiter();
 
 const adminLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -204,19 +380,40 @@ const adminBroadcastLimiter = rateLimit({
 app.use('/api/register', registrationLimiter);
 app.use('/api/register', registrationEmailLimiter);
 app.use('/api/register', formLimiter);
+app.use('/api/v1/catalog/webinars', catalogRegistrationLimiter);
 app.use('/api/participant/login/request', participantLoginEmailLimiter);
 app.use('/api/participant/login/request', formLimiter);
 app.use('/api/participant/login/consume', tokenReadLimiter);
 app.use('/api/participant/access', tokenReadLimiter);
 app.use('/api/participant/logout', formLimiter);
+app.use('/api/v1/auth/passwordless/request', platformLoginEmailLimiter);
+app.use('/api/v1/auth/passwordless/request', platformMutationLimiter);
+app.use('/api/v1/auth/passwordless/consume', tokenReadLimiter);
+app.use('/api/v1/auth', platformMutationLimiter);
+app.use('/api/v1/organization', platformMutationLimiter);
+app.use('/api/v1/organizations', organizationCreateLimiter);
+app.use('/api/v1/organizations', platformMutationLimiter);
+app.use('/api/v1/viewer', viewerReadLimiter);
+app.use('/api/v1/viewer', viewerMutationLimiter);
+app.use('/api/v1/crm', crmReadLimiter);
+app.use('/api/v1/crm', crmMutationLimiter);
+app.use((req, res, next) => {
+  if (isLocalMediaPartUpload(req)) return mediaUploadPartLimiter(req, res, next);
+  return next();
+});
+app.use('/api/v1/creator', platformMutationLimiter);
+app.use('/api/v1/moderation', platformMutationLimiter);
+app.use('/api/v1/telegram', platformMutationLimiter);
 app.use('/api/questions', formLimiter);
 app.use('/api/partner-application', formLimiter);
 app.use('/api/events', eventLimiter);
+app.use('/api/v1/reports', publicReportLimiter);
 app.use('/api/telegram-click', eventLimiter);
 app.use('/api/registration', tokenReadLimiter);
 app.use('/api/webinar/current', tokenReadLimiter);
 app.use('/api/webinar/timeline', tokenReadLimiter);
 app.use('/api/webinar/chat', tokenReadLimiter);
+app.use('/api/webinar/materials', tokenReadLimiter);
 app.use('/api/recordings', tokenReadLimiter);
 app.use(
   '/api/media',
@@ -232,6 +429,7 @@ app.use('/api/admin/telegram/broadcast', adminBroadcastLimiter);
 
 app.use('/api', publicRouter);
 app.use(adminRouter);
+app.use(platformAdminRouter);
 
 app.get('/metrics', async (_req, res, next) => {
   try {
@@ -286,6 +484,44 @@ app.get('/.well-known/security.txt', (_req, res) => {
 });
 app.get('/openapi.yml', (_req, res) => {
   res.type('application/yaml').sendFile(path.join(rootDir, 'openapi.yml'));
+});
+app.get('/sitemap.xml', async (_req, res, next) => {
+  try {
+    if (!getPlatformFeatureFlags().publicCatalog) {
+      res.status(404).type('text/plain').send('Not found');
+      return;
+    }
+    const entries = await listCatalogSitemapEntries(prisma);
+    const origin = new URL(env.PUBLIC_SITE_URL).origin;
+    const escapeXml = (value: string) =>
+      value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+    const urls = [
+      { path: '/crisis_premium/catalog.html', updatedAt: null as Date | null },
+      ...entries.map(entry => ({
+        path: `/crisis_premium/catalog-webinar.html?${new URLSearchParams({
+          organization: entry.organization_slug,
+          webinar: entry.webinar_slug,
+        }).toString()}`,
+        updatedAt: entry.updated_at,
+      })),
+    ];
+    const body = urls
+      .map(
+        item =>
+          `<url><loc>${escapeXml(new URL(item.path, origin).toString())}</loc>${
+            item.updatedAt ? `<lastmod>${item.updatedAt.toISOString()}</lastmod>` : ''
+          }</url>`,
+      )
+      .join('');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res
+      .type('application/xml')
+      .send(
+        `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${body}</urlset>`,
+      );
+  } catch (error) {
+    next(error);
+  }
 });
 app.get('/docs', (_req, res) => {
   res.type('html').send(`<!doctype html>

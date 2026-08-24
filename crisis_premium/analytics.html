@@ -1,0 +1,89 @@
+<!doctype html>
+<html class="light" lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Аналитика вебинаров организации" />
+    <title>Аналитика вебинаров | АСПБ</title>
+    <link rel="stylesheet" href="css/styles.css?v=analytics-1" />
+    <link rel="stylesheet" href="fonts.css?v=self-2" />
+    <link rel="stylesheet" href="platform-access.css?v=analytics-1" />
+    <link rel="stylesheet" href="analytics-dashboard.css?v=analytics-1" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  </head>
+  <body class="analytics-body" data-state="loading">
+    <a class="platform-skip-link" href="#analyticsMain">К аналитике</a>
+    <header class="analytics-header">
+      <a class="analytics-brand" href="creator-webinars.html">АСПБ · кабинет автора</a>
+      <nav aria-label="Разделы кабинета">
+        <a href="creator-webinars.html">Вебинары</a>
+        <a aria-current="page" href="analytics.html">Аналитика</a>
+        <a href="moderation.html">Модерация</a>
+      </nav>
+    </header>
+    <main id="analyticsMain" class="analytics-main" tabindex="-1">
+      <section class="analytics-intro" aria-labelledby="analyticsTitle">
+        <p class="analytics-eyebrow">Данные организации</p>
+        <h1 id="analyticsTitle">Аналитика вебинаров</h1>
+        <p>Периоды рассчитываются по UTC. Legacy-события версии 0 и повторы с тем же ключом не входят в показатели.</p>
+      </section>
+
+      <section class="analytics-panel" aria-labelledby="analyticsFiltersTitle">
+        <h2 id="analyticsFiltersTitle">Фильтры отчёта</h2>
+        <form id="analyticsFilters" class="analytics-filter-grid">
+          <label>ID вебинара <input name="webinarId" maxlength="191" autocomplete="off" /></label>
+          <label>ID сессии <input name="sessionId" maxlength="191" autocomplete="off" /></label>
+          <label>Источник
+            <select name="source">
+              <option value="">Все источники</option><option value="room">Эфир</option><option value="replay">Запись</option><option value="registration">Регистрация</option><option value="web">Сайт</option><option value="telegram">Telegram</option>
+            </select>
+          </label>
+          <label>Удержание
+            <select name="playback"><option value="LIVE">Эфир</option><option value="REPLAY">Запись</option></select>
+          </label>
+          <label>С даты, UTC <input name="from" type="date" /></label>
+          <label>По дату, UTC <input name="to" type="date" /></label>
+          <div class="analytics-actions">
+            <button class="platform-primary-button" type="submit">Применить фильтры</button>
+            <a class="platform-secondary-button" href="analytics.html">Сбросить</a>
+          </div>
+        </form>
+      </section>
+
+      <p id="analyticsStatus" class="analytics-status" role="status" aria-live="polite">Загружаем показатели…</p>
+      <section id="analyticsError" class="analytics-panel analytics-message" role="alert" hidden>
+        <h2>Не удалось загрузить аналитику</h2>
+        <p id="analyticsErrorText">Повторите запрос.</p>
+        <button id="analyticsRetry" class="platform-primary-button" type="button">Повторить</button>
+      </section>
+
+      <div id="analyticsContent" hidden>
+        <section aria-labelledby="overviewTitle">
+          <div class="analytics-section-heading"><h2 id="overviewTitle">Основные показатели</h2><p id="analyticsPeriod"></p></div>
+          <dl id="analyticsMetrics" class="analytics-metrics"></dl>
+          <details class="analytics-formulas"><summary>Как рассчитаны показатели</summary><dl id="analyticsFormulaList"></dl></details>
+        </section>
+
+        <section class="analytics-panel analytics-live" aria-labelledby="liveTitle">
+          <h2 id="liveTitle">Сейчас смотрят</h2>
+          <p><strong id="activeViewers" class="analytics-big-number">0</strong> активных зрителей</p>
+          <p id="liveAlgorithm"></p>
+        </section>
+
+        <section class="analytics-panel" aria-labelledby="retentionTitle">
+          <h2 id="retentionTitle">Удержание по интервалам видео</h2>
+          <p>Малые группы скрыты. Повторные heartbeat, seek назад и фоновые вкладки не создают новых зрителей.</p>
+          <div class="analytics-table-wrap" tabindex="0" role="region" aria-label="Таблица удержания">
+            <table><thead><tr><th scope="col">Интервал</th><th scope="col">Уникальные зрители</th></tr></thead><tbody id="retentionRows"></tbody></table>
+          </div>
+        </section>
+
+        <section class="analytics-content-grid" aria-label="Интерес к опубликованному транскрипту">
+          <article class="analytics-panel"><h2>Популярные главы</h2><ol id="popularChapters"></ol><p id="popularChaptersEmpty">Пока нет агрегированных данных.</p></article>
+          <article class="analytics-panel"><h2>Поиск в транскрипте</h2><ol id="transcriptSearches"></ol><p id="transcriptSearchesEmpty">Пока нет агрегированных данных.</p></article>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="js/analytics-dashboard.js?v=analytics-1"></script>
+  </body>
+</html>

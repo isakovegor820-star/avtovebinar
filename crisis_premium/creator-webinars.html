@@ -1,0 +1,409 @@
+<!doctype html>
+<html class="light" lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Вебинары организации | АСПБ</title>
+    <link rel="stylesheet" href="css/styles.css?v=creator-webinars-2" />
+    <link rel="stylesheet" href="fonts.css?v=self-2" />
+    <link rel="stylesheet" href="platform-access.css?v=creator-webinars-2" />
+    <link rel="stylesheet" href="creator-webinars.css?v=creator-webinars-2" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  </head>
+  <body class="min-h-screen bg-background text-on-surface" data-creator-mode="loading">
+    <a class="platform-skip-link" href="#creatorMain">К основному содержанию</a>
+    <header class="border-b border-outline-variant/40 bg-background">
+      <div class="mx-auto flex w-full max-w-container-max-width flex-wrap items-center justify-between gap-3 px-gutter py-4">
+        <a class="flex min-h-11 shrink-0 flex-col justify-center leading-tight" href="index.html">
+          <span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
+          <span class="hidden text-[11px] font-semibold leading-4 text-on-surface-variant sm:block"
+            >Антикризисная служба помощи бизнесу</span
+          >
+        </a>
+        <nav class="creator-header-nav" aria-label="Кабинет организации">
+          <a class="platform-header-link" href="analytics.html">Аналитика</a>
+          <a class="platform-header-link" href="moderation.html">Модерация</a>
+          <a class="platform-header-link" href="creator-corrections.html">Исправления</a>
+          <a class="platform-header-link" href="crm.html">CRM</a>
+          <a class="platform-header-link" href="author-profile.html">Профиль автора</a>
+          <a class="platform-header-link" href="platform-access.html">Мой доступ</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="creatorMain" class="mx-auto w-full max-w-container-max-width px-gutter py-8 md:py-12" tabindex="-1">
+      <section id="creatorLoading" class="creator-mode platform-panel p-7 text-center md:p-10" aria-live="polite">
+        <div class="platform-spinner mx-auto mb-5" aria-hidden="true"></div>
+        <h1 class="text-headline-md font-headline-md text-primary">Загружаем вебинары</h1>
+        <p class="mx-auto mt-3 max-w-xl text-body-md text-on-surface-variant">Проверяем организацию, роль и материалы.</p>
+      </section>
+
+      <div id="creatorContent" class="creator-mode">
+        <section class="platform-panel p-7 md:p-10">
+          <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Кабинет организации</p>
+          <h1 id="creatorHeading" class="creator-page-title text-headline-lg-mobile font-headline-lg-mobile text-primary md:text-headline-lg md:font-headline-lg" tabindex="-1">
+            Вебинары и публикация
+          </h1>
+          <p class="creator-page-copy mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">
+            Подготовьте юридические сведения, сценарий и расписание. Статусы контента, видео, транскрипта и сценария меняются независимо.
+          </p>
+          <p id="creatorOrganizationSummary" class="mt-5 text-body-md font-bold text-primary" role="status" aria-live="polite"></p>
+        </section>
+
+        <div class="creator-shell mt-7">
+          <aside class="platform-panel creator-sidebar p-5 md:p-6" aria-labelledby="creatorListHeading">
+            <div class="creator-section-heading">
+              <div>
+                <h2 id="creatorListHeading" class="text-headline-md font-headline-md text-primary">Вебинары</h2>
+                <p id="creatorListCount" class="mt-1 text-label-sm text-on-surface-variant" aria-live="polite"></p>
+              </div>
+            </div>
+
+            <details class="creator-disclosure mt-5">
+              <summary class="platform-primary-button">Создать вебинар</summary>
+              <form id="creatorCreateForm" class="mt-5 grid gap-4" novalidate>
+                <div class="grid gap-2">
+                  <label class="text-label-md font-label-md text-primary" for="creatorNewTitle">Название</label>
+                  <input id="creatorNewTitle" class="platform-input px-4" name="title" minlength="3" maxlength="240" required aria-describedby="creatorNewTitleError" />
+                  <p id="creatorNewTitleError" class="platform-field-error text-label-sm" aria-live="polite"></p>
+                </div>
+                <div class="grid gap-2">
+                  <label class="text-label-md font-label-md text-primary" for="creatorNewSlug">Slug</label>
+                  <input id="creatorNewSlug" class="platform-input px-4" name="slug" minlength="3" maxlength="120" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="dogovornoe-pravo" required aria-describedby="creatorNewSlugHint creatorNewSlugError" />
+                  <p id="creatorNewSlugHint" class="text-label-sm text-on-surface-variant">Латинские буквы, цифры и дефисы.</p>
+                  <p id="creatorNewSlugError" class="platform-field-error text-label-sm" aria-live="polite"></p>
+                </div>
+                <button id="creatorCreateButton" class="platform-primary-button" type="submit">Создать черновик</button>
+                <p id="creatorCreateStatus" class="min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+              </form>
+            </details>
+
+            <div id="creatorListEmpty" class="creator-empty mt-6" hidden>
+              <p class="font-bold text-primary">Вебинаров пока нет</p>
+              <p class="mt-2 text-body-md text-on-surface-variant">Создайте первый черновик, чтобы заполнить материалы и расписание.</p>
+            </div>
+            <ul id="creatorWebinarList" class="creator-webinar-list mt-5" aria-live="polite"></ul>
+          </aside>
+
+          <section class="creator-workspace min-w-0" aria-label="Редактор вебинара">
+            <div id="creatorNoSelection" class="platform-panel creator-empty p-7 md:p-10">
+              <h2 class="text-headline-md font-headline-md text-primary">Выберите вебинар</h2>
+              <p class="mt-3 max-w-xl text-body-md leading-relaxed text-on-surface-variant">Выберите черновик в списке или создайте новый вебинар.</p>
+            </div>
+
+            <div id="creatorEditor" class="grid gap-7" hidden>
+              <nav class="creator-wizard-nav platform-panel" aria-label="Шаги подготовки вебинара">
+                <p id="creatorWizardProgress" class="creator-wizard-progress" role="status" aria-live="polite"></p>
+                <ol id="creatorWizardSteps" class="creator-wizard-steps"></ol>
+              </nav>
+              <section id="creatorWizardStep8" class="platform-panel p-7 md:p-10" aria-labelledby="creatorOverviewHeading">
+                <div class="creator-section-heading">
+                  <div class="min-w-0">
+                    <p class="text-label-sm text-on-surface-variant">Выбранный вебинар</p>
+                    <h2 id="creatorOverviewHeading" class="creator-webinar-title mt-1 text-headline-md font-headline-md text-primary" tabindex="-1"></h2>
+                  </div>
+                  <a id="creatorPreviewLink" class="platform-secondary-button" href="creator-webinar-preview.html">Открыть preview</a>
+                </div>
+                <div id="creatorStatusGrid" class="creator-status-grid mt-6" aria-label="Статусы готовности"></div>
+                <div class="creator-readiness mt-6" aria-labelledby="creatorReadinessHeading">
+                  <h3 id="creatorReadinessHeading" class="text-title-md font-bold text-primary">Что осталось до публикации</h3>
+                  <p id="creatorReadinessReady" class="creator-empty mt-3" hidden>Все обязательные проверки пройдены. Сервер разрешит публикацию после статуса модерации READY.</p>
+                  <ul id="creatorReadinessBlockers" class="mt-3 grid gap-2"></ul>
+                </div>
+                <div class="creator-actions mt-6">
+                  <button id="creatorDuplicateButton" class="platform-secondary-button" type="button">Дублировать вебинар</button>
+                  <button id="creatorSubmitButton" class="platform-secondary-button" type="button">Отправить на модерацию</button>
+                  <button id="creatorPublishButton" class="platform-primary-button" type="button">Опубликовать вебинар</button>
+                  <button id="creatorArchiveButton" class="platform-secondary-button" type="button">Архивировать вебинар</button>
+                </div>
+                <p id="creatorCommandStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                <a id="creatorPublishedLink" class="platform-secondary-button mt-3" href="#" hidden></a>
+              </section>
+
+              <section id="creatorWizardStep1" class="platform-panel p-7 md:p-10" aria-labelledby="creatorMetadataHeading">
+                <h2 id="creatorMetadataHeading" class="text-headline-md font-headline-md text-primary" tabindex="-1">Основная информация</h2>
+                <p id="creatorMetadataIntroduction" class="creator-page-copy mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">Опишите вебинар так, чтобы участник сразу понял тему, аудиторию и практический результат.</p>
+                <form id="creatorMetadataForm" class="mt-6 grid gap-5" novalidate>
+                  <div id="creatorWizardStep1Fields" class="grid gap-5">
+                    <div class="creator-two-columns">
+                      <div class="grid gap-2">
+                        <label class="text-label-md font-label-md text-primary" for="creatorTitle">Название</label>
+                        <input id="creatorTitle" class="platform-input px-4" name="title" minlength="3" maxlength="240" required />
+                      </div>
+                      <div class="grid gap-2">
+                        <label class="text-label-md font-label-md text-primary" for="creatorSlug">Slug</label>
+                        <input id="creatorSlug" class="platform-input px-4" name="slug" minlength="3" maxlength="120" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required />
+                      </div>
+                    </div>
+                    <div class="grid gap-2">
+                      <label class="text-label-md font-label-md text-primary" for="creatorDescription">Описание</label>
+                      <textarea id="creatorDescription" class="platform-input creator-textarea px-4 py-3" name="description" minlength="20" maxlength="10000"></textarea>
+                    </div>
+                    <div class="grid gap-2">
+                      <label class="text-label-md font-label-md text-primary" for="creatorOutcome">Практический результат</label>
+                      <textarea id="creatorOutcome" class="platform-input creator-short-textarea px-4 py-3" name="outcomeDescription" minlength="10" maxlength="2000"></textarea>
+                    </div>
+                    <div class="grid gap-2">
+                      <label class="text-label-md font-label-md text-primary" for="creatorTargetAudience">Для кого вебинар</label>
+                      <textarea id="creatorTargetAudience" class="platform-input creator-short-textarea px-4 py-3" name="targetAudience" minlength="2" maxlength="1000"></textarea>
+                    </div>
+                    <div class="creator-three-columns">
+                      <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorFormat">Формат</label><select id="creatorFormat" class="platform-input px-4" name="format"><option value="">Не выбран</option><option value="RECORDED">Запись</option><option value="PREMIERE">Премьера</option><option value="ON_DEMAND">По запросу</option></select></div>
+                      <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorDuration">Длительность, минуты</label><input id="creatorDuration" class="platform-input px-4 creator-number" name="durationMinutes" type="number" inputmode="numeric" min="1" max="180" /></div>
+                      <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorLanguage">Язык</label><input id="creatorLanguage" class="platform-input px-4" name="language" value="ru" minlength="2" maxlength="20" /></div>
+                    </div>
+                  </div>
+
+                  <div id="creatorWizardStep2Fields" class="grid gap-5" hidden>
+                    <div class="creator-two-columns">
+                      <div class="grid gap-2">
+                        <label class="text-label-md font-label-md text-primary" for="creatorJurisdiction">Юрисдикция</label>
+                        <select id="creatorJurisdiction" class="platform-input px-4" name="jurisdictionId"><option value="">Не выбрана</option></select>
+                      </div>
+                      <div class="grid gap-2">
+                        <label class="text-label-md font-label-md text-primary" for="creatorAudienceLevel">Уровень аудитории</label>
+                        <select id="creatorAudienceLevel" class="platform-input px-4" name="audienceLevel">
+                          <option value="">Не выбран</option><option value="INTRODUCTORY">Начальный</option><option value="PRACTITIONER">Практикующий специалист</option><option value="ADVANCED">Продвинутый</option><option value="ALL_LEVELS">Все уровни</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="creator-two-columns">
+                      <div class="grid gap-2">
+                        <label class="text-label-md font-label-md text-primary" for="creatorPrimaryArea">Основная отрасль</label>
+                        <select id="creatorPrimaryArea" class="platform-input px-4" name="primaryArea"><option value="">Не выбрана</option></select>
+                      </div>
+                      <div class="grid gap-2">
+                        <label class="text-label-md font-label-md text-primary" for="creatorSpecialization">Специализация</label>
+                        <select id="creatorSpecialization" class="platform-input px-4" name="specialization"><option value="">Не выбрана</option></select>
+                      </div>
+                    </div>
+                    <div class="creator-three-columns">
+                      <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorVisibility">Видимость</label><select id="creatorVisibility" class="platform-input px-4" name="visibility"><option value="PUBLIC">Публичный</option><option value="UNLISTED">По ссылке</option><option value="PRIVATE">По приглашению</option></select></div>
+                      <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorFreshness">Актуальность</label><select id="creatorFreshness" class="platform-input px-4" name="freshnessStatus"><option value="UNKNOWN">Не определена</option><option value="CURRENT">Актуален</option><option value="REVIEW_DUE">Требует проверки</option><option value="OUTDATED">Устарел</option><option value="SUPERSEDED">Заменён</option></select></div>
+                      <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorCurrentAsOf">Актуально на дату</label><input id="creatorCurrentAsOf" class="platform-input px-4 creator-number" name="currentAsOf" type="date" /></div>
+                      <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorReviewDueAt">Повторная проверка до</label><input id="creatorReviewDueAt" class="platform-input px-4 creator-number" name="reviewDueAt" type="date" aria-describedby="creatorReviewDueHint" /><p id="creatorReviewDueHint" class="text-label-sm text-on-surface-variant">По умолчанию — через 180 дней после даты актуальности.</p></div>
+                    </div>
+                    <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorDisclaimer">Правовой дисклеймер</label><textarea id="creatorDisclaimer" class="platform-input creator-short-textarea px-4 py-3" name="disclaimer" minlength="20" maxlength="2000"></textarea></div>
+                  </div>
+                  <button id="creatorSaveButton" class="platform-primary-button" type="submit">Сохранить сведения</button>
+                  <p id="creatorMetadataStatus" class="min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                </form>
+              </section>
+
+              <section id="creatorWizardMediaSection" class="platform-panel p-7 md:p-10" aria-labelledby="creatorMediaHeading">
+                <div class="creator-section-heading">
+                  <div>
+                    <h2 id="creatorMediaHeading" class="text-headline-md font-headline-md text-primary">Видео и расшифровка</h2>
+                    <p class="creator-page-copy mt-2 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">
+                      Загрузите видео напрямую в приватное хранилище, проверьте расшифровку и отдельно опубликуйте её.
+                    </p>
+                  </div>
+                </div>
+
+                <div id="creatorWizardStep2" class="creator-media-block mt-7" aria-labelledby="creatorUploadHeading">
+                  <div>
+                    <h3 id="creatorUploadHeading" class="text-title-md font-bold text-primary" tabindex="-1">Видео</h3>
+                    <p id="creatorMediaSummary" class="mt-2 text-body-md text-on-surface-variant" role="status" aria-live="polite">Видео ещё не загружено.</p>
+                  </div>
+                  <form id="creatorUploadForm" class="creator-upload-form mt-5" novalidate>
+                    <div class="grid gap-2">
+                      <label class="text-label-md font-label-md text-primary" for="creatorVideoFile">Файл MP4, MOV или WebM</label>
+                      <input id="creatorVideoFile" class="platform-input creator-file-input px-4 py-3" name="video" type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" aria-describedby="creatorVideoLimits creatorUploadStatus" required />
+                      <p id="creatorVideoLimits" class="text-label-sm text-on-surface-variant">До 4 ГБ и 180 минут. Лимиты повторно проверяет сервер.</p>
+                    </div>
+                    <button id="creatorUploadButton" class="platform-secondary-button" type="submit">Загрузить видео</button>
+                  </form>
+                  <div id="creatorMediaActions" class="creator-actions mt-4" hidden>
+                    <button id="creatorMediaRefreshButton" class="platform-secondary-button" type="button">Обновить статус</button>
+                    <button id="creatorMediaActivateButton" class="platform-secondary-button" type="button">Включить готовую версию</button>
+                    <button id="creatorMediaRetryButton" class="platform-secondary-button" type="button">Повторить обработку</button>
+                    <button id="creatorMediaCancelButton" class="platform-secondary-button creator-danger-button" type="button">Отменить обработку</button>
+                  </div>
+                  <p id="creatorUploadStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                </div>
+
+                <div id="creatorWizardStep3" class="creator-transcript-block mt-9" aria-labelledby="creatorTranscriptHeading">
+                  <div class="creator-section-heading">
+                    <div>
+                      <h3 id="creatorTranscriptHeading" class="text-title-md font-bold text-primary" tabindex="-1">Расшифровка</h3>
+                      <p id="creatorTranscriptSummary" class="mt-2 text-body-md text-on-surface-variant" role="status" aria-live="polite">Расшифровка ещё не создана.</p>
+                    </div>
+                    <div class="creator-actions">
+                      <button id="creatorTranscriptGenerateButton" class="platform-secondary-button" type="button">Создать расшифровку</button>
+                      <button id="creatorAiGenerateButton" class="platform-secondary-button" type="button">Предложить материалы с AI</button>
+                    </div>
+                  </div>
+                  <p id="creatorTranscriptJobStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                  <p id="creatorTranscriptEmpty" class="creator-empty mt-5 text-body-md text-on-surface-variant">
+                    После обработки видео здесь появятся сегменты с таймкодами, спикерами и текстом.
+                  </p>
+                  <form id="creatorTranscriptForm" class="mt-6" hidden novalidate>
+                    <div class="creator-transcript-toolbar">
+                      <p id="creatorTranscriptPosition" class="creator-number text-body-md font-bold text-primary" role="status" aria-live="polite">Выбранный таймкод: 00:00</p>
+                      <div class="creator-actions">
+                        <a id="creatorTranscriptTxtLink" class="platform-secondary-button" href="#">Скачать TXT</a>
+                        <a id="creatorTranscriptVttLink" class="platform-secondary-button" href="#">Скачать VTT</a>
+                      </div>
+                    </div>
+                    <div id="creatorTranscriptSegments" class="mt-5 grid gap-4"></div>
+                    <div class="creator-actions mt-6">
+                      <button id="creatorTranscriptDraftButton" class="platform-secondary-button" type="submit" data-transcript-status="DRAFT">Сохранить черновик</button>
+                      <button id="creatorTranscriptReviewButton" class="platform-secondary-button" type="submit" data-transcript-status="REVIEWED">Отметить как проверенный</button>
+                      <button id="creatorTranscriptPublishButton" class="platform-primary-button" type="button">Опубликовать расшифровку</button>
+                    </div>
+                    <p id="creatorTranscriptStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                  </form>
+                </div>
+
+                <div id="creatorWizardStep4" class="creator-chapters-block mt-9" aria-labelledby="creatorChaptersHeading">
+                  <div class="creator-section-heading">
+                    <div>
+                      <h3 id="creatorChaptersHeading" class="text-title-md font-bold text-primary" tabindex="-1">Главы видео</h3>
+                      <p id="creatorChaptersSummary" class="mt-2 text-body-md text-on-surface-variant" role="status" aria-live="polite">Сначала создайте расшифровку.</p>
+                    </div>
+                  </div>
+                  <form id="creatorChapterForm" class="creator-chapter-form mt-5" novalidate>
+                    <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorChapterStart">Начало, секунды</label><input id="creatorChapterStart" class="platform-input creator-number px-4" name="startSeconds" type="number" inputmode="numeric" min="0" step="1" required /></div>
+                    <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorChapterTitle">Название главы</label><input id="creatorChapterTitle" class="platform-input px-4" name="title" minlength="2" maxlength="240" required /></div>
+                    <div class="grid gap-2 creator-chapter-description"><label class="text-label-md font-label-md text-primary" for="creatorChapterDescription">Описание <span>(необязательно)</span></label><input id="creatorChapterDescription" class="platform-input px-4" name="description" maxlength="2000" /></div>
+                    <button id="creatorChapterAddButton" class="platform-secondary-button" type="submit">Добавить главу</button>
+                  </form>
+                  <p id="creatorChapterStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                  <p id="creatorChaptersEmpty" class="creator-empty mt-5 text-body-md text-on-surface-variant">Глав пока нет. Добавьте таймкод и понятное название.</p>
+                  <ol id="creatorChaptersList" class="creator-chapters-list mt-5" aria-live="polite"></ol>
+                </div>
+
+                <details id="creatorWizardTranscriptTools" class="creator-disclosure creator-tools-disclosure mt-9">
+                  <summary class="platform-secondary-button">Открыть словарь терминов</summary>
+                  <p class="mt-4 max-w-2xl text-body-md text-on-surface-variant">Термины этой организации передаются только внутренним STT/AI-адаптерам и недоступны другим организациям.</p>
+                  <form id="creatorTermForm" class="creator-term-form mt-5" novalidate>
+                    <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorTerm">Термин или сокращение</label><input id="creatorTerm" class="platform-input px-4" name="term" minlength="1" maxlength="160" required /></div>
+                    <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorTermExpansion">Расшифровка</label><input id="creatorTermExpansion" class="platform-input px-4" name="expansion" maxlength="500" /></div>
+                    <button id="creatorTermButton" class="platform-secondary-button" type="submit">Добавить термин</button>
+                  </form>
+                  <p id="creatorTermStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                  <p id="creatorTermsEmpty" class="creator-empty mt-4 text-body-md text-on-surface-variant">Словарь пока пуст. Добавьте термин, который важно распознавать точно.</p>
+                  <ul id="creatorTermsList" class="mt-4 grid gap-3"></ul>
+                </details>
+
+                <div id="creatorWizardAi" class="creator-ai-block mt-9" aria-labelledby="creatorAiHeading">
+                  <h3 id="creatorAiHeading" class="text-title-md font-bold text-primary">AI-предложения</h3>
+                  <p class="creator-page-copy mt-2 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">AI не определяет юридическую актуальность и ничего не публикует. Проверьте, отредактируйте и примите каждое предложение отдельно.</p>
+                  <p id="creatorAiEmpty" class="creator-empty mt-5 text-body-md text-on-surface-variant">Предложений пока нет. Сначала проверьте расшифровку, затем запустите подготовку материалов.</p>
+                  <div id="creatorAiSuggestions" class="mt-5 grid gap-4"></div>
+                  <p id="creatorAiStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                </div>
+              </section>
+
+              <section id="creatorWizardStep5" class="platform-panel p-7 md:p-10" aria-labelledby="creatorSourcesHeading">
+                <h2 id="creatorSourcesHeading" class="text-headline-md font-headline-md text-primary" tabindex="-1">Источники и материалы</h2>
+                <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">Добавляйте только HTTPS-ссылки на проверяемые материалы.</p>
+                <form id="creatorSourceForm" class="creator-source-form mt-6" novalidate>
+                  <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorSourceType">Тип</label><select id="creatorSourceType" class="platform-input px-4" name="type"><option value="OFFICIAL_SOURCE">Официальный источник</option><option value="REGULATION">Нормативный акт</option><option value="STATUTE_PROVISION">Норма закона</option><option value="COURT_DECISION">Судебный акт</option><option value="OFFICIAL_GUIDANCE">Официальное разъяснение</option><option value="TEMPLATE_OR_CHECKLIST">Шаблон или памятка</option><option value="OTHER">Другой</option></select></div>
+                  <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorSourceTitle">Название источника</label><input id="creatorSourceTitle" class="platform-input px-4" name="title" minlength="2" maxlength="500" required /></div>
+                  <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorSourceUrl">HTTPS-ссылка</label><input id="creatorSourceUrl" class="platform-input px-4" name="url" type="url" inputmode="url" placeholder="https://example.org/document" pattern="https://.*" maxlength="2000" required /></div>
+                  <button id="creatorSourceButton" class="platform-secondary-button" type="submit">Добавить источник</button>
+                  <p id="creatorSourceStatus" class="creator-form-status text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                </form>
+                <p id="creatorSourcesEmpty" class="creator-empty mt-6 text-body-md text-on-surface-variant">Источники пока не добавлены.</p>
+                <ul id="creatorSourcesList" class="mt-6 grid gap-3" aria-live="polite"></ul>
+                <div class="creator-materials-block mt-9" aria-labelledby="creatorMaterialsHeading">
+                  <h3 id="creatorMaterialsHeading" class="text-title-md font-bold text-primary">Файлы для участников</h3>
+                  <p class="mt-2 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">Файлы хранятся приватно и скачиваются только участником с действующим доступом к комнате. До 100 МБ: PDF, DOCX, XLSX, ZIP, TXT, CSV, PNG или JPEG.</p>
+                  <form id="creatorMaterialForm" class="creator-material-form mt-5" novalidate>
+                    <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorMaterialName">Название для участника</label><input id="creatorMaterialName" class="platform-input px-4" name="displayName" minlength="2" maxlength="240" required /></div>
+                    <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorMaterialFile">Файл</label><input id="creatorMaterialFile" class="platform-input creator-file-input px-4 py-3" name="material" type="file" accept=".pdf,.docx,.xlsx,.zip,.txt,.csv,.png,.jpg,.jpeg" required /></div>
+                    <button id="creatorMaterialButton" class="platform-secondary-button" type="submit">Загрузить файл</button>
+                  </form>
+                  <p id="creatorMaterialStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                  <p id="creatorMaterialsEmpty" class="creator-empty mt-5 text-body-md text-on-surface-variant">Файлы пока не добавлены.</p>
+                  <ul id="creatorMaterialsList" class="mt-5 grid gap-3" aria-live="polite"></ul>
+                </div>
+              </section>
+
+              <section id="creatorWizardStep6" class="platform-panel p-7 md:p-10" aria-labelledby="creatorScenarioHeading">
+                <div class="creator-section-heading">
+                  <div><h2 id="creatorScenarioHeading" class="text-headline-md font-headline-md text-primary" tabindex="-1">Сценарий подготовленного чата</h2><p id="creatorScenarioVersion" class="mt-1 text-label-sm text-on-surface-variant"></p></div>
+                  <button id="creatorScenarioAddButton" class="platform-secondary-button" type="button">Добавить сообщение</button>
+                </div>
+                <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">Все сообщения сохраняются с <code>isSynthetic=true</code> и нейтральной подписью. Укажите статус каждого сообщения; в комнату попадут только одобренные сообщения опубликованной версии.</p>
+                <div class="mt-6 grid gap-2">
+                  <label class="text-label-md font-label-md text-primary" for="creatorSyntheticDisclosure">Маркировка подготовленных сообщений</label>
+                  <textarea id="creatorSyntheticDisclosure" class="platform-input creator-short-textarea px-4 py-3" name="syntheticDisclosure" form="creatorMetadataForm" minlength="10" maxlength="2000"></textarea>
+                  <p class="text-label-sm text-on-surface-variant">Например: «Подготовленные сообщения отмечены и не являются репликами реальных зрителей».</p>
+                  <button id="creatorDisclosureSaveButton" class="platform-secondary-button" type="submit" form="creatorMetadataForm">Сохранить маркировку</button>
+                </div>
+                <div id="creatorScenarioMessages" class="mt-6 grid gap-4"></div>
+                <div class="creator-actions mt-6"><button id="creatorScenarioSaveButton" class="platform-secondary-button" type="button">Сохранить сценарий</button><button id="creatorScenarioPublishButton" class="platform-primary-button" type="button">Опубликовать сценарий</button></div>
+                <p id="creatorScenarioStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+              </section>
+
+              <section id="creatorWizardStep7" class="platform-panel p-7 md:p-10" aria-labelledby="creatorScheduleHeading">
+                <h2 id="creatorScheduleHeading" class="text-headline-md font-headline-md text-primary" tabindex="-1">Расписание и доступ</h2>
+                <form id="creatorScheduleForm" class="mt-6 grid gap-5" novalidate>
+                  <div class="creator-three-columns"><div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorRecurrence">Повторение</label><select id="creatorRecurrence" class="platform-input px-4" name="recurrenceType"><option value="ONCE">Один раз</option><option value="DAILY">Ежедневно</option><option value="WEEKLY">Еженедельно</option></select></div><div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorTimezone">Часовой пояс</label><input id="creatorTimezone" class="platform-input px-4" name="timezone" value="Europe/Moscow" required /></div><div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorLocalTime">Время</label><input id="creatorLocalTime" class="platform-input px-4 creator-number" name="localStartTime" type="time" value="19:30" required /></div></div>
+                  <div class="creator-three-columns"><div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorStartsOn">Дата начала</label><input id="creatorStartsOn" class="platform-input px-4 creator-number" name="startsOn" type="date" required /></div><div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorEndsOn">Дата окончания</label><input id="creatorEndsOn" class="platform-input px-4 creator-number" name="endsOn" type="date" /></div><div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorMaxInstances">Максимум запусков</label><input id="creatorMaxInstances" class="platform-input px-4 creator-number" name="maxFutureInstances" type="number" inputmode="numeric" min="1" max="90" value="30" /></div></div>
+                  <div class="creator-three-columns"><div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorSessionDuration">Длительность, минуты</label><input id="creatorSessionDuration" class="platform-input px-4 creator-number" name="durationMinutes" type="number" inputmode="numeric" min="1" max="180" value="60" required /></div><div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorRoomOpen">Открыть комнату за, минут</label><input id="creatorRoomOpen" class="platform-input px-4 creator-number" name="roomOpenBeforeMinutes" type="number" inputmode="numeric" min="0" max="180" value="15" /></div><div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorReplayHours">Replay, часов</label><input id="creatorReplayHours" class="platform-input px-4 creator-number" name="replayAvailableHours" type="number" inputmode="numeric" min="0" max="8760" value="168" /></div></div>
+                  <label class="creator-checkbox"><input id="creatorReplayEnabled" name="replayEnabled" type="checkbox" checked /><span>Разрешить replay после эфира</span></label>
+                  <button id="creatorScheduleButton" class="platform-primary-button" type="submit">Создать расписание</button>
+                  <p id="creatorScheduleStatus" class="min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                </form>
+                <p id="creatorSessionsEmpty" class="creator-empty mt-6 text-body-md text-on-surface-variant">Запуски пока не созданы.</p>
+                <ul id="creatorSessionsList" class="mt-6 grid gap-3" aria-live="polite"></ul>
+              </section>
+
+              <section id="creatorAccessSection" class="platform-panel p-7 md:p-10" aria-labelledby="creatorAccessHeading" hidden>
+                <h2 id="creatorAccessHeading" class="text-headline-md font-headline-md text-primary">Приглашения на private Webinar</h2>
+                <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">Список не раскрывает email получателей. Отзыв закрывает новый доступ немедленно.</p>
+                <form id="creatorAccessForm" class="creator-access-form mt-6" novalidate>
+                  <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorAccessEmail">Email получателя</label><input id="creatorAccessEmail" class="platform-input px-4" name="email" type="email" autocomplete="off" maxlength="320" placeholder="name@example.com" required /></div>
+                  <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" for="creatorAccessDays">Срок, дней</label><input id="creatorAccessDays" class="platform-input px-4 creator-number" name="expiresInDays" type="number" inputmode="numeric" min="1" max="30" value="7" required /></div>
+                  <button id="creatorAccessButton" class="platform-primary-button" type="submit">Отправить приглашение</button>
+                  <p id="creatorAccessStatus" class="creator-form-status text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+                </form>
+                <p id="creatorAccessEmpty" class="creator-empty mt-6 text-body-md text-on-surface-variant">Приглашений пока нет.</p>
+                <ul id="creatorAccessList" class="mt-6 grid gap-3" aria-live="polite"></ul>
+              </section>
+              <div id="creatorWizardControls" class="creator-wizard-controls platform-panel">
+                <button id="creatorWizardPrevious" class="platform-secondary-button" type="button">Предыдущий шаг</button>
+                <p id="creatorWizardStepStatus" class="text-body-md text-on-surface-variant" aria-live="polite"></p>
+                <button id="creatorWizardNext" class="platform-primary-button" type="button">Следующий шаг</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <section id="creatorError" class="creator-mode platform-panel p-7 text-center md:p-10" role="alert">
+        <div class="platform-error-mark mx-auto mb-5" aria-hidden="true">!</div>
+        <h1 id="creatorErrorTitle" class="text-headline-md font-headline-md text-primary" tabindex="-1">Кабинет недоступен</h1>
+        <p id="creatorErrorText" class="mx-auto mt-3 max-w-xl text-body-md leading-relaxed text-on-surface-variant"></p>
+        <a class="platform-primary-button mx-auto mt-7" href="platform-access.html">Вернуться к доступу</a>
+      </section>
+    </main>
+    <template id="creatorScenarioTemplate">
+      <article class="creator-scenario-row">
+        <div class="creator-scenario-fields">
+          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="offset">Таймкод, секунды</label><input class="platform-input px-4 creator-number" data-field="offsetSeconds" type="number" inputmode="numeric" min="0" max="10800" required /></div>
+          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="kind">Тип сообщения</label><select class="platform-input px-4" data-field="kind"><option value="PREPARED_QUESTION">Подготовленный вопрос</option><option value="MODERATOR_NOTICE">Подготовленное объявление</option><option value="AUTHOR_PROMPT">Подготовленная реплика автора</option></select></div>
+          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="status">Статус</label><select class="platform-input px-4" data-field="status"><option value="DRAFT">Черновик</option><option value="APPROVED">Одобрено</option><option value="REJECTED">Отклонено</option></select></div>
+          <div class="creator-scenario-message-field grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="text">Текст</label><textarea class="platform-input creator-scenario-text px-4 py-3" data-field="text" minlength="1" maxlength="1000" required></textarea></div>
+        </div>
+        <button class="platform-secondary-button creator-danger-button" data-action="remove" type="button">Удалить сообщение</button>
+      </article>
+    </template>
+    <template id="creatorTranscriptSegmentTemplate">
+      <article class="creator-transcript-segment">
+        <div class="creator-transcript-segment-fields">
+          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="start">Начало, мс</label><input class="platform-input creator-number px-4" data-field="startMs" type="number" inputmode="numeric" min="0" max="86400000" required /></div>
+          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="end">Конец, мс</label><input class="platform-input creator-number px-4" data-field="endMs" type="number" inputmode="numeric" min="1" max="86400000" required /></div>
+          <div class="grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="speaker">Спикер</label><input class="platform-input px-4" data-field="speaker" maxlength="120" /></div>
+          <div class="creator-transcript-text-field grid gap-2"><label class="text-label-md font-label-md text-primary" data-label="text">Текст</label><textarea class="platform-input creator-scenario-text px-4 py-3" data-field="text" minlength="1" maxlength="10000" required></textarea></div>
+        </div>
+        <button class="platform-secondary-button" data-action="seek" type="button">Перейти к таймкоду</button>
+      </article>
+    </template>
+    <script type="module" src="js/creator-webinars.js?v=creator-webinars-2"></script>
+  </body>
+</html>

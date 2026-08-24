@@ -3,7 +3,7 @@
  */
 
 import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=site-review-7';
-import { track } from './analytics.js?v=site-review-7';
+import { track } from './analytics.js?v=ana-006-1';
 
 let hlsInstance = null;
 let hlsScriptPromise = null;
@@ -12,6 +12,7 @@ let currentRecordingId = null;
 let fullscreenChangeHandler = null;
 let videoSourceAttempt = 0;
 const progressMarks = new Set();
+const heartbeatMarks = new Set();
 
 let currentPlaylist = [];
 let currentServerTime = null;
@@ -364,6 +365,7 @@ function bindStaticActions() {
 function resetProgressTracking(recordingId) {
   currentRecordingId = recordingId;
   progressMarks.clear();
+  heartbeatMarks.clear();
   if (progressTimer) {
     clearInterval(progressTimer);
     progressTimer = null;
@@ -515,9 +517,22 @@ function bindControls(video, recording) {
   updateFullscreenIcon();
 
   progressTimer = window.setInterval(() => {
-    if (!currentRecordingId || currentRecordingId !== recording.id || video.paused) return;
+    if (!currentRecordingId || currentRecordingId !== recording.id || video.paused || document.visibilityState === 'hidden') return;
     const total = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : recording.durationSeconds || 0;
     if (!total) return;
+    const heartbeatInterval = Math.max(0, Math.floor(video.currentTime / 15));
+    if (!heartbeatMarks.has(heartbeatInterval)) {
+      heartbeatMarks.add(heartbeatInterval);
+      track('viewer_heartbeat', {
+        intervalNumber: heartbeatInterval,
+        positionSeconds: video.currentTime,
+        durationSeconds: total,
+        intervalSeconds: 15,
+        playbackState: 'playing',
+        visibilityState: 'visible',
+        playbackMode: 'replay',
+      });
+    }
     const percent = (video.currentTime / total) * 100;
     [25, 50, 75].forEach(mark => {
       if (percent >= mark && !progressMarks.has(mark)) {

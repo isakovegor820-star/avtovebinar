@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Исправления вебинаров | АСПБ</title>
+    <link rel="stylesheet" href="fonts.css?v=self-2" />
+    <link rel="stylesheet" href="platform-access.css?v=moderation-1" />
+    <link rel="stylesheet" href="analytics-dashboard.css?v=analytics-1" />
+  </head>
+  <body class="analytics-body">
+    <a class="platform-skip-link" href="#correctionsMain">К запросам на исправление</a>
+    <header class="analytics-header">
+      <a class="analytics-brand" href="creator-webinars.html">АСПБ · кабинет автора</a>
+      <nav aria-label="Разделы кабинета"><a href="creator-webinars.html">Вебинары</a><a aria-current="page" href="creator-corrections.html">Исправления</a></nav>
+    </header>
+    <main id="correctionsMain" class="analytics-main" tabindex="-1">
+      <section class="analytics-intro" aria-labelledby="correctionsTitle">
+        <p class="analytics-eyebrow">Проверка человеком</p>
+        <h1 id="correctionsTitle">Запросы на исправление</h1>
+        <p>Отправленная версия остаётся черновиком и не попадёт зрителям, пока её не одобрит platform admin.</p>
+      </section>
+      <p id="correctionStatus" class="analytics-status" role="status" aria-live="polite">Загружаем запросы…</p>
+      <section id="correctionError" class="analytics-panel analytics-message" role="alert" hidden><h2>Запросы недоступны</h2><p id="correctionErrorText"></p><button id="correctionRetry" class="platform-primary-button" type="button">Повторить</button></section>
+      <p id="correctionEmpty" class="analytics-panel" hidden>Открытых запросов на исправление нет.</p>
+      <ol id="correctionList" class="analytics-content-grid" aria-busy="true"></ol>
+    </main>
+    <script type="module" src="js/creator-corrections.js?v=moderation-1"></script>
+  </body>
+</html>

@@ -45,6 +45,7 @@ vi.mock('../src/lib/prisma.js', () => {
       findFirst: vi.fn(),
       updateMany: vi.fn(),
     },
+    telegramBotEvent: { create: vi.fn() },
     registrationToken: { deleteMany: vi.fn() },
     emailOutboxJob: { findMany: vi.fn() },
     $transaction: vi.fn(),
@@ -69,6 +70,10 @@ function followupCandidate() {
   return {
     id: 'registration-1',
     leadId: 'lead-1',
+    organizationId: 'organization-1',
+    webinarId: 'webinar-1',
+    webinarSessionId: 'session-1',
+    crmContactId: 'contact-1',
     telegramFollowupSentAt: null,
     lead: {
       id: 'lead-1',
@@ -78,6 +83,9 @@ function followupCandidate() {
       updatedAt: new Date('2026-08-04T08:30:00.000Z'),
     },
     webinarSession: {
+      organizationId: 'organization-1',
+      webinarId: 'webinar-1',
+      scheduleVersion: 3,
       scheduledAt: new Date('2026-08-04T08:00:00.000Z'),
       durationMinutes: 60,
     },
@@ -122,7 +130,7 @@ describe('Telegram follow-up consent and delivery lease', () => {
     registrationStore.findMany.mockResolvedValue([followupCandidate()]);
     registrationStore.updateMany.mockResolvedValue({ count: 1 });
     leadStore.findFirst.mockResolvedValue({ telegramChatId: '12345' });
-    mocks.sendTelegramMessageToChat.mockResolvedValue({ sent: true, mode: 'send' });
+    mocks.sendTelegramMessageToChat.mockResolvedValue({ sent: true, mode: 'send', providerMessageId: 'telegram-42' });
 
     const result = await runTelegramFollowupJobOnce(now);
 
@@ -144,6 +152,22 @@ describe('Telegram follow-up consent and delivery lease', () => {
         }),
       }),
     );
+    expect(prisma.telegramBotEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: 'organization-1',
+        webinarId: 'webinar-1',
+        webinarSessionId: 'session-1',
+        registrationId: 'registration-1',
+        crmContactId: 'contact-1',
+        botIdentity: 'PARTICIPANT',
+        direction: 'OUTBOUND',
+        eventType: 'session_followup',
+        providerMessageId: 'telegram-42',
+        dedupKey: 'participant:registration-1:session:session-1:session_followup:schedule:3',
+        status: 'sent',
+        metadataJson: { scheduleVersion: 3, deliveryMode: 'send' },
+      }),
+    });
   });
 
   it('keeps sentAt empty and schedules a short retry after a temporary failure', async () => {

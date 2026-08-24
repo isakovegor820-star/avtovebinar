@@ -1,0 +1,11 @@
+environment                 = "staging"
+project_name                = "aspb"
+cloud_id                   = "replace-with-staging-cloud-id"
+folder_id                  = "replace-with-staging-folder-id"
+zone                       = "ru-central1-a"
+media_bucket_name          = "replace-unique-aspb-staging-media"
+allowed_origin             = "https://staging.placeholder.invalid"
+incomplete_multipart_days  = 1
+approved_object_retention_days = null
+monthly_budget_cap_rub     = 0
+alert_recipient_placeholder = "replace-after-approval"

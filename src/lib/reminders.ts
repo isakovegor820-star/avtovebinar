@@ -11,6 +11,7 @@ import {
   TELEGRAM_BINDING_VERSION,
 } from './roomLinks.js';
 import { logger } from './logger.js';
+import { createCorrelationId } from './requestContext.js';
 import { runRetentionSweepThrottled } from './retention.js';
 import {
   initializeWorkerSubsystemProgress,
@@ -22,6 +23,16 @@ import {
   acquireLeadSecurityLock,
   isParticipantRegistrationActive,
 } from './leadSecurity.js';
+import { cleanupExpiredUserAuth } from './tenancy/userAuth.js';
+import { runUserAuthEmailOutboxJobOnce } from './tenancy/userAuthEmailOutbox.js';
+import { runOrganizationInvitationEmailOutboxJobOnce } from './tenancy/organizationInvitationEmailOutbox.js';
+import { cleanupOrganizationInvitations } from './tenancy/organizationInvitations.js';
+import { canAccessRegisteredWebinar, cleanupExpiredWebinarAccessGrants } from './tenancy/webinarAccess.js';
+import { runWebinarAccessInvitationEmailOutboxJobOnce } from './tenancy/webinarAccessInvitationEmailOutbox.js';
+import { cleanupExpiredMediaUploads, runMediaJobOnce } from './tenancy/mediaPipeline.js';
+import { runContentJobOnce } from './tenancy/transcripts.js';
+import { runCrmDeliveryJobsOnce } from './tenancy/crmDelivery.js';
+import { runAuthorServiceNotificationJobOnce, runFreshnessReviewJobOnce } from './tenancy/freshnessReview.js';
 
 type ReminderCandidate = {
   id: string;
@@ -139,6 +150,7 @@ async function claimTelegramDelivery(input: {
       [input.fields.sent]: null,
       OR: [{ [input.fields.claimedUntil]: null }, { [input.fields.claimedUntil]: { lte: claimNow } }],
       lead: leadWhere,
+      webinarSession: { lifecycleStatus: { not: 'CANCELLED' } },
     } as Prisma.RegistrationWhereInput,
     data: { [input.fields.claimedUntil]: leaseUntil } as Prisma.RegistrationUpdateManyMutationInput,
   });
@@ -171,8 +183,12 @@ async function createRoomUrlForActiveRegistration(registrationId: string, expect
     if (
       !activeRegistration ||
       activeRegistration.leadId !== expectedLeadId ||
-      !isParticipantRegistrationActive(activeRegistration)
+      !isParticipantRegistrationActive(activeRegistration) ||
+      activeRegistration.webinarSession.lifecycleStatus === 'CANCELLED'
     ) {
+      return null;
+    }
+    if (!(await canAccessRegisteredWebinar(tx as unknown as typeof prisma, activeRegistration))) {
       return null;
     }
     return createRoomExchangeUrl(tx, {
@@ -223,21 +239,63 @@ async function markTelegramDeliverySent(
   fields: TelegramDeliveryFields,
   leaseUntil: Date,
   sentAt: Date,
+  event?: {
+    organizationId: string;
+    webinarId: string;
+    webinarSessionId: string;
+    scopedRegistrationId?: string;
+    crmContactId?: string | null;
+    eventType:
+      | 'session_reminder_24h'
+      | 'session_reminder_3h'
+      | 'session_reminder_30m'
+      | 'session_live'
+      | 'session_followup';
+    scheduleVersion: number;
+    correlationId: string;
+    providerMessageId?: string | null;
+    deliveryMode: 'log' | 'send';
+  },
 ) {
-  const updated = await prisma.registration.updateMany({
-    where: {
-      id: registrationId,
-      [fields.sent]: null,
-      [fields.claimedUntil]: leaseUntil,
-    } as Prisma.RegistrationWhereInput,
-    data: {
-      [fields.sent]: sentAt,
-      [fields.claimedUntil]: null,
-    } as Prisma.RegistrationUpdateManyMutationInput,
+  await prisma.$transaction(async tx => {
+    const updated = await tx.registration.updateMany({
+      where: {
+        id: registrationId,
+        [fields.sent]: null,
+        [fields.claimedUntil]: leaseUntil,
+      } as Prisma.RegistrationWhereInput,
+      data: {
+        [fields.sent]: sentAt,
+        [fields.claimedUntil]: null,
+      } as Prisma.RegistrationUpdateManyMutationInput,
+    });
+    if (updated.count !== 1) {
+      throw new Error('Telegram delivery succeeded, but its lease could not be finalized');
+    }
+    if (event) {
+      await tx.telegramBotEvent.create({
+        data: {
+          organizationId: event.organizationId,
+          webinarId: event.webinarId,
+          webinarSessionId: event.webinarSessionId,
+          registrationId: event.scopedRegistrationId ?? null,
+          crmContactId: event.scopedRegistrationId ? (event.crmContactId ?? null) : null,
+          botIdentity: 'PARTICIPANT',
+          direction: 'OUTBOUND',
+          eventType: event.eventType,
+          correlationId: event.correlationId,
+          providerMessageId: event.providerMessageId ?? null,
+          dedupKey: `participant:${registrationId}:session:${event.webinarSessionId}:${event.eventType}:schedule:${event.scheduleVersion}`,
+          status: event.deliveryMode === 'send' ? 'sent' : 'logged',
+          metadataJson: {
+            scheduleVersion: event.scheduleVersion,
+            deliveryMode: event.deliveryMode,
+          },
+          occurredAt: sentAt,
+        },
+      });
+    }
   });
-  if (updated.count !== 1) {
-    throw new Error('Telegram delivery succeeded, but its lease could not be finalized');
-  }
 }
 
 async function disableUndeliverableTelegramChat(input: {
@@ -414,6 +472,7 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
           email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
         },
         webinarSession: {
+          lifecycleStatus: { not: 'CANCELLED' },
           scheduledAt: {
             gt: now,
             lte: new Date(now.getTime() + 24 * 60 * 60 * 1000),
@@ -441,9 +500,11 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
     // уже поставлены для регистраций этого батча. Ключ — `registrationId:reminderKind`.
     const existingJobs = await prisma.emailOutboxJob.findMany({
       where: { registrationId: { in: registrations.map(item => item.id) }, type: EMAIL_JOB_REMINDER },
-      select: { registrationId: true, reminderKind: true },
+      select: { registrationId: true, reminderKind: true, sessionScheduleVersion: true },
     });
-    const existingReminderKeys = new Set(existingJobs.map(job => `${job.registrationId}:${job.reminderKind}`));
+    const existingReminderKeys = new Set(
+      existingJobs.map(job => `${job.registrationId}:${job.reminderKind}:${job.sessionScheduleVersion}`),
+    );
 
     for (const registration of registrations) {
       onProgress?.();
@@ -452,7 +513,7 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
         continue;
       }
 
-      if (existingReminderKeys.has(`${registration.id}:${kind}`)) {
+      if (existingReminderKeys.has(`${registration.id}:${kind}:${registration.webinarSession.scheduleVersion}`)) {
         continue;
       }
 
@@ -466,6 +527,7 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
           !activeRegistration ||
           activeRegistration.leadId !== registration.leadId ||
           !isParticipantRegistrationActive(activeRegistration) ||
+          activeRegistration.webinarSession.lifecycleStatus === 'CANCELLED' ||
           getDueReminderKind(activeRegistration, now) !== kind
         ) {
           return 0;
@@ -478,6 +540,7 @@ export async function runReminderJobOnce(now = new Date(), onProgress?: () => vo
           toEmail: activeRegistration.lead.email,
           toName: activeRegistration.lead.name,
           scheduledAt: activeRegistration.webinarSession.scheduledAt,
+          scheduleVersion: activeRegistration.webinarSession.scheduleVersion,
         });
       });
       // createMany(skipDuplicates) вернёт 0, если напоминание уже было поставлено гонкой —
@@ -514,6 +577,7 @@ export async function runTelegramReminderJobOnce(now = new Date(), onProgress?: 
           email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
         },
         webinarSession: {
+          lifecycleStatus: { not: 'CANCELLED' },
           scheduledAt: {
             gt: now,
             lte: new Date(now.getTime() + 24 * 60 * 60 * 1000),
@@ -570,7 +634,8 @@ export async function runTelegramReminderJobOnce(now = new Date(), onProgress?: 
           continue;
         }
 
-        await sendTelegramMessageToChat(
+        const correlationId = createCorrelationId(`telegram_reminder_${kind}`);
+        const deliveryResult = await sendTelegramMessageToChat(
           chatId,
           [
             kind === '24h'
@@ -592,7 +657,22 @@ export async function runTelegramReminderJobOnce(now = new Date(), onProgress?: 
             attempts: 1,
           },
         );
-        await markTelegramDeliverySent(registration.id, fields, leaseUntil, new Date());
+        await markTelegramDeliverySent(registration.id, fields, leaseUntil, new Date(), {
+          organizationId: registration.webinarSession.organizationId,
+          webinarId: registration.webinarSession.webinarId,
+          webinarSessionId: registration.webinarSessionId,
+          scopedRegistrationId:
+            registration.organizationId === registration.webinarSession.organizationId &&
+            registration.webinarId === registration.webinarSession.webinarId
+              ? registration.id
+              : undefined,
+          crmContactId: registration.crmContactId,
+          eventType: `session_reminder_${kind}`,
+          scheduleVersion: registration.webinarSession.scheduleVersion,
+          correlationId,
+          providerMessageId: deliveryResult.providerMessageId,
+          deliveryMode: deliveryResult.mode,
+        });
         sent += 1;
       } catch (error) {
         await handleTelegramDeliveryError({
@@ -640,7 +720,10 @@ export async function runTelegramLiveJobOnce(now = new Date(), onProgress?: () =
         personalDataConsentRevokedAt: null,
         email: { not: { endsWith: ANONYMIZED_LEAD_EMAIL_SUFFIX } },
       },
-      webinarSession: { scheduledAt: { lte: now, gt: new Date(now.getTime() - TELEGRAM_LIVE_WINDOW_MS) } },
+      webinarSession: {
+        lifecycleStatus: { not: 'CANCELLED' },
+        scheduledAt: { lte: now, gt: new Date(now.getTime() - TELEGRAM_LIVE_WINDOW_MS) },
+      },
     },
     include: { lead: true, webinarSession: true },
     orderBy: { id: 'asc' },
@@ -673,11 +756,31 @@ export async function runTelegramLiveJobOnce(now = new Date(), onProgress?: () =
         await releaseTelegramDeliveryLease(registration.id, fields, leaseUntil);
         continue;
       }
-      await sendTelegramMessageToChat(chatId, 'Премьера записи началась — можно подключиться к комнате.', {
-        replyMarkup: telegramUrlButton('▶ Открыть премьеру', roomUrl),
-        attempts: 1,
+      const correlationId = createCorrelationId('telegram_session_live');
+      const deliveryResult = await sendTelegramMessageToChat(
+        chatId,
+        'Премьера записи началась — можно подключиться к комнате.',
+        {
+          replyMarkup: telegramUrlButton('▶ Открыть премьеру', roomUrl),
+          attempts: 1,
+        },
+      );
+      await markTelegramDeliverySent(registration.id, fields, leaseUntil, new Date(), {
+        organizationId: registration.webinarSession.organizationId,
+        webinarId: registration.webinarSession.webinarId,
+        webinarSessionId: registration.webinarSessionId,
+        scopedRegistrationId:
+          registration.organizationId === registration.webinarSession.organizationId &&
+          registration.webinarId === registration.webinarSession.webinarId
+            ? registration.id
+            : undefined,
+        crmContactId: registration.crmContactId,
+        eventType: 'session_live',
+        scheduleVersion: registration.webinarSession.scheduleVersion,
+        correlationId,
+        providerMessageId: deliveryResult.providerMessageId,
+        deliveryMode: deliveryResult.mode,
       });
-      await markTelegramDeliverySent(registration.id, fields, leaseUntil, new Date());
       sent += 1;
     } catch (error) {
       await handleTelegramDeliveryError({
@@ -718,6 +821,7 @@ export async function runTelegramFollowupJobOnce(now = new Date(), onProgress?: 
         marketingTelegramRevokedAt: null,
       },
       webinarSession: {
+        lifecycleStatus: { not: 'CANCELLED' },
         scheduledAt: { lt: now, gt: new Date(now.getTime() - TELEGRAM_FOLLOWUP_WINDOW_MS - 6 * 60 * 60 * 1000) },
       },
     },
@@ -757,7 +861,8 @@ export async function runTelegramFollowupJobOnce(now = new Date(), onProgress?: 
         await releaseTelegramDeliveryLease(registration.id, fields, leaseUntil);
         continue;
       }
-      await sendTelegramMessageToChat(
+      const correlationId = createCorrelationId('telegram_session_followup');
+      const deliveryResult = await sendTelegramMessageToChat(
         chatId,
         [
           'Спасибо, что были на вебинаре АСПБ.',
@@ -766,7 +871,22 @@ export async function runTelegramFollowupJobOnce(now = new Date(), onProgress?: 
         ].join('\n'),
         { replyMarkup: telegramUrlButton('Смотреть запись', recordingsUrl), attempts: 1 },
       );
-      await markTelegramDeliverySent(registration.id, fields, leaseUntil, new Date());
+      await markTelegramDeliverySent(registration.id, fields, leaseUntil, new Date(), {
+        organizationId: registration.webinarSession.organizationId,
+        webinarId: registration.webinarSession.webinarId,
+        webinarSessionId: registration.webinarSessionId,
+        scopedRegistrationId:
+          registration.organizationId === registration.webinarSession.organizationId &&
+          registration.webinarId === registration.webinarSession.webinarId
+            ? registration.id
+            : undefined,
+        crmContactId: registration.crmContactId,
+        eventType: 'session_followup',
+        scheduleVersion: registration.webinarSession.scheduleVersion,
+        correlationId,
+        providerMessageId: deliveryResult.providerMessageId,
+        deliveryMode: deliveryResult.mode,
+      });
       sent += 1;
     } catch (error) {
       await handleTelegramDeliveryError({
@@ -848,6 +968,43 @@ async function runReminderCycle() {
     const results = [];
     results.push(await runStep('[ASPБ reminders]', () => runReminderJobOnce(new Date(), reportProgress)));
     results.push(await runStep('[ASPБ email outbox]', () => runEmailOutboxJobOnce(new Date(), {}, reportProgress)));
+    results.push(
+      await runStep('[ASPБ tenant CRM delivery]', () => runCrmDeliveryJobsOnce(new Date(), {}, reportProgress)),
+    );
+    results.push(
+      await runStep('[ASPБ user auth email outbox]', () =>
+        runUserAuthEmailOutboxJobOnce(new Date(), {}, reportProgress),
+      ),
+    );
+    results.push(
+      await runStep('[ASPБ organization invitation email outbox]', () =>
+        runOrganizationInvitationEmailOutboxJobOnce(new Date(), {}, reportProgress),
+      ),
+    );
+    results.push(
+      await runStep('[ASPБ Webinar access invitation email outbox]', () =>
+        runWebinarAccessInvitationEmailOutboxJobOnce(new Date(), {}, reportProgress),
+      ),
+    );
+    results.push(
+      await runStep('[ASPБ media pipeline]', () =>
+        Promise.all(
+          Array.from({ length: env.MEDIA_WORKER_CONCURRENCY }, () =>
+            runMediaJobOnce(prisma, undefined, reportProgress),
+          ),
+        ),
+      ),
+    );
+    results.push(await runStep('[ASPБ media upload cleanup]', () => cleanupExpiredMediaUploads(prisma)));
+    results.push(
+      await runStep('[ASPБ content pipeline]', () =>
+        Promise.all(Array.from({ length: env.CONTENT_WORKER_CONCURRENCY }, () => runContentJobOnce(prisma))),
+      ),
+    );
+    results.push(await runStep('[ASPБ freshness review]', () => runFreshnessReviewJobOnce(prisma, new Date())));
+    results.push(
+      await runStep('[ASPБ freshness notifications]', () => runAuthorServiceNotificationJobOnce(prisma, new Date())),
+    );
     results.push(await runStep('[ASPБ telegram live]', () => runTelegramLiveJobOnce(new Date(), reportProgress)));
     results.push(
       await runStep('[ASPБ telegram reminders]', () => runTelegramReminderJobOnce(new Date(), reportProgress)),
@@ -856,6 +1013,9 @@ async function runReminderCycle() {
       await runStep('[ASPБ telegram followup]', () => runTelegramFollowupJobOnce(new Date(), reportProgress)),
     );
     results.push(await runStep('[ASPБ token cleanup]', cleanupExpiredRegistrationTokens));
+    results.push(await runStep('[ASPБ user auth cleanup]', () => cleanupExpiredUserAuth(prisma)));
+    results.push(await runStep('[ASPБ organization invitation cleanup]', () => cleanupOrganizationInvitations(prisma)));
+    results.push(await runStep('[ASPБ Webinar access cleanup]', () => cleanupExpiredWebinarAccessGrants(prisma)));
     results.push(await runStep('[ASPБ retention]', () => runRetentionSweepThrottled(new Date(), reportProgress)));
     const healthy = results.every(Boolean);
     if (healthy) {

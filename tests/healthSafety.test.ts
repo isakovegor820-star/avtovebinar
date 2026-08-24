@@ -21,12 +21,25 @@ vi.mock('../src/lib/prisma.js', () => ({
       count: vi.fn(async ({ where }: { where: { status: string } }) => (where.status === 'dead_letter' ? 2 : 0)),
       findFirst: vi.fn().mockResolvedValue(null),
     },
+    userAuthEmailJob: {
+      count: vi.fn().mockResolvedValue(0),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    organizationInvitationEmailJob: {
+      count: vi.fn().mockResolvedValue(0),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    webinarAccessInvitationEmailJob: {
+      count: vi.fn().mockResolvedValue(0),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
 
 import { prisma } from '../src/lib/prisma.js';
 import {
   checkEmailOutbox,
+  checkUserAuthEmailOutbox,
   checkWorkerSubsystems,
   getDependencySummary,
   getEmailDeliveryReadiness,
@@ -38,6 +51,10 @@ const emailOutboxStore = prisma.emailOutboxJob as unknown as {
   findFirst: ReturnType<typeof vi.fn>;
 };
 const workerHealthQuery = prisma.$queryRaw as unknown as ReturnType<typeof vi.fn>;
+const userAuthEmailStore = prisma.userAuthEmailJob as unknown as {
+  count: ReturnType<typeof vi.fn>;
+  findFirst: ReturnType<typeof vi.fn>;
+};
 
 describe('public dependency health hygiene', () => {
   it('exposes only aggregate degradation without component identity, secrets or queue counts', async () => {
@@ -118,6 +135,15 @@ describe('public dependency health hygiene', () => {
         missing: [],
         stale: ['reminders'],
       }),
+    );
+  });
+
+  it('reports failed passwordless email delivery without exposing it publicly', async () => {
+    userAuthEmailStore.count.mockImplementation(async input => (input.where?.status === 'FAILED' ? 1 : 0));
+    userAuthEmailStore.findFirst.mockResolvedValue(null);
+
+    await expect(checkUserAuthEmailOutbox()).resolves.toEqual(
+      expect.objectContaining({ ok: false, failed: 1, deadLetter: 0, staleSending: 0 }),
     );
   });
 

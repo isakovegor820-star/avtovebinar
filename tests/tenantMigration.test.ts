@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
-describe('TEN-001 tenant foundation migration', () => {
-  it('backfills a non-empty legacy schema without changing counts or promoting AdminUser', () => {
+describe('TEN/AUT/WEB/SES/CRM additive platform migrations', () => {
+  it('backfills a non-empty legacy schema and CRM projection without changing history', () => {
     const guard = spawnSync(process.execPath, ['scripts/assert-test-database.mjs'], {
       cwd: process.cwd(),
       env: process.env,
@@ -27,5 +27,5 @@ describe('TEN-001 tenant foundation migration', () => {
     );
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-  });
+  }, 120_000);
 });

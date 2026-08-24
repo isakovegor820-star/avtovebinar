@@ -1,0 +1,58 @@
+<!doctype html>
+<html class="light" lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Сообщить АСПБ о нарушении в опубликованном материале" />
+    <title>Сообщить о нарушении | АСПБ</title>
+    <link rel="stylesheet" href="css/styles.css?v=catalog-2" />
+    <link rel="stylesheet" href="fonts.css?v=self-2" />
+    <link rel="stylesheet" href="platform-access.css?v=catalog-2" />
+    <link rel="stylesheet" href="analytics-dashboard.css?v=analytics-1" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  </head>
+  <body class="analytics-body">
+    <a class="platform-skip-link" href="#reportMain">К форме жалобы</a>
+    <header class="analytics-header">
+      <a class="analytics-brand" href="index.html">АСПБ Legal Platform</a>
+      <nav aria-label="Основная навигация"><a href="catalog.html">Каталог</a></nav>
+    </header>
+    <main id="reportMain" class="analytics-main" tabindex="-1">
+      <section class="analytics-intro" aria-labelledby="reportHeading">
+        <p class="analytics-eyebrow">Безопасность и права</p>
+        <h1 id="reportHeading" tabindex="-1">Сообщить о нарушении</h1>
+        <p>Опишите проблему в опубликованном материале. Мы не показываем сведения заявителя автору или другим посетителям.</p>
+      </section>
+      <section class="analytics-panel" aria-labelledby="reportFormHeading">
+        <h2 id="reportFormHeading">Данные обращения</h2>
+        <form id="publicReportForm" class="analytics-filter-grid">
+          <label>
+            Категория
+            <select name="category" required>
+              <option value="CONTENT">Недостоверный или опасный контент</option>
+              <option value="AUTHOR">Нарушение со стороны автора</option>
+              <option value="RIGHTS">Нарушение прав</option>
+            </select>
+          </label>
+          <label class="analytics-wide-field">
+            Описание
+            <textarea name="description" rows="7" minlength="10" maxlength="2000" required aria-describedby="reportDescriptionHint"></textarea>
+          </label>
+          <p id="reportDescriptionHint" class="analytics-wide-field">Не указывайте пароли, платёжные данные или иные лишние персональные сведения.</p>
+          <label class="analytics-wide-field">
+            Email для уточнений <span>(необязательно)</span>
+            <input name="reporterContact" type="email" maxlength="254" autocomplete="email" aria-describedby="reportContactHint" />
+          </label>
+          <p id="reportContactHint" class="analytics-wide-field">Email хранится только в необратимо преобразованном виде и не публикуется.</p>
+          <button class="platform-primary-button analytics-wide-field" type="submit">Отправить обращение</button>
+        </form>
+        <p id="publicReportStatus" class="analytics-status" role="status" aria-live="polite"></p>
+        <div id="publicReportError" class="analytics-error" role="alert" hidden>
+          <h2>Обращение не отправлено</h2>
+          <p id="publicReportErrorText"></p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="js/public-report.js?v=moderation-1"></script>
+  </body>
+</html>

@@ -1,0 +1,105 @@
+<!doctype html>
+<html class="light" lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Модерация вебинара | АСПБ</title>
+    <link rel="stylesheet" href="css/styles.css?v=chat-moderation-1" />
+    <link rel="stylesheet" href="fonts.css?v=self-2" />
+    <link rel="stylesheet" href="platform-access.css?v=chat-moderation-1" />
+    <link rel="stylesheet" href="moderation.css?v=question-moderation-2" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  </head>
+  <body class="min-h-screen bg-background text-on-surface" data-moderation-mode="loading">
+    <a class="platform-skip-link" href="#moderationMain">К основному содержанию</a>
+    <header class="border-b border-outline-variant/40 bg-background">
+      <div class="mx-auto flex w-full max-w-container-max-width flex-wrap items-center justify-between gap-3 px-gutter py-4">
+        <a class="flex min-h-11 shrink-0 flex-col justify-center leading-tight" href="index.html">
+          <span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
+          <span class="hidden text-[11px] font-semibold leading-4 text-on-surface-variant sm:block">Антикризисная служба помощи бизнесу</span>
+        </a>
+        <nav class="moderation-header-nav" aria-label="Кабинет организации">
+          <a class="platform-header-link" href="creator-webinars.html">Вебинары</a>
+          <a class="platform-header-link" href="analytics.html">Аналитика</a>
+          <a class="platform-header-link" href="creator-corrections.html">Исправления</a>
+          <a class="platform-header-link" href="crm.html">CRM</a>
+          <a class="platform-header-link" href="platform-access.html">Мой доступ</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="moderationMain" class="mx-auto w-full max-w-container-max-width px-gutter py-8 md:py-12" tabindex="-1">
+      <section id="moderationLoading" class="moderation-mode platform-panel p-7 text-center md:p-10" aria-live="polite">
+        <div class="platform-spinner mx-auto mb-5" aria-hidden="true"></div>
+        <h1 class="text-headline-md font-headline-md text-primary">Загружаем модерацию</h1>
+        <p class="mx-auto mt-3 max-w-xl text-body-md text-on-surface-variant">Проверяем роль, организацию и доступные сессии.</p>
+      </section>
+
+      <div id="moderationContent" class="moderation-mode grid gap-7">
+        <section class="platform-panel p-7 md:p-10" aria-labelledby="moderationHeading">
+          <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Кабинет организации</p>
+          <h1 id="moderationHeading" class="text-headline-lg-mobile font-headline-lg-mobile text-primary md:text-headline-lg md:font-headline-lg" tabindex="-1">Модерация вебинара</h1>
+          <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">Разбирайте вопросы и сообщения выбранной сессии. Предложения AI-модератора используют только опубликованную расшифровку и разрешённые источники и не появляются в комнате без вашей проверки.</p>
+          <div class="moderation-session-controls mt-7">
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="moderationSession">Сессия вебинара</label>
+              <select id="moderationSession" class="platform-input px-4"></select>
+            </div>
+            <button id="moderationRefreshButton" class="platform-secondary-button" type="button">Обновить данные</button>
+          </div>
+          <p id="moderationSessionSummary" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="platform-panel p-7 md:p-10" aria-labelledby="moderationQuestionsHeading">
+          <div class="moderation-section-heading">
+            <div>
+              <h2 id="moderationQuestionsHeading" class="text-headline-md font-headline-md text-primary">Очередь вопросов</h2>
+              <p id="moderationQuestionCount" class="mt-1 text-label-sm text-on-surface-variant" aria-live="polite"></p>
+            </div>
+            <label class="moderation-filter-label" for="moderationQuestionQueue">Очередь
+              <select id="moderationQuestionQueue" class="platform-input px-4">
+                <option value="new">Новые</option>
+                <option value="repeating">Повторяющиеся</option>
+                <option value="priority">Приоритетные</option>
+                <option value="all">Все вопросы</option>
+              </select>
+            </label>
+          </div>
+          <p class="mt-3 max-w-2xl text-body-sm leading-relaxed text-on-surface-variant">AI-модератор готовит только черновик с таймкодом или ссылкой на источник. Если основания нет или вопрос требует персонального юридического совета, он передаётся человеку.</p>
+          <p id="moderationQuestionEmpty" class="moderation-empty mt-6 text-body-md text-on-surface-variant">В выбранной очереди пока нет вопросов.</p>
+          <ul id="moderationQuestionList" class="mt-6 grid gap-4" aria-busy="false"></ul>
+          <p id="moderationQuestionActionStatus" class="mt-5 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="platform-panel p-7 md:p-10" aria-labelledby="moderationMessagesHeading">
+          <div class="moderation-section-heading">
+            <div>
+              <h2 id="moderationMessagesHeading" class="text-headline-md font-headline-md text-primary">Сообщения</h2>
+              <p id="moderationMessageCount" class="mt-1 text-label-sm text-on-surface-variant" aria-live="polite"></p>
+            </div>
+            <label class="moderation-filter-label" for="moderationFilter">Показать
+              <select id="moderationFilter" class="platform-input px-4">
+                <option value="all">Все сообщения</option>
+                <option value="visible">Только видимые</option>
+                <option value="hidden">Только скрытые</option>
+              </select>
+            </label>
+          </div>
+          <p id="moderationEmpty" class="moderation-empty mt-6 text-body-md text-on-surface-variant">В этой сессии пока нет сообщений.</p>
+          <ul id="moderationMessageList" class="mt-6 grid gap-4" aria-live="polite" aria-busy="false"></ul>
+          <p id="moderationActionStatus" class="mt-5 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+        </section>
+      </div>
+
+      <section id="moderationError" class="moderation-mode platform-panel p-7 text-center md:p-10" role="alert">
+        <div class="platform-error-mark mx-auto mb-5" aria-hidden="true">!</div>
+        <h1 id="moderationErrorTitle" class="text-headline-md font-headline-md text-primary" tabindex="-1">Модерация недоступна</h1>
+        <p id="moderationErrorText" class="mx-auto mt-3 max-w-xl text-body-md leading-relaxed text-on-surface-variant"></p>
+        <a class="platform-primary-button mx-auto mt-7" href="platform-access.html">Вернуться к доступу</a>
+      </section>
+    </main>
+
+    <script type="module" src="js/moderation.js?v=question-moderation-2"></script>
+  </body>
+</html>

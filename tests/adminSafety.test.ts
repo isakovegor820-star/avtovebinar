@@ -25,10 +25,11 @@ vi.mock('../src/lib/anonymizeLead.js', () => ({
 vi.mock('../src/lib/prisma.js', () => {
   const prisma = {
     $executeRaw: vi.fn(),
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
     adminUser: { findUnique: vi.fn(), findFirst: vi.fn(), count: vi.fn(), update: vi.fn(), create: vi.fn() },
     auditLog: { create: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
-    event: { create: vi.fn(), updateMany: vi.fn() },
+    event: { findFirst: vi.fn(), updateMany: vi.fn() },
     lead: { findUnique: vi.fn(), update: vi.fn() },
     registration: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
     registrationToken: { deleteMany: vi.fn() },
@@ -51,9 +52,10 @@ import { adminRouter } from '../src/routes/admin.js';
 type MockFn = ReturnType<typeof vi.fn>;
 const prismaMock = prisma as unknown as {
   $executeRaw: MockFn;
+  $queryRaw: MockFn;
   $transaction: MockFn;
   auditLog: { create: MockFn; updateMany: MockFn; findMany: MockFn };
-  event: { create: MockFn; updateMany: MockFn };
+  event: { findFirst: MockFn; updateMany: MockFn };
   lead: { findUnique: MockFn; update: MockFn };
   registration: { findMany: MockFn; findFirst: MockFn; update: MockFn };
   registrationToken: { deleteMany: MockFn };
@@ -94,7 +96,7 @@ beforeEach(() => {
   );
   prismaMock.$executeRaw.mockResolvedValue(1);
   prismaMock.auditLog.create.mockResolvedValue({});
-  prismaMock.event.create.mockResolvedValue({});
+  prismaMock.$queryRaw.mockResolvedValue([{ occurredAt: new Date(), correlationId: 'admin-analytics-correlation' }]);
 });
 
 afterEach(() => {

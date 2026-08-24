@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
 import { getWebinarEndAt } from '../../lib/time.js';
+import { canAccessRegisteredWebinar } from '../../lib/tenancy/webinarAccess.js';
 import { buildFrontendUrl, findRegistrationForRequest, saveEventSafely } from './helpers.js';
 
 export const recordingsRouter = Router();
@@ -25,11 +26,17 @@ function hasRecordingMedia(recording: { videoUrl: string | null; hlsUrl: string 
   return Boolean(recording.videoUrl || recording.hlsUrl);
 }
 
-async function fetchPublishedRecordings(now: Date) {
+async function fetchPublishedRecordings(now: Date, lead: { id: string; email: string }) {
   const candidates = await prisma.webinarRecording.findMany({
     where: {
       visible: true,
       publishedAt: { lte: now },
+      webinarSession: {
+        lifecycleStatus: { not: 'CANCELLED' },
+        registrations: {
+          some: { leadId: lead.id, status: 'registered', emailVerifiedAt: { not: null } },
+        },
+      },
     },
     include: {
       webinarSession: true,
@@ -37,7 +44,13 @@ async function fetchPublishedRecordings(now: Date) {
     orderBy: [{ orderIndex: 'asc' }, { publishedAt: 'desc' }, { createdAt: 'desc' }],
   });
 
-  return candidates.filter(recording => isRecordingPublished(recording, now) && hasRecordingMedia(recording));
+  const eligible = candidates.filter(recording => isRecordingPublished(recording, now) && hasRecordingMedia(recording));
+  const access = await Promise.all(
+    eligible.map(recording =>
+      canAccessRegisteredWebinar(prisma, { lead, webinarSession: recording.webinarSession }, now),
+    ),
+  );
+  return eligible.filter((_recording, index) => access[index]);
 }
 
 async function requireRecordingAccount(req: Request) {
@@ -97,7 +110,7 @@ recordingsRouter.get(
   asyncHandler(async (req, res) => {
     const registration = await requireRecordingAccount(req);
     const now = new Date();
-    const recordings = await fetchPublishedRecordings(now);
+    const recordings = await fetchPublishedRecordings(now, { id: registration.leadId, email: registration.lead.email });
 
     await saveEventSafely(
       {
@@ -125,7 +138,7 @@ recordingsRouter.get(
   asyncHandler(async (req, res) => {
     const registration = await requireRecordingAccount(req);
     const now = new Date();
-    const recordings = await fetchPublishedRecordings(now);
+    const recordings = await fetchPublishedRecordings(now, { id: registration.leadId, email: registration.lead.email });
     const index = recordings.findIndex(recording => recording.id === req.params.id);
     if (index === -1) {
       throw new AppError(404, 'Recording not found');

@@ -56,7 +56,7 @@ import { eventSchema } from '../src/routes/public/events.js';
 import { getWebinarVideoConfig } from '../src/lib/webinarVideo.js';
 import { getParticipantSessionExpiresAt, PARTICIPANT_SESSION_TTL_DAYS } from '../src/lib/roomLinks.js';
 import { parseVisitorId } from '../src/lib/visitor.js';
-import { checkTelegramConnectivity } from '../src/lib/telegram.js';
+import { checkTelegramConnectivity, sendOperationalTelegramAlert } from '../src/lib/telegram.js';
 
 describe('webinar time logic', () => {
   it('schedules webinar at 19:30 Moscow on the same Moscow day when the slot has not started', () => {
@@ -263,6 +263,15 @@ describe('security configuration', () => {
       IP_HASH_SECRET: 'unit-test-ip-hash-secret-with-32-chars',
       METRICS_TOKEN: 'unit-test-metrics-token-with-32-chars',
       EMAIL_MODE: 'send',
+      E2E_EMAIL_OUTBOX_ENABLED: 'off',
+      MEDIA_STORAGE_PROVIDER: 'unconfigured',
+      MEDIA_WORK_ROOT: '/var/lib/aspb/media-work',
+      STT_PROVIDER: 'unconfigured',
+      AI_ENRICHMENT_PROVIDER: 'unconfigured',
+      MEDIA_MAX_UPLOAD_BYTES: 4_294_967_296,
+      MEDIA_MAX_DURATION_SECONDS: 10_800,
+      MEDIA_PART_SIZE_BYTES: 8_388_608,
+      MEDIA_UPLOAD_CSP_ORIGINS: '',
       SMTP_HOST: 'smtp.example.com',
       SMTP_PORT: 587,
       SMTP_USER: 'smtp-user',
@@ -274,6 +283,7 @@ describe('security configuration', () => {
       TELEGRAM_BOT_TOKEN: '',
       TELEGRAM_BOT_USERNAME: '',
       TELEGRAM_ADMIN_CHAT_ID: '123456',
+      TELEGRAM_OPERATIONAL_CHAT_ID: '654321',
       TELEGRAM_ADMIN_BOT_POLLING: 'off',
       TELEGRAM_NOTIFY_MODE: 'send',
       TELEGRAM_BOT_POLLING: 'off',
@@ -316,6 +326,14 @@ describe('security configuration', () => {
         ADMIN_COOKIE_SECRET: 'short-admin-cookie-secret',
         IP_HASH_SECRET: 'short-ip-hash-secret',
         EMAIL_MODE: 'log',
+        E2E_EMAIL_OUTBOX_ENABLED: 'off',
+        MEDIA_STORAGE_PROVIDER: 'unconfigured',
+        STT_PROVIDER: 'unconfigured',
+        AI_ENRICHMENT_PROVIDER: 'unconfigured',
+        MEDIA_MAX_UPLOAD_BYTES: 4_294_967_296,
+        MEDIA_MAX_DURATION_SECONDS: 10_800,
+        MEDIA_PART_SIZE_BYTES: 8_388_608,
+        MEDIA_UPLOAD_CSP_ORIGINS: '',
         SMTP_HOST: '',
         SMTP_PORT: 587,
         SMTP_USER: '',
@@ -387,6 +405,176 @@ describe('security configuration', () => {
     ).toThrow(/SMTP_HOST.*SMTP_USER.*SMTP_PASS/);
   });
 
+  it('rejects the fake E2E email outbox switch in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          E2E_EMAIL_OUTBOX_ENABLED: 'on',
+        }),
+      ),
+    ).toThrow(/E2E_EMAIL_OUTBOX_ENABLED/);
+  });
+
+  it('rejects the fake media storage adapter in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'test_fake',
+        }),
+      ),
+    ).toThrow(/MEDIA_STORAGE_PROVIDER/);
+  });
+
+  it('rejects the fake speech-to-text adapter in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          STT_PROVIDER: 'test_fake',
+        }),
+      ),
+    ).toThrow(/STT_PROVIDER/);
+  });
+
+  it('rejects the fake AI enrichment adapter in production', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          AI_ENRICHMENT_PROVIDER: 'test_fake',
+        }),
+      ),
+    ).toThrow(/AI_ENRICHMENT_PROVIDER/);
+  });
+
+  it('requires complete S3 storage configuration and allows the versioned pipeline to replace legacy media URLs', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 's3',
+          MEDIA_S3_ENDPOINT: 'https://storage.example.com',
+          MEDIA_S3_BUCKET: undefined,
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+        }),
+      ),
+    ).toThrow(/MEDIA_S3_BUCKET/);
+
+    expect(
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 's3',
+          MEDIA_S3_ENDPOINT: 'https://storage.example.com',
+          MEDIA_S3_BUCKET: 'aspb-private-media',
+          MEDIA_S3_ACCESS_KEY_ID: 'access-key',
+          MEDIA_S3_SECRET_ACCESS_KEY: 'secret-access-key-value',
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+          WEBINAR_MEDIA_ORIGIN_TOKEN: '',
+        }),
+      ).MEDIA_STORAGE_PROVIDER,
+    ).toBe('s3');
+  });
+
+  it('requires a private absolute root for self-hosted versioned media', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: '/var/lib/aspb/media',
+          MEDIA_WORK_ROOT: undefined,
+        }),
+      ),
+    ).toThrow(/MEDIA_WORK_ROOT/);
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: '/var/lib/aspb/media',
+          MEDIA_WORK_ROOT: `${process.cwd()}/crisis_premium/media-work`,
+        }),
+      ),
+    ).toThrow(/MEDIA_WORK_ROOT/);
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: 'relative/media',
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+        }),
+      ),
+    ).toThrow(/MEDIA_LOCAL_ROOT/);
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: `${process.cwd()}/crisis_premium/private-media`,
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+        }),
+      ),
+    ).toThrow(/MEDIA_LOCAL_ROOT/);
+    expect(
+      validateProductionSecurity(
+        secureProductionConfig({
+          MEDIA_STORAGE_PROVIDER: 'local_fs',
+          MEDIA_LOCAL_ROOT: '/var/lib/aspb/media',
+          WEBINAR_VIDEO_HLS_URL: '',
+          WEBINAR_VIDEO_URL: '',
+          WEBINAR_POSTER_URL: '',
+          WEBINAR_MEDIA_ORIGIN_TOKEN: '',
+        }),
+      ).MEDIA_STORAGE_PROVIDER,
+    ).toBe('local_fs');
+  });
+
+  it('requires provider-specific credentials when real STT or AI adapters are selected', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          STT_PROVIDER: 'yandex_speechkit',
+        }),
+      ),
+    ).toThrow(/STT_YANDEX_API_KEY.*STT_YANDEX_FOLDER_ID.*STT_YANDEX_AUDIO_URI_PREFIX/);
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          AI_ENRICHMENT_PROVIDER: 'yandex_foundation_models',
+        }),
+      ),
+    ).toThrow(/AI_YANDEX_API_KEY.*AI_YANDEX_FOLDER_ID.*AI_YANDEX_MODEL_URI/);
+
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          STT_PROVIDER: 'yandex_speechkit',
+          STT_YANDEX_API_KEY: 'speechkit-api-key-value',
+          STT_YANDEX_FOLDER_ID: 'folder-id',
+          STT_YANDEX_AUDIO_URI_PREFIX: 'http://localhost/private-audio',
+          STT_YANDEX_ENDPOINT: 'https://stt.example.com/recognize',
+          STT_YANDEX_OPERATION_ENDPOINT: 'https://stt.example.com/operations',
+          STT_YANDEX_RESULT_ENDPOINT: 'https://stt.example.com/result',
+          STT_YANDEX_DELETE_ENDPOINT: 'https://stt.example.com/delete',
+        }),
+      ),
+    ).toThrow(/STT_YANDEX_AUDIO_URI_PREFIX must use non-local HTTPS/);
+
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          AI_ENRICHMENT_PROVIDER: 'yandex_foundation_models',
+          AI_YANDEX_API_KEY: 'foundation-models-api-key',
+          AI_YANDEX_FOLDER_ID: 'folder-id',
+          AI_YANDEX_MODEL_URI: 'gpt://folder-id/model/latest',
+          AI_YANDEX_ENDPOINT: 'http://localhost/completion',
+        }),
+      ),
+    ).toThrow(/AI_YANDEX_ENDPOINT must use non-local HTTPS/);
+  });
+
   it('requires the expected participant bot username in production', () => {
     expect(() =>
       validateProductionSecurity(
@@ -444,6 +632,23 @@ describe('security configuration', () => {
         }),
       ),
     ).toThrow(/TELEGRAM_ADMIN_BOT_TOKEN.*TELEGRAM_PARTICIPANT_BOT_TOKEN/s);
+  });
+
+  it('requires a separate PII-free operational Telegram chat in send mode', () => {
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          TELEGRAM_OPERATIONAL_CHAT_ID: '',
+        }),
+      ),
+    ).toThrow(/TELEGRAM_OPERATIONAL_CHAT_ID/);
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          TELEGRAM_OPERATIONAL_CHAT_ID: '123456',
+        }),
+      ),
+    ).toThrow(/must differ from TELEGRAM_ADMIN_CHAT_ID/);
   });
 
   it('rejects localhost production origins and video URLs', () => {
@@ -641,6 +846,48 @@ describe('Telegram health-check', () => {
         /participant bot token returned @wrong_participant_bot, expected @aspb_participant_bot/,
       );
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      Object.assign(env, original);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sends only a structured PII-free alert to the separate operational chat', async () => {
+    const original = {
+      TELEGRAM_NOTIFY_MODE: env.TELEGRAM_NOTIFY_MODE,
+      TELEGRAM_ADMIN_BOT_TOKEN: env.TELEGRAM_ADMIN_BOT_TOKEN,
+      TELEGRAM_BOT_TOKEN: env.TELEGRAM_BOT_TOKEN,
+      TELEGRAM_OPERATIONAL_CHAT_ID: env.TELEGRAM_OPERATIONAL_CHAT_ID,
+    };
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true, result: { message_id: 314 } }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    Object.assign(env, {
+      TELEGRAM_NOTIFY_MODE: 'send',
+      TELEGRAM_ADMIN_BOT_TOKEN: 'admin-token',
+      TELEGRAM_BOT_TOKEN: '',
+      TELEGRAM_OPERATIONAL_CHAT_ID: '654321',
+    });
+
+    try {
+      const result = await sendOperationalTelegramAlert({
+        code: 'telegram_broadcast_worker_failed',
+        subsystem: 'broadcast',
+        severity: 'error',
+        correlationId: 'lead@example.test token=raw-secret',
+      });
+      expect(result).toEqual({ sent: true, mode: 'send', providerMessageId: '314' });
+      const request = fetchMock.mock.calls[0];
+      const body = JSON.parse(String(request?.[1]?.body));
+      expect(body.chat_id).toBe('654321');
+      expect(body.text).toContain('Correlation ID: correlation_unavailable');
+      expect(body.text).not.toContain('lead@example.test');
+      expect(body.text).not.toContain('raw-secret');
+      expect(body).not.toHaveProperty('reply_markup');
     } finally {
       Object.assign(env, original);
       vi.unstubAllGlobals();

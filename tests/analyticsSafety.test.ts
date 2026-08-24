@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  createEvent: vi.fn(),
+  queryRaw: vi.fn(),
   logError: vi.fn(),
 }));
 
 vi.mock('../src/lib/prisma.js', () => ({
   prisma: {
-    event: { create: mocks.createEvent },
+    $queryRaw: mocks.queryRaw,
+    event: { findFirst: vi.fn() },
   },
 }));
 
@@ -21,8 +22,9 @@ import { saveEventSafely } from '../src/routes/public/helpers.js';
 
 describe('best-effort analytics', () => {
   it('logs a structured error and preserves the committed business response path', async () => {
-    const failure = new Error('analytics insert failed');
-    mocks.createEvent.mockRejectedValueOnce(failure);
+    const secret = 'Bearer never-log-this-token';
+    const failure = new Error(`provider failed with ${secret}`);
+    mocks.queryRaw.mockRejectedValueOnce(failure);
 
     await expect(
       saveEventSafely(
@@ -38,7 +40,7 @@ describe('best-effort analytics', () => {
 
     expect(mocks.logError).toHaveBeenCalledWith(
       expect.objectContaining({
-        err: failure,
+        failureCode: 'analytics_write_failed',
         operation: 'authenticated_registration',
         eventName: 'registration_submit',
         registrationId: null,
@@ -47,5 +49,6 @@ describe('best-effort analytics', () => {
       }),
       '[ASPБ analytics] best-effort event save failed',
     );
+    expect(JSON.stringify(mocks.logError.mock.calls)).not.toContain(secret);
   });
 });

@@ -4,13 +4,93 @@
 
 import { post, utm } from './utils.js?v=site-review-7';
 
+const ANALYTICS_SCHEMA_VERSION = 1;
+let operationSequence = 0;
+const pageOperationId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+function sourceForEvent(eventName, metadata = {}) {
+  if (eventName === 'viewer_heartbeat' && metadata.playbackMode === 'replay') return 'replay';
+  if (eventName.startsWith('recording') || eventName === 'recordings_open') return 'replay';
+  if (
+    eventName.startsWith('video_') ||
+    eventName.startsWith('question_') ||
+    eventName.startsWith('partner_') ||
+    eventName === 'viewer_heartbeat'
+  ) return 'room';
+  if (eventName === 'chapter_open' || eventName === 'transcript_search') return 'room';
+  if (eventName.startsWith('registration_')) return 'registration';
+  return 'web';
+}
+
+function attributesForEvent(eventName, metadata = {}) {
+  if (eventName === 'question_submit_error' || eventName === 'partner_application_error') {
+    return { failureCode: 'client_request_failed' };
+  }
+  if (eventName === 'recording_cta_click') {
+    return {
+      ...(typeof metadata.recordingId === 'string' ? { recordingId: metadata.recordingId } : {}),
+      ...(Number.isInteger(metadata.index) ? { index: metadata.index } : {}),
+      ...(metadata.source === 'success' ? { placement: 'success' } : {}),
+      ...(typeof metadata.locked === 'boolean' ? { locked: metadata.locked } : {}),
+    };
+  }
+  if (eventName.startsWith('recording_')) {
+    return typeof metadata.recordingId === 'string' ? { recordingId: metadata.recordingId } : {};
+  }
+  if (eventName === 'question_submit_attempt') {
+    return { textLength: Math.max(0, Math.min(4000, Number(metadata.textLength) || 0)) };
+  }
+  if (eventName === 'viewer_heartbeat') {
+    return {
+      intervalNumber: Math.max(0, Math.min(100000, Math.trunc(Number(metadata.intervalNumber) || 0))),
+      ...(Number.isFinite(metadata.positionSeconds) ? { positionSeconds: Math.max(0, Number(metadata.positionSeconds)) } : {}),
+      ...(Number.isFinite(metadata.durationSeconds) && metadata.durationSeconds > 0 ? { durationSeconds: Number(metadata.durationSeconds) } : {}),
+      intervalSeconds: Math.max(1, Math.min(30, Number(metadata.intervalSeconds) || 15)),
+      playbackState: metadata.playbackState === 'playing' ? 'playing' : metadata.playbackState === 'buffering' ? 'buffering' : 'paused',
+      visibilityState: metadata.visibilityState === 'hidden' ? 'hidden' : 'visible',
+    };
+  }
+  if (eventName === 'chapter_open') {
+    return typeof metadata.chapterId === 'string' ? { chapterId: metadata.chapterId.slice(0, 191) } : {};
+  }
+  if (eventName === 'transcript_search') {
+    return typeof metadata.query === 'string' ? { query: metadata.query.trim().slice(0, 120) } : {};
+  }
+  if (eventName === 'partner_application_submitted') {
+    return {
+      ...(typeof metadata.clientFlow === 'string' ? { clientFlow: metadata.clientFlow.slice(0, 160) } : {}),
+      ...(typeof metadata.preferredFormat === 'string' ? { preferredFormat: metadata.preferredFormat.slice(0, 160) } : {}),
+    };
+  }
+  return {};
+}
+
+function createDedupKey(eventName) {
+  operationSequence += 1;
+  const logicalOperation = `${pageOperationId}:${operationSequence}`.replace(/[^A-Za-z0-9._:-]/g, '-');
+  return `web:${eventName}:${logicalOperation}`.slice(0, 128);
+}
+
 export function track(eventName, metadata) {
-  post('/events', {
+  const campaign = utm();
+  const payload = {
+    schemaVersion: ANALYTICS_SCHEMA_VERSION,
     eventName,
+    source: sourceForEvent(eventName, metadata),
+    dedupKey: createDedupKey(eventName),
     page: window.location.pathname,
-    metadata,
-    ...utm()
-  }).catch(() => {});
+    clientOccurredAt: new Date().toISOString(),
+    attributes: attributesForEvent(eventName, metadata),
+    ...(campaign.utmSource ? { utmSource: campaign.utmSource } : {}),
+    ...(campaign.utmMedium ? { utmMedium: campaign.utmMedium } : {}),
+    ...(campaign.utmCampaign ? { utmCampaign: campaign.utmCampaign } : {}),
+  };
+  // One retry represents the same logical delivery and deliberately reuses the
+  // same dedup key. Nothing is persisted in browser storage.
+  post('/events', payload).catch(error => {
+    if (!error?.status) return post('/events', payload).catch(() => {});
+    return undefined;
+  });
 }
 
 export const WEBINAR_INSIGHTS = [

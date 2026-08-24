@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { Request } from 'express';
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
@@ -16,7 +17,7 @@ import {
   TELEGRAM_BROADCAST_CREATE_LOCK_KEY,
   TELEGRAM_BROADCAST_MAX_TEXT_LENGTH,
 } from '../lib/telegramBroadcastWorker.js';
-import { setContextIdentity } from '../lib/requestContext.js';
+import { getRequestContext, setContextIdentity } from '../lib/requestContext.js';
 import { getAdminHtml } from '../responses/adminPage.js';
 import {
   buildFrontendUrl,
@@ -29,9 +30,16 @@ import { findOrCreateWebinarSession } from '../lib/webinarSessions.js';
 import { getDailyBroadcastDate } from '../lib/time.js';
 import { getWebinarLiveState } from '../lib/webinarLive.js';
 import { getScriptedChatMessagesUntil } from '../lib/scriptedChat.js';
+import { buildServerDedupKey, recordAnalyticsEvent } from '../lib/analyticsEvents.js';
 import { createMfaEnrollment, decryptMfaSecret, verifyTotp } from '../lib/mfa.js';
 import { anonymizeLeadInTransaction, LEAD_ANONYMIZATION_TRANSACTION_TIMEOUT_MS } from '../lib/anonymizeLead.js';
 import { acquireLeadSecurityLock, isParticipantRegistrationActive } from '../lib/leadSecurity.js';
+import {
+  getAdminAuthorEvidenceContent,
+  getAdminAuthorVerification,
+  listAdminAuthorVerifications,
+  reviewAuthorVerification,
+} from '../lib/tenancy/authorVerification.js';
 
 export const adminRouter = Router();
 
@@ -87,7 +95,7 @@ function toCount(value: number | bigint) {
   return typeof value === 'bigint' ? Number(value) : value;
 }
 
-type AdminRequest = Request & {
+export type AdminRequest = Request & {
   admin?: {
     id: string | null;
     login: string;
@@ -96,7 +104,7 @@ type AdminRequest = Request & {
   };
 };
 
-async function requireAdmin(req: AdminRequest, _res: any, next: any) {
+export async function requireAdmin(req: AdminRequest, _res: any, next: any) {
   const session = parseAdminSession(req.cookies?.aspb_admin_session);
   if (!session) {
     return next(new AppError(401, 'Admin authorization required'));
@@ -140,7 +148,7 @@ async function requireAdmin(req: AdminRequest, _res: any, next: any) {
   return next();
 }
 
-function requireRole(roles: AdminRole[]) {
+export function requireRole(roles: AdminRole[]) {
   return (req: AdminRequest, _res: any, next: any) => {
     if (!req.admin || !roles.includes(req.admin.role as AdminRole)) {
       return next(new AppError(403, 'Недостаточно прав'));
@@ -166,7 +174,7 @@ async function ensureDefaultAdminUser() {
   });
 }
 
-async function audit(
+export async function audit(
   req: AdminRequest,
   input: {
     action: string;
@@ -619,6 +627,86 @@ adminRouter.get(
   requireAdmin,
   asyncHandler(async (req, res) => {
     res.json({ ok: true, admin: (req as AdminRequest).admin });
+  }),
+);
+
+adminRouter.get(
+  '/api/v1/platform/author-verifications',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const result = await listAdminAuthorVerifications(prisma, req.query);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, ...result, correlationId: getRequestContext()?.correlationId });
+  }),
+);
+
+adminRouter.get(
+  '/api/v1/platform/author-verifications/evidence/:evidenceId',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const params = z
+      .object({ evidenceId: z.string().trim().min(1).max(191) })
+      .strict()
+      .parse(req.params);
+    const actor = (req as AdminRequest).admin;
+    if (!actor?.id) throw new AppError(401, 'Admin authorization required');
+    const evidence = await getAdminAuthorEvidenceContent(prisma, params.evidenceId);
+    await prisma.auditLog.create({
+      data: {
+        adminUserId: actor.id,
+        organizationId: evidence.organizationId,
+        correlationId: getRequestContext()?.correlationId,
+        action: 'author_verification.evidence_accessed_by_admin',
+        entityType: 'author_verification_evidence',
+        entityId: evidence.id,
+        ipHash: hashIp(getClientIp(req)),
+        userAgent: req.headers['user-agent'] ?? null,
+      },
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `attachment; filename="evidence-${evidence.id}"`);
+    res.type(evidence.mimeType).send(Buffer.from(evidence.content));
+  }),
+);
+
+adminRouter.get(
+  '/api/v1/platform/author-verifications/:verificationId',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const params = z
+      .object({ verificationId: z.string().trim().min(1).max(191) })
+      .strict()
+      .parse(req.params);
+    const verification = await getAdminAuthorVerification(prisma, params.verificationId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, verification, correlationId: getRequestContext()?.correlationId });
+  }),
+);
+
+adminRouter.patch(
+  '/api/v1/platform/author-verifications/:verificationId',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler(async (req, res) => {
+    const params = z
+      .object({ verificationId: z.string().trim().min(1).max(191) })
+      .strict()
+      .parse(req.params);
+    const actor = (req as AdminRequest).admin;
+    if (!actor?.id) throw new AppError(401, 'Admin authorization required');
+    const verification = await reviewAuthorVerification(
+      prisma,
+      actor.id,
+      params.verificationId,
+      req.body,
+      getRequestContext()?.correlationId,
+    );
+    res.json({ ok: true, verification, correlationId: getRequestContext()?.correlationId });
   }),
 );
 
@@ -1261,15 +1349,14 @@ adminRouter.post(
         include: { lead: true },
       });
       if (!stillActive || !isParticipantRegistrationActive(stillActive)) return;
-      await tx.event.create({
-        data: {
-          eventName: 'admin_manual_telegram_reminder',
-          leadId: stillActive.leadId,
-          registrationId: stillActive.id,
-          webinarSessionId: stillActive.webinarSessionId,
-          source: 'admin',
-          page: 'admin',
-        },
+      const correlationId = getRequestContext()?.correlationId ?? `admin_${crypto.randomUUID()}`;
+      await recordAnalyticsEvent(tx as unknown as typeof prisma, {
+        eventName: 'admin_manual_telegram_reminder',
+        source: 'admin',
+        dedupKey: buildServerDedupKey('admin_manual_telegram_reminder', `${stillActive.id}:${correlationId}`),
+        correlationId,
+        scope: { kind: 'trusted', registrationId: stillActive.id },
+        page: '/admin',
       });
       await audit(
         adminReq,
@@ -1277,7 +1364,10 @@ adminRouter.post(
           action: 'registration.telegram_reminder.send',
           entityType: 'registration',
           entityId: stillActive.id,
-          after: { chatId: stillActive.lead.telegramChatId, textLength: text.length },
+          after: {
+            chatHint: stillActive.lead.telegramChatId ? `***${stillActive.lead.telegramChatId.slice(-4)}` : null,
+            textLength: text.length,
+          },
         },
         tx,
       );
@@ -1459,18 +1549,20 @@ adminRouter.post(
     }
     const { job, preview } = queueResult;
 
-    await prisma.event.create({
-      data: {
-        eventName: 'telegram_broadcast',
-        source: 'admin',
-        metadataJson: {
-          status: 'queued',
-          jobId: job.jobId,
-          total: job.total,
-          textLength: data.text.length,
-          consentDocumentVersion: preview.consentDocumentVersion,
-          initiatedById: actor.id,
-        },
+    await recordAnalyticsEvent(prisma, {
+      eventName: 'telegram_broadcast',
+      source: 'admin',
+      dedupKey: buildServerDedupKey('telegram_broadcast', job.jobId),
+      correlationId: getRequestContext()?.correlationId,
+      scope: { kind: 'platform' },
+      page: '/admin',
+      attributes: {
+        status: 'queued',
+        jobId: job.jobId,
+        total: job.total,
+        textLength: data.text.length,
+        consentDocumentVersion: preview.consentDocumentVersion,
+        initiatedById: actor.id,
       },
     });
 
@@ -1632,7 +1724,10 @@ adminRouter.post(
       await acquireLeadSecurityLock(tx, question.registration.leadId);
       const activeQuestion = await tx.question.findFirst({
         where: getQuestionAccessWhere(adminReq, { id: question.id }),
-        include: { registration: { include: { lead: true } } },
+        include: {
+          registration: { include: { lead: true } },
+          webinarSession: { select: { organizationId: true, webinarId: true } },
+        },
       });
       if (!activeQuestion || !isParticipantRegistrationActive(activeQuestion.registration)) {
         throw new AppError(409, 'Регистрация участника больше не активна');
@@ -1640,8 +1735,11 @@ adminRouter.post(
       const chatMessage = await tx.webinarChatMessage.create({
         data: {
           webinarSessionId: activeQuestion.webinarSessionId,
-          registrationId: activeQuestion.registrationId,
+          organizationId: activeQuestion.webinarSession.organizationId,
+          webinarId: activeQuestion.webinarSession.webinarId,
+          registrationId: null,
           kind: MODERATOR_CHAT_KIND,
+          messageType: 'MODERATOR',
           authorName: MODERATOR_NAME,
           authorRole: MODERATOR_ROLE,
           message: text,
@@ -1778,6 +1876,7 @@ adminRouter.get(
           where: {
             webinarSessionId: session.id,
             visibleAt: { lte: now },
+            hiddenAt: null,
             OR: [{ registrationId: null }, { registration: { is: { chatBannedAt: null } } }],
           },
           orderBy: [{ visibleAt: 'asc' }, { createdAt: 'asc' }],

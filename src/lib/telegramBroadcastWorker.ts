@@ -4,12 +4,20 @@ import { env } from './env.js';
 import { logger } from './logger.js';
 import { prisma } from './prisma.js';
 import { createCorrelationId, runWithCorrelation } from './requestContext.js';
-import { normalizeError, retryDelayMs } from './resilience.js';
-import { sendTelegramMessageToChat } from './telegram.js';
+import { buildServerDedupKey, recordAnalyticsEvent, safeAnalyticsFailureCode } from './analyticsEvents.js';
+import { retryDelayMs } from './resilience.js';
+import { sendOperationalTelegramAlert, sendTelegramMessageToChat } from './telegram.js';
 import { MARKETING_TELEGRAM_CONSENT } from './consentDocuments.js';
-import { TELEGRAM_BINDING_VERSION } from './roomLinks.js';
-import { acquireTelegramDeliveryLock } from './leadSecurity.js';
-import { ANONYMIZED_LEAD_EMAIL_SUFFIX } from './leadSecurity.js';
+import { createRoomExchangeUrl, getParticipantSessionExpiresAt, TELEGRAM_BINDING_VERSION } from './roomLinks.js';
+import {
+  acquireLeadSecurityLock,
+  acquireTelegramDeliveryLock,
+  ANONYMIZED_LEAD_EMAIL_SUFFIX,
+  isParticipantRegistrationActive,
+} from './leadSecurity.js';
+import { canAccessRegisteredWebinar } from './tenancy/webinarAccess.js';
+import { getWebinarAccess } from './time.js';
+import { getTenantRolloutDecision } from './tenancy/rolloutPolicy.js';
 import {
   initializeWorkerSubsystemProgress,
   reportWorkerSubsystemProgress,
@@ -149,6 +157,7 @@ const PERMANENT_RECIPIENT_ERROR =
   /blocked|deactivated|kicked|chat not found|user not found|peer_id_invalid|chat_id is empty|initiate conversation|not a member|have no rights|chat was upgraded|group chat was deleted/i;
 
 function isPermanentRecipientError(error: unknown): boolean {
+  if (error instanceof TenantBroadcastRecipientInvalidError) return true;
   // 429 (Too Many Requests, retry_after) — временная общая ошибка: ретраим всю джобу, получателя
   // НЕ пропускаем, иначе при троттлинге растеряли бы реальных адресатов.
   if (getTelegramRetryAfterMs(error) !== null) {
@@ -163,6 +172,20 @@ function nextBroadcastRetryAt(now: Date, attempts: number, error: unknown) {
     now.getTime() +
       retryDelayMs(attempts, { baseMs: 2000, maxMs: 10 * 60 * 1000, retryAfterMs: getTelegramRetryAfterMs(error) }),
   );
+}
+
+class TenantBroadcastRecipientInvalidError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TenantBroadcastRecipientInvalidError';
+  }
+}
+
+function safeTelegramBroadcastFailureCode(error: unknown) {
+  if (error instanceof TenantBroadcastRecipientInvalidError) return 'tenant_recipient_invalid';
+  if (isPermanentRecipientError(error)) return 'telegram_recipient_unavailable';
+  if (getTelegramRetryAfterMs(error) !== null) return 'telegram_rate_limited';
+  return 'telegram_provider_unavailable';
 }
 
 async function moveBroadcastJobToDeadLetter(
@@ -528,6 +551,129 @@ export async function createTelegramBroadcastJob(
   };
 }
 
+async function renderTenantBroadcastMessage(
+  tx: Prisma.TransactionClient,
+  job: {
+    organizationId: string | null;
+    webinarId: string | null;
+    webinarSessionId: string | null;
+    text: string;
+  },
+  recipient: { registrationId: string | null; leadId: string | null },
+  now: Date,
+) {
+  if (!job.organizationId) return { eligible: true as const, text: job.text };
+  if (!job.webinarId || !job.webinarSessionId || !recipient.registrationId || !recipient.leadId) {
+    return { eligible: false as const, text: null };
+  }
+  await acquireLeadSecurityLock(tx, recipient.leadId);
+  const registration = await tx.registration.findUnique({
+    where: { id: recipient.registrationId },
+    include: {
+      lead: true,
+      webinarSession: { include: { webinar: { select: { title: true, contentStatus: true, archivedAt: true } } } },
+    },
+  });
+  if (
+    !registration ||
+    registration.organizationId !== job.organizationId ||
+    registration.webinarId !== job.webinarId ||
+    registration.webinarSessionId !== job.webinarSessionId ||
+    registration.leadId !== recipient.leadId ||
+    registration.webinarSession.organizationId !== job.organizationId ||
+    registration.webinarSession.webinarId !== job.webinarId ||
+    registration.webinarSession.lifecycleStatus === 'CANCELLED' ||
+    registration.webinarSession.webinar.contentStatus !== 'PUBLISHED' ||
+    registration.webinarSession.webinar.archivedAt !== null ||
+    !isParticipantRegistrationActive(registration) ||
+    !(await canAccessRegisteredWebinar(tx, registration, now))
+  ) {
+    return { eligible: false as const, text: null };
+  }
+  const access = getWebinarAccess(
+    now,
+    registration.webinarSession.scheduledAt,
+    registration.webinarSession.durationMinutes,
+    registration.webinarSession.replayAvailableHours,
+    registration.webinarSession.roomOpenBeforeMinutes,
+    registration.webinarSession.replayEnabled,
+  );
+  if (access.accessStatus === 'closed') return { eligible: false as const, text: null };
+  const roomUrl = await createRoomExchangeUrl(tx, {
+    registrationId: registration.id,
+    expiresAt: getParticipantSessionExpiresAt(now),
+  });
+  const sessionDate = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: registration.webinarSession.timezone,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(registration.webinarSession.scheduledAt);
+  const text = job.text
+    .replaceAll('{{participant_name}}', registration.lead.name)
+    .replaceAll('{{webinar_title}}', registration.webinarSession.webinar.title)
+    .replaceAll('{{session_datetime}}', `${sessionDate} (${registration.webinarSession.timezone})`)
+    .replaceAll('{{room_link}}', roomUrl)
+    .concat('\n\nОтключить рекламные сообщения: /unsubscribe');
+  if (text.includes('{{') || text.includes('}}') || text.length > 3_900) {
+    throw new TenantBroadcastRecipientInvalidError('Tenant Telegram broadcast rendering failed');
+  }
+  return { eligible: true as const, text };
+}
+
+async function settleTenantBroadcastControl(jobId: string, claimToken: string, now: Date) {
+  return prisma.$transaction(async tx => {
+    const job = await tx.telegramBroadcastJob.findUnique({
+      where: { claimToken },
+      select: {
+        id: true,
+        organizationId: true,
+        status: true,
+        completedAt: true,
+        pauseRequestedAt: true,
+        pauseRequestedByMembershipId: true,
+        cancelRequestedAt: true,
+        cancelRequestedByMembershipId: true,
+        cancelReason: true,
+      },
+    });
+    if (!job || job.id !== jobId || job.status !== 'sending' || job.completedAt || !job.organizationId) return null;
+    if (job.cancelRequestedAt && job.cancelRequestedByMembershipId && job.cancelReason) {
+      const owned = await tx.telegramBroadcastJob.updateMany({
+        where: { id: job.id, status: 'sending', completedAt: null, claimToken },
+        data: {
+          status: 'cancelled',
+          cancelledAt: now,
+          cancelledByMembershipId: job.cancelRequestedByMembershipId,
+          completedAt: now,
+          nextAttemptAt: null,
+          claimToken: null,
+        },
+      });
+      if (owned.count !== 1) throw new BroadcastClaimLostError(job.id);
+      await tx.telegramBroadcastRecipient.updateMany({
+        where: { jobId: job.id, status: 'pending' },
+        data: { status: 'cancelled', cancelledAt: now, lastError: 'broadcast_cancelled_by_owner' },
+      });
+      return 'cancelled' as const;
+    }
+    if (job.pauseRequestedAt && job.pauseRequestedByMembershipId) {
+      const owned = await tx.telegramBroadcastJob.updateMany({
+        where: { id: job.id, status: 'sending', completedAt: null, claimToken },
+        data: {
+          status: 'paused',
+          pausedAt: now,
+          pausedByMembershipId: job.pauseRequestedByMembershipId,
+          nextAttemptAt: null,
+          claimToken: null,
+        },
+      });
+      if (owned.count !== 1) throw new BroadcastClaimLostError(job.id);
+      return 'paused' as const;
+    }
+    return null;
+  });
+}
+
 export async function runTelegramBroadcastJobOnce(
   now = new Date(),
   options: { jobId?: string; onProgress?: () => void } = {},
@@ -559,6 +705,17 @@ export async function runTelegramBroadcastJobOnce(
 
   if (!job) {
     return { checked: 0, sent: 0, failed: 0, deadLettered: 0 };
+  }
+
+  if (job.organizationId && !(await getTenantRolloutDecision(prisma, 'TENANT_TELEGRAM', job.organizationId)).enabled) {
+    await prisma.telegramBroadcastJob.updateMany({
+      where: { id: job.id, status: job.status, completedAt: null, claimToken: null },
+      data: {
+        nextAttemptAt: new Date(now.getTime() + 5 * 60 * 1000),
+        lastError: 'tenant_rollout_disabled',
+      },
+    });
+    return { checked: 1, sent: 0, failed: 0, deadLettered: 0 };
   }
 
   // The normalized snapshot is the only delivery cursor. Falling back to the
@@ -600,6 +757,10 @@ export async function runTelegramBroadcastJobOnce(
     try {
       while (true) {
         onProgress?.();
+        const control = await settleTenantBroadcastControl(job.id, claimToken, now);
+        if (control) {
+          return { checked: 1, sent, failed: failedSkipped, deadLettered: 0, control };
+        }
         await assertBroadcastClaim(job.id, claimToken);
         const recipientRef = await prisma.telegramBroadcastRecipient.findFirst({
           where: { jobId: job.id, status: 'pending' },
@@ -615,6 +776,10 @@ export async function runTelegramBroadcastJobOnce(
         const delivery = await prisma.$transaction(async tx => {
           if (recipientRef.leadId) {
             await acquireTelegramDeliveryLock(tx, recipientRef.leadId);
+          }
+
+          if (job.organizationId) {
+            await tx.$queryRaw`SELECT "id" FROM "telegram_broadcast_jobs" WHERE "claim_token" = ${claimToken} FOR SHARE`;
           }
 
           const owner = await tx.telegramBroadcastJob.findUnique({
@@ -644,21 +809,56 @@ export async function runTelegramBroadcastJobOnce(
             recipient.consentRecord.action === 'grant' &&
             recipient.consentRecord.documentId === MARKETING_TELEGRAM_CONSENT.id &&
             recipient.consentRecord.documentVersion === MARKETING_TELEGRAM_CONSENT.version &&
-            recipient.consentDocumentVersion === MARKETING_TELEGRAM_CONSENT.version;
+            recipient.consentDocumentVersion === MARKETING_TELEGRAM_CONSENT.version &&
+            (job.organizationId === null ||
+              (recipient.organizationId === job.organizationId &&
+                recipient.webinarId === job.webinarId &&
+                recipient.webinarSessionId === job.webinarSessionId &&
+                recipient.registrationId !== null));
           if (!stillEligible) {
-            return { recipient, stillEligible: false as const, sendFailure: null };
+            return { recipient, stillEligible: false as const, sendFailure: null, deliveryResult: null };
           }
 
           try {
+            const rendered = await renderTenantBroadcastMessage(tx, job, recipient, now);
+            if (!rendered.eligible) {
+              return { recipient, stillEligible: false as const, sendFailure: null, deliveryResult: null };
+            }
+            if (
+              job.organizationId &&
+              !(await getTenantRolloutDecision(tx as unknown as typeof prisma, 'TENANT_TELEGRAM', job.organizationId))
+                .enabled
+            ) {
+              return {
+                recipient,
+                stillEligible: true as const,
+                sendFailure: null,
+                deliveryResult: null,
+                rolloutPaused: true as const,
+              };
+            }
             // Every recipient attempt reacquires the lease and consent fence instead of
             // sleeping inside Telegram's generic retry helper.
-            await sendTelegramMessageToChat(chatId, job.text, { attempts: 1 });
-            return { recipient, stillEligible: true as const, sendFailure: null };
+            const deliveryResult = await sendTelegramMessageToChat(chatId, rendered.text, { attempts: 1 });
+            return { recipient, stillEligible: true as const, sendFailure: null, deliveryResult };
           } catch (error) {
-            return { recipient, stillEligible: true as const, sendFailure: { error } };
+            return { recipient, stillEligible: true as const, sendFailure: { error }, deliveryResult: null };
           }
         }, TELEGRAM_DELIVERY_TRANSACTION_OPTIONS);
-        const { recipient, stillEligible, sendFailure } = delivery;
+        if ('rolloutPaused' in delivery && delivery.rolloutPaused) {
+          await prisma.telegramBroadcastJob.updateMany({
+            where: { id: job.id, status: 'sending', claimToken, completedAt: null },
+            data: {
+              status: 'pending',
+              attempts: { decrement: 1 },
+              claimToken: null,
+              nextAttemptAt: new Date(now.getTime() + 5 * 60 * 1000),
+              lastError: 'tenant_rollout_disabled',
+            },
+          });
+          return { checked: 1, sent, failed: failedSkipped, deadLettered: 0, control: 'rollout_paused' as const };
+        }
+        const { recipient, stillEligible, sendFailure, deliveryResult } = delivery;
         onProgress?.();
         if (!stillEligible) {
           await prisma.$transaction(async tx => {
@@ -673,7 +873,7 @@ export async function runTelegramBroadcastJobOnce(
                   data: {
                     status: 'skipped_revoked',
                     unsubscribedBeforeSendAt: new Date(),
-                    lastError: 'Recipient no longer has current, unrevoked Telegram marketing consent',
+                    lastError: 'recipient_no_longer_eligible',
                   },
                 })
               : { count: 0 };
@@ -697,8 +897,36 @@ export async function runTelegramBroadcastJobOnce(
                 leadId: recipient.leadId,
                 chatId: recipient.chatId,
               },
-              data: { status: 'sent', attempts: { increment: 1 }, sentAt: new Date(), lastError: null },
+              data: {
+                status: 'sent',
+                attempts: { increment: 1 },
+                sentAt: new Date(),
+                lastError: null,
+                providerMessageId: deliveryResult?.providerMessageId ?? null,
+              },
             });
+            if (recipientOwned.count === 1 && job.organizationId && job.webinarId && job.webinarSessionId) {
+              await tx.telegramBotEvent.upsert({
+                where: { dedupKey: `tenant-broadcast:${job.id}:${recipient.id}:sent` },
+                update: {},
+                create: {
+                  organizationId: job.organizationId,
+                  webinarId: job.webinarId,
+                  webinarSessionId: job.webinarSessionId,
+                  registrationId: recipient.registrationId,
+                  crmContactId: recipient.crmContactId,
+                  membershipId: job.requesterMembershipId,
+                  botIdentity: 'PARTICIPANT',
+                  direction: 'OUTBOUND',
+                  eventType: 'tenant_broadcast_recipient_delivered',
+                  correlationId: job.correlationId ?? correlationId,
+                  providerMessageId: deliveryResult?.providerMessageId ?? null,
+                  dedupKey: `tenant-broadcast:${job.id}:${recipient.id}:sent`,
+                  status: deliveryResult?.sent ? 'sent' : 'logged',
+                  metadataJson: { jobId: job.id, templateVersion: job.templateVersion },
+                },
+              });
+            }
             const owned = await tx.telegramBroadcastJob.updateMany({
               where: { id: job.id, status: 'sending', completedAt: null, claimToken },
               data:
@@ -712,7 +940,7 @@ export async function runTelegramBroadcastJobOnce(
           if (recorded) sent += 1;
         } else {
           const { error } = sendFailure;
-          const lastError = normalizeError(error).slice(0, 2000);
+          const lastError = safeTelegramBroadcastFailureCode(error);
           if (isPermanentRecipientError(error)) {
             // Получатель недоставляем навсегда (заблокировал бота, удалён, чат не найден).
             // Статус получателя и курсор меняются атомарно и только текущим владельцем claim.
@@ -741,7 +969,10 @@ export async function runTelegramBroadcastJobOnce(
               return recipientOwned.count === 1;
             });
             if (recorded) failedSkipped += 1;
-            logger.warn({ jobId: job.id, chatId, err: error }, 'Telegram broadcast recipient skipped (permanent)');
+            logger.warn(
+              { jobId: job.id, recipientId: recipient.id, errorCode: lastError },
+              'Telegram broadcast recipient skipped (permanent)',
+            );
             await wait(TELEGRAM_BROADCAST_DELAY_MS);
             onProgress?.();
             continue;
@@ -791,12 +1022,15 @@ export async function runTelegramBroadcastJobOnce(
             continue;
           }
           if (!recipientRetryExhausted) {
-            logger.error({ jobId: job.id, chatId, retryAt, err: error }, 'Telegram broadcast recipient failed');
+            logger.error(
+              { jobId: job.id, recipientId: recipient.id, retryAt, errorCode: lastError },
+              'Telegram broadcast recipient failed',
+            );
             return { checked: 1, sent, failed: 1, deadLettered: 0 };
           }
           failedSkipped += 1;
           logger.error(
-            { jobId: job.id, chatId, recipientAttempts, err: error },
+            { jobId: job.id, recipientId: recipient.id, recipientAttempts, errorCode: lastError },
             'Telegram broadcast recipient retry limit reached; continuing with remaining recipients',
           );
           await wait(TELEGRAM_BROADCAST_DELAY_MS);
@@ -806,6 +1040,11 @@ export async function runTelegramBroadcastJobOnce(
 
         await wait(TELEGRAM_BROADCAST_DELAY_MS);
         onProgress?.();
+      }
+
+      const terminalControl = await settleTenantBroadcastControl(job.id, claimToken, now);
+      if (terminalControl) {
+        return { checked: 1, sent, failed: failedSkipped, deadLettered: 0, control: terminalControl };
       }
 
       await prisma.$transaction(async tx => {
@@ -822,22 +1061,35 @@ export async function runTelegramBroadcastJobOnce(
       });
 
       try {
-        await prisma.event.create({
-          data: {
-            eventName:
-              job.kind === TELEGRAM_BROADCAST_KIND_NEWS ? 'telegram_news_broadcast' : 'telegram_broadcast_completed',
-            source: 'worker',
-            metadataJson: {
-              jobId: job.id,
-              total: job.total,
-              sent: job.sent + sent,
-              failed: job.failed + failedSkipped,
-              textLength: job.text.length,
-            },
+        const eventName =
+          job.kind === TELEGRAM_BROADCAST_KIND_NEWS ? 'telegram_news_broadcast' : 'telegram_broadcast_completed';
+        await recordAnalyticsEvent(prisma, {
+          eventName,
+          source: 'worker',
+          dedupKey: buildServerDedupKey(eventName, job.id),
+          correlationId,
+          scope: job.organizationId
+            ? {
+                kind: 'trusted',
+                organizationId: job.organizationId,
+                webinarId: job.webinarId ?? undefined,
+                webinarSessionId: job.webinarSessionId ?? undefined,
+              }
+            : { kind: 'platform' },
+          page: '/worker/telegram-broadcast',
+          attributes: {
+            jobId: job.id,
+            total: job.total,
+            sent: job.sent + sent,
+            failed: job.failed + failedSkipped,
+            textLength: job.text.length,
           },
         });
       } catch (error) {
-        logger.error({ err: error, jobId: job.id }, 'Failed to record Telegram broadcast analytics event');
+        logger.error(
+          { failureCode: safeAnalyticsFailureCode(error), jobId: job.id },
+          'Failed to record Telegram broadcast analytics event',
+        );
       }
 
       return { checked: 1, sent, failed: failedSkipped, deadLettered: 0 };
@@ -872,7 +1124,21 @@ export function startTelegramBroadcastWorker() {
     broadcastRunning = true;
     reportProgress();
     runTelegramBroadcastJobOnce(new Date(), { onProgress: reportProgress })
-      .catch(error => logger.error({ err: error }, 'Telegram broadcast worker failed'))
+      .catch(async error => {
+        const correlationId = createCorrelationId('telegram_broadcast_alert');
+        logger.error({ err: error, correlationId }, 'Telegram broadcast worker failed');
+        await sendOperationalTelegramAlert({
+          code: 'telegram_broadcast_worker_failed',
+          subsystem: 'broadcast',
+          severity: 'error',
+          correlationId,
+        }).catch(alertError =>
+          logger.error(
+            { correlationId, alertCode: 'telegram_broadcast_worker_failed', err: alertError },
+            'Telegram operational alert failed',
+          ),
+        );
+      })
       .finally(() => {
         reportProgress();
         broadcastRunning = false;

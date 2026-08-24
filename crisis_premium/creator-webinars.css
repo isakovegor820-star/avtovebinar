@@ -52,6 +52,7 @@ body[data-creator-mode='error'] #creatorError {
 }
 
 .creator-wizard-nav {
+  contain: inline-size;
   max-width: 100%;
   min-width: 0;
   padding: 1rem;
@@ -557,6 +558,15 @@ code {
 }
 
 @media (max-width: 30rem) {
+  .creator-wizard-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-columns: unset;
+    grid-auto-flow: row;
+    padding-block-end: 0.125rem;
+    overflow-x: visible;
+    scrollbar-gutter: auto;
+  }
+
   .creator-actions > *,
   .creator-section-heading > .platform-secondary-button,
   .creator-section-heading > .platform-primary-button {

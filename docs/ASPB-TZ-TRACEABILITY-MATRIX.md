@@ -165,7 +165,7 @@
 | GAP-ROLLOUT-001 | verified_local | src/lib/tenancy/rolloutPolicy.ts; tests/rolloutPolicy.test.ts | Targeted local unit/contract/static check passed; external sections blocked | Rerun PostgreSQL/browser/staging layers applicable to the package |
 | GAP-RETENTION-001 | verified_local | src/lib/tenancy/retentionPlanning.ts; tests/retentionPlanning.test.ts | Targeted local unit/contract/static check passed; external sections blocked | Rerun PostgreSQL/browser/staging layers applicable to the package |
 | GAP-OBS-001 | verified_local | infra/monitoring; tests/monitoringTemplates.test.ts | Targeted local unit/contract/static check passed; external sections blocked | Rerun PostgreSQL/browser/staging layers applicable to the package |
-| GAP-YC-IAC-001 | verified_local | infra/yandex/staging; tests/yandexIacPolicy.test.ts | Targeted local unit/contract/static check passed; external sections blocked | Rerun PostgreSQL/browser/staging layers applicable to the package |
+| GAP-YC-IAC-001 | verified_local | infra/yandex/staging; tests/yandexIacPolicy.test.ts | Terraform 1.15.9 fmt, backend-disabled readonly-lock init and validate passed; 3/3 policy tests passed; no plan/apply ran | Repeat exact multi-platform lock validation in CI; Platform |
 | GAP-ACCEPTANCE-TOOLS-001 | verified_local | scripts/staging; tests/stagingTools.test.ts | Guarded dry-runs passed; offline provider contract passed; deterministic 4 GiB stream verified at 4,294,967,296 bytes with SHA-256; external network sections remain blocked | Run approved synthetic smoke/load/provider/restore against isolated staging; QA/Platform |
 
 ## Migration steps
@@ -228,7 +228,7 @@ Legacy chat backfill was executed dry-run first, then only on the synthetic stag
 | 12.2 Eight-step wizard | verified_local | crisis_premium/js/creator-webinars.js; src/routes/creatorWebinars.ts | Exact eight-step flow, keyboard navigation, Back/Forward, reload/resume, idempotent autosave and server blockers passed | Repeat against exact staging SHA; QA |
 | 12.3 Interface states | verified_local | crisis_premium/platform-access.html; crisis_premium/creator-webinars.html; crisis_premium/catalog-author.html | Loading/error/blocker and safe post-activation media states passed | Repeat against exact staging SHA; QA |
 | 12.4 Accessibility | verified_local | platform/organization/creator UI; tests/e2e/webinar-room.spec.ts | Keyboard paths, visible focus behavior and mobile acceptance passed | Manual assistive-technology and 200% zoom remain for staging; Frontend/QA |
-| 12.5 Layout | verified_local | crisis_premium/creator-webinars.css; crisis_premium/organization.css; crisis_premium/catalog-author.css | Full 30/30 Chromium acceptance passed; the eight-step wizard uses a contained two-column step grid at 320 px with zero document-level horizontal overflow | Repeat on staging browsers; Frontend/QA |
+| 12.5 Layout | verified_local | crisis_premium/creator-webinars.css; crisis_premium/organization.css; crisis_premium/catalog-author.css | Full 30/30 Chromium acceptance passed; the eight-step wizard uses contained two-column step and control grids at 320 px with zero document-level horizontal overflow | Repeat on staging browsers; Frontend/QA |
 | 12.6 UX writing | verified_local | crisis_premium/js/organization.js; crisis_premium/js/creator-webinars.js | Exact step labels, publication blockers and corrective copy reviewed and exercised | Product-owner wording acceptance remains; Product |
 | 12.7 Typography | verified_local | crisis_premium/fonts.css; crisis_premium/creator-webinars.css; crisis_premium/catalog-author.css | Responsive wrapping and narrow-screen readability checks passed | Manual browser/font loading check remains on staging; Frontend/QA |
 | 12.8 Colors/UI polish | verified_local | platform/creator/catalog CSS | Consolidated contrast, focus, reduced-motion and interaction-state review passed | Staging visual acceptance remains; Frontend/QA |
@@ -259,5 +259,5 @@ Reviewed accessibility, layout, writing, typography, colors and UI polish togeth
 
 - Staging URL/session fixtures are not exposed locally; guarded network smoke/load/browser acceptance must run only after the exact SHA is deployed by GitHub Actions.
 - Provider network calls remain blocked by the DPA/no-training/budget boundary. Offline fake-adapter and exact 4 GiB stream acceptance passed without an external call.
-- Terraform/OpenTofu and promtool are not installed locally. The exact-SHA CI now fail-closes on pinned Terraform `fmt`/`validate`; promtool remains explicitly unavailable rather than reported as passed.
+- Terraform 1.15.9 was checksum-verified in a temporary local tool directory; `fmt`, backend-disabled readonly-lock `init` and `validate` passed without plan/apply. Promtool remains explicitly unavailable rather than reported as passed.
 - Retention terms are unapproved. Destructive apply is intentionally hard-blocked in code and by the default-off environment guard.

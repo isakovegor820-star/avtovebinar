@@ -369,13 +369,21 @@ body[data-creator-mode='error'] #creatorError {
 
   .creator-wizard-controls {
     position: static;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .creator-wizard-controls p {
     grid-column: 1 / -1;
     grid-row: 1;
     text-align: start;
+  }
+
+  .creator-wizard-controls .platform-primary-button,
+  .creator-wizard-controls .platform-secondary-button {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 0.75rem;
+    overflow-wrap: anywhere;
   }
 }
 

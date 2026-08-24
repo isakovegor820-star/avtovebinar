@@ -10,6 +10,7 @@ import {
   type PrivateMediaStorageAdapter,
 } from '../mediaStorage.js';
 import { requireTenantRole, type TenantContext } from './context.js';
+import { getTenantRolloutDecision } from './rolloutPolicy.js';
 
 const CREATOR_ROLES = ['OWNER', 'AUTHOR'] as const satisfies readonly OrganizationMembershipRole[];
 const ALLOWED_MIME = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
@@ -1129,6 +1130,22 @@ export async function runMediaJobOnce(
   })();
   if (!claim) return { checked: 0, ready: 0, failed: 0 };
   const { job, claimToken } = claim;
+
+  if (!(await getTenantRolloutDecision(db, 'PROVIDER_JOBS', job.organizationId)).enabled) {
+    await db.mediaJob.updateMany({
+      where: { id: job.id, status: 'RUNNING', claimToken },
+      data: {
+        status: 'PENDING',
+        attempts: { decrement: 1 },
+        nextAttemptAt: new Date(now.getTime() + 5 * 60 * 1000),
+        lastErrorCode: 'tenant_rollout_disabled',
+        claimedAt: null,
+        claimExpiresAt: null,
+        claimToken: null,
+      },
+    });
+    return { checked: 1, ready: 0, failed: 0 };
+  }
 
   let renewalInFlight: Promise<void> | null = null;
   let claimLost = false;

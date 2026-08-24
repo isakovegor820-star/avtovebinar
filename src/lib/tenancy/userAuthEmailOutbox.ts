@@ -97,15 +97,7 @@ async function prepareAuthEmailJob(
     });
     if (!current) return null;
 
-    const eligibleMembership = await tx.organizationMembership.findFirst({
-      where: {
-        userId: current.userId,
-        status: 'ACTIVE',
-        organization: { status: 'ACTIVE' },
-      },
-      select: { id: true },
-    });
-    if (current.user.kind !== 'HUMAN' || !['PENDING', 'ACTIVE'].includes(current.user.status) || !eligibleMembership) {
+    if (current.user.kind !== 'HUMAN' || !['PENDING', 'ACTIVE'].includes(current.user.status)) {
       await tx.userAuthEmailJob.update({
         where: { id: current.id },
         data: {

@@ -17,6 +17,7 @@ import {
 } from './leadSecurity.js';
 import { canAccessRegisteredWebinar } from './tenancy/webinarAccess.js';
 import { getWebinarAccess } from './time.js';
+import { getTenantRolloutDecision } from './tenancy/rolloutPolicy.js';
 import {
   initializeWorkerSubsystemProgress,
   reportWorkerSubsystemProgress,
@@ -706,6 +707,17 @@ export async function runTelegramBroadcastJobOnce(
     return { checked: 0, sent: 0, failed: 0, deadLettered: 0 };
   }
 
+  if (job.organizationId && !(await getTenantRolloutDecision(prisma, 'TENANT_TELEGRAM', job.organizationId)).enabled) {
+    await prisma.telegramBroadcastJob.updateMany({
+      where: { id: job.id, status: job.status, completedAt: null, claimToken: null },
+      data: {
+        nextAttemptAt: new Date(now.getTime() + 5 * 60 * 1000),
+        lastError: 'tenant_rollout_disabled',
+      },
+    });
+    return { checked: 1, sent: 0, failed: 0, deadLettered: 0 };
+  }
+
   // The normalized snapshot is the only delivery cursor. Falling back to the
   // legacy JSON would bypass the per-recipient consent fence; silently accepting
   // a partial snapshot would lose recipients.
@@ -812,6 +824,19 @@ export async function runTelegramBroadcastJobOnce(
             if (!rendered.eligible) {
               return { recipient, stillEligible: false as const, sendFailure: null, deliveryResult: null };
             }
+            if (
+              job.organizationId &&
+              !(await getTenantRolloutDecision(tx as unknown as typeof prisma, 'TENANT_TELEGRAM', job.organizationId))
+                .enabled
+            ) {
+              return {
+                recipient,
+                stillEligible: true as const,
+                sendFailure: null,
+                deliveryResult: null,
+                rolloutPaused: true as const,
+              };
+            }
             // Every recipient attempt reacquires the lease and consent fence instead of
             // sleeping inside Telegram's generic retry helper.
             const deliveryResult = await sendTelegramMessageToChat(chatId, rendered.text, { attempts: 1 });
@@ -820,6 +845,19 @@ export async function runTelegramBroadcastJobOnce(
             return { recipient, stillEligible: true as const, sendFailure: { error }, deliveryResult: null };
           }
         }, TELEGRAM_DELIVERY_TRANSACTION_OPTIONS);
+        if ('rolloutPaused' in delivery && delivery.rolloutPaused) {
+          await prisma.telegramBroadcastJob.updateMany({
+            where: { id: job.id, status: 'sending', claimToken, completedAt: null },
+            data: {
+              status: 'pending',
+              attempts: { decrement: 1 },
+              claimToken: null,
+              nextAttemptAt: new Date(now.getTime() + 5 * 60 * 1000),
+              lastError: 'tenant_rollout_disabled',
+            },
+          });
+          return { checked: 1, sent, failed: failedSkipped, deadLettered: 0, control: 'rollout_paused' as const };
+        }
         const { recipient, stillEligible, sendFailure, deliveryResult } = delivery;
         onProgress?.();
         if (!stillEligible) {

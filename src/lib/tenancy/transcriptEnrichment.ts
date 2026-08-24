@@ -502,6 +502,29 @@ export async function reviewAiSuggestion(
         targetEntityId = webinarId;
       } else if (suggestion.type === 'CHAPTER') {
         const value = content as z.infer<typeof chapterContentSchema>;
+        const chapterTranscript = await tx.transcript.findFirst({
+          where: { id: transcriptId, webinarId, organizationId: context.organizationId },
+          select: { status: true, mediaAsset: { select: { durationSeconds: true } } },
+        });
+        if (!chapterTranscript || chapterTranscript.status === 'PUBLISHED') {
+          throw new AppError(
+            409,
+            'Опубликованная расшифровка неизменяема. Создайте новую версию расшифровки.',
+            undefined,
+            'chapter_published_immutable',
+          );
+        }
+        if (
+          !chapterTranscript.mediaAsset.durationSeconds ||
+          value.startMs >= chapterTranscript.mediaAsset.durationSeconds * 1_000
+        ) {
+          throw new AppError(
+            422,
+            'Таймкод главы находится за пределами видео',
+            undefined,
+            'chapter_start_out_of_bounds',
+          );
+        }
         const max = await tx.webinarChapter.aggregate({
           where: { webinarId, transcriptId },
           _max: { orderIndex: true },
@@ -515,6 +538,8 @@ export async function reviewAiSuggestion(
             title: value.title,
             description: value.description ?? null,
             orderIndex: (max._max.orderIndex ?? -1) + 1,
+            origin: 'AI_REVIEWED',
+            createdByUserId: context.userId,
           },
         });
         targetEntityType = 'WebinarChapter';
@@ -536,8 +561,12 @@ export async function reviewAiSuggestion(
       } else {
         const value = content as z.infer<typeof questionContentSchema>;
         const latest = await tx.chatScenario.findFirst({
-          where: { webinarId, organizationId: context.organizationId },
+          where: { webinarId, organizationId: context.organizationId, runtimeEnabled: true },
           orderBy: { version: 'desc' },
+        });
+        const maximum = await tx.chatScenario.aggregate({
+          where: { webinarId, organizationId: context.organizationId },
+          _max: { version: true },
         });
         const scenario =
           !latest || latest.status === 'PUBLISHED'
@@ -545,7 +574,7 @@ export async function reviewAiSuggestion(
                 data: {
                   organizationId: context.organizationId,
                   webinarId,
-                  version: (latest?.version ?? 0) + 1,
+                  version: (maximum._max.version ?? 0) + 1,
                   status: 'DRAFT',
                   createdById: context.userId,
                 },

@@ -110,4 +110,17 @@ describe('S3-compatible private media adapter', () => {
       code: 'media_range_invalid',
     });
   });
+
+  it('exposes idempotent provider cleanup primitives without leaking object authority', async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const adapter = new S3CompatibleMediaStorage({ send } as never, 'private-media');
+    await expect(
+      adapter.abortMultipartUpload({ providerUploadKey: 'upload-test', storageKey: 'synthetic/object.bin' }),
+    ).resolves.toBeUndefined();
+    await expect(adapter.deleteObject({ storageKey: 'synthetic/object.bin' })).resolves.toBeUndefined();
+    expect(send.mock.calls.map(([command]) => command.constructor.name)).toEqual([
+      'AbortMultipartUploadCommand',
+      'DeleteObjectCommand',
+    ]);
+  });
 });

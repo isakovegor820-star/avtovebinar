@@ -7,6 +7,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
@@ -328,6 +329,14 @@ export class S3CompatibleMediaStorage implements PrivateMediaStorageAdapter {
       );
     } catch (error) {
       if (!isNoSuchUpload(error)) throw new SafeMediaProviderError('media_upload_abort_failed');
+    }
+  }
+
+  async deleteObject(input: { storageKey: string }) {
+    try {
+      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: input.storageKey }));
+    } catch {
+      throw new SafeMediaProviderError('media_object_delete_failed');
     }
   }
 

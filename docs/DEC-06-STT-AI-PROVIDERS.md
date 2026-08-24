@@ -1,6 +1,6 @@
 # DEC-06 — STT и AI providers
 
-Дата исследования: 23 августа 2026 года
+Дата исследования: 24 августа 2026 года
 
 Статус: **техническая рекомендация и adapters готовы; DPA/no-training/retention и production activation не утверждены**
 
@@ -16,11 +16,27 @@
 
 Решение не означает принятия provider terms. Production switch заблокирован до письменной проверки обработки ПДн/конфиденциального юридического контента, запрета обучения, retention/delete и субпроцессоров.
 
-## Provider decision gate — 23.08.2026
+## Provider decision gate — 24.08.2026
 
 Официальные docs подтвердили v3 async submit/status/result/delete, `ru-RU`, OGG Opus, timestamps и speaker labeling. Speaker labeling доступен в `FULL_DATA` для mono и ограничен двумя speakers. Для async bucket input опубликованы лимиты 1 GB/4 часа, 500 submit/hour, 5 status checks/second для API v3 и 10 000 billable audio hours/day; provider хранит recognition result до 3 суток, поэтому application вызывает delete сразу после получения или terminal failure. Аудит provider событий публично описан через Audit Trails.
 
-Не найдено достаточного публичного первичного доказательства проектного DPA/поручения, запрета обучения/улучшения модели на контенте АСПБ, deletion SLA для logs/backups, native v3 custom dictionary и provider-reported immutable model version. Webhook в рассмотренном v3 API не найден, поэтому adapter использует polling; webhook route не создавался. Поэтому Yandex SpeechKit остаётся **technical candidate**, `TRN-001=implemented`, provider activation — `blocked_external`.
+Для российского cloud contour договорное юрлицо — **ООО «Яндекс.Облако»**, применимое право для российского резидента — право Российской Федерации. Технически рекомендуемый STT endpoint — российский `stt.api.cloud.yandex.net`, provider setting — `yandex_speechkit`. Это подтверждает выбор российского API contour, но публичная документация не даёт достаточного отдельного договорного доказательства точного места выполнения всех SpeechKit compute операций, replicas, backups и support access. Поэтому region остаётся предметом письменного approval юриста/DPO/provider account team.
+
+Официальная документация дополнительного обучения сообщает, что по умолчанию SpeechKit не сохраняет переданные пользователем данные. Сохранение request data для autotuning требует явного `x-data-logging-enabled: true` и обращения в поддержку; отдельная передача audio для улучшения и дообучения также является явным действием. ASPB runtime не должен устанавливать этот header и не должен передавать corpus в поддержку. Это важный технический safeguard, но не заменяет договорный no-training approval: общие условия Yandex Cloud отдельно допускают обучение моделей на служебной информации/metadata для целей качества платформы, поддержки, безопасности и отладки, а async result всё равно хранится до трёх суток. Общая документация также указывает годичный retention request logs к user resources. Применимость и состав этих logs для SpeechKit, backups и support traces должны быть подтверждены письменно.
+
+Cloud DPA опубликован и связан с общими условиями, но он ещё не принят владельцем продукта/юристом/DPO для content АСПБ. Не найдено достаточного публичного первичного доказательства проектной договорной гарантии no-training, deletion SLA для SpeechKit logs/backups, списка subprocessors, native v3 custom dictionary и provider-reported immutable model version. Плавающий tag `general` обновляется; документация гарантирует только двухнедельную поддержку предыдущей версии после обновления, поэтому он не доказывает immutable model version. Webhook в рассмотренном v3 API не найден, поэтому adapter использует polling; webhook route не создавался. Поэтому Yandex SpeechKit остаётся **technical candidate**, `TRN-001=implemented`, provider activation — `blocked_external`.
+
+### Рекомендация, ожидающая явного утверждения
+
+- provider/legal entity: Yandex SpeechKit v3, ООО «Яндекс.Облако»;
+- processing contour: регион Россия, endpoint `stt.api.cloud.yandex.net`;
+- input: только private OGG/Opus speech rendition в private Object Storage того же staging contour;
+- credentials: отдельная staging service identity/API key, хранящаяся в Yandex Lockbox; не переиспользовать S3 static key;
+- data logging/autotuning: запрещены; `x-data-logging-enabled` не включать, corpus в поддержку не передавать;
+- lifecycle: submit/poll/result/immediate `deleteRecognition`, cleanup после success/failure/timeout/cancel;
+- approval boundary: письменное принятие DPA, exact region, no-training, retention/deletion/logs/backups/subprocessors и budget cap до первого реального STT job.
+
+Техническая рекомендация не является юридическим, финансовым или provider approval. До такого approval и реального lifecycle/delete acceptance `TRN-001` остаётся `blocked_external`.
 
 ## Decision matrix
 
@@ -87,6 +103,12 @@ Keys должны находиться только в approved secret store, и
 
 ## Официальные источники
 
+- [ООО «Яндекс.Облако»: условия, cloud DPA и применимое право](https://yandex.ru/legal/cloud_termsofuse/ru/)
+- [Yandex Cloud: соглашение об обработке данных](https://yandex.ru/legal/cloud_dpa/ru/)
+- [Yandex Cloud: регионы и изоляция user data](https://yandex.cloud/en/docs/overview/concepts/region)
+- [Yandex Cloud: российские API endpoints](https://yandex.cloud/ru/docs/api-design-guide/concepts/endpoints)
+- [SpeechKit: сохранение данных и явное включение autotuning](https://aistudio.yandex.ru/docs/ru/speechkit/stt/additional-training)
+- [Yandex Cloud: удаление user data и срок хранения request logs](https://yandex.cloud/en/docs/overview/concepts/data-deletion)
 - [SpeechKit v3: asynchronous submit](https://yandex.cloud/ru-kz/docs/speechkit/stt-v3/api-ref/AsyncRecognizer/recognizeFile)
 - [SpeechKit v3: recognition result](https://yandex.cloud/ru-kz/docs/speechkit/stt-v3/api-ref/AsyncRecognizer/getRecognition)
 - [SpeechKit v3: delete recognition](https://yandex.cloud/ru-kz/docs/speechkit/stt-v3/api-ref/AsyncRecognizer/deleteRecognition)
@@ -95,6 +117,7 @@ Keys должны находиться только в approved secret store, и
 - [SpeechKit: asynchronous recognition and three-day result retention](https://yandex.cloud/ru-kz/docs/speechkit/stt/transcribation)
 - [SpeechKit Audit Trails: async recognition event](https://yandex.cloud/en/docs/audit-trails/audit/ai/speechkit/stt/events-ref/RecognizeSpeechAsync)
 - [SpeechKit pricing](https://yandex.cloud/ru/docs/speechkit/pricing)
+- [SpeechKit: supported languages and mutable model tags](https://aistudio.yandex.ru/docs/ru/speechkit/stt/models.html)
 - [Foundation Models: async completion](https://yandex.cloud/ru-kz/docs/foundation-models/text-generation/api-ref/TextGenerationAsync/completion)
 - [Foundation Models pricing](https://yandex.cloud/ru/docs/foundation-models/pricing)
 - [SaluteSpeech: asynchronous recognition](https://developers.sber.ru/docs/ru/salutespeech/rest/async-general)

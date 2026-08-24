@@ -107,6 +107,8 @@ export interface PrivateMediaStorageAdapter {
     expectedChecksumSha256?: string | null;
   }): Promise<MediaProcessingResult>;
   abortMultipartUpload(input: { providerUploadKey: string; storageKey: string }): Promise<void>;
+  /** Explicit provider cleanup primitive. Business retention policy decides when it may be called. */
+  deleteObject?(input: { storageKey: string }): Promise<void>;
   readObject?(input: { storageKey: string; range?: string }): Promise<MediaObjectResponse>;
   checkReady?(): Promise<boolean>;
   getCapacity?(): Promise<MediaStorageCapacity>;

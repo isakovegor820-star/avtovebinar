@@ -657,6 +657,25 @@ Helmet включает CSP, frame/object restrictions, COEP/CORP, cookie harden
 
 Observability: каждый request получает `x-correlation-id`, pino logs включают `correlation_id`, `userId`/`adminId` где доступны. `/health/ready` проверяет готовность ядра API и БД, `/health/dependencies` публично показывает только категорию неисправного контура (`smtp`, `telegram`, `emailOutbox`) и состояние `ok/degraded`. Подробные checks доступны по `/health/dependencies/details`; он и `/metrics` в production требуют `Authorization: Bearer <METRICS_TOKEN>`.
 
+## Gap-closure package (24.08.2026)
+
+Additive migrations `20260824090000`–`20260824110000` add self-service organizations, manual chapters, private webinar materials, freshness review tasks, shadow chat provenance, tenant rollout policies and legal holds. Their read-only preflight/postflight checks are in `prisma/checks/`. Application rollback is flag/policy rollback over the additive schema; destructive down-migrations are not provided.
+
+New user interfaces:
+
+- `/crisis_premium/platform-access.html` — verified-user onboarding;
+- `/crisis_premium/organization.html` — owner-only team/settings;
+- `/crisis_premium/catalog-author.html?author=<public-slug>` — safe public author projection;
+- `/crisis_premium/creator-webinars.html` — persisted eight-step wizard, chapters and private participant materials.
+
+Tenant rollout is a second, DB-backed gate behind existing master kill switches. Policies are `DISABLED`, `ALLOWLIST` or `ENABLED`; missing rows fail closed. Authentication may bootstrap non-enumerating login in allowlist mode, but every tenant endpoint/job/callback/send boundary checks the server-resolved organization again. Provider policies and managed provider flags remain disabled by migration/default.
+
+Retention inventory is dry-run only. `RETENTION_APPLY_ENABLED=off` is the required default and is not sufficient to enable deletion: the release also contains a compile-time unapproved-policy guard. Do not change either guard until Legal/DPO approves terms, legal-hold behavior and a separate reviewed implementation change.
+
+Reviewable infrastructure and acceptance assets live under `infra/monitoring/`, `infra/yandex/staging/` and `scripts/staging/`. Staging tools are offline/dry-run by default; network mode requires `ASPB_ALLOW_STAGING_ACCEPTANCE=on`, an exact HTTPS `ASPB_STAGING_ALLOWED_HOST`, and tool-specific load/provider/budget approval. No IaC apply is part of repository verification.
+
+See `docs/ASPB-TZ-TRACEABILITY-MATRIX.md` for exact status/evidence and external blockers.
+
 ## QA checklist
 
 - Регистрация создает lead/registration и outbox email job.

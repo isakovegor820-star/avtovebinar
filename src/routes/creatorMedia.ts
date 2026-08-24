@@ -17,6 +17,17 @@ import {
   writeMediaUploadPart,
 } from '../lib/tenancy/mediaPipeline.js';
 import { requireAuthenticatedUserSession } from '../lib/tenancy/userAuth.js';
+import {
+  completeWebinarMaterialUpload,
+  createWebinarMaterialUpload,
+  deleteCreatorWebinarMaterial,
+  getCreatorWebinarMaterialContent,
+  listCreatorWebinarMaterials,
+  recordWebinarMaterialUploadPart,
+  resumeWebinarMaterialUpload,
+  writeWebinarMaterialUploadPart,
+} from '../lib/tenancy/webinarMaterials.js';
+import { requireTenantRollout } from '../lib/tenancy/rolloutPolicy.js';
 
 export const creatorMediaRouter = Router();
 
@@ -27,6 +38,7 @@ const uploadPartContentParamsSchema = z
   .object({ uploadId: idSchema, partNumber: z.coerce.number().int().positive().max(10_000) })
   .strict();
 const assetParamsSchema = z.object({ assetId: idSchema }).strict();
+const materialParamsSchema = z.object({ materialId: idSchema }).strict();
 const createUploadSchema = z
   .object({
     fileName: z.string().trim().min(5).max(240),
@@ -80,11 +92,13 @@ function requireCreatorDashboard() {
 
 async function tenant(req: Parameters<typeof requireAuthenticatedUserSession>[1]) {
   const session = await requireAuthenticatedUserSession(prisma, req);
-  return resolveTenantContext(prisma, {
+  const context = await resolveTenantContext(prisma, {
     userId: session.userId,
     activeOrganizationId: session.activeOrganizationId,
     correlationId: getRequestContext()?.correlationId,
   });
+  await requireTenantRollout(prisma, 'CREATOR_DASHBOARD', context.organizationId);
+  return context;
 }
 
 creatorMediaRouter.post(
@@ -107,6 +121,148 @@ creatorMediaRouter.post(
       idempotencyKey: idempotencyKey.data,
     });
     res.status(result.idempotent ? 200 : 201).json({ ok: true, ...result, correlationId: context.correlationId });
+  }),
+);
+
+creatorMediaRouter.get(
+  '/creator/webinars/:webinarId/materials',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { webinarId } = webinarParamsSchema.parse(req.params);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({
+      ok: true,
+      materials: await listCreatorWebinarMaterials(prisma, context, webinarId),
+      correlationId: context.correlationId,
+    });
+  }),
+);
+
+creatorMediaRouter.post(
+  '/creator/webinars/:webinarId/materials/uploads',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { webinarId } = webinarParamsSchema.parse(req.params);
+    const key = idempotencyKeySchema.safeParse(req.get('idempotency-key'));
+    if (!key.success) {
+      throw new AppError(
+        400,
+        'Для загрузки требуется корректный Idempotency-Key',
+        undefined,
+        'material_upload_idempotency_key_required',
+      );
+    }
+    const result = await createWebinarMaterialUpload(prisma, context, webinarId, {
+      ...(req.body as Record<string, unknown>),
+      idempotencyKey: key.data,
+    });
+    res.status(result.idempotent ? 200 : 201).json({ ok: true, ...result, correlationId: context.correlationId });
+  }),
+);
+
+creatorMediaRouter.put(
+  '/creator/material-uploads/:uploadId/parts/:partNumber/content',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { uploadId, partNumber } = uploadPartContentParamsSchema.parse(req.params);
+    const rawLength = req.get('content-length');
+    if (!rawLength || !/^\d{1,12}$/.test(rawLength)) {
+      throw new AppError(
+        411,
+        'Для части требуется точный Content-Length',
+        undefined,
+        'material_upload_length_required',
+      );
+    }
+    if (req.get('content-encoding')) {
+      throw new AppError(
+        415,
+        'Сжатие тела загрузки не поддерживается',
+        undefined,
+        'material_upload_encoding_unsupported',
+      );
+    }
+    const contentType = (req.get('content-type') ?? '').split(';', 1)[0]?.trim().toLowerCase();
+    if (!contentType)
+      throw new AppError(415, 'MIME-тип части не указан', undefined, 'material_upload_part_mime_required');
+    const result = await writeWebinarMaterialUploadPart(
+      prisma,
+      context,
+      uploadId,
+      partNumber,
+      Number(rawLength),
+      contentType,
+      req,
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('ETag', `"${result.etag}"`);
+    res.json({ ok: true, ...result, correlationId: context.correlationId });
+  }),
+);
+
+creatorMediaRouter.post(
+  '/creator/material-uploads/:uploadId/parts',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { uploadId } = uploadParamsSchema.parse(req.params);
+    const result = await recordWebinarMaterialUploadPart(prisma, context, uploadId, uploadPartSchema.parse(req.body));
+    res.json({ ok: true, ...result, correlationId: context.correlationId });
+  }),
+);
+
+creatorMediaRouter.post(
+  '/creator/material-uploads/:uploadId/complete',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { uploadId } = uploadParamsSchema.parse(req.params);
+    const { parts } = completeUploadSchema.parse(req.body);
+    const result = await completeWebinarMaterialUpload(prisma, context, uploadId, parts);
+    res.json({ ok: true, ...result, correlationId: context.correlationId });
+  }),
+);
+
+creatorMediaRouter.post(
+  '/creator/material-uploads/:uploadId/resume',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    emptyBodySchema.parse(req.body ?? {});
+    const context = await tenant(req);
+    const { uploadId } = uploadParamsSchema.parse(req.params);
+    const result = await resumeWebinarMaterialUpload(prisma, context, uploadId);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ ok: true, ...result, correlationId: context.correlationId });
+  }),
+);
+
+creatorMediaRouter.get(
+  '/creator/materials/:materialId/content',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { materialId } = materialParamsSchema.parse(req.params);
+    const result = await getCreatorWebinarMaterialContent(prisma, context, materialId);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `attachment; filename="material-${result.material.id}"`);
+    res.type(result.object.contentType);
+    if (result.object.contentLength !== undefined) res.setHeader('Content-Length', String(result.object.contentLength));
+    result.object.body.pipe(res);
+  }),
+);
+
+creatorMediaRouter.delete(
+  '/creator/materials/:materialId',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { materialId } = materialParamsSchema.parse(req.params);
+    const material = await deleteCreatorWebinarMaterial(prisma, context, materialId, req.body);
+    res.json({ ok: true, material, correlationId: context.correlationId });
   }),
 );
 

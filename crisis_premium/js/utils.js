@@ -107,11 +107,11 @@ export async function postDownload(path, body) {
   };
 }
 
-export async function patchJson(path, body) {
+export async function patchJson(path, body, headers = {}) {
   const response = await fetchWithTimeout(`${API}${path}`, {
     method: 'PATCH',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
+    headers: { 'Content-Type': 'application/json', ...headers, ...(await csrfHeaders()) },
     body: JSON.stringify(body)
   });
 

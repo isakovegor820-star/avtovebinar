@@ -18,6 +18,7 @@ import {
   duplicateCreatorWebinar,
   getCreatorReferenceData,
   getCreatorWebinar,
+  getCreatorWebinarReadiness,
   getCreatorWebinarPreview,
   listCreatorWebinars,
   runCreatorWebinarCommand,
@@ -34,6 +35,8 @@ import {
   listWebinarAccessGrants,
   revokeWebinarAccessGrant,
 } from '../lib/tenancy/webinarAccess.js';
+import { listCreatorReviewTasks } from '../lib/tenancy/freshnessReview.js';
+import { requireTenantRollout } from '../lib/tenancy/rolloutPolicy.js';
 
 export const creatorWebinarsRouter = Router();
 
@@ -66,11 +69,13 @@ function correlationId() {
 
 async function tenantContextFromRequest(req: Parameters<typeof requireAuthenticatedUserSession>[1]) {
   const session = await requireAuthenticatedUserSession(prisma, req);
-  return resolveTenantContext(prisma, {
+  const context = await resolveTenantContext(prisma, {
     userId: session.userId,
     activeOrganizationId: session.activeOrganizationId,
     correlationId: correlationId(),
   });
+  await requireTenantRollout(prisma, 'CREATOR_DASHBOARD', context.organizationId);
+  return context;
 }
 
 function idempotencyKey(req: Parameters<typeof requireAuthenticatedUserSession>[1]) {
@@ -103,6 +108,17 @@ creatorWebinarsRouter.get(
   }),
 );
 
+creatorWebinarsRouter.get(
+  '/creator/review-tasks',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenantContextFromRequest(req);
+    const tasks = await listCreatorReviewTasks(prisma, context);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ ok: true, tasks, correlationId: correlationId() });
+  }),
+);
+
 creatorWebinarsRouter.post(
   '/creator/webinars',
   asyncHandler(async (req, res) => {
@@ -131,8 +147,20 @@ creatorWebinarsRouter.patch(
     requireCreatorDashboard();
     const params = webinarParamsSchema.parse(req.params);
     const context = await tenantContextFromRequest(req);
-    const webinar = await updateCreatorWebinar(prisma, context, params.webinarId, req.body);
+    const webinar = await updateCreatorWebinar(prisma, context, params.webinarId, req.body, req.get('idempotency-key'));
     res.json({ ok: true, webinar, correlationId: correlationId() });
+  }),
+);
+
+creatorWebinarsRouter.get(
+  '/creator/webinars/:webinarId/readiness',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const params = webinarParamsSchema.parse(req.params);
+    const context = await tenantContextFromRequest(req);
+    const readiness = await getCreatorWebinarReadiness(prisma, context, params.webinarId);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ ok: true, readiness, correlationId: correlationId() });
   }),
 );
 

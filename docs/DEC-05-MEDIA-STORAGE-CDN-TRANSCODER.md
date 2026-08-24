@@ -1,14 +1,30 @@
 # DEC-05 — object storage, CDN и transcoder
 
-Дата исследования: 23 августа 2026 года
+Дата исследования: 24 августа 2026 года
 
 Статус: **Yandex Object Storage `ru-central1` — технический candidate для MED-001; provider не утверждён, resource/DPA/budget/credentials отсутствуют, поэтому статус требования — `implemented`, не `verified`; self-hosted persistent volume остаётся compatibility-контуром**
 
-## Provider decision gate — 23.08.2026
+## Provider decision gate — 24.08.2026
 
-Перепроверены только официальные первичные источники Yandex Cloud. Object Storage описан как S3-compatible service, data centers находятся в России, а публичная privacy-страница заявляет соответствие инфраструктуры 152-ФЗ. Публичные docs подтверждают private access/IAM, presigned operations, multipart Create/UploadPart/ListParts/Complete/Abort, CORS, lifecycle deletion incomplete uploads, Audit Trails и 99,98% service summary. Pricing складывается из storage, operations и egress; первые 1 GB storage, 10 000 write/list, 100 000 read и 100 GB egress в месяц описаны как free allowance. Точная цена зависит от юрлица/валюты и должна быть зафиксирована в budget approval.
+Перепроверены только официальные первичные источники Yandex Cloud. Для российского договора provider — **ООО «Яндекс.Облако»**, 119021, г. Москва, ул. Льва Толстого, д. 16, пом. 528, ОГРН 1187746678580, ИНН 7704458262; применимое право для российского резидента — право Российской Федерации. Технически рекомендуемый staging contour — регион **Россия**, Object Storage endpoint `https://storage.yandexcloud.net`; availability zones региона имеют идентификаторы `ru-central1-*`. Официальное описание регионов указывает, что user data хранится и доступна только внутри выбранного региона, а resources разных регионов изолированы.
 
-Эти источники **не** являются принятым для АСПБ DPA/поручением обработки, budget approval или доказательством exact region всех logs/backups/support access. В публичных docs также не найдена гарантия, что presigned `UploadPart` на выбранном contour обязательно вернёт per-part cryptographic checksum. Поэтому adapter подписывает exact `Content-Length`, использует checksum из `ListParts`, если provider его вернул, и в любом случае повторно считает SHA-256 в worker и сверяет final `HeadObject` size/MIME. Exact checksum behavior остаётся staging acceptance item.
+Object Storage описан как S3-compatible service. Публичные docs подтверждают private access/IAM, presigned operations, multipart Create/UploadPart/ListParts/Complete/Abort, CORS, lifecycle deletion incomplete uploads, Audit Trails и 99,98% service summary. Текущая стандартная квота storage — 1 024 GB на cloud, максимальный object — 5 TB, максимум multipart parts — 10 000, минимальная non-final part — 5 MB. Это покрывает 4 GB acceptance, но квота должна быть проверена до загрузки. Pricing складывается из storage, operations и egress; первые 1 GB storage, 10 000 write/list, 100 000 read и 100 GB egress в месяц описаны как free allowance. Точная цена зависит от договора и должна быть зафиксирована владельцем бюджета; Yandex Cloud Budgets поддерживает лимит, несколько порогов и получателей уведомлений.
+
+Cloud DPA входит в договорный контур и описывает обработку данных по поручению клиента. Для российского contour базы данных обработки по поручению располагаются в Российской Федерации, если клиент не выбрал иностранную инфраструктуру. При этом владелец продукта/оператор ПДн остаётся ответственным за правовые основания. Общая документация удаления сообщает: request logs к пользовательским resources хранятся один год и затем удаляются; удаление cloud/folder после перехода в `DELETING` может занимать до 72 часов. Эти сроки нельзя автоматически считать достаточным SLA удаления конкретных Object Storage replicas/backups без юридической проверки договора.
+
+Эти источники **не** являются принятым для АСПБ DPA/поручением обработки, budget approval или доказательством exact location всех replicas/backups/logs/support access. В публичных docs также не найдена гарантия, что presigned `UploadPart` на выбранном contour обязательно вернёт per-part cryptographic checksum. `UploadPart` требует `Content-Length`, а повторная загрузка part с тем же номером заменяет предыдущую. Поэтому adapter подписывает exact `Content-Length`, использует checksum из `ListParts`, если provider его вернул, и в любом случае повторно считает SHA-256 в worker и сверяет final `HeadObject` size/MIME. Exact checksum behavior остаётся staging acceptance item.
+
+### Рекомендация, ожидающая явного утверждения
+
+- provider: ООО «Яндекс.Облако»;
+- service/region: Yandex Object Storage, регион Россия, endpoint `https://storage.yandexcloud.net`;
+- storage class: `STANDARD` для source, HLS, poster и private speech rendition на acceptance;
+- access: отдельный staging service account, private bucket, запрет public access, least privilege bucket policy;
+- secret store: отдельный Yandex Lockbox secret с выдачей только staging runtime identity;
+- safeguards: exact-origin CORS, server-side encryption, versioning/recovery policy, `AbortIncompleteMultipartUpload`, Audit Trails/bucket logs, quota/cost/capacity alerts;
+- approval boundary: никакого resource creation до письменного решения владельца продукта/юриста/DPO/владельца бюджета и указания credentials owner.
+
+Техническая рекомендация не является юридическим, финансовым или provider approval. До такого approval `MED-001`, `MED-004` и `MED-005` остаются `blocked_external` на уровне staging verification.
 
 ## Решение
 
@@ -117,6 +133,10 @@ HLS — это manifest и множество ресурсов. Требован
 
 ## Официальные источники
 
+- [Yandex Cloud: регионы и изоляция user data](https://yandex.cloud/en/docs/overview/concepts/region)
+- [ООО «Яндекс.Облако»: условия, применимое право и cloud DPA](https://yandex.ru/legal/cloud_termsofuse/ru/)
+- [Yandex Cloud: соглашение об обработке данных](https://yandex.ru/legal/cloud_dpa/ru/)
+- [Yandex Cloud: удаление user data и срок хранения request logs](https://yandex.cloud/en/docs/overview/concepts/data-deletion)
 - [Yandex Object Storage: S3 multipart API](https://yandex.cloud/en/docs/storage/s3/api-ref/multipart)
 - [Yandex Object Storage: pre-signed URLs](https://yandex.cloud/en/docs/storage/concepts/pre-signed-urls)
 - [Yandex Object Storage: access management and private/public access](https://yandex.cloud/en/docs/storage/security/overview)
@@ -126,6 +146,7 @@ HLS — это manifest и множество ресурсов. Требован
 - [Yandex Object Storage: pricing](https://yandex.cloud/en/docs/storage/pricing)
 - [Yandex Object Storage: service/SLA summary](https://yandex.cloud/en/services/storage)
 - [Yandex Object Storage: Audit Trails events](https://yandex.cloud/en/docs/storage/at-ref)
+- [Yandex Cloud Billing: budgets и notification thresholds](https://yandex.cloud/en/docs/billing/concepts/budget)
 - [Yandex Cloud: data privacy](https://yandex.cloud/en/security/data-privacy)
 - [Yandex Cloud CDN: secure tokens](https://yandex.cloud/en/docs/cdn/concepts/secure-tokens)
 - [Yandex Cloud CDN: pricing](https://yandex.cloud/en/docs/cdn/pricing)

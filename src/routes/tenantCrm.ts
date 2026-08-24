@@ -29,6 +29,7 @@ import {
 import { resolveTenantContext } from '../lib/tenancy/context.js';
 import { enqueueCrmDelivery, retryCrmDelivery } from '../lib/tenancy/crmDelivery.js';
 import { requireAuthenticatedUserSession } from '../lib/tenancy/userAuth.js';
+import { requireTenantRollout } from '../lib/tenancy/rolloutPolicy.js';
 
 export const tenantCrmRouter = Router();
 
@@ -57,11 +58,13 @@ function correlationId() {
 
 async function contextFromRequest(req: Parameters<typeof requireAuthenticatedUserSession>[1]) {
   const session = await requireAuthenticatedUserSession(prisma, req);
-  return resolveTenantContext(prisma, {
+  const context = await resolveTenantContext(prisma, {
     userId: session.userId,
     activeOrganizationId: session.activeOrganizationId,
     correlationId: correlationId(),
   });
+  await requireTenantRollout(prisma, 'TENANT_CRM', context.organizationId);
+  return context;
 }
 
 tenantCrmRouter.get(

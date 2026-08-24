@@ -10,6 +10,7 @@ const roleLabels = {
 };
 const WEBINAR_INVITE_STORAGE_KEY = 'aspb.pendingWebinarInvite';
 const OPAQUE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const ORGANIZATION_CREATE_KEY = 'aspb.organizationCreateIdempotencyKey';
 let pendingWebinarInviteMemory = '';
 let acceptedWebinarAccess = null;
 
@@ -179,6 +180,12 @@ function renderSession(session) {
     return;
   }
 
+  if (!session.activeOrganizationId && session.memberships.length === 0) {
+    setText('platformOnboardingStatus', '');
+    showMode('onboarding', 'platformOrganizationName');
+    return;
+  }
+
   const membership = session.memberships.find(item => item.organizationId === session.activeOrganizationId);
   if (!membership) {
     renderError({ status: 401 });
@@ -190,6 +197,7 @@ function renderSession(session) {
   node('platformAuthorProfileLink').hidden = !['OWNER', 'AUTHOR'].includes(membership.role);
   node('platformCreatorWebinarsLink').hidden = !['OWNER', 'AUTHOR'].includes(membership.role);
   node('platformModerationLink').hidden = !['OWNER', 'MODERATOR'].includes(membership.role);
+  node('platformOrganizationSettingsLink').hidden = membership.role !== 'OWNER';
   renderMfaSettings(session, membership);
   const webinarAccess = node('platformWebinarAccess');
   webinarAccess.hidden = !acceptedWebinarAccess;
@@ -312,6 +320,108 @@ function bindOrganizationForm() {
       else setText('platformOrganizationStatus', 'Организация недоступна. Обновите страницу и повторите.');
     } finally {
       button.disabled = false;
+    }
+  });
+}
+
+function organizationCreateIdempotencyKey() {
+  try {
+    const existing = window.sessionStorage.getItem(ORGANIZATION_CREATE_KEY);
+    if (existing) return existing;
+    const created = window.crypto.randomUUID();
+    window.sessionStorage.setItem(ORGANIZATION_CREATE_KEY, created);
+    return created;
+  } catch {
+    return window.crypto.randomUUID();
+  }
+}
+
+function clearOrganizationCreateIdempotencyKey() {
+  try {
+    window.sessionStorage.removeItem(ORGANIZATION_CREATE_KEY);
+  } catch {
+    // The key is retry metadata, not a credential.
+  }
+}
+
+function clearOnboardingErrors() {
+  for (const id of ['platformOrganizationName', 'platformOrganizationSlug', 'platformInvitationToken']) {
+    node(id).removeAttribute('aria-invalid');
+  }
+  setText('platformOrganizationNameError', '');
+  setText('platformOrganizationSlugError', '');
+  setText('platformInvitationTokenError', '');
+  setText('platformOnboardingStatus', '');
+}
+
+function bindOnboardingForms() {
+  node('platformCreateOrganizationForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    clearOnboardingErrors();
+    const form = event.currentTarget;
+    const name = node('platformOrganizationName');
+    const slug = node('platformOrganizationSlug');
+    if (!name.checkValidity()) {
+      name.setAttribute('aria-invalid', 'true');
+      setText('platformOrganizationNameError', 'Введите название от 2 до 160 знаков.');
+      name.focus();
+      return;
+    }
+    if (slug.value && !slug.checkValidity()) {
+      slug.setAttribute('aria-invalid', 'true');
+      setText('platformOrganizationSlugError', 'Используйте буквы, цифры, пробелы или дефисы.');
+      slug.focus();
+      return;
+    }
+    const button = node('platformCreateOrganizationButton');
+    button.disabled = true;
+    button.textContent = 'Создаём…';
+    setText('platformOnboardingStatus', 'Создаём организацию и защищённый tenant-контекст…');
+    try {
+      await post('/v1/organizations', {
+        name: String(new FormData(form).get('name') || '').trim(),
+        ...(String(new FormData(form).get('slug') || '').trim() ? { slug: String(new FormData(form).get('slug')).trim() } : {}),
+      }, { 'Idempotency-Key': organizationCreateIdempotencyKey() });
+      clearOrganizationCreateIdempotencyKey();
+      await hydrateSession();
+    } catch (error) {
+      if (error?.payload?.code === 'organization_slug_invalid') {
+        slug.setAttribute('aria-invalid', 'true');
+        setText('platformOrganizationSlugError', 'Выберите другой короткий адрес.');
+        slug.focus();
+      } else if (error?.status === 409) {
+        setText('platformOnboardingStatus', 'Не удалось создать организацию с этими данными. Измените короткий адрес и повторите.');
+      } else {
+        setText('platformOnboardingStatus', 'Не удалось создать организацию. Проверьте соединение и повторите.');
+      }
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Создать организацию';
+    }
+  });
+
+  node('platformAcceptInvitationForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    clearOnboardingErrors();
+    const input = node('platformInvitationToken');
+    if (!input.checkValidity()) {
+      input.setAttribute('aria-invalid', 'true');
+      setText('platformInvitationTokenError', 'Вставьте одноразовый код из письма.');
+      input.focus();
+      return;
+    }
+    const button = node('platformAcceptInvitationButton');
+    button.disabled = true;
+    button.textContent = 'Принимаем…';
+    try {
+      await renderAuthenticatedSession(await post('/v1/organization/invitations/accept', { token: input.value.trim() }));
+    } catch {
+      input.setAttribute('aria-invalid', 'true');
+      setText('platformInvitationTokenError', 'Код истёк, отозван или уже использован. Запросите новое приглашение.');
+      input.focus();
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Принять приглашение';
     }
   });
 }
@@ -488,6 +598,7 @@ async function start() {
   bindLoginForm();
   bindWebinarInvitationContinuation();
   bindOrganizationForm();
+  bindOnboardingForms();
   bindMfaChallenge();
   bindMfaSettings();
   bindActions();

@@ -32,6 +32,7 @@ import { runWebinarAccessInvitationEmailOutboxJobOnce } from './tenancy/webinarA
 import { cleanupExpiredMediaUploads, runMediaJobOnce } from './tenancy/mediaPipeline.js';
 import { runContentJobOnce } from './tenancy/transcripts.js';
 import { runCrmDeliveryJobsOnce } from './tenancy/crmDelivery.js';
+import { runAuthorServiceNotificationJobOnce, runFreshnessReviewJobOnce } from './tenancy/freshnessReview.js';
 
 type ReminderCandidate = {
   id: string;
@@ -999,6 +1000,10 @@ async function runReminderCycle() {
       await runStep('[ASPБ content pipeline]', () =>
         Promise.all(Array.from({ length: env.CONTENT_WORKER_CONCURRENCY }, () => runContentJobOnce(prisma))),
       ),
+    );
+    results.push(await runStep('[ASPБ freshness review]', () => runFreshnessReviewJobOnce(prisma, new Date())));
+    results.push(
+      await runStep('[ASPБ freshness notifications]', () => runAuthorServiceNotificationJobOnce(prisma, new Date())),
     );
     results.push(await runStep('[ASPБ telegram live]', () => runTelegramLiveJobOnce(new Date(), reportProgress)));
     results.push(

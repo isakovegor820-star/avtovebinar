@@ -26,8 +26,9 @@ import {
 
 async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, user_auth_tokens, user_sessions, user_auth_email_jobs, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
+    'TRUNCATE TABLE legal_holds, tenant_rollout_entries, author_service_notifications, author_review_tasks, webinar_material_uploads, webinar_materials, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, user_auth_tokens, user_sessions, user_auth_email_jobs, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
   );
+  await prisma.organizationIdempotencyRecord.deleteMany();
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
   });
@@ -315,6 +316,104 @@ test('platform magic link creates a cookie-only tenant session and removes the f
   await page.locator('#platformLogoutButton').click();
   await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'login');
   expect((await page.context().cookies()).find(cookie => cookie.name === 'aspb_user_session')).toBeUndefined();
+});
+
+test('creator wizard preserves the exact eight steps, autosaves and follows browser history', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await prisma.tenantRolloutPolicy.updateMany({ data: { mode: 'ENABLED', revision: { increment: 1 } } });
+  const organization = await prisma.organization.create({
+    data: { name: 'Команда мастера E2E', slug: `wizard-e2e-${Date.now()}`, status: 'ACTIVE' },
+  });
+  const user = await prisma.user.create({
+    data: {
+      emailNormalized: `wizard-e2e-${Date.now()}@example.test`,
+      displayName: 'Автор мастера',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: { organizationId: organization.id, userId: user.id, role: 'AUTHOR', status: 'ACTIVE' },
+  });
+  await prisma.authorProfile.create({
+    data: {
+      organizationId: organization.id,
+      userId: user.id,
+      slug: `wizard-author-${Date.now()}`,
+      publicName: 'Автор мастера',
+      verificationStatus: 'VERIFIED',
+    },
+  });
+  const rawToken = createAccessToken();
+  await prisma.userAuthToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(rawToken),
+      purpose: 'PASSWORDLESS_LOGIN',
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+  });
+
+  await page.goto(`/crisis_premium/platform-access.html#token=${rawToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'ready');
+  await page.goto('/crisis_premium/creator-webinars.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-creator-mode', 'content');
+  await page.locator('#creatorNewTitle').fill('Восьмишаговый вебинар');
+  await page.locator('#creatorNewSlug').fill(`wizard-webinar-${Date.now()}`);
+  await page.locator('#creatorCreateButton').click();
+  await expect(page.locator('#creatorEditor')).toBeVisible();
+
+  const expectedLabels = [
+    'Основная информация',
+    'Юридическая классификация и актуальность',
+    'Видео',
+    'Транскрипт и главы',
+    'Источники и материалы',
+    'Подготовленный чат',
+    'Расписание и доступ',
+    'Проверка и публикация',
+  ];
+  const wizardButtons = page.locator('#creatorWizardSteps button');
+  await expect(wizardButtons).toHaveCount(8);
+  for (let index = 0; index < expectedLabels.length; index += 1) {
+    await expect(wizardButtons.nth(index)).toContainText(expectedLabels[index]);
+  }
+
+  await wizardButtons.nth(1).click();
+  await expect(page.locator('#creatorWizardStep2Fields')).toBeVisible();
+  await expect(page).toHaveURL(/step=2/);
+  await page.locator('#creatorWizardNext').click();
+  await expect(page.locator('#creatorWizardStep2')).toBeVisible();
+  await expect(page).toHaveURL(/step=3/);
+  await page.goBack();
+  await expect(page.locator('#creatorWizardStep2Fields')).toBeVisible();
+  await expect(page).toHaveURL(/step=2/);
+  await page.goForward();
+  await expect(page.locator('#creatorWizardStep2')).toBeVisible();
+
+  await wizardButtons.nth(0).click();
+  const autosaveResponse = page.waitForResponse(
+    response =>
+      response.request().method() === 'PATCH' &&
+      /\/api\/v1\/creator\/webinars\/[^/]+$/.test(new URL(response.url()).pathname),
+  );
+  await page
+    .locator('#creatorDescription')
+    .fill('Полное описание, достаточное для безопасного автоматического сохранения.');
+  await page.locator('#creatorOutcome').fill('Участник получит проверяемый практический результат.');
+  await page.locator('#creatorTargetAudience').fill('Практикующие юристы');
+  await page.locator('#creatorFormat').selectOption('ON_DEMAND');
+  await page.locator('#creatorDuration').fill('60');
+  await page.locator('#creatorMetadataHeading').click();
+  const autosave = await autosaveResponse;
+  expect(autosave.status(), await autosave.text()).toBe(200);
+  expect(autosave.request().headers()['idempotency-key']).toMatch(/^webinar-metadata:/);
+  await expect(page.locator('#creatorMetadataStatus')).toContainText('сохранены автоматически');
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  await expect(page.locator('#creatorWizardPrevious')).toBeVisible();
+  await expect(page.locator('#creatorWizardNext')).toBeVisible();
 });
 
 test('owner filters tenant CRM, manages a task and records an audited stage transition', async ({ page }) => {

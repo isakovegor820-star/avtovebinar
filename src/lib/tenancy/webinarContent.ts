@@ -74,6 +74,7 @@ const webinarFieldsSchema = {
     .max(20)
     .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/),
   currentAsOf: dateOnlySchema.nullable(),
+  reviewDueAt: dateOnlySchema.nullable(),
   disclaimer: nullableText(20, 2_000),
   syntheticDisclosure: nullableText(10, 2_000),
   supersededByWebinarId: idSchema.nullable(),
@@ -95,6 +96,7 @@ export const creatorWebinarCreateSchema = z
     durationMinutes: webinarFieldsSchema.durationMinutes.optional(),
     language: webinarFieldsSchema.language.optional(),
     currentAsOf: webinarFieldsSchema.currentAsOf.optional(),
+    reviewDueAt: webinarFieldsSchema.reviewDueAt.optional(),
     disclaimer: webinarFieldsSchema.disclaimer.optional(),
     syntheticDisclosure: webinarFieldsSchema.syntheticDisclosure.optional(),
     supersededByWebinarId: webinarFieldsSchema.supersededByWebinarId.optional(),
@@ -117,6 +119,7 @@ export const creatorWebinarUpdateSchema = z
     durationMinutes: webinarFieldsSchema.durationMinutes.optional(),
     language: webinarFieldsSchema.language.optional(),
     currentAsOf: webinarFieldsSchema.currentAsOf.optional(),
+    reviewDueAt: webinarFieldsSchema.reviewDueAt.optional(),
     disclaimer: webinarFieldsSchema.disclaimer.optional(),
     syntheticDisclosure: webinarFieldsSchema.syntheticDisclosure.optional(),
     supersededByWebinarId: webinarFieldsSchema.supersededByWebinarId.optional(),
@@ -236,6 +239,7 @@ function webinarProjection(webinar: WebinarWithRelations) {
     durationMinutes: webinar.durationMinutes,
     language: webinar.language,
     currentAsOf: webinar.currentAsOf?.toISOString().slice(0, 10) ?? null,
+    reviewDueAt: webinar.reviewDueAt?.toISOString().slice(0, 10) ?? null,
     disclaimer: webinar.disclaimer,
     syntheticDisclosure: webinar.syntheticDisclosure,
     mediaStatus: webinar.mediaStatus,
@@ -428,8 +432,28 @@ function auditSnapshot(webinar: WebinarWithRelations) {
     contentStatus: webinar.contentStatus,
     visibility: webinar.visibility,
     contentVersion: webinar.contentVersion,
+    freshnessStatus: webinar.freshnessStatus,
+    currentAsOf: webinar.currentAsOf?.toISOString().slice(0, 10) ?? null,
+    reviewDueAt: webinar.reviewDueAt?.toISOString().slice(0, 10) ?? null,
     updatedAt: webinar.updatedAt.toISOString(),
   };
+}
+
+function defaultReviewDueAt(currentAsOf: Date) {
+  const due = new Date(currentAsOf);
+  due.setUTCDate(due.getUTCDate() + 180);
+  return due;
+}
+
+function assertFreshnessDates(currentAsOf: Date | null | undefined, reviewDueAt: Date | null | undefined) {
+  if (reviewDueAt && (!currentAsOf || reviewDueAt <= currentAsOf)) {
+    throw new AppError(
+      400,
+      'Дата повторной проверки должна быть позже даты актуальности',
+      undefined,
+      'webinar_review_due_invalid',
+    );
+  }
 }
 
 async function createWebinarAudit(
@@ -492,11 +516,15 @@ export async function createCreatorWebinar(db: PrismaClient, context: TenantCont
     await assertSlugAvailable(tx, context.organizationId, data.slug);
     await validateReferences(tx, context, data);
     const { practiceAreas = [], ...webinarData } = data;
+    const reviewDueAt =
+      data.reviewDueAt === undefined && data.currentAsOf ? defaultReviewDueAt(data.currentAsOf) : data.reviewDueAt;
+    assertFreshnessDates(data.currentAsOf, reviewDueAt);
     const created = await tx.webinar.create({
       data: {
         organizationId: context.organizationId,
         authorProfileId: authorProfile.id,
         ...webinarData,
+        ...(reviewDueAt !== undefined ? { reviewDueAt } : {}),
       },
       include: webinarInclude,
     });
@@ -507,15 +535,69 @@ export async function createCreatorWebinar(db: PrismaClient, context: TenantCont
   });
 }
 
+function canonicalCommandPayload(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(canonicalCommandPayload);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, canonicalCommandPayload(item)]),
+    );
+  }
+  return value;
+}
+
+function commandPayloadFingerprint(value: unknown) {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(canonicalCommandPayload(value)))
+    .digest('hex');
+}
+
 export async function updateCreatorWebinar(
   db: PrismaClient,
   context: TenantContext,
   webinarIdInput: unknown,
   input: unknown,
+  idempotencyKeyInput?: unknown,
 ) {
   const webinarId = webinarIdSchema.parse(webinarIdInput);
   const data = creatorWebinarUpdateSchema.parse(input);
+  const updateIdempotencyKey =
+    idempotencyKeyInput === undefined ? undefined : idempotencyKeySchema.parse(idempotencyKeyInput);
+  const updateFingerprint = commandPayloadFingerprint(data);
   return db.$transaction(async tx => {
+    if (updateIdempotencyKey) {
+      await lockCommandScope(tx, context.organizationId, 'metadata_update', updateIdempotencyKey);
+      const prior = await tx.webinarCommand.findUnique({
+        where: {
+          organizationId_action_idempotencyKey: {
+            organizationId: context.organizationId,
+            action: 'metadata_update',
+            idempotencyKey: updateIdempotencyKey,
+          },
+        },
+      });
+      if (prior && prior.webinarId !== webinarId) {
+        throw new AppError(409, 'Idempotency key уже использован', undefined, 'idempotency_key_reused');
+      }
+      if (prior) {
+        const storedFingerprint = prior.resultStatus.startsWith('v1:') ? prior.resultStatus.split(':')[1] : null;
+        if (storedFingerprint !== updateFingerprint) {
+          throw new AppError(
+            409,
+            'Idempotency key использован с другими данными',
+            undefined,
+            'idempotency_payload_mismatch',
+          );
+        }
+        const role = await requireCurrentCreatorMembership(tx as unknown as PrismaClient, context);
+        const replay = await findScopedWebinar(tx as unknown as PrismaClient, context, role, webinarId);
+        return webinarProjection(replay);
+      }
+    }
     await lockWebinar(tx, context, webinarId);
     const role = await requireCurrentCreatorMembership(tx as unknown as PrismaClient, context);
     const before = await findScopedWebinar(tx as unknown as PrismaClient, context, role, webinarId);
@@ -523,6 +605,14 @@ export async function updateCreatorWebinar(
       throw new AppError(409, 'Вебинар нельзя редактировать в текущем статусе', undefined, 'webinar_not_editable');
     }
     await validateReferences(tx, context, data, webinarId);
+    const effectiveCurrentAsOf = data.currentAsOf === undefined ? before.currentAsOf : data.currentAsOf;
+    const effectiveReviewDueAt =
+      data.reviewDueAt !== undefined
+        ? data.reviewDueAt
+        : data.currentAsOf
+          ? defaultReviewDueAt(data.currentAsOf)
+          : before.reviewDueAt;
+    assertFreshnessDates(effectiveCurrentAsOf, effectiveReviewDueAt);
     if (data.slug && data.slug !== before.slug) {
       await lockSlugScope(tx, context.organizationId);
       const existingAlias = await assertSlugAvailable(tx, context.organizationId, data.slug, webinarId);
@@ -540,6 +630,9 @@ export async function updateCreatorWebinar(
       where: { id: webinarId },
       data: {
         ...webinarData,
+        ...(data.currentAsOf !== undefined || data.reviewDueAt !== undefined
+          ? { reviewDueAt: effectiveReviewDueAt }
+          : {}),
         ...(data.supersededByWebinarId ? { freshnessStatus: 'SUPERSEDED' } : {}),
         contentVersion: { increment: 1 },
       },
@@ -547,7 +640,34 @@ export async function updateCreatorWebinar(
     if (practiceAreas) {
       await replacePracticeAreas(tx, context.organizationId, webinarId, practiceAreas);
     }
+    if (
+      (data.freshnessStatus ?? before.freshnessStatus) === 'CURRENT' &&
+      effectiveReviewDueAt &&
+      effectiveReviewDueAt > new Date()
+    ) {
+      const completedAt = new Date();
+      await tx.authorReviewTask.updateMany({
+        where: { webinarId, organizationId: context.organizationId, status: 'PENDING' },
+        data: { status: 'COMPLETED', completedAt },
+      });
+      await tx.authorServiceNotification.updateMany({
+        where: { webinarId, organizationId: context.organizationId, status: { in: ['PENDING', 'FAILED'] } },
+        data: { status: 'CANCELLED', claimToken: null, claimedAt: null },
+      });
+    }
     const webinar = await tx.webinar.findUniqueOrThrow({ where: { id: webinarId }, include: webinarInclude });
+    if (updateIdempotencyKey) {
+      await tx.webinarCommand.create({
+        data: {
+          organizationId: context.organizationId,
+          webinarId,
+          requestedById: context.userId,
+          action: 'metadata_update',
+          idempotencyKey: updateIdempotencyKey,
+          resultStatus: `v1:${updateFingerprint}:${webinar.contentVersion}`,
+        },
+      });
+    }
     await createWebinarAudit(tx, context, 'webinar.updated', webinar.id, auditSnapshot(before), auditSnapshot(webinar));
     return webinarProjection(webinar);
   });
@@ -664,7 +784,7 @@ export async function duplicateCreatorWebinar(
     await lockWebinar(tx, context, webinarId);
     const source = await findScopedWebinar(tx as unknown as PrismaClient, context, role, webinarId);
     const sourceScenario = await tx.chatScenario.findFirst({
-      where: { organizationId: context.organizationId, webinarId },
+      where: { organizationId: context.organizationId, webinarId, runtimeEnabled: true },
       orderBy: { version: 'desc' },
       include: { messages: { orderBy: { orderIndex: 'asc' } } },
     });
@@ -930,6 +1050,238 @@ export async function runCreatorWebinarCommand(
     await createWebinarAudit(tx, context, `webinar.${action}`, webinar.id, before, auditSnapshot(webinar));
     return { webinar: webinarProjection(webinar), replayed: false };
   });
+}
+
+export type CreatorWizardStepStatus = 'not_started' | 'in_progress' | 'complete' | 'blocked';
+
+export function projectCreatorWizardSteps(input: {
+  authorEligible: boolean;
+  basicMissingCount: number;
+  legalMissingCount: number;
+  mediaStatus: 'NOT_UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED';
+  transcriptStatus: 'NOT_AVAILABLE' | 'DRAFT' | 'REVIEWED' | 'PUBLISHED';
+  scenarioStatus: 'NOT_AVAILABLE' | 'DRAFT' | 'PUBLISHED';
+  syntheticDisclosureMissing: boolean;
+  sourceAndMaterialCount: number;
+  sessionCount: number;
+  contentStatus: WebinarContentStatus;
+  blockerCount: number;
+}) {
+  const populatedBasicFieldCount = 6 - input.basicMissingCount;
+  const populatedLegalFieldCount = 7 - input.legalMissingCount;
+  const transcriptStepStatus: CreatorWizardStepStatus =
+    input.mediaStatus !== 'READY'
+      ? 'blocked'
+      : input.transcriptStatus === 'PUBLISHED'
+        ? 'complete'
+        : input.transcriptStatus === 'NOT_AVAILABLE'
+          ? 'not_started'
+          : 'in_progress';
+  return [
+    {
+      number: 1,
+      code: 'BASIC_INFORMATION',
+      label: 'Основная информация',
+      status: !input.authorEligible
+        ? 'blocked'
+        : input.basicMissingCount === 0
+          ? 'complete'
+          : populatedBasicFieldCount > 0
+            ? 'in_progress'
+            : 'not_started',
+    },
+    {
+      number: 2,
+      code: 'LEGAL_AND_FRESHNESS',
+      label: 'Юридическая классификация и актуальность',
+      status: input.legalMissingCount === 0 ? 'complete' : populatedLegalFieldCount > 0 ? 'in_progress' : 'not_started',
+    },
+    {
+      number: 3,
+      code: 'VIDEO',
+      label: 'Видео',
+      status:
+        input.mediaStatus === 'READY'
+          ? 'complete'
+          : input.mediaStatus === 'PROCESSING'
+            ? 'in_progress'
+            : input.mediaStatus === 'FAILED'
+              ? 'blocked'
+              : 'not_started',
+    },
+    {
+      number: 4,
+      code: 'TRANSCRIPT_AND_CHAPTERS',
+      label: 'Транскрипт и главы',
+      status: transcriptStepStatus,
+    },
+    {
+      number: 5,
+      code: 'SOURCES_AND_MATERIALS',
+      label: 'Источники и материалы',
+      status: input.sourceAndMaterialCount > 0 ? 'complete' : 'not_started',
+    },
+    {
+      number: 6,
+      code: 'PREPARED_CHAT',
+      label: 'Подготовленный чат',
+      status:
+        input.scenarioStatus === 'PUBLISHED' && !input.syntheticDisclosureMissing
+          ? 'complete'
+          : input.scenarioStatus === 'NOT_AVAILABLE'
+            ? 'not_started'
+            : 'in_progress',
+    },
+    {
+      number: 7,
+      code: 'SCHEDULE_AND_ACCESS',
+      label: 'Расписание и доступ',
+      status: input.sessionCount > 0 ? 'complete' : 'not_started',
+    },
+    {
+      number: 8,
+      code: 'REVIEW_AND_PUBLISH',
+      label: 'Проверка и публикация',
+      status:
+        input.blockerCount === 0 ? 'complete' : input.contentStatus === 'IN_MODERATION' ? 'in_progress' : 'blocked',
+    },
+  ] satisfies ReadonlyArray<{
+    number: number;
+    code: string;
+    label: string;
+    status: CreatorWizardStepStatus;
+  }>;
+}
+
+export async function getCreatorWebinarReadiness(db: PrismaClient, context: TenantContext, webinarIdInput: unknown) {
+  const webinarId = webinarIdSchema.parse(webinarIdInput);
+  const role = await requireCurrentCreatorMembership(db, context);
+  const webinar = await findScopedWebinar(db, context, role, webinarId);
+  const [transcript, readyMaterialCount, authorEligible] = await Promise.all([
+    db.transcript.findFirst({
+      where: { webinarId, organizationId: context.organizationId },
+      orderBy: { version: 'desc' },
+      select: { id: true, version: true, revision: true, status: true, _count: { select: { chapters: true } } },
+    }),
+    db.webinarMaterial.count({
+      where: { webinarId, organizationId: context.organizationId, status: 'READY', deletedAt: null },
+    }),
+    webinar.authorProfileId
+      ? db.authorProfile.findFirst({
+          where: {
+            id: webinar.authorProfileId,
+            organizationId: context.organizationId,
+            userId: context.userId,
+            verificationStatus: 'VERIFIED',
+            organization: { status: 'ACTIVE' },
+            user: { kind: 'HUMAN', status: 'ACTIVE' },
+          },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+  ]);
+  const metadataMissing = missingPublicationMetadata(webinar);
+  const basicFields = new Set([
+    'author',
+    'description',
+    'outcomeDescription',
+    'targetAudience',
+    'format',
+    'durationMinutes',
+  ]);
+  const legalFields = new Set([
+    'jurisdictionId',
+    'audienceLevel',
+    'currentAsOf',
+    'disclaimer',
+    'freshnessStatus',
+    'primaryPracticeArea',
+    'specialization',
+  ]);
+  const basicMissing = metadataMissing.filter(field => basicFields.has(field));
+  const legalMissing = metadataMissing.filter(field => legalFields.has(field));
+  const syntheticDisclosureMissing = metadataMissing.includes('syntheticDisclosure');
+  const blockers: Array<{ code: string; step: number; message: string }> = [];
+  const metadataLabels: Record<string, string> = {
+    author: 'автор',
+    description: 'описание',
+    outcomeDescription: 'практический результат',
+    jurisdictionId: 'юрисдикция',
+    audienceLevel: 'уровень аудитории',
+    targetAudience: 'целевая аудитория',
+    format: 'формат',
+    durationMinutes: 'длительность',
+    currentAsOf: 'дата актуальности',
+    disclaimer: 'правовой дисклеймер',
+    freshnessStatus: 'статус актуальности',
+    primaryPracticeArea: 'основная отрасль права',
+    specialization: 'специализация',
+    syntheticDisclosure: 'маркировка подготовленных сообщений',
+  };
+  for (const field of metadataMissing) {
+    blockers.push({
+      code: `metadata.${field}`,
+      step: field === 'syntheticDisclosure' ? 6 : legalFields.has(field) ? 2 : 1,
+      message: `Заполните обязательное поле: ${metadataLabels[field] ?? 'сведения о вебинаре'}.`,
+    });
+  }
+  if (!authorEligible) {
+    blockers.push({
+      code: 'author.verification_required',
+      step: 1,
+      message: 'Публикация доступна проверенному активному автору этого вебинара.',
+    });
+  }
+  if (webinar.mediaStatus !== 'READY') {
+    blockers.push({ code: 'media.ready_required', step: 3, message: 'Активируйте обработанную версию видео.' });
+  }
+  if (webinar.transcriptStatus !== 'PUBLISHED') {
+    blockers.push({ code: 'transcript.published_required', step: 4, message: 'Проверьте и опубликуйте расшифровку.' });
+  }
+  if (webinar.scenarioStatus !== 'PUBLISHED') {
+    blockers.push({ code: 'scenario.published_required', step: 6, message: 'Проверьте и опубликуйте сценарий чата.' });
+  }
+  if (!['READY', 'PUBLISHED'].includes(webinar.contentStatus)) {
+    blockers.push({
+      code: 'moderation.ready_required',
+      step: 8,
+      message:
+        webinar.contentStatus === 'IN_MODERATION'
+          ? 'Дождитесь решения модератора.'
+          : 'Отправьте заполненный вебинар на модерацию.',
+    });
+  }
+
+  const steps = projectCreatorWizardSteps({
+    authorEligible: Boolean(authorEligible),
+    basicMissingCount: basicMissing.length,
+    legalMissingCount: legalMissing.length,
+    mediaStatus: webinar.mediaStatus,
+    transcriptStatus: webinar.transcriptStatus,
+    scenarioStatus: webinar.scenarioStatus,
+    syntheticDisclosureMissing,
+    sourceAndMaterialCount: webinar.sources.length + readyMaterialCount,
+    sessionCount: webinar.sessions.length,
+    contentStatus: webinar.contentStatus,
+    blockerCount: blockers.length,
+  });
+  return {
+    webinarId,
+    contentVersion: webinar.contentVersion,
+    publicationReady: blockers.length === 0,
+    steps,
+    blockers,
+    counts: {
+      sources: webinar.sources.length,
+      readyMaterials: readyMaterialCount,
+      chapters: transcript?._count.chapters ?? 0,
+      sessions: webinar.sessions.length,
+    },
+    transcript: transcript
+      ? { id: transcript.id, version: transcript.version, revision: transcript.revision, status: transcript.status }
+      : null,
+    generatedAt: new Date(),
+  };
 }
 
 export async function getCreatorReferenceData(db: PrismaClient, context: TenantContext) {

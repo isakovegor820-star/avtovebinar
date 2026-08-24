@@ -44,6 +44,7 @@ body {
 body[data-platform-mode='loading'] #platformLoading,
 body[data-platform-mode='login'] #platformLogin,
 body[data-platform-mode='select'] #platformSelect,
+body[data-platform-mode='onboarding'] #platformOnboarding,
 body[data-platform-mode='mfa'] #platformMfa,
 body[data-platform-mode='ready'] #platformReady,
 body[data-platform-mode='error'] #platformError {
@@ -128,6 +129,18 @@ button:focus-visible {
   border-radius: 0.75rem;
   background: #f5f6f7;
   padding: 1.25rem;
+}
+
+.platform-onboarding-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+@media (min-width: 48rem) {
+  .platform-onboarding-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
 }
 
 .platform-secret {

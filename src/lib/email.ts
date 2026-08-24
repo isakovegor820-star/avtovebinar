@@ -334,6 +334,39 @@ export async function sendWebinarAccessInvitationEmail(input: WebinarAccessInvit
   });
 }
 
+export async function sendAuthorReviewDueEmail(input: {
+  to: string;
+  displayName?: string | null;
+  webinarTitle: string;
+  reviewUrl: string;
+  dueAt: Date;
+}) {
+  const dueAt = new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'long',
+    timeZone: 'Europe/Moscow',
+  }).format(input.dueAt);
+  const subject = `Проверьте актуальность вебинара «${input.webinarTitle}»`;
+  const greeting = input.displayName?.trim() ? `${input.displayName.trim()},` : 'Здравствуйте,';
+  const text = [
+    greeting,
+    '',
+    `Наступил срок проверки актуальности вебинара «${input.webinarTitle}» (${dueAt}).`,
+    'Вебинар продолжает быть опубликованным: текст и доступ для участников автоматически не изменялись.',
+    `Открыть проверку: ${input.reviewUrl}`,
+    '',
+    'Это сервисное уведомление для автора.',
+    'АСПБ — Антикризисная служба помощи бизнесу',
+  ].join('\n');
+
+  return deliverEmail({
+    to: input.to,
+    subject,
+    text,
+    webinarUrl: input.reviewUrl,
+    includeUnsubscribe: false,
+  });
+}
+
 export async function verifyEmailConnectivity() {
   if (shouldLogEmail()) {
     return { ok: true, mode: 'log' as const };

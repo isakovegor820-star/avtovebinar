@@ -20,6 +20,7 @@ import {
 import { getCache, setCache } from '../../lib/responseCache.js';
 import { getWebinarVideoConfig } from '../../lib/webinarVideo.js';
 import { publicScenarioMessageType, scenarioAuthorLabel } from '../../lib/chatPolicy.js';
+import { getParticipantWebinarMaterialContent } from '../../lib/tenancy/webinarMaterials.js';
 
 export const webinarRouter = Router();
 
@@ -292,6 +293,11 @@ async function sendRoomContent(req: Request, res: Response) {
             orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
             select: { id: true, type: true, title: true, url: true, accessedAt: true, note: true },
           },
+          materials: {
+            where: { status: 'READY', deletedAt: null },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { id: true, displayName: true, mimeType: true, sizeBytes: true },
+          },
         },
       });
       if (!webinar) return null;
@@ -361,14 +367,25 @@ async function sendRoomContent(req: Request, res: Response) {
           description: chapter.description,
         }))
       : [],
-    materials: webinar.sources.map(source => ({
-      id: source.id,
-      type: source.type,
-      title: source.title,
-      url: source.url,
-      accessedAt: source.accessedAt?.toISOString().slice(0, 10) ?? null,
-      note: source.note,
-    })),
+    materials: [
+      ...webinar.sources.map(source => ({
+        kind: 'LINK' as const,
+        id: source.id,
+        type: source.type,
+        title: source.title,
+        url: source.url,
+        accessedAt: source.accessedAt?.toISOString().slice(0, 10) ?? null,
+        note: source.note,
+      })),
+      ...webinar.materials.map(material => ({
+        kind: 'FILE' as const,
+        id: material.id,
+        title: material.displayName,
+        mimeType: material.mimeType,
+        sizeBytes: material.sizeBytes.toString(),
+        downloadPath: `/api/webinar/materials/${encodeURIComponent(material.id)}`,
+      })),
+    ],
   });
 }
 
@@ -383,6 +400,34 @@ webinarRouter.get(
   '/webinar/content/session/current',
   asyncHandler(async (req, res) => {
     await sendRoomContent(req, res);
+  }),
+);
+
+webinarRouter.get(
+  '/webinar/materials/:materialId',
+  asyncHandler(async (req, res) => {
+    const materialId = typeof req.params.materialId === 'string' ? req.params.materialId.trim() : '';
+    if (!materialId || materialId.length > 191) {
+      throw new AppError(404, 'Материал не найден', undefined, 'material_not_found');
+    }
+    const registration = await findRegistrationForRequest(req);
+    if (!registration) throw new AppError(404, 'Материал не найден', undefined, 'material_not_found');
+    const access = buildAccessPayload(registration, new Date());
+    if (!access.canViewRoom || !access.canEnterRoom) {
+      throw new AppError(404, 'Материал не найден', undefined, 'material_not_found');
+    }
+    const result = await getParticipantWebinarMaterialContent(
+      prisma,
+      access.webinarSession.organizationId,
+      access.webinarSession.webinarId,
+      materialId,
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `attachment; filename="material-${result.material.id}"`);
+    res.type(result.object.contentType);
+    if (result.object.contentLength !== undefined) res.setHeader('Content-Length', String(result.object.contentLength));
+    result.object.body.pipe(res);
   }),
 );
 
@@ -444,6 +489,7 @@ async function sendChat(req: Request, res: Response) {
             organizationId: access.webinarSession.organizationId,
             webinarId: access.webinarSession.webinarId,
             status: 'PUBLISHED',
+            runtimeEnabled: true,
           },
           orderBy: { version: 'desc' },
           include: {

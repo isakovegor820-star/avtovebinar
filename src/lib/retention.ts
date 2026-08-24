@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { logger } from './logger.js';
 import { anonymizeLead, pendingVerificationLeadEligibility } from './anonymizeLead.js';
+import { env } from './env.js';
 
 export const RETENTION_POLICY_VERSION = '2026-08-20.3';
 export const RETENTION_DAYS = {
@@ -20,6 +21,7 @@ export const RETENTION_DAYS = {
 } as const;
 
 const RETENTION_MIN_INTERVAL_MS = 60 * 60 * 1000;
+const EXPANDED_RETENTION_POLICY_APPROVED: boolean = false;
 let lastRunAt = 0;
 const ACTIVE_PARTNER_STATUSES = ['new', 'qualified', 'contract_pending', 'contract_sent', 'contract_signed', 'paid'];
 
@@ -131,6 +133,12 @@ async function anonymizeInactiveLeads(candidateIds: string[], cutoff: Date, now:
 }
 
 export async function applyRetentionPolicy(now = new Date(), onProgress?: () => void): Promise<RetentionResult> {
+  // No approved release currently exists for the expanded tenant categories.
+  // The environment flag is necessary but deliberately insufficient: enabling
+  // execution requires a reviewed code change that replaces this hard guard.
+  if (env.RETENTION_APPLY_ENABLED !== 'on' || !EXPANDED_RETENTION_POLICY_APPROVED) {
+    throw new Error('retention_apply_blocked_pending_policy_approval');
+  }
   const cutoffs = retentionCutoffs(now);
   // Фиксируем кандидатов до очистки attribution/Telegram: эти updateMany обновляют
   // updated_at и иначе искусственно отложили бы анонимизацию ещё на три года.
@@ -281,5 +289,10 @@ export async function runRetentionSweepThrottled(now = new Date(), onProgress?: 
     return null;
   }
   lastRunAt = ts;
-  return applyRetentionPolicy(now, onProgress);
+  onProgress?.();
+  logger.info(
+    { policyVersion: RETENTION_POLICY_VERSION, mode: 'dry-run', destructiveApplyAllowed: false },
+    '[ASPБ retention] destructive sweep blocked pending policy approval',
+  );
+  return { mode: 'dry-run' as const, policyVersion: RETENTION_POLICY_VERSION, destructiveApplyAllowed: false };
 }

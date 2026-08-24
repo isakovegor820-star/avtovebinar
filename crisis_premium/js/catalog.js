@@ -131,6 +131,23 @@ function appendFact(list, term, value, className = '') {
   list.append(row);
 }
 
+function appendAuthorFact(list, author) {
+  const row = document.createElement('div');
+  const term = document.createElement('dt');
+  const value = document.createElement('dd');
+  term.textContent = 'Автор';
+  if (author?.slug && author?.publicName) {
+    const link = document.createElement('a');
+    link.href = `catalog-author.html?${new URLSearchParams({ author: author.slug }).toString()}`;
+    link.textContent = author.publicName;
+    value.append(link);
+  } else {
+    value.textContent = author?.publicName || 'Не указано';
+  }
+  row.append(term, value);
+  list.append(row);
+}
+
 function card(item) {
   const listItem = document.createElement('li');
   const article = document.createElement('article');
@@ -157,7 +174,7 @@ function card(item) {
 
   const facts = document.createElement('dl');
   facts.className = 'catalog-card-facts';
-  appendFact(facts, 'Автор', item.author?.publicName);
+  appendAuthorFact(facts, item.author);
   appendFact(facts, 'Юрисдикция', item.jurisdiction?.name);
   appendFact(facts, 'Формат', labels.format[item.format] || item.format);
   appendFact(facts, 'Актуальность', labels.freshness[item.freshnessStatus] || item.freshnessStatus);

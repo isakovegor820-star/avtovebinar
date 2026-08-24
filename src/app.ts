@@ -260,7 +260,8 @@ const platformLoginEmailLimiter = rateLimit({
 
 function isLocalMediaPartUpload(req: Request) {
   return (
-    req.method === 'PUT' && /^\/api\/v1\/creator\/uploads\/[^/]+\/parts\/\d+\/content(?:\?|$)/.test(req.originalUrl)
+    req.method === 'PUT' &&
+    /^\/api\/v1\/creator\/(?:uploads|material-uploads)\/[^/]+\/parts\/\d+\/content(?:\?|$)/.test(req.originalUrl)
   );
 }
 
@@ -270,6 +271,22 @@ const platformMutationLimiter = rateLimit({
   skip: req => env.NODE_ENV === 'test' || isLocalMediaPartUpload(req),
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+const organizationCreateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 3,
+  skip: req => env.NODE_ENV === 'test' || req.method !== 'POST' || req.path !== '/',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: 'Слишком много попыток создать организацию. Повторите позже.',
+      code: 'organization_create_rate_limited',
+      correlationId: getRequestContext()?.correlationId,
+    });
+  },
 });
 
 const mediaUploadPartLimiter = rateLimit({
@@ -374,6 +391,8 @@ app.use('/api/v1/auth/passwordless/request', platformMutationLimiter);
 app.use('/api/v1/auth/passwordless/consume', tokenReadLimiter);
 app.use('/api/v1/auth', platformMutationLimiter);
 app.use('/api/v1/organization', platformMutationLimiter);
+app.use('/api/v1/organizations', organizationCreateLimiter);
+app.use('/api/v1/organizations', platformMutationLimiter);
 app.use('/api/v1/viewer', viewerReadLimiter);
 app.use('/api/v1/viewer', viewerMutationLimiter);
 app.use('/api/v1/crm', crmReadLimiter);
@@ -394,6 +413,7 @@ app.use('/api/registration', tokenReadLimiter);
 app.use('/api/webinar/current', tokenReadLimiter);
 app.use('/api/webinar/timeline', tokenReadLimiter);
 app.use('/api/webinar/chat', tokenReadLimiter);
+app.use('/api/webinar/materials', tokenReadLimiter);
 app.use('/api/recordings', tokenReadLimiter);
 app.use(
   '/api/media',

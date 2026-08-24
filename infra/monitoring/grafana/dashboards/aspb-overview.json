@@ -1,0 +1,18 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    { "id": 1, "title": "API p95", "type": "timeseries", "targets": [{ "expr": "aspb:http_latency:p95_5m", "refId": "A" }] },
+    { "id": 2, "title": "API error ratio", "type": "timeseries", "targets": [{ "expr": "aspb:http_errors:ratio5m", "refId": "A" }] },
+    { "id": 3, "title": "Queue depth", "type": "timeseries", "targets": [{ "expr": "aspb_queue_depth", "legendFormat": "{{queue}}", "refId": "A" }] },
+    { "id": 4, "title": "Media capacity", "type": "timeseries", "targets": [{ "expr": "aspb_media_storage_bytes", "legendFormat": "{{state}}", "refId": "A" }] }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["aspb", "staging-template"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "ASPB operational overview",
+  "uid": "aspb-operational-overview",
+  "version": 1
+}

@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { AppError } from './http.js';
+import { getTenantRolloutDecision } from './tenancy/rolloutPolicy.js';
 
 const slugSchema = z
   .string()
@@ -114,6 +115,22 @@ function baseCatalogConditions() {
     Prisma.sql`u."status" = 'active'::"UserStatus"`,
     Prisma.sql`m."status" = 'active'::"OrganizationMembershipStatus"`,
     Prisma.sql`m."role" IN ('owner'::"OrganizationMembershipRole", 'author'::"OrganizationMembershipRole")`,
+    Prisma.sql`EXISTS (
+      SELECT 1 FROM "tenant_rollout_policies" rollout
+      WHERE rollout."feature" = 'PUBLIC_CATALOG'
+        AND (
+          rollout."mode" = 'ENABLED'
+          OR (
+            rollout."mode" = 'ALLOWLIST'
+            AND EXISTS (
+              SELECT 1 FROM "tenant_rollout_entries" entry
+              WHERE entry."feature" = rollout."feature"
+                AND entry."organization_id" = w."organization_id"
+                AND entry."enabled" = true
+            )
+          )
+        )
+    )`,
   ];
 }
 
@@ -233,6 +250,7 @@ function publicBaseProjection(webinar: CatalogWebinar) {
     durationMinutes: webinar.durationMinutes,
     language: webinar.language,
     currentAsOf: webinar.currentAsOf?.toISOString().slice(0, 10) ?? null,
+    reviewDueAt: webinar.reviewDueAt?.toISOString().slice(0, 10) ?? null,
     author: webinar.authorProfile
       ? { slug: webinar.authorProfile.slug, publicName: webinar.authorProfile.publicName }
       : null,
@@ -389,6 +407,9 @@ export async function getCatalogWebinar(db: PrismaClient, paramsInput: unknown, 
     include: catalogInclude,
   });
   if (!webinar) catalogUnavailable();
+  if (!(await getTenantRolloutDecision(db, 'PUBLIC_CATALOG', webinar.organizationId)).enabled) {
+    catalogUnavailable();
+  }
   const membership = publicAuthorMembershipWhere(webinar);
   if (!membership || !(await db.organizationMembership.findFirst({ where: membership, select: { id: true } }))) {
     catalogUnavailable();

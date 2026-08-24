@@ -19,6 +19,12 @@ import {
 import { prisma } from '../lib/prisma.js';
 import { getRequestContext } from '../lib/requestContext.js';
 import { getPlatformAnalyticsAggregates } from '../lib/tenancy/analytics.js';
+import {
+  TENANT_ROLLOUT_FEATURES,
+  updateTenantRolloutEntry,
+  updateTenantRolloutPolicy,
+} from '../lib/tenancy/rolloutPolicy.js';
+import { createLegalHold, releaseLegalHold } from '../lib/tenancy/retentionPlanning.js';
 import { requireAdmin, requireRole, type AdminRequest } from './admin.js';
 
 export const platformAdminRouter = Router();
@@ -27,6 +33,8 @@ const taxonomyParams = z
   .object({ kind: z.enum(['practice_area', 'jurisdiction']), id: z.string().trim().min(1).max(191) })
   .strict();
 const flagParams = z.object({ key: z.string().regex(/^[a-z][a-z0-9_]{2,63}$/) }).strict();
+const rolloutParams = z.object({ feature: z.enum(TENANT_ROLLOUT_FEATURES) }).strict();
+const rolloutEntryParams = rolloutParams.extend({ organizationId: z.string().trim().min(1).max(191) }).strict();
 
 function actor(req: AdminRequest) {
   if (!req.admin?.id)
@@ -175,5 +183,74 @@ platformAdminRouter.post(
     const { id } = itemParams.parse(req.params);
     const result = await rollbackPlatformChange(prisma, id, req.body, actor(req), correlationId());
     res.json({ ok: true, ...result, correlationId: correlationId() });
+  }),
+);
+
+platformAdminRouter.get(
+  '/api/admin/platform/tenant-rollouts',
+  requireAdmin,
+  requireRole(['owner', 'admin']),
+  asyncHandler<AdminRequest>(async (_req, res) => {
+    const policies = await prisma.tenantRolloutPolicy.findMany({
+      orderBy: { feature: 'asc' },
+      include: {
+        entries: {
+          select: { organizationId: true, enabled: true, revision: true, updatedAt: true },
+          orderBy: { organizationId: 'asc' },
+        },
+      },
+    });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ ok: true, policies, correlationId: correlationId() });
+  }),
+);
+
+platformAdminRouter.patch(
+  '/api/admin/platform/tenant-rollouts/:feature',
+  requireAdmin,
+  requireRole(['owner']),
+  asyncHandler<AdminRequest>(async (req, res) => {
+    const { feature } = rolloutParams.parse(req.params);
+    const policy = await updateTenantRolloutPolicy(prisma, feature, req.body, actor(req), correlationId());
+    res.json({ ok: true, policy, correlationId: correlationId() });
+  }),
+);
+
+platformAdminRouter.put(
+  '/api/admin/platform/tenant-rollouts/:feature/organizations/:organizationId',
+  requireAdmin,
+  requireRole(['owner']),
+  asyncHandler<AdminRequest>(async (req, res) => {
+    const { feature, organizationId } = rolloutEntryParams.parse(req.params);
+    const entry = await updateTenantRolloutEntry(
+      prisma,
+      feature,
+      organizationId,
+      req.body,
+      actor(req),
+      correlationId(),
+    );
+    res.json({ ok: true, entry, correlationId: correlationId() });
+  }),
+);
+
+platformAdminRouter.post(
+  '/api/admin/platform/legal-holds',
+  requireAdmin,
+  requireRole(['owner']),
+  asyncHandler<AdminRequest>(async (req, res) => {
+    const hold = await createLegalHold(prisma, req.body, actor(req), correlationId());
+    res.status(201).json({ ok: true, hold, correlationId: correlationId() });
+  }),
+);
+
+platformAdminRouter.post(
+  '/api/admin/platform/legal-holds/:id/release',
+  requireAdmin,
+  requireRole(['owner']),
+  asyncHandler<AdminRequest>(async (req, res) => {
+    const { id } = itemParams.parse(req.params);
+    const hold = await releaseLegalHold(prisma, id, req.body, actor(req), correlationId());
+    res.json({ ok: true, hold, correlationId: correlationId() });
   }),
 );

@@ -12,6 +12,7 @@ import {
 import { requireTenantRole, type TenantContext } from './context.js';
 import { processAiEnrichmentJob } from './transcriptEnrichment.js';
 import type { ContentEnrichmentAdapter } from '../contentEnrichment.js';
+import { getTenantRolloutDecision } from './rolloutPolicy.js';
 
 const CREATOR_ROLES = ['OWNER', 'AUTHOR'] as const satisfies readonly OrganizationMembershipRole[];
 const MAX_SEGMENTS = 5_000;
@@ -493,6 +494,20 @@ export async function runContentJobOnce(
   if (!claim) return { checked: 0, succeeded: 0, failed: 0 };
   const candidate = claim;
   const job = await db.contentJob.findUniqueOrThrow({ where: { id: candidate.id } });
+  if (!(await getTenantRolloutDecision(db, 'PROVIDER_JOBS', job.organizationId)).enabled) {
+    await db.contentJob.updateMany({
+      where: { id: job.id, status: 'RUNNING', claimToken: job.claimToken },
+      data: {
+        status: 'PENDING',
+        nextAttemptAt: new Date(now.getTime() + 5 * 60 * 1000),
+        lastErrorCode: 'tenant_rollout_disabled',
+        claimedAt: null,
+        claimExpiresAt: null,
+        claimToken: null,
+      },
+    });
+    return { checked: 1, succeeded: 0, failed: 0 };
+  }
   const context = await contextForContentJob(db, job);
   if (!context) {
     let providerDeletedAt: Date | null = null;

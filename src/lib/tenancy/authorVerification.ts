@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { AppError } from '../http.js';
 import type { TenantContext } from './context.js';
 import { requireTenantRole } from './context.js';
+import { getTenantRolloutDecision } from './rolloutPolicy.js';
 
 const AUTHOR_PROFILE_LOCK_NAMESPACE = 7_106_009_017n;
 export const AUTHOR_EVIDENCE_MAX_BYTES = 5 * 1024 * 1024;
@@ -344,6 +345,11 @@ export async function uploadAuthorEvidence(
       where: { organizationId_userId: { organizationId: context.organizationId, userId: context.userId } },
     });
     if (!profile) profileUnavailable();
+    if (
+      !(await getTenantRolloutDecision(tx as unknown as PrismaClient, 'PUBLIC_CATALOG', profile.organizationId)).enabled
+    ) {
+      profileUnavailable();
+    }
     if (!EDITABLE_PROFILE_STATUSES.includes(profile.verificationStatus)) {
       throw new AppError(409, 'Документы нельзя изменить в текущем статусе', undefined, 'author_evidence_not_editable');
     }
@@ -654,8 +660,31 @@ export async function getPublicAuthorProfile(db: PrismaClient, slugInput: unknow
       select: { id: true },
     });
     if (!membership) profileUnavailable();
+    const webinars = await tx.webinar.findMany({
+      where: {
+        organizationId: profile.organizationId,
+        authorProfileId: profile.id,
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        archivedAt: null,
+      },
+      orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
+      take: 50,
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        description: true,
+        freshnessStatus: true,
+        format: true,
+        durationMinutes: true,
+        currentAsOf: true,
+        publishedAt: true,
+      },
+    });
     return {
       slug: profile.slug,
+      reportTargetId: profile.id,
       publicName: profile.publicName,
       bio: profile.bio,
       specializations: profile.specializations,
@@ -664,6 +693,20 @@ export async function getPublicAuthorProfile(db: PrismaClient, slugInput: unknow
       experience: profile.experience,
       verificationStatus: profile.verificationStatus,
       organization: profile.organization,
+      webinars: webinars.map(webinar => ({
+        id: webinar.id,
+        title: webinar.title,
+        description: webinar.description,
+        freshnessStatus: webinar.freshnessStatus,
+        format: webinar.format,
+        durationMinutes: webinar.durationMinutes,
+        currentAsOf: webinar.currentAsOf?.toISOString().slice(0, 10) ?? null,
+        publishedAt: webinar.publishedAt,
+        canonicalPath: `catalog-webinar.html?${new URLSearchParams({
+          organization: profile.organization.slug,
+          webinar: webinar.slug,
+        }).toString()}`,
+      })),
       updatedAt: profile.updatedAt,
     };
   });

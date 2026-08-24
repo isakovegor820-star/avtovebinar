@@ -1,7 +1,9 @@
 # АСПБ Legal Platform — статус реализации
 
-Дата: 23 августа 2026 года
+Дата: 24 августа 2026 года
 Текущий этап: поверх принятого ANA-006 контракта локально реализованы tenant/platform analytics projections, moderation cases/corrections/actions, platform governance, CAT-006 browser acceptance и документированный TEN-002 platform-wide rollout. Production-capable S3 direct multipart contour MED-001 реализован provider-neutral, но реальный provider не выбран и не принят на staging. Локальный runtime оставался в `TELEGRAM_NOTIFY_MODE=log`: реальные Telegram/email-отправки, provider credentials, staging acceptance и production rollout не выполнялись.
+
+Дополнение 24.08.2026: локально закрыты self-service Organization/team, безопасная публичная страница автора, server-derived восьмишаговый мастер, ручные главы, приватные материалы, freshness review task/outbox, shadow-only legacy chat backfill, DB-backed tenant rollout, retention dry-run/legal hold, monitoring templates, Yandex staging IaC и guarded acceptance tools. Полная актуальная трассировка находится в `docs/ASPB-TZ-TRACEABILITY-MATRIX.md`. Новые targeted unit/contract/static checks прошли, но PostgreSQL integration, Playwright, migration deploy/repeat и внешний staging не запускались; поэтому это дополнение не повышает ни один статус до `verified_staging`. Provider/master flags остаются выключенными по production defaults, retention apply заблокирован.
 
 ## Требования
 

@@ -307,6 +307,83 @@ paths:
           description: User session is missing, expired or MFA-challenged
         '404':
           description: Unknown, wrong-email, expired, revoked and already-used invitations are intentionally indistinguishable
+  /api/v1/organizations:
+    post:
+      summary: Create the first organization for an authenticated verified User
+      description: The server rejects Users who already have an active membership. Organization, active HUMAN OWNER membership, session tenant selection, audit and idempotency record commit atomically. This never creates a platform-admin identity.
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationCreateRequest' }
+      responses:
+        '201': { description: Organization and OWNER membership created atomically }
+        '200': { description: Same successful result replayed for the same idempotency key and payload }
+        '400': { description: Strict payload, slug or idempotency contract failed }
+        '401': { description: User session is missing, expired or MFA-challenged }
+        '409': { description: Safe create conflict or idempotency key payload conflict }
+        '429': { description: Production organization-creation rate limit exceeded }
+  /api/v1/organizations/{organizationId}:
+    parameters:
+      - name: organizationId
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 191 }
+    get:
+      summary: Read safe settings for the server-selected organization
+      security:
+        - userSessionCookie: []
+      responses:
+        '200': { description: Owner-visible organization settings projection; private no-store response }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown and cross-tenant organizations are intentionally indistinguishable }
+    patch:
+      summary: Update safe organization settings with optimistic revision and idempotency
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationUpdateRequest' }
+      responses:
+        '200': { description: Settings updated and audited, or the exact idempotent response replayed }
+        '400': { description: Strict payload, timezone or idempotency contract failed }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown and cross-tenant organizations are intentionally indistinguishable }
+        '409': { description: Revision conflict or idempotency key payload conflict }
+  /api/v1/organizations/{organizationId}/members:
+    get:
+      summary: List members in the server-selected organization with cursor pagination
+      security:
+        - userSessionCookie: []
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 191 }
+        - name: cursor
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 191 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 25 }
+      responses:
+        '200': { description: Minimal access-management member projection and an optional nextCursor }
+        '403': { description: Active membership is not OWNER }
+        '404': { description: Unknown and cross-tenant organizations are intentionally indistinguishable }
   /api/v1/organization/invitations:
     post:
       summary: Create an invitation in the server-selected organization
@@ -329,6 +406,13 @@ paths:
       summary: List invitations in the server-selected organization
       security:
         - userSessionCookie: []
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 191 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 25 }
       responses:
         '200':
           description: Tenant-scoped invitation list; expired pending rows are marked expired
@@ -793,7 +877,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CRMBulkActionResponse' }
-        '400': { description: Strict filter/action validation failed, selection exceeds 1000, or lost reason is missing }
+        '400':
+          { description: Strict filter/action validation failed, selection exceeds 1000, or lost reason is missing }
         '403': { description: Active membership is not OWNER or CRM_MANAGER }
         '404': { description: Unknown and cross-tenant preview/action targets are intentionally indistinguishable }
         '409': { description: Preview expired, is already running, or idempotency key conflicts }
@@ -958,7 +1043,11 @@ paths:
         - { in: query, name: sessionId, schema: { type: string, minLength: 1, maxLength: 191 } }
         - { in: query, name: stageId, schema: { type: string, minLength: 1, maxLength: 191 } }
         - { in: query, name: managerId, schema: { type: string, minLength: 1, maxLength: 191 } }
-        - { in: query, name: activity, schema: { type: string, enum: [registered, entered, viewed, question, cta, email, telegram, note] } }
+        - {
+            in: query,
+            name: activity,
+            schema: { type: string, enum: [registered, entered, viewed, question, cta, email, telegram, note] },
+          }
         - { in: query, name: source, schema: { type: string, minLength: 1, maxLength: 120 } }
         - { in: query, name: hasQuestion, schema: { type: string, enum: ['true', 'false'] } }
         - { in: query, name: hasCta, schema: { type: string, enum: ['true', 'false'] } }
@@ -1251,6 +1340,14 @@ paths:
       responses:
         '200':
           description: Public profile without email, internal notes or verification documents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, author]
+                properties:
+                  ok: { type: boolean, enum: [true] }
+                  author: { $ref: '#/components/schemas/PublicAuthorProfile' }
         '404':
           description: Profile is absent, unverified, suspended or inactive
   /api/v1/creator/reference-data:
@@ -1321,6 +1418,16 @@ paths:
         - userSessionCookie: []
       parameters:
         - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/CsrfToken'
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Recommended for autosave and safe network retries. A replay returns the current tenant-scoped Webinar without a second mutation or audit event.
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 191
+            pattern: '^[A-Za-z0-9._:-]+$'
       requestBody:
         required: true
         content:
@@ -1335,7 +1442,7 @@ paths:
         '404':
           description: Unknown, unauthorized and cross-tenant Webinars are intentionally indistinguishable
         '409':
-          description: Webinar state is not editable or slug conflicts with a current URL or alias
+          description: Webinar state is not editable, slug conflicts, or an idempotency key is reused with another target/payload
   /api/v1/creator/webinars/{webinarId}/duplicate:
     post:
       summary: Duplicate currently representable legal Webinar data into a new isolated draft
@@ -1949,7 +2056,10 @@ paths:
                 sizeBytes: { type: string, pattern: '^\\d{1,13}$' }
                 checksumSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
       responses:
-        '200': { description: Idempotent replay returned the existing asset/upload and fresh operations only for missing parts }
+        '200':
+          {
+            description: Idempotent replay returned the existing asset/upload and fresh operations only for missing parts,
+          }
         '201':
           {
             description: Asset and temporary provider or same-origin part operations created; origin key is not returned,
@@ -1992,7 +2102,8 @@ paths:
       responses:
         '200': { description: Upload completed and one deduplicated media job exists }
         '404': { description: Upload is unavailable in the active tenant }
-        '409': { description: Client, server checkpoint and provider ListParts state disagree; completion was not attempted }
+        '409':
+          { description: Client, server checkpoint and provider ListParts state disagree; completion was not attempted }
         '422': { description: Trusted signature, MIME, integrity or duration validation failed }
   /api/v1/creator/uploads/{uploadId}/parts:
     post:
@@ -2019,7 +2130,11 @@ paths:
       responses:
         '200': { description: Part checkpoint recorded and safe progress returned }
         '404': { description: Upload is unavailable in the active tenant }
-        '409': { description: Upload is expired/completed/cancelled, or the same part number conflicts with the provider/server checkpoint }
+        '409':
+          {
+            description: Upload is expired/completed/cancelled,
+            or the same part number conflicts with the provider/server checkpoint,
+          }
   /api/v1/creator/uploads/{uploadId}/parts/{partNumber}/content:
     put:
       summary: Stream one self-hosted multipart part into private persistent storage
@@ -2082,7 +2197,12 @@ paths:
       responses:
         '200': { description: Completed checkpoints and newly signed missing-part operations returned }
         '404': { description: Upload is unavailable in the active tenant }
-        '409': { description: Upload is expired/completed/cancelled, belongs to another provider, or provider/server checkpoints disagree }
+        '409':
+          {
+            description: Upload is expired/completed/cancelled,
+            belongs to another provider,
+            or provider/server checkpoints disagree,
+          }
   /api/v1/creator/media/{assetId}/status:
     get:
       summary: Read safe tenant-scoped media processing status
@@ -2403,7 +2523,13 @@ paths:
           in: query
           schema: { $ref: '#/components/schemas/QuestionModerationStatus' }
       responses:
-        '200': { description: Questions with durable status, priority, revision, repeat count and latest human-reviewable suggestion }
+        '200':
+          {
+            description: Questions with durable status,
+            priority,
+            revision,
+            repeat count and latest human-reviewable suggestion,
+          }
         '403': { description: Active membership is not OWNER or MODERATOR }
         '404': { description: Unknown and cross-tenant sessions are intentionally indistinguishable }
   /api/v1/moderation/sessions/{sessionId}/questions/{questionId}:
@@ -2464,7 +2590,13 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/QuestionSuggestionReviewCommand' }
       responses:
-        '200': { description: Human decision, question state, CRM timeline, participant history and audit committed atomically }
+        '200':
+          {
+            description: Human decision,
+            question state,
+            CRM timeline,
+            participant history and audit committed atomically,
+          }
         '400': { description: Strict payload or reason validation failed; tenant fields are rejected }
         '403': { description: Active membership is not OWNER or MODERATOR }
         '404': { description: Unknown and cross-tenant suggestions are intentionally indistinguishable }
@@ -2569,7 +2701,11 @@ paths:
         - userSessionCookie: []
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [NEW, HANDED_TO_HUMAN, RESOLVED] } }
-        - { name: topic, in: query, schema: { type: string, enum: [bankruptcy, tax, debt, partnership, webinar_access, other] } }
+        - {
+            name: topic,
+            in: query,
+            schema: { type: string, enum: [bankruptcy, tax, debt, partnership, webinar_access, other] },
+          }
         - { name: urgency, in: query, schema: { type: string, enum: [low, normal, high] } }
       responses:
         '200': { description: Private no-store request list with original/current classification and provenance }
@@ -2629,7 +2765,13 @@ paths:
               required: [name, text]
               properties:
                 name: { type: string, minLength: 1, maxLength: 120 }
-                text: { type: string, minLength: 3, maxLength: 2800, description: 'Only {{participant_name}}, {{webinar_title}}, {{session_datetime}} and {{room_link}} are accepted.' }
+                text:
+                  {
+                    type: string,
+                    minLength: 3,
+                    maxLength: 2800,
+                    description: 'Only {{participant_name}}, {{webinar_title}}, {{session_datetime}} and {{room_link}} are accepted.',
+                  }
       responses:
         '201': { description: Tenant-scoped draft created and audited }
         '400': { description: Strict payload or template variable validation failed }
@@ -2735,7 +2877,13 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: object, additionalProperties: false, required: [confirm], properties: { confirm: { type: boolean, enum: [true] } } }
+            schema:
+              {
+                type: object,
+                additionalProperties: false,
+                required: [confirm],
+                properties: { confirm: { type: boolean, enum: [true] } },
+              }
       responses:
         '200': { description: Paused job/request and idempotent replay indicator }
         '403': { description: Active membership is not OWNER }
@@ -2752,7 +2900,13 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: object, additionalProperties: false, required: [confirm], properties: { confirm: { type: boolean, enum: [true] } } }
+            schema:
+              {
+                type: object,
+                additionalProperties: false,
+                required: [confirm],
+                properties: { confirm: { type: boolean, enum: [true] } },
+              }
       responses:
         '200': { description: Pending job and idempotent replay indicator }
         '403': { description: Active membership is not OWNER }
@@ -2788,15 +2942,39 @@ paths:
       parameters:
         - { in: query, name: webinarId, schema: { type: string, maxLength: 191 } }
         - { in: query, name: sessionId, schema: { type: string, maxLength: 191 } }
-        - { in: query, name: source, schema: { type: string, enum: [web, room, replay, registration, crm, email, telegram, worker, system, admin] } }
+        - {
+            in: query,
+            name: source,
+            schema:
+              { type: string, enum: [web, room, replay, registration, crm, email, telegram, worker, system, admin] },
+          }
         - { in: query, name: from, schema: { type: string, format: date } }
         - { in: query, name: to, schema: { type: string, format: date } }
-        - { in: query, name: organizationId, schema: { type: string }, description: Untrusted compatibility hint; never selects the tenant. }
+        - {
+            in: query,
+            name: organizationId,
+            schema: { type: string },
+            description: Untrusted compatibility hint; never selects the tenant.,
+          }
       responses:
-        '200': { description: Textual formulas, UTC period, data-quality policy and registrations, entry, live/replay, watch, completion, question and CTA metrics }
+        '200':
+          {
+            description: Textual formulas,
+            UTC period,
+            data-quality policy and registrations,
+            entry,
+            live/replay,
+            watch,
+            completion,
+            question and CTA metrics,
+          }
         '401': { description: User session is missing or invalid }
         '403': { description: Membership role cannot read tenant analytics }
-        '404': { description: Unknown and cross-tenant Webinar or Session are intentionally indistinguishable, or rollout is disabled }
+        '404':
+          {
+            description: Unknown and cross-tenant Webinar or Session are intentionally indistinguishable,
+            or rollout is disabled,
+          }
   /api/v1/analytics/retention:
     get:
       summary: Read privacy-thresholded video retention intervals
@@ -2859,7 +3037,10 @@ paths:
       summary: List correction requests in the server-selected tenant
       security: [{ userSessionCookie: [] }]
       responses:
-        '200': { description: OWNER sees tenant requests; AUTHOR sees only authored Webinar requests and latest revision status }
+        '200':
+          {
+            description: OWNER sees tenant requests; AUTHOR sees only authored Webinar requests and latest revision status,
+          }
         '403': { description: Active membership is not OWNER or AUTHOR }
   /api/v1/moderation/corrections/{requestId}/submissions:
     post:
@@ -2899,7 +3080,8 @@ paths:
       responses:
         '200': { description: State, immutable event and audit committed atomically }
         '404': { description: Unknown report }
-        '409': { description: Invalid transition or optimistic revision conflict; rejected mutation creates no event/audit }
+        '409':
+          { description: Invalid transition or optimistic revision conflict; rejected mutation creates no event/audit }
   /api/admin/moderation/reports/{id}/actions:
     post:
       summary: Unpublish/restore a Webinar or suspend/restore an author
@@ -3013,6 +3195,290 @@ paths:
       responses:
         '200': { description: Current revision restored from immutable before-state and rollback audited }
         '409': { description: Change already rolled back or target has since changed }
+  /api/v1/creator/review-tasks:
+    get:
+      summary: List pending freshness review tasks for the active creator tenant
+      description: OWNER sees the tenant queue; AUTHOR sees only tasks bound to their server-resolved profile. Published content stays public while review is due.
+      security: [{ userSessionCookie: [] }]
+      responses:
+        '200': { description: Private no-store task projection without recipient or provider data }
+        '403': { description: Active membership is not OWNER or AUTHOR }
+        '404': { description: Creator dashboard rollout is unavailable }
+  /api/v1/creator/webinars/{webinarId}/readiness:
+    get:
+      summary: Read server-computed readiness for the eight-step creator wizard
+      description: Blockers and completed steps are derived from persisted tenant data; the client cannot mark a step complete.
+      security: [{ userSessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/WebinarId' }]
+      responses:
+        '200':
+          description: Private no-store ordered steps and safe blocker codes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatorWizardReadinessResponse' }
+        '404': { description: Unknown, cross-tenant, unauthorized or rollout-disabled Webinar }
+  /api/v1/creator/webinars/{webinarId}/chapters:
+    get:
+      summary: List manual and generated draft chapters
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - { name: transcriptId, in: query, schema: { type: string, maxLength: 191 } }
+      responses:
+        '200': { description: Tenant-scoped ordered chapters with revisions and origin }
+        '404': { description: Unknown, cross-tenant or unauthorized Webinar/transcript }
+    post:
+      summary: Create a manual chapter in an editable transcript draft
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ChapterCreateRequest' } } }
+      responses:
+        '201': { description: Manual chapter created and audited }
+        '404': { description: Unknown, cross-tenant or unauthorized Webinar/transcript }
+        '409': { description: Stale revision or immutable transcript }
+  /api/v1/creator/webinars/{webinarId}/chapters/reorder:
+    patch:
+      summary: Reorder draft chapters with per-row optimistic revisions
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ChapterReorderRequest' } } }
+      responses:
+        '200': { description: Ordered chapters updated atomically and audited }
+        '404': { description: Unknown, cross-tenant or unauthorized target }
+        '409': { description: Stale revision or immutable transcript }
+  /api/v1/creator/webinars/{webinarId}/chapters/{chapterId}:
+    patch:
+      summary: Update one draft chapter using optimistic revision
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/ChapterId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ChapterUpdateRequest' } } }
+      responses:
+        '200': { description: Chapter updated and audited }
+        '404': { description: Unknown, cross-tenant or unauthorized chapter }
+        '409': { description: Stale revision or immutable transcript }
+    delete:
+      summary: Delete one draft chapter using optimistic revision
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/ChapterId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RevisionRequest' } } }
+      responses:
+        '200': { description: Chapter deleted and audited }
+        '404': { description: Unknown, cross-tenant or unauthorized chapter }
+        '409': { description: Stale revision or immutable transcript }
+  /api/v1/creator/webinars/{webinarId}/materials:
+    get:
+      summary: List private materials for one creator Webinar
+      security: [{ userSessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/WebinarId' }]
+      responses:
+        '200': { description: Private no-store metadata without storage authority }
+        '404': { description: Unknown, cross-tenant or unauthorized Webinar }
+  /api/v1/creator/webinars/{webinarId}/materials/uploads:
+    post:
+      summary: Start an idempotent multipart upload for an allowlisted private material
+      description: Binds tenant, Webinar, name, MIME, exact size and optional SHA-256. Maximum size is 100 MiB; storage authority is short-lived.
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/WebinarId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MaterialUploadCreateRequest' } } }
+      responses:
+        '201': { description: Upload intent and short-lived part operations created }
+        '200': { description: Exact idempotent upload intent replayed }
+        '404': { description: Unknown, cross-tenant or unauthorized Webinar }
+        '409': { description: Idempotency conflict or Webinar is not editable }
+        '413': { description: Material exceeds 100 MiB }
+        '415': { description: Extension/MIME combination is not allowlisted }
+  /api/v1/creator/material-uploads/{uploadId}/parts:
+    post:
+      summary: Record one provider-completed multipart part
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MultipartPartRequest' } } }
+      responses:
+        '200': { description: Part receipt recorded idempotently }
+        '404': { description: Unknown, expired, foreign or unauthorized upload }
+        '409': { description: Part receipt conflicts with the existing binding }
+  /api/v1/creator/material-uploads/{uploadId}/complete:
+    post:
+      summary: Finalize after exact provider size, MIME and checksum verification
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [parts]
+              properties:
+                parts:
+                  {
+                    type: array,
+                    minItems: 1,
+                    maxItems: 1000,
+                    items: { $ref: '#/components/schemas/MultipartPartRequest' },
+                  }
+      responses:
+        '200': { description: Material ready or exact completion replayed idempotently }
+        '404': { description: Unknown, expired, foreign or unauthorized upload }
+        '409': { description: Parts, binding or integrity verification failed }
+  /api/v1/creator/material-uploads/{uploadId}/resume:
+    post:
+      summary: Reconcile parts and issue short-lived operations for missing parts
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/UploadId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        content: { application/json: { schema: { type: object, additionalProperties: false } } }
+      responses:
+        '200': { description: Private no-store resume projection }
+        '404': { description: Unknown, expired, foreign or unauthorized upload }
+  /api/v1/creator/materials/{materialId}:
+    delete:
+      summary: Soft-delete one material using optimistic revision
+      description: Physical provider deletion remains governed by the separately approved retention policy.
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/MaterialId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RevisionRequest' } } }
+      responses:
+        '200': { description: Material unavailable and audited }
+        '404': { description: Unknown, cross-tenant or unauthorized material }
+        '409': { description: Material revision is stale }
+  /api/webinar/materials/{materialId}:
+    get:
+      summary: Download a ready private material through an authorized participant session
+      security: [{ participantSessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/MaterialId' }]
+      responses:
+        '200': { description: Private no-store attachment stream with nosniff }
+        '404': { description: Missing, expired, revoked, foreign and unauthorized cases are indistinguishable }
+  /api/v1/organizations/{organizationId}/retention/plan:
+    post:
+      summary: Produce a non-mutating tenant retention inventory plan
+      description: OWNER/AUDITOR only. Cutoffs stay empty until policy terms are approved; active legal holds are reflected by category.
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmDryRun]
+              properties: { confirmDryRun: { type: boolean, enum: [true] } }
+      responses:
+        '200': { description: Deterministic dry-run plan; no rows changed }
+        '403': { description: Active membership is not OWNER or AUDITOR }
+        '404': { description: Unknown or cross-tenant organization }
+  /api/v1/organizations/{organizationId}/retention/apply:
+    post:
+      summary: Reject destructive retention apply while terms remain unapproved
+      security: [{ userSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '404': { description: Unknown or cross-tenant organization }
+        '409': { description: Always returns retention_apply_blocked in this release }
+  /api/admin/platform/tenant-rollouts:
+    get:
+      summary: List DB-backed tenant rollout policies and tenant entries
+      security: [{ adminSessionCookie: [] }]
+      responses:
+        '200': { description: Private no-store policy revisions and entries }
+        '403': { description: Platform owner/admin role and verified MFA required }
+  /api/admin/platform/tenant-rollouts/{feature}:
+    patch:
+      summary: Change a rollout mode with confirmation, reason and optimistic revision
+      security: [{ adminSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RolloutFeature'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RolloutPolicyUpdateRequest' } } }
+      responses:
+        '200': { description: Policy changed and audited }
+        '403': { description: Platform owner role and verified MFA required }
+        '409': { description: Policy revision is stale }
+  /api/admin/platform/tenant-rollouts/{feature}/organizations/{organizationId}:
+    put:
+      summary: Set one tenant entry for an allowlist policy
+      security: [{ adminSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/RolloutFeature'
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RolloutEntryUpdateRequest' } } }
+      responses:
+        '200': { description: Tenant entry changed and audited }
+        '403': { description: Platform owner role and verified MFA required }
+        '409': { description: Entry revision is stale }
+  /api/admin/platform/legal-holds:
+    post:
+      summary: Create a category-scoped legal hold
+      security: [{ adminSessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LegalHoldCreateRequest' } } }
+      responses:
+        '201': { description: Legal hold created and audited }
+        '403': { description: Platform owner role and verified MFA required }
+  /api/admin/platform/legal-holds/{legalHoldId}/release:
+    post:
+      summary: Release a legal hold using optimistic revision
+      security: [{ adminSessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/LegalHoldId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LegalHoldReleaseRequest' } } }
+      responses:
+        '200': { description: Legal hold released and audited }
+        '403': { description: Platform owner role and verified MFA required }
+        '404': { description: Legal hold is absent }
+        '409': { description: Stale revision or already released }
 components:
   parameters:
     AssetId:
@@ -3109,6 +3575,52 @@ components:
         minLength: 8
         maxLength: 191
         pattern: '^[A-Za-z0-9._:-]+$'
+    CsrfToken:
+      name: x-csrf-token
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 4096 }
+    OrganizationId:
+      name: organizationId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    ChapterId:
+      name: chapterId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    MaterialId:
+      name: materialId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    UploadId:
+      name: uploadId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    LegalHoldId:
+      name: legalHoldId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 191 }
+    RolloutFeature:
+      name: feature
+      in: path
+      required: true
+      schema:
+        type: string
+        enum:
+          [
+            PLATFORM_ACCOUNTS_ONBOARDING,
+            CREATOR_DASHBOARD,
+            PUBLIC_CATALOG,
+            TENANT_CRM,
+            TENANT_TELEGRAM,
+            PROVIDER_JOBS,
+            ANALYTICS_MODERATION,
+          ]
     CRMContactId:
       name: contactId
       in: path
@@ -3150,6 +3662,126 @@ components:
       required: true
       schema: { type: string, minLength: 1, maxLength: 191 }
   schemas:
+    RevisionRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision]
+      properties: { expectedRevision: { type: integer, minimum: 1 } }
+    ChapterCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [transcriptId, expectedTranscriptRevision, startMs, title]
+      properties:
+        transcriptId: { type: string, minLength: 1, maxLength: 191 }
+        expectedTranscriptRevision: { type: integer, minimum: 1 }
+        startMs: { type: integer, minimum: 0, maximum: 86400000 }
+        title: { type: string, minLength: 2, maxLength: 240 }
+        description: { type: string, minLength: 1, maxLength: 2000, nullable: true }
+        orderIndex: { type: integer, minimum: 0, maximum: 10000 }
+    ChapterUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision]
+      minProperties: 2
+      properties:
+        expectedRevision: { type: integer, minimum: 1 }
+        startMs: { type: integer, minimum: 0, maximum: 86400000 }
+        title: { type: string, minLength: 2, maxLength: 240 }
+        description: { type: string, minLength: 1, maxLength: 2000, nullable: true }
+        orderIndex: { type: integer, minimum: 0, maximum: 10000 }
+    ChapterReorderRequest:
+      type: object
+      additionalProperties: false
+      required: [transcriptId, items]
+      properties:
+        transcriptId: { type: string, minLength: 1, maxLength: 191 }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, expectedRevision, orderIndex]
+            properties:
+              id: { type: string, minLength: 1, maxLength: 191 }
+              expectedRevision: { type: integer, minimum: 1 }
+              orderIndex: { type: integer, minimum: 0, maximum: 10000 }
+    MaterialUploadCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName, fileName, mimeType, sizeBytes]
+      properties:
+        displayName: { type: string, minLength: 2, maxLength: 240 }
+        fileName: { type: string, minLength: 5, maxLength: 240 }
+        mimeType: { type: string, minLength: 3, maxLength: 160 }
+        sizeBytes:
+          oneOf:
+            - { type: integer, minimum: 1, maximum: 104857600 }
+            - { type: string, pattern: '^\d{1,12}$' }
+        checksumSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+    MultipartPartRequest:
+      type: object
+      additionalProperties: false
+      required: [partNumber, etag]
+      properties:
+        partNumber: { type: integer, minimum: 1, maximum: 1000 }
+        etag: { type: string, minLength: 1, maxLength: 256 }
+    RolloutPolicyUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [mode, expectedRevision, reason, confirm]
+      properties:
+        mode: { type: string, enum: [DISABLED, ALLOWLIST, ENABLED] }
+        expectedRevision: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 10, maxLength: 1000 }
+        confirm: { type: boolean, enum: [true] }
+    RolloutEntryUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [enabled, expectedRevision, reason, confirm]
+      properties:
+        enabled: { type: boolean }
+        expectedRevision: { type: integer, minimum: 0 }
+        reason: { type: string, minLength: 10, maxLength: 1000 }
+        confirm: { type: boolean, enum: [true] }
+    RetentionCategory:
+      type: string
+      enum:
+        [
+          AUTHOR_PROFILE_EVIDENCE,
+          WEBINAR_ACCESS_GRANTS,
+          VIEWER_ACCOUNT_DATA,
+          TENANT_CRM_DATA,
+          MODERATION_CHAT_QUESTION_HISTORY,
+          TENANT_TELEGRAM_DATA,
+        ]
+    LegalHoldCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [organizationId, categories, reason, startsAt, confirm]
+      properties:
+        organizationId: { type: string, minLength: 1, maxLength: 191 }
+        categories:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            oneOf:
+              - { type: string, enum: ['*'] }
+              - { $ref: '#/components/schemas/RetentionCategory' }
+        reason: { type: string, minLength: 20, maxLength: 2000 }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time, nullable: true }
+        confirm: { type: boolean, enum: [true] }
+    LegalHoldReleaseRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, reason, confirm]
+      properties:
+        expectedRevision: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 20, maxLength: 2000 }
+        confirm: { type: boolean, enum: [true] }
     AnalyticsEventV1:
       type: object
       additionalProperties: false
@@ -3202,7 +3834,12 @@ components:
           type: string
           format: date-time
           description: Optional diagnostic time within 24 hours of server time; never authoritative.
-        organizationId: { type: string, maxLength: 191, description: Optional untrusted consistency hint; never selects tenant scope. }
+        organizationId:
+          {
+            type: string,
+            maxLength: 191,
+            description: Optional untrusted consistency hint; never selects tenant scope.,
+          }
         webinarId: { type: string, maxLength: 191, description: Optional untrusted consistency hint. }
         webinarSessionId: { type: string, maxLength: 191, description: Optional untrusted consistency hint. }
         registrationId: { type: string, maxLength: 191, description: Optional untrusted consistency hint. }
@@ -3276,7 +3913,8 @@ components:
         targetId: { type: string, minLength: 1, maxLength: 191 }
         category: { type: string, enum: [CONTENT, AUTHOR, RIGHTS] }
         description: { type: string, minLength: 10, maxLength: 2000 }
-        reporterContact: { type: string, format: email, maxLength: 254, description: Optional; persisted only as a one-way HMAC hash. }
+        reporterContact:
+          { type: string, format: email, maxLength: 254, description: Optional; persisted only as a one-way HMAC hash. }
     ModerationCaseStatus:
       type: string
       enum: [NEW, IN_REVIEW, ACTION_REQUIRED, RESOLVED, REJECTED]
@@ -3568,7 +4206,8 @@ components:
     CRMScore:
       type: object
       additionalProperties: false
-      required: [value, ruleSetVersion, hotThreshold, automaticHot, manualOverride, effectiveHot, manualReason, computedAt]
+      required:
+        [value, ruleSetVersion, hotThreshold, automaticHot, manualOverride, effectiveHot, manualReason, computedAt]
       properties:
         value: { type: integer, minimum: 0 }
         ruleSetVersion: { type: integer, minimum: 1, nullable: true }
@@ -3720,7 +4359,21 @@ components:
         updatedAt: { type: string, format: date-time }
     CRMReferenceData:
       type: object
-      required: [ok, pipelines, managers, maskedPersonalData, canEditContacts, canEditTasks, canEditTags, canSendDeliveries, canRunBulkActions, canExport, canManageScoring, canManageStages]
+      required:
+        [
+          ok,
+          pipelines,
+          managers,
+          maskedPersonalData,
+          canEditContacts,
+          canEditTasks,
+          canEditTags,
+          canSendDeliveries,
+          canRunBulkActions,
+          canExport,
+          canManageScoring,
+          canManageStages,
+        ]
       properties:
         ok: { type: boolean, enum: [true] }
         pipelines:
@@ -3750,7 +4403,8 @@ components:
         canEditTags: { type: boolean }
         canSendDeliveries: { type: boolean, description: True only for OWNER and CRM_MANAGER memberships. }
         canRunBulkActions: { type: boolean }
-        canExport: { type: boolean, description: True only when the active membership has explicit crm.export permission. }
+        canExport:
+          { type: boolean, description: True only when the active membership has explicit crm.export permission. }
         canManageScoring: { type: boolean }
         canManageStages: { type: boolean }
         correlationId: { type: string, nullable: true }
@@ -3832,7 +4486,23 @@ components:
     CRMDelivery:
       type: object
       additionalProperties: false
-      required: [id, channel, purpose, status, attempts, registrationId, webinarId, webinarSessionId, lastErrorCode, nextAttemptAt, sentAt, completedAt, createdAt, canRetry]
+      required:
+        [
+          id,
+          channel,
+          purpose,
+          status,
+          attempts,
+          registrationId,
+          webinarId,
+          webinarSessionId,
+          lastErrorCode,
+          nextAttemptAt,
+          sentAt,
+          completedAt,
+          createdAt,
+          canRetry,
+        ]
       properties:
         id: { type: string }
         channel: { type: string, enum: [EMAIL, TELEGRAM] }
@@ -3842,7 +4512,8 @@ components:
         registrationId: { type: string }
         webinarId: { type: string }
         webinarSessionId: { type: string }
-        lastErrorCode: { type: string, nullable: true, description: Safe machine-readable code without provider details. }
+        lastErrorCode:
+          { type: string, nullable: true, description: Safe machine-readable code without provider details. }
         nextAttemptAt: { type: string, format: date-time, nullable: true }
         sentAt: { type: string, format: date-time, nullable: true }
         completedAt: { type: string, format: date-time, nullable: true }
@@ -3886,7 +4557,23 @@ components:
     CRMTask:
       type: object
       additionalProperties: false
-      required: [id, contactId, title, description, priority, status, dueAt, reminderAt, completedAt, cancelledAt, timezone, assignee, createdAt, updatedAt]
+      required:
+        [
+          id,
+          contactId,
+          title,
+          description,
+          priority,
+          status,
+          dueAt,
+          reminderAt,
+          completedAt,
+          cancelledAt,
+          timezone,
+          assignee,
+          createdAt,
+          updatedAt,
+        ]
       properties:
         id: { type: string }
         contactId: { type: string }
@@ -4029,7 +4716,16 @@ components:
         id: { type: string }
         type:
           type: string
-          enum: [REGULATION, STATUTE_PROVISION, COURT_DECISION, OFFICIAL_GUIDANCE, OFFICIAL_SOURCE, TEMPLATE_OR_CHECKLIST, OTHER]
+          enum:
+            [
+              REGULATION,
+              STATUTE_PROVISION,
+              COURT_DECISION,
+              OFFICIAL_GUIDANCE,
+              OFFICIAL_SOURCE,
+              TEMPLATE_OR_CHECKLIST,
+              OTHER,
+            ]
         title: { type: string }
         url: { type: string, format: uri, nullable: true }
         accessedAt: { type: string, format: date, nullable: true }
@@ -4113,6 +4809,39 @@ components:
           type: string
           minLength: 1
           maxLength: 191
+    OrganizationSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        defaultTimezone:
+          type: string
+          minLength: 3
+          maxLength: 64
+          description: Valid IANA timezone name
+        locale:
+          type: string
+          enum: [ru-RU]
+    OrganizationCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 160 }
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 63
+          description: Normalized by the server; reserved and empty normalized forms are rejected without disclosing other tenants.
+        settings: { $ref: '#/components/schemas/OrganizationSettings' }
+    OrganizationUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 2
+      required: [expectedRevision]
+      properties:
+        expectedRevision: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 2, maxLength: 160 }
+        settings: { $ref: '#/components/schemas/OrganizationSettings' }
     MembershipRoleRequest:
       type: object
       additionalProperties: false
@@ -4179,6 +4908,50 @@ components:
           nullable: true
           minLength: 1
           maxLength: 5000
+    PublicAuthorProfile:
+      type: object
+      additionalProperties: false
+      required:
+        [slug, reportTargetId, publicName, specializations, verificationStatus, organization, webinars, updatedAt]
+      properties:
+        slug: { type: string, pattern: '^author-[0-9a-f]{24}$' }
+        reportTargetId:
+          type: string
+          description: Opaque public-report target; it is not an account or contact identifier.
+        publicName: { type: string }
+        bio: { type: string, nullable: true }
+        specializations:
+          type: array
+          items: { type: string }
+        professionalOrganization: { type: string, nullable: true }
+        region: { type: string, nullable: true }
+        experience: { type: string, nullable: true }
+        verificationStatus: { type: string, enum: [VERIFIED] }
+        organization:
+          type: object
+          additionalProperties: false
+          required: [name, slug]
+          properties:
+            name: { type: string }
+            slug: { type: string }
+        webinars:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, title, freshnessStatus, format, canonicalPath]
+            properties:
+              id: { type: string }
+              title: { type: string }
+              description: { type: string, nullable: true }
+              freshnessStatus: { type: string, enum: [CURRENT, REVIEW_DUE, OUTDATED, SUPERSEDED, UNKNOWN] }
+              format: { type: string, enum: [RECORDED, PREMIERE, ON_DEMAND] }
+              durationMinutes: { type: integer, nullable: true }
+              currentAsOf: { type: string, format: date, nullable: true }
+              publishedAt: { type: string, format: date-time, nullable: true }
+              canonicalPath: { type: string }
+        updatedAt: { type: string, format: date-time }
     AuthorVerificationReview:
       type: object
       additionalProperties: false
@@ -4202,6 +4975,76 @@ components:
         - $ref: '#/components/schemas/CreatorWebinarDraft'
         - type: object
           required: [title, slug]
+    CreatorWizardReadinessResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, readiness]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        correlationId: { type: string }
+        readiness:
+          type: object
+          additionalProperties: false
+          required: [webinarId, contentVersion, publicationReady, steps, blockers, counts, transcript, generatedAt]
+          properties:
+            webinarId: { type: string, maxLength: 191 }
+            contentVersion: { type: integer, minimum: 1 }
+            publicationReady: { type: boolean }
+            steps:
+              type: array
+              minItems: 8
+              maxItems: 8
+              items:
+                type: object
+                additionalProperties: false
+                required: [number, code, label, status]
+                properties:
+                  number: { type: integer, minimum: 1, maximum: 8 }
+                  code:
+                    type: string
+                    enum:
+                      [
+                        BASIC_INFORMATION,
+                        LEGAL_AND_FRESHNESS,
+                        VIDEO,
+                        TRANSCRIPT_AND_CHAPTERS,
+                        SOURCES_AND_MATERIALS,
+                        PREPARED_CHAT,
+                        SCHEDULE_AND_ACCESS,
+                        REVIEW_AND_PUBLISH,
+                      ]
+                  label: { type: string }
+                  status: { type: string, enum: [not_started, in_progress, complete, blocked] }
+            blockers:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [code, step, message]
+                properties:
+                  code: { type: string, pattern: '^[a-z][a-z0-9_.-]+$' }
+                  step: { type: integer, minimum: 1, maximum: 8 }
+                  message: { type: string }
+            counts:
+              type: object
+              additionalProperties: false
+              required: [sources, readyMaterials, chapters, sessions]
+              properties:
+                sources: { type: integer, minimum: 0 }
+                readyMaterials: { type: integer, minimum: 0 }
+                chapters: { type: integer, minimum: 0 }
+                sessions: { type: integer, minimum: 0 }
+            transcript:
+              nullable: true
+              type: object
+              additionalProperties: false
+              required: [id, version, revision, status]
+              properties:
+                id: { type: string, maxLength: 191 }
+                version: { type: integer, minimum: 1 }
+                revision: { type: integer, minimum: 1 }
+                status: { type: string, enum: [NOT_AVAILABLE, DRAFT, REVIEWED, PUBLISHED] }
+            generatedAt: { type: string, format: date-time }
     CreatorWebinarDuplicate:
       type: object
       additionalProperties: false
@@ -4283,6 +5126,10 @@ components:
           minLength: 2
           maxLength: 20
         currentAsOf:
+          type: string
+          format: date
+          nullable: true
+        reviewDueAt:
           type: string
           format: date
           nullable: true

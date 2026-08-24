@@ -27,6 +27,7 @@ import {
   resumeTenantTelegramBroadcast,
 } from '../lib/tenancy/telegramBroadcast.js';
 import { requireAuthenticatedUserSession } from '../lib/tenancy/userAuth.js';
+import { requireTenantRollout } from '../lib/tenancy/rolloutPolicy.js';
 
 export const tenantTelegramRouter = Router();
 
@@ -44,11 +45,13 @@ function requireTenantTelegramBots() {
 
 async function contextFromRequest(req: Parameters<typeof requireAuthenticatedUserSession>[1]) {
   const session = await requireAuthenticatedUserSession(prisma, req);
-  return resolveTenantContext(prisma, {
+  const context = await resolveTenantContext(prisma, {
     userId: session.userId,
     activeOrganizationId: session.activeOrganizationId,
     correlationId: getRequestContext()?.correlationId,
   });
+  await requireTenantRollout(prisma, 'TENANT_TELEGRAM', context.organizationId);
+  return context;
 }
 
 tenantTelegramRouter.get(

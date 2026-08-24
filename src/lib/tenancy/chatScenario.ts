@@ -136,10 +136,18 @@ function scenarioProjection(scenario: ScenarioWithMessages) {
 
 async function latestScenario(db: Pick<PrismaClient, 'chatScenario'>, context: TenantContext, webinarId: string) {
   return db.chatScenario.findFirst({
-    where: { organizationId: context.organizationId, webinarId },
+    where: { organizationId: context.organizationId, webinarId, runtimeEnabled: true },
     orderBy: { version: 'desc' },
     include: scenarioInclude,
   });
+}
+
+async function nextScenarioVersion(db: Pick<PrismaClient, 'chatScenario'>, organizationId: string, webinarId: string) {
+  const maximum = await db.chatScenario.aggregate({
+    where: { organizationId, webinarId },
+    _max: { version: true },
+  });
+  return (maximum._max.version ?? 0) + 1;
 }
 
 async function writeScenarioAudit(
@@ -199,7 +207,7 @@ export async function saveCreatorChatScenario(
       });
       await tx.chatScenario.update({ where: { id: scenarioId }, data: { updatedAt: new Date() } });
     } else {
-      version = (previous?.version ?? 0) + 1;
+      version = await nextScenarioVersion(tx as unknown as PrismaClient, context.organizationId, webinarId);
       const created = await tx.chatScenario.create({
         data: {
           organizationId: context.organizationId,
@@ -293,7 +301,7 @@ export async function publishCreatorChatScenario(
       );
     }
     const draft = await tx.chatScenario.findFirst({
-      where: { organizationId: context.organizationId, webinarId, status: 'DRAFT' },
+      where: { organizationId: context.organizationId, webinarId, status: 'DRAFT', runtimeEnabled: true },
       orderBy: { version: 'desc' },
       include: scenarioInclude,
     });

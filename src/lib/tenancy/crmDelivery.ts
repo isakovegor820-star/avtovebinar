@@ -21,6 +21,7 @@ import { prisma } from '../prisma.js';
 import { TELEGRAM_BINDING_VERSION } from '../roomLinks.js';
 import { isPermanentTelegramError, sendTelegramMessageToChat } from '../telegram.js';
 import { requireTenantRole, type TenantContext } from './context.js';
+import { getTenantRolloutDecision } from './rolloutPolicy.js';
 
 const CRM_DELIVERY_WRITE_ROLES = ['OWNER', 'CRM_MANAGER'] as const satisfies readonly OrganizationMembershipRole[];
 const CRM_DELIVERY_READ_ROLES = [
@@ -651,6 +652,20 @@ export async function runCrmDeliveryJobsOnce(
   const delivery = { ...candidate, status: 'SENDING' as const, attempts: candidate.attempts + 1, claimToken };
   onProgress?.();
 
+  if (!(await getTenantRolloutDecision(prisma, 'TENANT_CRM', delivery.organizationId)).enabled) {
+    await prisma.cRMDelivery.updateMany({
+      where: { id: delivery.id, status: 'SENDING', claimToken },
+      data: {
+        status: 'RETRY_SCHEDULED',
+        attempts: { decrement: 1 },
+        claimToken: null,
+        nextAttemptAt: new Date(now.getTime() + 5 * 60 * 1000),
+        lastErrorCode: 'tenant_rollout_disabled',
+      },
+    });
+    return { checked: 1, sent: 0, failed: 0, blocked: 0, cancelled: 0, deadLettered: 0 };
+  }
+
   try {
     const outcome = await prisma.$transaction(
       async tx => {
@@ -710,6 +725,21 @@ export async function runCrmDeliveryJobsOnce(
         }
 
         const target = eligibility.target;
+        if (
+          !(await getTenantRolloutDecision(tx as unknown as PrismaClient, 'TENANT_CRM', current.organizationId)).enabled
+        ) {
+          await tx.cRMDelivery.updateMany({
+            where: { id: current.id, status: 'SENDING', claimToken },
+            data: {
+              status: 'RETRY_SCHEDULED',
+              attempts: { decrement: 1 },
+              claimToken: null,
+              nextAttemptAt: new Date(now.getTime() + 5 * 60 * 1000),
+              lastErrorCode: 'tenant_rollout_disabled',
+            },
+          });
+          return { kind: 'rollout_paused' as const };
+        }
         const providerResult =
           current.channel === 'EMAIL'
             ? await (senders.sendEmail ?? sendCrmMarketingEmail)({

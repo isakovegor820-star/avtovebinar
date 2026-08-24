@@ -350,3 +350,13 @@ Production deploy дополнительно требует:
 - viewer-registration preflight/postflight с нулевыми violation counts и повторный migrate без pending migrations;
 - согласованный backup/restore PostgreSQL и отдельного media volume;
 - мониторинг healthcheck, logs и email outbox.
+
+## Gap-closure audit update — 24.08.2026
+
+Локально реализованы двенадцать пакетов `GAP-ORG-001`–`GAP-ACCEPTANCE-TOOLS-001`; точные requirement-level статусы и evidence находятся в `docs/ASPB-TZ-TRACEABILITY-MATRIX.md`.
+
+Подтверждено локально: Prisma validate/generate, TypeScript build, ESLint, OpenAPI parse/zero missing refs, targeted organization/chapter/material/freshness/backfill/rollout/retention/monitoring/IaC/staging unit/contract/static tests, provider adapter lifecycle и offline/dry-run staging scripts. Production/provider flags и retention apply не включались; IaC apply, реальные send/provider jobs и cloud mutations не выполнялись.
+
+Не подтверждено: fresh/non-empty/repeated migration deploy, полный `npm test`, Playwright, `npm run media:acceptance`, target load/NFR, 4 GiB network transfer, restore drill, native promtool/Terraform validation и любой same-SHA staging runtime. Причина локальных DB-гейтов — PostgreSQL на configured localhost test URL не отвечает. Поэтому ни одному новому пункту не присвоен `verified_staging`, а NFR остаются `blocked_external` до измерения.
+
+Production gate остаётся закрытым до выполнения следующей последовательности: isolated backup/restore target → preflight/deploy/postflight/repeated deploy → full test/E2E → offline provider contracts → guarded low smoke → guarded target load/media/provider tests после approvals → alert/runbook walkthrough → owner acceptance. Tenant rollout сначала `ALLOWLIST` для synthetic tenant; provider flags остаются disabled до отдельного решения.

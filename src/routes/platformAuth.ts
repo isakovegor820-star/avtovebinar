@@ -7,9 +7,15 @@ import { getRequestContext } from '../lib/requestContext.js';
 import { resolveTenantContext } from '../lib/tenancy/context.js';
 import { removeOrganizationMembership, updateOrganizationMembershipRole } from '../lib/tenancy/membershipService.js';
 import {
+  createOrganization,
+  getOrganization,
+  listOrganizationMembers,
+  updateOrganization,
+} from '../lib/tenancy/organizations.js';
+import {
   acceptOrganizationInvitation,
   createOrganizationInvitation,
-  listOrganizationInvitations,
+  listOrganizationInvitationsPage,
   revokeOrganizationInvitation,
 } from '../lib/tenancy/organizationInvitations.js';
 import {
@@ -33,8 +39,17 @@ import {
   verifyUserMfa,
 } from '../lib/tenancy/userMfa.js';
 import { acceptWebinarAccessInvitation } from '../lib/tenancy/webinarAccess.js';
+import { requireTenantRollout, requireTenantRolloutBootstrap } from '../lib/tenancy/rolloutPolicy.js';
+import { buildTenantRetentionPlan, rejectRetentionApply } from '../lib/tenancy/retentionPlanning.js';
 
 export const platformAuthRouter = Router();
+
+platformAuthRouter.use(
+  asyncHandler(async (_req, _res, next) => {
+    await requireTenantRolloutBootstrap(prisma, 'PLATFORM_ACCOUNTS_ONBOARDING');
+    next();
+  }),
+);
 
 const membershipParamsSchema = z.object({ membershipId: z.string().trim().min(1).max(191) }).strict();
 const invitationParamsSchema = z.object({ invitationId: z.string().trim().min(1).max(191) }).strict();
@@ -44,6 +59,7 @@ const membershipRoleBodySchema = z
   })
   .strict();
 const emptyBodySchema = z.object({}).strict();
+const organizationParamsSchema = z.object({ organizationId: z.string().trim().min(1).max(191) }).strict();
 
 function requirePlatformAccounts() {
   if (!getPlatformFeatureFlags().platformAccounts) {
@@ -57,11 +73,13 @@ function correlationId() {
 
 async function tenantContextFromSession(req: Parameters<typeof requireAuthenticatedUserSession>[1]) {
   const session = await requireAuthenticatedUserSession(prisma, req);
-  return resolveTenantContext(prisma, {
+  const context = await resolveTenantContext(prisma, {
     userId: session.userId,
     activeOrganizationId: session.activeOrganizationId,
     correlationId: correlationId(),
   });
+  await requireTenantRollout(prisma, 'PLATFORM_ACCOUNTS_ONBOARDING', context.organizationId);
+  return context;
 }
 
 platformAuthRouter.post(
@@ -127,6 +145,11 @@ platformAuthRouter.post(
   asyncHandler(async (req, res) => {
     requirePlatformAccounts();
     const session = await requireAuthenticatedUserSession(prisma, req);
+    const requested = z
+      .object({ organizationId: z.string().trim().min(1).max(191) })
+      .strict()
+      .parse(req.body);
+    await requireTenantRollout(prisma, 'PLATFORM_ACCOUNTS_ONBOARDING', requested.organizationId);
     const selected = await selectActiveOrganization(prisma, session, req.body);
     res.json({ ok: true, ...selected, correlationId: correlationId() });
   }),
@@ -153,6 +176,92 @@ platformAuthRouter.post(
     await revokeAllUserSessions(prisma, session);
     clearUserSessionCookie(res);
     res.status(204).send();
+  }),
+);
+
+platformAuthRouter.post(
+  '/organizations',
+  asyncHandler(async (req, res) => {
+    requirePlatformAccounts();
+    await requireTenantRollout(prisma, 'PLATFORM_ACCOUNTS_ONBOARDING');
+    const session = await requireAuthenticatedUserSession(prisma, req);
+    const created = await createOrganization(prisma, session, req.body, req.get('idempotency-key'));
+    res.status(created.idempotentReplay ? 200 : 201).json({ ok: true, ...created, correlationId: correlationId() });
+  }),
+);
+
+platformAuthRouter.get(
+  '/organizations/:organizationId',
+  asyncHandler(async (req, res) => {
+    requirePlatformAccounts();
+    const params = organizationParamsSchema.parse(req.params);
+    const context = await tenantContextFromSession(req);
+    const organization = await getOrganization(prisma, context, params.organizationId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, organization, correlationId: correlationId() });
+  }),
+);
+
+platformAuthRouter.post(
+  '/organizations/:organizationId/retention/plan',
+  asyncHandler(async (req, res) => {
+    requirePlatformAccounts();
+    z.object({ confirmDryRun: z.literal(true) })
+      .strict()
+      .parse(req.body);
+    const params = organizationParamsSchema.parse(req.params);
+    const context = await tenantContextFromSession(req);
+    if (params.organizationId !== context.organizationId) {
+      throw new AppError(404, 'Организация недоступна', undefined, 'organization_not_found');
+    }
+    const plan = await buildTenantRetentionPlan(prisma, context);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ ok: true, plan, correlationId: correlationId() });
+  }),
+);
+
+platformAuthRouter.post(
+  '/organizations/:organizationId/retention/apply',
+  asyncHandler(async (req, _res) => {
+    requirePlatformAccounts();
+    const params = organizationParamsSchema.parse(req.params);
+    const context = await tenantContextFromSession(req);
+    if (params.organizationId !== context.organizationId) {
+      throw new AppError(404, 'Организация недоступна', undefined, 'organization_not_found');
+    }
+    rejectRetentionApply(req.body);
+  }),
+);
+
+platformAuthRouter.patch(
+  '/organizations/:organizationId',
+  asyncHandler(async (req, res) => {
+    requirePlatformAccounts();
+    const params = organizationParamsSchema.parse(req.params);
+    const context = await tenantContextFromSession(req);
+    const updated = await updateOrganization(
+      prisma,
+      context,
+      params.organizationId,
+      req.body,
+      req.get('idempotency-key'),
+    );
+    res.json({ ok: true, ...updated, correlationId: correlationId() });
+  }),
+);
+
+platformAuthRouter.get(
+  '/organizations/:organizationId/members',
+  asyncHandler(async (req, res) => {
+    requirePlatformAccounts();
+    const params = organizationParamsSchema.parse(req.params);
+    const context = await tenantContextFromSession(req);
+    if (params.organizationId !== context.organizationId) {
+      throw new AppError(404, 'Организация недоступна', undefined, 'organization_not_found');
+    }
+    const members = await listOrganizationMembers(prisma, context, req.query);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, ...members, correlationId: correlationId() });
   }),
 );
 
@@ -265,8 +374,13 @@ platformAuthRouter.get(
   asyncHandler(async (req, res) => {
     requirePlatformAccounts();
     const context = await tenantContextFromSession(req);
-    const invitations = await listOrganizationInvitations(prisma, context);
-    res.json({ ok: true, invitations, correlationId: correlationId() });
+    const invitations = await listOrganizationInvitationsPage(prisma, context, req.query);
+    res.json({
+      ok: true,
+      invitations: invitations.items,
+      nextCursor: invitations.nextCursor,
+      correlationId: correlationId(),
+    });
   }),
 );
 

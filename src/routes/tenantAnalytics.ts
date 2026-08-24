@@ -12,6 +12,7 @@ import {
 } from '../lib/tenancy/analytics.js';
 import { resolveTenantContext } from '../lib/tenancy/context.js';
 import { requireAuthenticatedUserSession } from '../lib/tenancy/userAuth.js';
+import { requireTenantRollout } from '../lib/tenancy/rolloutPolicy.js';
 
 export const tenantAnalyticsRouter = Router();
 
@@ -28,11 +29,13 @@ async function requireAnalyticsDashboard() {
 
 async function contextFromRequest(req: Parameters<typeof requireAuthenticatedUserSession>[1]) {
   const session = await requireAuthenticatedUserSession(prisma, req);
-  return resolveTenantContext(prisma, {
+  const context = await resolveTenantContext(prisma, {
     userId: session.userId,
     activeOrganizationId: session.activeOrganizationId,
     correlationId: getRequestContext()?.correlationId,
   });
+  await requireTenantRollout(prisma, 'ANALYTICS_MODERATION', context.organizationId);
+  return context;
 }
 
 function sendPrivate(res: Parameters<Parameters<typeof tenantAnalyticsRouter.get>[1]>[1]) {

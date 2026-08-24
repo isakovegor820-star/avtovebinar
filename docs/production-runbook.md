@@ -1668,3 +1668,43 @@ Scoring versions/factors и tag history также остаются additive; в
 - webhooks в CRM;
 - weekly Telegram reports;
 - A/B-тесты.
+
+## Gap-closure operational gate — 24.08.2026
+
+Эти действия выполняются сначала на новой изолированной PostgreSQL базе/схеме и отдельном media/object prefix. Не используйте production URL, IDs, credentials или реальные ПДн в fixtures/reports.
+
+### Additive migrations `20260824090000`–`20260824110000`
+
+Для каждого timestamp соблюдайте порядок: read-only `prisma/checks/<timestamp>_*_preflight.sql` → backup evidence → `npm run prisma:deploy` → соответствующий postflight → второй `npm run prisma:deploy` → `npx prisma migrate status`. Второй deploy обязан быть no-op. Проверяйте fresh schema и non-empty legacy fixture, затем запускайте текущий application image поверх expand schema. Rollback — выключить master/tenant policies и вернуть предыдущий совместимый image; таблицы/колонки не удалять, down SQL не выполнять.
+
+Пакет `20260824102000_legacy_chat_scenario_backfill` отдельно запускается `npm run chat:backfill` без `--apply`. Сверьте fingerprint, count и dual-read comparison. `--apply` допустим только на синтетическом/утверждённом staging tenant: импорт создаётся `DRAFT`, `runtimeEnabled=false` и не выбирается runtime/read/edit/publish путями. Повторный dry-run/apply не должен создавать вторую строку.
+
+### Tenant rollout recovery
+
+Существующий environment/managed master switch всегда имеет приоритет. DB policy без строки или с `DISABLED` fail-closed; `ALLOWLIST` требует enabled entry для server-resolved Organization. Login bootstrap в allowlist режиме не авторизует tenant data. Перед HTTP read/write, provider enqueue/start, callback и непосредственно перед email/Telegram/provider side effect выполняется повторная tenant-проверка.
+
+При аномалии сначала выключите соответствующий master switch либо переведите policy в `DISABLED` через owner+MFA API с reason/confirm/expectedRevision. Не удаляйте queue rows: worker оставляет их отложенными для безопасного восстановления. Сверьте `audit_logs`, policy revision и alert `AspbRolloutProviderAnomaly` без выгрузки recipient/object identifiers.
+
+### Freshness review
+
+Due worker выполняет CAS `CURRENT → REVIEW_DUE`, создаёт максимум одну author task и одну durable service notification для пары Webinar/due date. Он не снимает Webinar с публикации. При диагностике сравнивайте только aggregate counts/status/revision; не выводите email. Человеческое повторное подтверждение закрывает task/cancels pending notification и записывает audit. AI job не имеет такого перехода.
+
+### Retention and legal hold
+
+`POST /api/v1/organizations/:id/retention/plan` — единственный разрешённый tenant run: `confirmDryRun=true`, output без organization ID, cutoffs `null`, eligible count `0`, legal-hold blocks и deterministic digest. `retention/apply` всегда возвращает `retention_apply_blocked`; `RETENTION_APPLY_ENABLED` обязан оставаться `off`, production validation отвергает `on`, а compile-time approval остаётся `false`. Не устанавливайте срок, не освобождайте legal hold и не вызывайте provider delete без Legal/DPO решения.
+
+### Offline/staging acceptance
+
+Без network guards безопасно выполнить:
+
+```bash
+npm run staging:smoke
+npm run staging:load
+npm run staging:media-4gib
+npm run staging:provider-acceptance
+node scripts/staging/restore.mjs
+```
+
+Network mode требует одновременно `--execute`, `ASPB_ALLOW_STAGING_ACCEPTANCE=on`, точный HTTPS `ASPB_STAGING_ALLOWED_HOST` со staging marker и tool-specific guard. Target load требует `ASPB_ALLOW_STAGING_LOAD=on`; 4 GiB/provider/restore остаются blocked до budget, credentials, DPA/no-training и отдельного разрешения. Reports сохраняют только synthetic marker, aggregate metrics и masked target. External sections без фактического запуска помечаются `blocked_external`, а не passed.
+
+Yandex templates в `infra/yandex/staging/` только review/validate; `terraform apply`/`tofu apply` этим runbook не разрешены. Prometheus/Grafana/Alertmanager templates не содержат receiver/token values. Native `promtool`, `terraform fmt -check` и `terraform validate` выполняются в approved CI image, если локально binaries отсутствуют.

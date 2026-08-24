@@ -245,7 +245,20 @@ function render(webinar) {
   text('detailMetaLine', `${webinar.organization.name} · ${webinar.visibility === 'UNLISTED' ? 'Доступ по ссылке' : 'Публичный вебинар'}`);
   text('detailTitle', webinar.title);
   text('detailDescription', webinar.description, 'Описание готовится.');
-  text('detailAuthor', webinar.author?.publicName);
+  const authorLink = node('detailAuthor');
+  const authorProfileLink = node('detailAuthorLink');
+  const authorPath = webinar.author?.slug
+    ? `catalog-author.html?${new URLSearchParams({ author: webinar.author.slug }).toString()}`
+    : '';
+  authorLink.textContent = webinar.author?.publicName || 'Не указан';
+  authorLink.href = authorPath || '#';
+  authorLink.removeAttribute('aria-disabled');
+  authorProfileLink.hidden = !authorPath;
+  authorProfileLink.href = authorPath || '#';
+  if (!authorPath) {
+    authorLink.setAttribute('aria-disabled', 'true');
+    authorLink.removeAttribute('href');
+  }
   text('detailArea', [webinar.practiceArea?.name, webinar.specialization?.name].filter(Boolean).join(' · '));
   text('detailJurisdiction', webinar.jurisdiction?.name);
   text('detailFreshness', labels.freshness[webinar.freshnessStatus] || webinar.freshnessStatus);

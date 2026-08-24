@@ -72,29 +72,26 @@ export function passwordlessRequestAccepted() {
 
 export async function enqueuePasswordlessLogin(db: AuthDb, input: unknown) {
   const { email } = passwordlessLoginRequestSchema.parse(input);
-  const user = await db.user.findFirst({
-    where: {
-      emailNormalized: email,
-      kind: 'HUMAN',
-      status: { in: ['PENDING', 'ACTIVE'] },
-      memberships: {
-        some: {
-          status: 'ACTIVE',
-          organization: { status: 'ACTIVE' },
-        },
-      },
-    },
-    select: { id: true },
-  });
-
-  // Account existence is intentionally hidden. Unknown, disabled and
-  // organization-less users receive the same HTTP response and no email job.
-  if (!user) return passwordlessRequestAccepted();
-
   await db.$transaction(async tx => {
+    // Self-service onboarding deliberately allows a verified human to exist
+    // before their first membership. The email lock prevents duplicate rows;
+    // the route-level limiter bounds account creation abuse.
     await tx.$executeRaw`
-      SELECT pg_advisory_xact_lock(hashtextextended(${user.id}, 7106004017))
+      SELECT pg_advisory_xact_lock(hashtextextended(${email}, 7106004017))
     `;
+    let user = await tx.user.findUnique({
+      where: { emailNormalized: email },
+      select: { id: true, kind: true, status: true },
+    });
+    if (user && (user.kind !== 'HUMAN' || !['PENDING', 'ACTIVE'].includes(user.status))) {
+      return;
+    }
+    if (!user) {
+      user = await tx.user.create({
+        data: { emailNormalized: email, kind: 'HUMAN', status: 'PENDING' },
+        select: { id: true, kind: true, status: true },
+      });
+    }
     await tx.userAuthEmailJob.updateMany({
       where: {
         userId: user.id,
@@ -203,8 +200,6 @@ export async function consumePasswordlessLogin(
           organization: { select: { name: true, slug: true } },
         },
       });
-      if (memberships.length === 0) invalidPasswordlessToken();
-
       const claimed = await tx.userAuthToken.updateMany({
         where: {
           id: authToken.id,

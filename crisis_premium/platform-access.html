@@ -7,7 +7,7 @@
     <title>Вход в платформу | АСПБ</title>
     <link rel="stylesheet" href="css/styles.css?v=platform-access-1" />
     <link rel="stylesheet" href="fonts.css?v=self-2" />
-    <link rel="stylesheet" href="platform-access.css?v=platform-access-1" />
+    <link rel="stylesheet" href="platform-access.css?v=platform-access-2" />
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
   </head>
   <body class="min-h-screen bg-background text-on-surface" data-platform-mode="loading">
@@ -46,7 +46,7 @@
           Войти по одноразовой ссылке
         </h1>
         <p id="platformLoginDescription" class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">
-          Укажите рабочий email. Если для него есть активный аккаунт, мы отправим ссылку со сроком действия 20 минут.
+          Укажите рабочий email. Мы отправим одноразовую ссылку со сроком действия 20 минут.
         </p>
 
         <form id="platformLoginForm" class="mt-7 grid gap-4" novalidate>
@@ -64,7 +64,7 @@
               aria-describedby="platformEmailHint platformEmailError"
             />
             <p id="platformEmailHint" class="text-label-sm text-on-surface-variant">
-              Используйте адрес, на который вас пригласили в организацию.
+              На этот адрес придут ссылка для входа и приглашения в команду.
             </p>
             <p id="platformEmailError" class="platform-field-error text-label-sm" aria-live="polite"></p>
           </div>
@@ -74,6 +74,47 @@
           </button>
           <p id="platformLoginStatus" class="min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
         </form>
+      </section>
+
+      <section id="platformOnboarding" class="platform-mode platform-panel p-7 md:p-10">
+        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Первый вход</p>
+        <h1 class="text-headline-md font-headline-md text-primary">Создайте организацию или примите приглашение</h1>
+        <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">
+          Организация изолирует вебинары, команду и CRM. Вы станете её владельцем, но не получите права администратора платформы.
+        </p>
+        <div class="platform-onboarding-grid mt-8">
+          <form id="platformCreateOrganizationForm" class="platform-settings-panel grid gap-4" novalidate>
+            <div>
+              <h2 class="text-headline-sm font-headline-sm text-primary">Создать организацию</h2>
+              <p class="mt-2 text-body-md leading-relaxed text-on-surface-variant">Название и короткий адрес можно изменить позже через поддержку.</p>
+            </div>
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="platformOrganizationName">Название</label>
+              <input id="platformOrganizationName" class="platform-input px-4 text-body-md" name="name" autocomplete="organization" minlength="2" maxlength="160" required aria-describedby="platformOrganizationNameError" />
+              <p id="platformOrganizationNameError" class="platform-field-error text-label-sm"></p>
+            </div>
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="platformOrganizationSlug">Короткий адрес</label>
+              <input id="platformOrganizationSlug" class="platform-input px-4 text-body-md" name="slug" inputmode="url" minlength="2" maxlength="63" pattern="[A-Za-z0-9А-Яа-яЁё -]+" aria-describedby="platformOrganizationSlugHint platformOrganizationSlugError" />
+              <p id="platformOrganizationSlugHint" class="text-label-sm text-on-surface-variant">Например: <bdi>legal-team</bdi>. Если оставить пустым, адрес сформируется из названия.</p>
+              <p id="platformOrganizationSlugError" class="platform-field-error text-label-sm"></p>
+            </div>
+            <button id="platformCreateOrganizationButton" class="platform-primary-button" type="submit">Создать организацию</button>
+          </form>
+          <form id="platformAcceptInvitationForm" class="platform-settings-panel grid gap-4" novalidate>
+            <div>
+              <h2 class="text-headline-sm font-headline-sm text-primary">Принять приглашение</h2>
+              <p class="mt-2 text-body-md leading-relaxed text-on-surface-variant">Откройте ссылку из письма или вставьте одноразовый код.</p>
+            </div>
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="platformInvitationToken">Код приглашения</label>
+              <input id="platformInvitationToken" class="platform-input px-4 text-body-md" name="token" autocomplete="off" minlength="43" maxlength="43" pattern="[A-Za-z0-9_-]{43}" required aria-describedby="platformInvitationTokenError" />
+              <p id="platformInvitationTokenError" class="platform-field-error text-label-sm"></p>
+            </div>
+            <button id="platformAcceptInvitationButton" class="platform-secondary-button" type="submit">Принять приглашение</button>
+          </form>
+        </div>
+        <p id="platformOnboardingStatus" class="mt-5 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
       </section>
 
       <section id="platformSelect" class="platform-mode platform-panel p-7 md:p-10">
@@ -224,6 +265,9 @@
           <a id="platformModerationLink" class="platform-primary-button" href="moderation.html" hidden
             >Открыть модерацию чата</a
           >
+          <a id="platformOrganizationSettingsLink" class="platform-primary-button" href="organization.html" hidden
+            >Открыть команду и настройки</a
+          >
           <a class="platform-primary-button" href="index.html">На главную АСПБ</a>
           <button id="platformLogoutButton" class="platform-secondary-button" type="button">Выйти на этом устройстве</button>
         </div>
@@ -240,6 +284,6 @@
       </section>
     </main>
 
-    <script type="module" src="js/platform-access.js?v=platform-access-1"></script>
+    <script type="module" src="js/platform-access.js?v=platform-access-2"></script>
   </body>
 </html>

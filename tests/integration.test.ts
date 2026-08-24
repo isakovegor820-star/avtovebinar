@@ -53,7 +53,7 @@ import {
   consentEvidenceData,
   legalAcceptanceEvidenceData,
 } from '../src/lib/consentDocuments.js';
-import { applyRetentionPolicy, RETENTION_POLICY_VERSION } from '../src/lib/retention.js';
+import { applyRetentionPolicy } from '../src/lib/retention.js';
 import { buildUnsubscribeToken } from '../src/lib/unsubscribe.js';
 import {
   ROOM_SESSION_TOKEN_PURPOSE,
@@ -81,6 +81,8 @@ import { runWebinarAccessInvitationEmailOutboxJobOnce } from '../src/lib/tenancy
 import { cleanupExpiredWebinarAccessGrants, hashWebinarAccessEmail } from '../src/lib/tenancy/webinarAccess.js';
 import { linkVerifiedRegistrationToCrm, recordCrmScoreSignalForRegistration } from '../src/lib/tenancy/crm.js';
 import { runCrmDeliveryJobsOnce } from '../src/lib/tenancy/crmDelivery.js';
+import { runFreshnessReviewJobOnce } from '../src/lib/tenancy/freshnessReview.js';
+import { buildTenantRetentionPlan } from '../src/lib/tenancy/retentionPlanning.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -329,10 +331,16 @@ beforeEach(async () => {
     MEDIA_LOCAL_ROOT: undefined,
     STT_PROVIDER: 'unconfigured',
     AI_ENRICHMENT_PROVIDER: 'unconfigured',
+    RETENTION_APPLY_ENABLED: 'off',
   });
   // Truncate tables to guarantee absolute test isolation
+  await prisma.organizationIdempotencyRecord.deleteMany();
+  // Local integration adapters are explicit test fakes. Production migration
+  // defaults remain disabled; tests opt in to exercise queued worker contracts.
+  await prisma.platformFeatureFlag.updateMany({ where: { key: 'provider_jobs' }, data: { enabled: true } });
+  await prisma.tenantRolloutPolicy.updateMany({ data: { mode: 'ENABLED', revision: 1, updatedByAdminUserId: null } });
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE telegram_broadcast_previews, telegram_broadcast_templates, telegram_consultant_messages, telegram_bot_events, telegram_manager_callbacks, telegram_manager_chat_binding_tokens, telegram_manager_chat_bindings, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
+    'TRUNCATE TABLE legal_holds, tenant_rollout_entries, author_service_notifications, author_review_tasks, webinar_material_uploads, webinar_materials, telegram_broadcast_previews, telegram_broadcast_templates, telegram_consultant_messages, telegram_bot_events, telegram_manager_callbacks, telegram_manager_chat_binding_tokens, telegram_manager_chat_bindings, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
   );
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
@@ -351,6 +359,180 @@ beforeEach(async () => {
       mediaStatus: 'READY',
       scenarioStatus: 'PUBLISHED',
     },
+  });
+});
+
+describe('gap-closure database concurrency and dry-run invariants', () => {
+  it('replays creator metadata autosave without a second mutation or audit event', async () => {
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    const tenant = await createTenantFixture({
+      slug: `wizard-save-${Date.now()}`,
+      email: `wizard-save-${Date.now()}@example.test`,
+      role: 'AUTHOR',
+    });
+    const profile = await prisma.authorProfile.create({
+      data: {
+        organizationId: tenant.organization.id,
+        userId: tenant.user.id,
+        slug: `wizard-save-author-${Date.now()}`,
+        publicName: 'Автор автосохранения',
+        verificationStatus: 'VERIFIED',
+      },
+    });
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: `wizard-save-webinar-${Date.now()}`,
+        title: 'Мастер с автосохранением',
+      },
+    });
+    const session = await loginPlatformUser(tenant.user.id);
+    const payload = {
+      description: 'Описание, которое безопасно повторяется при сетевом retry автосохранения.',
+    };
+    const requestUpdate = () =>
+      session.agent
+        .patch(`/api/v1/creator/webinars/${webinar.id}`)
+        .set('x-csrf-token', session.csrfToken)
+        .set('idempotency-key', 'wizard-autosave-replay-0001')
+        .send(payload);
+
+    const first = await requestUpdate();
+    const replay = await requestUpdate();
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect(first.body.webinar.contentVersion).toBe(2);
+    expect(replay.body.webinar.contentVersion).toBe(2);
+    const mismatchedReplay = await session.agent
+      .patch(`/api/v1/creator/webinars/${webinar.id}`)
+      .set('x-csrf-token', session.csrfToken)
+      .set('idempotency-key', 'wizard-autosave-replay-0001')
+      .send({ description: 'Другой payload не должен считаться повтором исходной команды.' });
+    expect(mismatchedReplay.status).toBe(409);
+    expect(mismatchedReplay.body.code).toBe('idempotency_payload_mismatch');
+    await expect(
+      prisma.webinarCommand.count({
+        where: { webinarId: webinar.id, action: 'metadata_update', idempotencyKey: 'wizard-autosave-replay-0001' },
+      }),
+    ).resolves.toBe(1);
+    await expect(prisma.auditLog.count({ where: { entityId: webinar.id, action: 'webinar.updated' } })).resolves.toBe(
+      1,
+    );
+  });
+
+  it('allows the allowlisted tenant and returns the same safe absence for a blocked tenant', async () => {
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    env.CREATOR_DASHBOARD_ENABLED = 'on';
+    const allowed = await createTenantFixture({
+      slug: `rollout-a-${Date.now()}`,
+      email: `rollout-a-${Date.now()}@example.test`,
+    });
+    const blocked = await createTenantFixture({
+      slug: `rollout-b-${Date.now()}`,
+      email: `rollout-b-${Date.now()}@example.test`,
+    });
+    await prisma.tenantRolloutPolicy.update({
+      where: { feature: 'CREATOR_DASHBOARD' },
+      data: { mode: 'ALLOWLIST', revision: { increment: 1 } },
+    });
+    const rolloutActor = await prisma.adminUser.create({
+      data: {
+        name: 'Rollout test actor',
+        email: `rollout-actor-${Date.now()}@example.test`,
+        passwordHash: 'not-used-by-this-test',
+        role: 'owner',
+      },
+    });
+    await prisma.tenantRolloutEntry.create({
+      data: {
+        feature: 'CREATOR_DASHBOARD',
+        organizationId: allowed.organization.id,
+        enabled: true,
+        updatedByAdminUserId: rolloutActor.id,
+      },
+    });
+    const allowedSession = await loginPlatformUser(allowed.user.id);
+    const blockedSession = await loginPlatformUser(blocked.user.id);
+
+    const allowedResponse = await allowedSession.agent.get('/api/v1/creator/webinars');
+    const blockedResponse = await blockedSession.agent.get('/api/v1/creator/webinars');
+    expect(allowedResponse.status).toBe(200);
+    expect(blockedResponse.status).toBe(404);
+    expect(blockedResponse.body).toMatchObject({ code: 'tenant_feature_unavailable' });
+    expect(JSON.stringify(blockedResponse.body)).not.toContain(blocked.organization.id);
+  });
+
+  it('creates one freshness task/outbox under concurrent workers and keeps publication unchanged', async () => {
+    const tenant = await createTenantFixture({
+      slug: `freshness-${Date.now()}`,
+      email: `freshness-owner-${Date.now()}@example.test`,
+    });
+    const profile = await prisma.authorProfile.create({
+      data: {
+        organizationId: tenant.organization.id,
+        userId: tenant.user.id,
+        slug: `author-${'a'.repeat(24)}`,
+        publicName: 'Синтетический автор',
+        verificationStatus: 'VERIFIED',
+      },
+    });
+    const dueAt = new Date('2026-08-24T00:00:00.000Z');
+    const webinar = await prisma.webinar.create({
+      data: {
+        organizationId: tenant.organization.id,
+        authorProfileId: profile.id,
+        slug: `freshness-webinar-${Date.now()}`,
+        title: 'Синтетическая проверка актуальности',
+        contentStatus: 'PUBLISHED',
+        visibility: 'PUBLIC',
+        freshnessStatus: 'CURRENT',
+        reviewDueAt: dueAt,
+        publishedAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    });
+
+    const results = await Promise.all([
+      runFreshnessReviewJobOnce(prisma, dueAt),
+      runFreshnessReviewJobOnce(prisma, dueAt),
+    ]);
+    expect(results.reduce((sum, result) => sum + result.transitioned, 0)).toBe(1);
+    await expect(prisma.authorReviewTask.count({ where: { webinarId: webinar.id } })).resolves.toBe(1);
+    await expect(prisma.authorServiceNotification.count({ where: { webinarId: webinar.id } })).resolves.toBe(1);
+    await expect(
+      prisma.auditLog.count({ where: { entityId: webinar.id, action: 'webinar.freshness_review_due' } }),
+    ).resolves.toBe(1);
+    await expect(prisma.webinar.findUniqueOrThrow({ where: { id: webinar.id } })).resolves.toMatchObject({
+      contentStatus: 'PUBLISHED',
+      freshnessStatus: 'REVIEW_DUE',
+    });
+  });
+
+  it('builds the tenant retention plan without changing any table', async () => {
+    const tenant = await createTenantFixture({
+      slug: `retention-plan-${Date.now()}`,
+      email: `retention-plan-owner-${Date.now()}@example.test`,
+    });
+    const context = {
+      organizationId: tenant.organization.id,
+      userId: tenant.user.id,
+      membershipId: tenant.membership.id,
+      role: tenant.membership.role,
+      permissions: tenant.membership.permissionsJson,
+      correlationId: 'retention-plan-integration',
+    };
+    const before = await prisma.$queryRaw<
+      Array<{ count: bigint }>
+    >`SELECT COUNT(*)::bigint AS count FROM retention_runs`;
+    const plan = await buildTenantRetentionPlan(prisma, context);
+    const after = await prisma.$queryRaw<
+      Array<{ count: bigint }>
+    >`SELECT COUNT(*)::bigint AS count FROM retention_runs`;
+    expect(plan).toMatchObject({ mode: 'DRY_RUN', policyReady: false, destructiveApplyAllowed: false });
+    expect(plan.categories).toHaveLength(6);
+    expect(plan.categories.every(category => category.eligibleCount === 0 && category.cutoff === null)).toBe(true);
+    expect(after[0].count).toBe(before[0].count);
   });
 });
 
@@ -6166,7 +6348,7 @@ describe('critical path integration scenarios', () => {
     }
   });
 
-  it('applies the versioned retention policy and records proof of execution', async () => {
+  it('blocks the unapproved retention policy without mutating legacy rows', async () => {
     const now = new Date('2026-07-30T12:00:00.000Z');
     const old = new Date('2022-01-01T00:00:00.000Z');
     const inactiveLead = await prisma.lead.create({
@@ -6222,38 +6404,24 @@ describe('critical path integration scenarios', () => {
       },
     });
 
-    const result = await applyRetentionPolicy(now);
-    expect(result.detailedEventsDeleted).toBe(1);
-    expect(result.auditTechnicalTracesCleared).toBe(1);
-    expect(result.leadsAnonymized).toBe(1);
-    expect(result.terminalEmailJobsDeleted).toBe(1);
-    expect(result.terminalEmailDeadLettersDeleted).toBe(1);
-    await expect(prisma.emailOutboxJob.findUnique({ where: { id: terminalEmailJob.id } })).resolves.toBeNull();
+    await expect(applyRetentionPolicy(now)).rejects.toThrow('retention_apply_blocked_pending_policy_approval');
+    await expect(prisma.event.count()).resolves.toBe(1);
+    await expect(prisma.auditLog.findFirstOrThrow({ where: { action: 'retention.test' } })).resolves.toMatchObject({
+      ipHash: 'old-ip-hash',
+      userAgent: 'old-user-agent',
+    });
+    await expect(prisma.emailOutboxJob.findUnique({ where: { id: terminalEmailJob.id } })).resolves.not.toBeNull();
     await expect(
       prisma.emailOutboxDeadLetter.findUnique({ where: { jobId: terminalEmailJob.id } }),
-    ).resolves.toBeNull();
-
-    const anonymizedLead = await prisma.lead.findUniqueOrThrow({ where: { id: inactiveLead.id } });
-    expect(anonymizedLead).toMatchObject({
-      name: 'Удалённый пользователь',
-      phone: '',
-      consent: false,
-      marketingConsent: false,
-      source: null,
-      utmSource: null,
+    ).resolves.not.toBeNull();
+    await expect(prisma.lead.findUniqueOrThrow({ where: { id: inactiveLead.id } })).resolves.toMatchObject({
+      email: 'retention-old@aspb.ru',
+      source: 'old-campaign',
     });
-    expect(anonymizedLead.email).toBe(`anonymized-${inactiveLead.id}@deleted.invalid`);
-
-    const retentionRun = await prisma.retentionRun.findFirstOrThrow({ orderBy: { startedAt: 'desc' } });
-    expect(retentionRun).toMatchObject({
-      status: 'completed',
-      policyVersion: RETENTION_POLICY_VERSION,
-    });
-    expect(retentionRun.completedAt).toBeInstanceOf(Date);
-    expect(retentionRun.resultJson).toMatchObject({ leadsAnonymized: 1 });
+    await expect(prisma.retentionRun.count()).resolves.toBe(0);
   });
 
-  it('anonymizes abandoned pending verification data after its confirmation links expire', async () => {
+  it('keeps abandoned pending-verification data unchanged while retention terms are unapproved', async () => {
     const now = new Date('2026-08-05T12:00:00.000Z');
     const pendingSince = new Date('2026-06-01T12:00:00.000Z');
     const session = await prisma.webinarSession.create({
@@ -6327,22 +6495,20 @@ describe('critical path integration scenarios', () => {
       scheduledAt: session.scheduledAt,
     });
 
-    const result = await applyRetentionPolicy(now);
-    expect(result.pendingVerificationLeadsAnonymized).toBe(1);
-    // Compliance evidence remains immutable and follows its own documented
-    // legal-retention term; operational participant PII is anonymized below.
+    await expect(applyRetentionPolicy(now)).rejects.toThrow('retention_apply_blocked_pending_policy_approval');
     await expect(prisma.consentRecord.count({ where: { registrationId: registration.id } })).resolves.toBe(1);
     await expect(prisma.legalAcceptance.count({ where: { registrationId: registration.id } })).resolves.toBe(1);
     const retainedRegistration = await prisma.registration.findUniqueOrThrow({ where: { id: registration.id } });
-    expect(retainedRegistration).toMatchObject({ status: 'anonymized', pendingMetadataJson: null });
+    expect(retainedRegistration).toMatchObject({
+      status: 'pending_verification',
+      pendingMetadataJson: { clientsProblem: 'Содержит временные персональные сведения' },
+    });
     const retainedLead = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
-    expect(retainedLead.email).toBe(`anonymized-${lead.id}@deleted.invalid`);
+    expect(retainedLead.email).toBe('expired-pending@aspb.ru');
     const retainedJob = await prisma.emailOutboxJob.findFirstOrThrow({ where: { registrationId: registration.id } });
     expect(retainedJob).toMatchObject({
-      status: 'cancelled',
-      toEmail: `anonymized-${lead.id}@deleted.invalid`,
-      webinarUrl: 'redacted://email-link',
-      partnerUrl: null,
+      status: 'pending',
+      toEmail: 'expired-pending@aspb.ru',
     });
   });
 
@@ -6825,7 +6991,7 @@ describe('critical path integration scenarios', () => {
     expect(knownResponse.status).toBe(202);
     expect(unknownResponse.status).toBe(202);
     expect(knownResponse.body.message).toBe(unknownResponse.body.message);
-    await expect(prisma.userAuthEmailJob.count()).resolves.toBe(1);
+    await expect(prisma.userAuthEmailJob.count()).resolves.toBe(2);
 
     const deliveries: Array<{ loginUrl: string; to: string }> = [];
     const deliveryResult = await runUserAuthEmailOutboxJobOnce(new Date(), {
@@ -6834,10 +7000,11 @@ describe('critical path integration scenarios', () => {
         return { sent: true, mode: 'send' };
       },
     });
-    expect(deliveryResult).toMatchObject({ checked: 1, sent: 1, failed: 0 });
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0].to).toBe('platform-owner@example.test');
-    const rawToken = getExchangeTokenFromUrl(deliveries[0].loginUrl);
+    expect(deliveryResult).toMatchObject({ checked: 2, sent: 2, failed: 0 });
+    expect(deliveries).toHaveLength(2);
+    const ownerDelivery = deliveries.find(delivery => delivery.to === 'platform-owner@example.test');
+    expect(ownerDelivery).toBeDefined();
+    const rawToken = getExchangeTokenFromUrl(ownerDelivery!.loginUrl);
     expect(rawToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const storedToken = await prisma.userAuthToken.findFirstOrThrow({ where: { userId: tenant.user.id } });
     expect(storedToken.tokenHash).toMatch(/^[0-9a-f]{64}$/);
@@ -6932,6 +7099,130 @@ describe('critical path integration scenarios', () => {
     const logoutResponse = await agent.post('/api/v1/auth/logout').set('x-csrf-token', csrfToken).send({});
     expect(logoutResponse.status).toBe(204);
     await expect(agent.get('/api/v1/auth/session')).resolves.toMatchObject({ status: 401 });
+  });
+
+  it('onboards a new verified User into one idempotently created owner organization', async () => {
+    env.PLATFORM_ACCOUNTS_ENABLED = 'on';
+    const agent = request.agent(app);
+    const csrfToken = await getCsrfToken(agent);
+    const email = 'self-service-owner@example.test';
+
+    const requested = await agent
+      .post('/api/v1/auth/passwordless/request')
+      .set('x-csrf-token', csrfToken)
+      .send({ email });
+    expect(requested.status).toBe(202);
+
+    const deliveries: Array<{ loginUrl: string; to: string }> = [];
+    await runUserAuthEmailOutboxJobOnce(new Date(), {
+      sendPasswordlessLoginEmail: async input => {
+        deliveries.push({ loginUrl: input.loginUrl, to: input.to });
+        return { sent: true, mode: 'send' };
+      },
+    });
+    expect(deliveries).toEqual([expect.objectContaining({ to: email })]);
+    const token = getExchangeTokenFromUrl(deliveries[0].loginUrl);
+    const consumed = await agent
+      .post('/api/v1/auth/passwordless/consume')
+      .set('x-csrf-token', csrfToken)
+      .send({ token });
+    expect(consumed.status).toBe(200);
+    expect(consumed.body).toMatchObject({ activeOrganizationId: null, memberships: [] });
+
+    const missingKey = await agent
+      .post('/api/v1/organizations')
+      .set('x-csrf-token', csrfToken)
+      .send({ name: 'Юридическая команда' });
+    expect(missingKey.status).toBe(400);
+    expect(missingKey.body.code).toBe('idempotency_key_required');
+
+    const createKey = 'org-create-self-service-0001';
+    const created = await agent
+      .post('/api/v1/organizations')
+      .set('x-csrf-token', csrfToken)
+      .set('idempotency-key', createKey)
+      .send({ name: 'Юридическая команда', slug: 'Юр-команда' });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      idempotentReplay: false,
+      organization: { slug: 'yur-komanda', revision: 1 },
+      membership: { role: 'OWNER', status: 'ACTIVE' },
+    });
+    const organizationId = created.body.organization.id as string;
+    const ownerUser = await prisma.user.findUniqueOrThrow({ where: { emailNormalized: email } });
+    await expect(prisma.organization.count({ where: { id: organizationId } })).resolves.toBe(1);
+    await expect(
+      prisma.organizationMembership.count({ where: { organizationId, userId: ownerUser.id, role: 'OWNER' } }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.auditLog.count({ where: { organizationId, action: 'organization.created_self_service' } }),
+    ).resolves.toBe(1);
+
+    const replay = await agent
+      .post('/api/v1/organizations')
+      .set('x-csrf-token', csrfToken)
+      .set('idempotency-key', createKey)
+      .send({ name: 'Юридическая команда', slug: 'Юр-команда' });
+    expect(replay.status).toBe(200);
+    expect(replay.body).toMatchObject({ idempotentReplay: true, organization: { id: organizationId } });
+    await expect(prisma.organization.count({ where: { slug: 'yur-komanda' } })).resolves.toBe(1);
+
+    const conflictingReplay = await agent
+      .post('/api/v1/organizations')
+      .set('x-csrf-token', csrfToken)
+      .set('idempotency-key', createKey)
+      .send({ name: 'Другая организация', slug: 'another-organization' });
+    expect(conflictingReplay.status).toBe(409);
+    expect(conflictingReplay.body.code).toBe('idempotency_payload_conflict');
+
+    const summary = await agent.get('/api/v1/auth/session');
+    expect(summary.body).toMatchObject({
+      activeOrganizationId: organizationId,
+      memberships: [expect.objectContaining({ organizationId, role: 'OWNER' })],
+    });
+    const read = await agent.get(`/api/v1/organizations/${organizationId}`);
+    expect(read.status).toBe(200);
+    expect(read.headers['cache-control']).toBe('no-store');
+
+    const updateKey = 'org-settings-self-service-0001';
+    const updated = await agent
+      .patch(`/api/v1/organizations/${organizationId}`)
+      .set('x-csrf-token', csrfToken)
+      .set('idempotency-key', updateKey)
+      .send({
+        expectedRevision: 1,
+        name: 'Юридическая команда АСПБ',
+        settings: { defaultTimezone: 'Europe/Amsterdam', locale: 'ru-RU' },
+      });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({
+      organization: { revision: 2, settings: { defaultTimezone: 'Europe/Amsterdam' } },
+    });
+    const updateReplay = await agent
+      .patch(`/api/v1/organizations/${organizationId}`)
+      .set('x-csrf-token', csrfToken)
+      .set('idempotency-key', updateKey)
+      .send({
+        expectedRevision: 1,
+        name: 'Юридическая команда АСПБ',
+        settings: { defaultTimezone: 'Europe/Amsterdam', locale: 'ru-RU' },
+      });
+    expect(updateReplay.body).toMatchObject({ idempotentReplay: true, organization: { revision: 2 } });
+    const stale = await agent
+      .patch(`/api/v1/organizations/${organizationId}`)
+      .set('x-csrf-token', csrfToken)
+      .set('idempotency-key', 'org-settings-self-service-stale')
+      .send({ expectedRevision: 1, name: 'Устаревшая правка' });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('organization_revision_conflict');
+
+    const members = await agent.get(`/api/v1/organizations/${organizationId}/members?limit=1`);
+    expect(members.status).toBe(200);
+    expect(members.body.items).toEqual([expect.objectContaining({ role: 'OWNER', email })]);
+    const foreign = await prisma.organization.create({ data: { name: 'Чужая', slug: 'foreign-self-service' } });
+    const foreignRead = await agent.get(`/api/v1/organizations/${foreign.id}`);
+    expect(foreignRead.status).toBe(404);
+    expect(foreignRead.body.code).toBe('organization_not_found');
   });
 
   it('derives tenant scope from the platform session and hides foreign organizations and memberships', async () => {
@@ -7663,9 +7954,11 @@ describe('critical path integration scenarios', () => {
     expect(publicProfile.status).toBe(200);
     expect(publicProfile.body.author).toMatchObject({
       slug: profileSlug,
+      reportTargetId: profileId,
       publicName: 'Анна Юрист',
       verificationStatus: 'VERIFIED',
       organization: { name: tenantA.organization.name, slug: tenantA.organization.slug },
+      webinars: [],
     });
     expect(JSON.stringify(publicProfile.body)).not.toContain(evidenceId);
     expect(JSON.stringify(publicProfile.body)).not.toContain('internalReason');

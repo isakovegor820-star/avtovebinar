@@ -87,6 +87,7 @@ const envSchema = z.object({
   AI_YANDEX_ENDPOINT: z.string().url().default('https://llm.api.cloud.yandex.net/foundationModels/v1/completion'),
   AI_YANDEX_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(600).default(120),
   MEDIA_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(4_294_967_296),
+  MATERIAL_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().max(524_288_000).default(104_857_600),
   MEDIA_MAX_DURATION_SECONDS: z.coerce.number().int().positive().default(10_800),
   MEDIA_PART_SIZE_BYTES: z.coerce.number().int().min(5_242_880).default(8_388_608),
   MEDIA_UPLOAD_CSP_ORIGINS: z.string().default(''),
@@ -143,6 +144,8 @@ const envSchema = z.object({
   PUBLIC_CATALOG_ENABLED: z.enum(['on', 'off']).default('off'),
   TENANT_CRM_ENABLED: z.enum(['on', 'off']).default('off'),
   TENANT_TELEGRAM_BOTS_ENABLED: z.enum(['on', 'off']).default('off'),
+  // Destructive retention remains disabled until a separately reviewed policy release.
+  RETENTION_APPLY_ENABLED: z.enum(['on', 'off']).default('off'),
   // Имя и роль модератора эфира: показываются участникам в чате (приветствие +
   // ручные ответы из админки). Настраиваются без правки кода — поменять в .env.
   MODERATOR_NAME: z.string().trim().min(2).max(80).default('Юлия, модератор АСПБ'),
@@ -162,9 +165,11 @@ type DefaultedProviderConfigKey =
   | 'MEDIA_PROCESSING_RESERVE_BYTES'
   | 'MEDIA_MIN_FREE_INODES'
   | 'MEDIA_WORKER_CONCURRENCY'
+  | 'MATERIAL_MAX_UPLOAD_BYTES'
   | 'CONTENT_WORKER_CONCURRENCY'
   | 'MEDIA_QUEUE_ALERT_THRESHOLD'
   | 'CONTENT_QUEUE_ALERT_THRESHOLD'
+  | 'RETENTION_APPLY_ENABLED'
   | 'STT_YANDEX_ENDPOINT'
   | 'STT_YANDEX_OPERATION_ENDPOINT'
   | 'STT_YANDEX_RESULT_ENDPOINT'
@@ -278,6 +283,9 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
   }
   if (config.E2E_EMAIL_OUTBOX_ENABLED === 'on') {
     errors.push('E2E_EMAIL_OUTBOX_ENABLED must be "off" in production');
+  }
+  if (config.RETENTION_APPLY_ENABLED === 'on') {
+    errors.push('RETENTION_APPLY_ENABLED must remain "off" until a reviewed retention policy release');
   }
   if (config.MEDIA_STORAGE_PROVIDER === 'test_fake') {
     errors.push('MEDIA_STORAGE_PROVIDER=test_fake is forbidden in production');

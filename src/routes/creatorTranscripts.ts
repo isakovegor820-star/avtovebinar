@@ -24,6 +24,14 @@ import {
   updateOrganizationTerm,
 } from '../lib/tenancy/transcriptEnrichment.js';
 import { requireAuthenticatedUserSession } from '../lib/tenancy/userAuth.js';
+import { requireTenantRollout } from '../lib/tenancy/rolloutPolicy.js';
+import {
+  createCreatorWebinarChapter,
+  deleteCreatorWebinarChapter,
+  listCreatorWebinarChapters,
+  reorderCreatorWebinarChapters,
+  updateCreatorWebinarChapter,
+} from '../lib/tenancy/webinarChapters.js';
 
 export const creatorTranscriptsRouter = Router();
 
@@ -32,6 +40,7 @@ const paramsSchema = z.object({ webinarId: idSchema }).strict();
 const jobParamsSchema = z.object({ jobId: idSchema }).strict();
 const termParamsSchema = z.object({ termId: idSchema }).strict();
 const suggestionParamsSchema = z.object({ webinarId: idSchema, suggestionId: idSchema }).strict();
+const chapterParamsSchema = z.object({ webinarId: idSchema, chapterId: idSchema }).strict();
 const emptyBodySchema = z.object({}).strict();
 const transcriptReferenceSchema = z
   .object({
@@ -80,11 +89,13 @@ function requireCreatorDashboard() {
 
 async function tenant(req: Parameters<typeof requireAuthenticatedUserSession>[1]) {
   const session = await requireAuthenticatedUserSession(prisma, req);
-  return resolveTenantContext(prisma, {
+  const context = await resolveTenantContext(prisma, {
     userId: session.userId,
     activeOrganizationId: session.activeOrganizationId,
     correlationId: getRequestContext()?.correlationId,
   });
+  await requireTenantRollout(prisma, 'CREATOR_DASHBOARD', context.organizationId);
+  return context;
 }
 
 creatorTranscriptsRouter.post(
@@ -111,6 +122,65 @@ creatorTranscriptsRouter.get(
       ...(await getContentJobStatus(prisma, context, jobId)),
       correlationId: context.correlationId,
     });
+  }),
+);
+
+creatorTranscriptsRouter.get(
+  '/creator/webinars/:webinarId/chapters',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { webinarId } = paramsSchema.parse(req.params);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({
+      ok: true,
+      ...(await listCreatorWebinarChapters(prisma, context, webinarId, req.query)),
+      correlationId: context.correlationId,
+    });
+  }),
+);
+
+creatorTranscriptsRouter.post(
+  '/creator/webinars/:webinarId/chapters',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { webinarId } = paramsSchema.parse(req.params);
+    const chapter = await createCreatorWebinarChapter(prisma, context, webinarId, req.body);
+    res.status(201).json({ ok: true, chapter, correlationId: context.correlationId });
+  }),
+);
+
+creatorTranscriptsRouter.patch(
+  '/creator/webinars/:webinarId/chapters/reorder',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { webinarId } = paramsSchema.parse(req.params);
+    const chapters = await reorderCreatorWebinarChapters(prisma, context, webinarId, req.body);
+    res.json({ ok: true, chapters, correlationId: context.correlationId });
+  }),
+);
+
+creatorTranscriptsRouter.patch(
+  '/creator/webinars/:webinarId/chapters/:chapterId',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { webinarId, chapterId } = chapterParamsSchema.parse(req.params);
+    const chapter = await updateCreatorWebinarChapter(prisma, context, webinarId, chapterId, req.body);
+    res.json({ ok: true, chapter, correlationId: context.correlationId });
+  }),
+);
+
+creatorTranscriptsRouter.delete(
+  '/creator/webinars/:webinarId/chapters/:chapterId',
+  asyncHandler(async (req, res) => {
+    requireCreatorDashboard();
+    const context = await tenant(req);
+    const { webinarId, chapterId } = chapterParamsSchema.parse(req.params);
+    const chapter = await deleteCreatorWebinarChapter(prisma, context, webinarId, chapterId, req.body);
+    res.json({ ok: true, chapter, correlationId: context.correlationId });
   }),
 );
 

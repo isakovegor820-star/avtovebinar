@@ -24,6 +24,13 @@ export const acceptOrganizationInvitationSchema = z
   .object({ token: z.string().trim().regex(OPAQUE_TOKEN_PATTERN) })
   .strict();
 
+const invitationPageSchema = z
+  .object({
+    cursor: z.string().trim().min(1).max(191).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(25),
+  })
+  .strict();
+
 function invitationUnavailable(): never {
   throw new AppError(
     401,
@@ -192,14 +199,26 @@ export async function createOrganizationInvitation(
 }
 
 export async function listOrganizationInvitations(db: PrismaClient, context: TenantContext, now = new Date()) {
+  const page = await listOrganizationInvitationsPage(db, context, {}, now);
+  return page.items;
+}
+
+export async function listOrganizationInvitationsPage(
+  db: PrismaClient,
+  context: TenantContext,
+  input: unknown,
+  now = new Date(),
+) {
+  const page = invitationPageSchema.parse(input);
   return db.$transaction(async tx => {
     await lockInvitationScope(tx, context.organizationId);
     await requireCurrentOwner(tx, context);
     await expirePendingInvitations(tx, context.organizationId, now);
-    return tx.organizationInvitation.findMany({
+    const rows = await tx.organizationInvitation.findMany({
       where: { organizationId: context.organizationId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 100,
+      ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
+      take: page.limit + 1,
       select: {
         id: true,
         emailNormalized: true,
@@ -212,6 +231,9 @@ export async function listOrganizationInvitations(db: PrismaClient, context: Ten
         emailJob: { select: { status: true, attempts: true, sentAt: true } },
       },
     });
+    const hasMore = rows.length > page.limit;
+    const items = rows.slice(0, page.limit);
+    return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
   });
 }
 

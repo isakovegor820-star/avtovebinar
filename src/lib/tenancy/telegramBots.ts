@@ -7,6 +7,7 @@ import { createCorrelationId } from '../requestContext.js';
 import { createAccessToken, hashToken } from '../tokens.js';
 import { buildManagerTelegramStartUrl } from '../telegram.js';
 import { requireTenantRole, type TenantContext } from './context.js';
+import { getTenantRolloutDecision } from './rolloutPolicy.js';
 
 const MANAGER_BINDING_TTL_MS = 15 * 60 * 1000;
 const CALLBACK_DEFAULT_TTL_MS = 15 * 60 * 1000;
@@ -714,6 +715,12 @@ export async function executeTelegramManagerCallback(
     });
     if (!callback || !timingSafeTextEqual(signCallbackRecord(callback), submittedSignature))
       return callbackUnavailable();
+    if (
+      !(await getTenantRolloutDecision(tx as unknown as PrismaClient, 'TENANT_TELEGRAM', callback.organizationId))
+        .enabled
+    ) {
+      return callbackUnavailable();
+    }
     if (callback.status === 'COMPLETED') {
       return {
         accepted: true as const,

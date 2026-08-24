@@ -35,12 +35,17 @@ const state = {
   scenario: null,
   grants: [],
   transcript: null,
+  chapterTranscript: null,
+  chapters: [],
   terms: [],
   suggestions: [],
   mediaAsset: null,
+  materials: [],
   transcriptRowCounter: 0,
   activeJobPoll: 0,
   scenarioRowCounter: 0,
+  readiness: null,
+  wizardStep: 1,
 };
 
 function node(id) {
@@ -83,13 +88,29 @@ function numberOrNull(value) {
 function firstInvalid(form) {
   const invalid = [...form.elements].find(control => typeof control.checkValidity === 'function' && !control.checkValidity());
   if (!invalid) return null;
+  if (form.id === 'creatorMetadataForm') {
+    const invalidStep =
+      invalid.id === 'creatorSyntheticDisclosure' ? 6 : invalid.closest('#creatorWizardStep2Fields') ? 2 : 1;
+    if (invalidStep !== state.wizardStep) activateWizardStep(invalidStep, false, 'push');
+  }
   invalid.setAttribute('aria-invalid', 'true');
+  const status = form.querySelector('[role="status"]');
+  if (status?.id && !invalid.hasAttribute('aria-describedby')) {
+    invalid.setAttribute('aria-describedby', status.id);
+    invalid.dataset.validationDescribedby = 'true';
+  }
   invalid.focus();
   return invalid;
 }
 
 function clearInvalid(form) {
-  for (const control of form.elements) control.removeAttribute?.('aria-invalid');
+  for (const control of form.elements) {
+    control.removeAttribute?.('aria-invalid');
+    if (control.dataset?.validationDescribedby === 'true') {
+      control.removeAttribute('aria-describedby');
+      delete control.dataset.validationDescribedby;
+    }
+  }
 }
 
 function processing(button, busy, label, busyLabel) {
@@ -115,6 +136,9 @@ function errorCopy(error, fallback) {
   if (code === 'media_storage_unconfigured') return 'Приватное хранилище ещё не подключено. Выберите провайдера перед загрузкой.';
   if (code === 'transcript_revision_conflict') return 'Расшифровка уже изменилась. Обновите вебинар и повторите.';
   if (code === 'transcript_review_required') return 'Сначала проверьте расшифровку.';
+  if (code === 'chapter_revision_conflict') return 'Главы уже изменились. Обновите список и повторите.';
+  if (code === 'chapter_published_immutable') return 'Опубликованные главы доступны только для чтения.';
+  if (code === 'chapter_start_out_of_bounds') return 'Таймкод должен находиться внутри видео.';
   if (code === 'suggestion_revision_conflict') return 'Предложение уже проверено или изменилось. Обновите список.';
   if (error?.status === 409) return 'Действие недоступно в текущем статусе. Обновите вебинар и проверьте условия.';
   if (error?.status === 400) return 'Проверьте заполненные поля и допустимые значения.';
@@ -217,6 +241,147 @@ function renderStatusGrid(webinar) {
   }
 }
 
+function renderPublishedLink(webinar) {
+  const link = node('creatorPublishedLink');
+  if (webinar.contentStatus !== 'PUBLISHED') {
+    link.hidden = true;
+    link.removeAttribute('href');
+    link.textContent = '';
+    return;
+  }
+  const organizationSlug = state.membership?.organization?.slug;
+  const relativePath =
+    webinar.visibility === 'PRIVATE'
+      ? 'access.html'
+      : `catalog-webinar.html?${new URLSearchParams({ organization: organizationSlug, webinar: webinar.slug }).toString()}`;
+  link.href = relativePath;
+  link.textContent =
+    webinar.visibility === 'PRIVATE'
+      ? 'Открыть защищённую страницу доступа для приглашённых'
+      : `Открыть ${webinar.visibility === 'UNLISTED' ? 'страницу по ссылке' : 'публичную страницу'}: ${new URL(relativePath, window.location.href).href}`;
+  link.hidden = false;
+}
+
+const wizardStatusLabels = {
+  not_started: 'Не начато',
+  in_progress: 'В работе',
+  complete: 'Готово',
+  blocked: 'Заблокировано',
+};
+
+function renderWizard(readiness) {
+  state.readiness = readiness;
+  const list = node('creatorWizardSteps');
+  list.replaceChildren(
+    ...(readiness?.steps || []).map(step => {
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      const number = document.createElement('span');
+      const label = document.createElement('span');
+      const status = document.createElement('span');
+      button.type = 'button';
+      button.className = 'creator-wizard-step';
+      button.dataset.step = String(step.number);
+      button.setAttribute('aria-current', step.number === state.wizardStep ? 'step' : 'false');
+      number.className = 'creator-wizard-step-number';
+      number.textContent = `Шаг ${step.number}`;
+      label.className = 'creator-wizard-step-label';
+      label.textContent = step.label;
+      status.className = 'creator-wizard-step-state';
+      status.textContent = `${step.status === 'complete' ? '✓ ' : step.status === 'blocked' ? '! ' : ''}${wizardStatusLabels[step.status] || step.status}`;
+      button.append(number, label, status);
+      button.addEventListener('click', () => activateWizardStep(step.number, true, 'push'));
+      item.append(button);
+      return item;
+    }),
+  );
+  const ready = (readiness?.steps || []).filter(step => step.status === 'complete').length;
+  setText('creatorWizardProgress', `Завершено шагов: ${ready} из 8. Состояние сохранено на сервере.`);
+  const blockers = readiness?.blockers || [];
+  node('creatorReadinessReady').hidden = blockers.length > 0;
+  node('creatorReadinessBlockers').replaceChildren(
+    ...blockers.map(blocker => {
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = `${blocker.message} Перейти к шагу ${blocker.step}.`;
+      button.addEventListener('click', () => activateWizardStep(blocker.step, true, 'push'));
+      item.append(button);
+      return item;
+    }),
+  );
+}
+
+function activateWizardStep(stepInput, focus = true, historyMode = 'replace') {
+  const step = Math.min(8, Math.max(1, Number(stepInput) || 1));
+  state.wizardStep = step;
+  const sections = {
+    1: ['creatorWizardStep1'],
+    2: ['creatorWizardStep1'],
+    3: ['creatorWizardMediaSection'],
+    4: ['creatorWizardMediaSection'],
+    5: ['creatorWizardStep5'],
+    6: ['creatorWizardStep6'],
+    7: ['creatorWizardStep7'],
+    8: ['creatorWizardStep8'],
+  };
+  const allSections = ['creatorWizardStep1', 'creatorWizardMediaSection', 'creatorWizardStep5', 'creatorWizardStep6', 'creatorWizardStep7', 'creatorWizardStep8'];
+  for (const id of allSections) node(id).hidden = !sections[step].includes(id);
+  node('creatorWizardStep1Fields').hidden = step !== 1;
+  node('creatorWizardStep2Fields').hidden = step !== 2;
+  node('creatorWizardStep2').hidden = step !== 3;
+  node('creatorWizardStep3').hidden = step !== 4;
+  node('creatorWizardStep4').hidden = step !== 4;
+  node('creatorWizardTranscriptTools').hidden = step !== 4;
+  node('creatorWizardAi').hidden = step !== 4;
+  node('creatorAccessSection').hidden = !(
+    step === 7 && state.membership?.role === 'OWNER' && state.current?.visibility === 'PRIVATE'
+  );
+  const headings = {
+    1: 'creatorMetadataHeading',
+    2: 'creatorMetadataHeading',
+    3: 'creatorUploadHeading',
+    4: 'creatorTranscriptHeading',
+    5: 'creatorSourcesHeading',
+    6: 'creatorScenarioHeading',
+    7: 'creatorScheduleHeading',
+    8: 'creatorOverviewHeading',
+  };
+  setText('creatorMetadataHeading', step === 2 ? 'Юридическая классификация и актуальность' : 'Основная информация');
+  setText(
+    'creatorMetadataIntroduction',
+    step === 2
+      ? 'Укажите юридическую классификацию, статус актуальности и правовой дисклеймер.'
+      : 'Опишите вебинар так, чтобы участник сразу понял тему, аудиторию и практический результат.',
+  );
+  setText('creatorMediaHeading', step === 3 ? 'Видео' : 'Транскрипт и главы');
+  for (const button of node('creatorWizardSteps').querySelectorAll('button')) {
+    button.setAttribute('aria-current', Number(button.dataset.step) === step ? 'step' : 'false');
+  }
+  node('creatorWizardPrevious').disabled = step === 1;
+  node('creatorWizardNext').disabled = step === 8;
+  node('creatorWizardNext').textContent = step === 7 ? 'К итоговой проверке' : 'Следующий шаг';
+  const current = state.readiness?.steps?.find(item => item.number === step);
+  const blocker = state.readiness?.blockers?.find(item => item.step === step);
+  setText(
+    'creatorWizardStepStatus',
+    blocker?.message || (current ? `${current.label}: ${wizardStatusLabels[current.status] || current.status}.` : ''),
+  );
+  if (state.current) {
+    const hash = new URLSearchParams({ webinar: state.current.id, step: String(step) });
+    if (historyMode === 'push') window.history.pushState({ creatorWizard: true }, '', `#${hash.toString()}`);
+    else if (historyMode === 'replace') window.history.replaceState({ creatorWizard: true }, '', `#${hash.toString()}`);
+  }
+  if (focus) window.requestAnimationFrame(() => node(headings[step])?.focus());
+}
+
+async function refreshReadiness() {
+  if (!state.current) return;
+  const result = await getJson(`/v1/creator/webinars/${encodeURIComponent(state.current.id)}/readiness`);
+  renderWizard(result.readiness);
+  activateWizardStep(state.wizardStep, false, 'none');
+}
+
 function fillMetadata(webinar) {
   const fields = {
     creatorTitle: webinar.title,
@@ -232,6 +397,7 @@ function fillMetadata(webinar) {
     creatorVisibility: webinar.visibility,
     creatorFreshness: webinar.freshnessStatus,
     creatorCurrentAsOf: webinar.currentAsOf || '',
+    creatorReviewDueAt: webinar.reviewDueAt || '',
     creatorDisclaimer: webinar.disclaimer || '',
     creatorSyntheticDisclosure: webinar.syntheticDisclosure || '',
   };
@@ -276,6 +442,7 @@ function metadataPayload() {
     durationMinutes: numberOrNull(node('creatorDuration').value),
     language: node('creatorLanguage').value.trim(),
     currentAsOf: strictNullable(node('creatorCurrentAsOf').value),
+    reviewDueAt: strictNullable(node('creatorReviewDueAt').value),
     disclaimer: strictNullable(node('creatorDisclaimer').value),
     syntheticDisclosure: strictNullable(node('creatorSyntheticDisclosure').value),
     supersededByWebinarId: state.current.supersededByWebinarId || null,
@@ -310,6 +477,115 @@ function renderSources(items) {
     remove.addEventListener('click', () => void removeSource(source.id, remove));
     item.append(copy, remove);
     list.append(item);
+  }
+}
+
+function renderMaterials(items) {
+  state.materials = items;
+  node('creatorMaterialsEmpty').hidden = items.length > 0;
+  const editable = ['DRAFT', 'NEEDS_REVIEW'].includes(state.current?.contentStatus);
+  const rows = items.map(material => {
+    const item = document.createElement('li');
+    item.className = 'creator-list-item';
+    const copy = document.createElement('div');
+    copy.className = 'creator-list-item-copy';
+    const title = document.createElement('p');
+    title.className = 'font-bold text-primary';
+    title.textContent = material.displayName;
+    const meta = document.createElement('p');
+    meta.className = 'mt-1 text-body-md text-on-surface-variant creator-number';
+    meta.textContent = `${material.status === 'READY' ? 'Готов к скачиванию' : material.status === 'FAILED' ? 'Проверка не пройдена' : 'Загружается'} · ${Math.ceil(Number(material.sizeBytes) / 1024)} КБ`;
+    copy.append(title, meta);
+    const actions = document.createElement('div');
+    actions.className = 'creator-list-item-actions';
+    if (material.status === 'READY') {
+      const download = document.createElement('a');
+      download.className = 'platform-secondary-button';
+      download.href = material.downloadPath;
+      download.textContent = 'Скачать для проверки';
+      actions.append(download);
+    }
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'platform-secondary-button creator-danger-button';
+    remove.textContent = 'Убрать файл';
+    remove.disabled = !editable;
+    remove.addEventListener('click', () => void removeMaterial(material));
+    actions.append(remove);
+    item.append(copy, actions);
+    return item;
+  });
+  node('creatorMaterialsList').replaceChildren(...rows);
+  for (const control of node('creatorMaterialForm').elements) control.disabled = !editable;
+}
+
+async function reloadMaterials() {
+  const result = await getJson(`/v1/creator/webinars/${encodeURIComponent(state.current.id)}/materials`);
+  renderMaterials(result.materials || []);
+  await refreshReadiness();
+}
+
+function materialResumeKey() {
+  return state.current?.id ? `aspb.creator.material-upload.${state.current.id}` : '';
+}
+
+function readMaterialResume() {
+  try { return JSON.parse(window.sessionStorage.getItem(materialResumeKey()) || 'null'); } catch { return null; }
+}
+
+function saveMaterialResume(value) {
+  try { window.sessionStorage.setItem(materialResumeKey(), JSON.stringify(value)); } catch { /* optional */ }
+}
+
+function clearMaterialResume() {
+  try { window.sessionStorage.removeItem(materialResumeKey()); } catch { /* optional */ }
+}
+
+async function uploadMaterial(file, displayName) {
+  const saved = readMaterialResume();
+  const matches = saved?.fileName === file.name && saved?.mimeType === file.type && saved?.sizeBytes === String(file.size);
+  let init = null;
+  if (matches && saved.uploadId) {
+    try { init = await post(`/v1/creator/material-uploads/${encodeURIComponent(saved.uploadId)}/resume`, {}); }
+    catch (error) { if (![404, 409].includes(error?.status)) throw error; clearMaterialResume(); }
+  }
+  if (!init) {
+    const idempotencyKey = matches && saved?.idempotencyKey ? saved.idempotencyKey : operationKey('material-upload');
+    init = await post(
+      `/v1/creator/webinars/${encodeURIComponent(state.current.id)}/materials/uploads`,
+      { displayName, fileName: file.name, mimeType: file.type, sizeBytes: String(file.size) },
+      { 'Idempotency-Key': idempotencyKey },
+    );
+    saveMaterialResume({ idempotencyKey, uploadId: init.uploadId, fileName: file.name, mimeType: file.type, sizeBytes: String(file.size) });
+  }
+  let completedParts = [...(init.completedParts || [])];
+  const partSize = init.limits.partSizeBytes;
+  for (const part of init.parts) {
+    setText('creatorMaterialStatus', `Загружаем часть ${part.partNumber}… Готово: ${completedParts.length}.`);
+    const body = file.slice((part.partNumber - 1) * partSize, Math.min(file.size, part.partNumber * partSize));
+    const uploaded = await putUploadPart(part, body, file.type);
+    if (uploaded.completedParts) completedParts = uploaded.completedParts;
+    else {
+      const recorded = await post(`/v1/creator/material-uploads/${encodeURIComponent(init.uploadId)}/parts`, {
+        partNumber: part.partNumber,
+        etag: uploaded.etag,
+      });
+      completedParts = recorded.completedParts;
+    }
+  }
+  await post(`/v1/creator/material-uploads/${encodeURIComponent(init.uploadId)}/complete`, { parts: completedParts });
+  clearMaterialResume();
+}
+
+async function removeMaterial(material) {
+  if (!window.confirm(`Убрать файл «${material.displayName}» из вебинара? Уже опубликованные версии не изменятся.`)) return;
+  setText('creatorMaterialStatus', 'Убираем файл…');
+  try {
+    await deleteJson(`/v1/creator/materials/${encodeURIComponent(material.id)}`, { expectedRevision: material.revision });
+    await reloadMaterials();
+    setText('creatorMaterialStatus', 'Файл убран из черновика.');
+  } catch (error) {
+    setText('creatorMaterialStatus', errorCopy(error, 'Не удалось убрать файл. Обновите список и повторите.'));
   }
 }
 
@@ -498,6 +774,150 @@ function renderTranscript(transcript) {
   }
 }
 
+function renderChapters(result) {
+  state.chapterTranscript = result?.transcript || null;
+  state.chapters = result?.chapters || [];
+  const transcript = state.chapterTranscript;
+  const mutable = Boolean(
+    transcript &&
+      transcript.status !== 'PUBLISHED' &&
+      ['DRAFT', 'NEEDS_REVIEW'].includes(state.current?.contentStatus),
+  );
+  const form = node('creatorChapterForm');
+  for (const control of form.elements) control.disabled = !mutable;
+  setText(
+    'creatorChaptersSummary',
+    !transcript
+      ? 'Сначала создайте расшифровку.'
+      : transcript.status === 'PUBLISHED'
+        ? 'Опубликованные главы доступны только для чтения. Для изменений создайте новую версию расшифровки.'
+        : `Версия расшифровки ${transcript.version} · ${state.chapters.length} глав`,
+  );
+  node('creatorChaptersEmpty').hidden = state.chapters.length > 0;
+  const rows = state.chapters.map((chapter, index) => {
+    const item = document.createElement('li');
+    item.className = 'creator-chapter-row';
+    const origin = document.createElement('p');
+    origin.className = 'creator-chapter-origin text-label-sm text-on-surface-variant';
+    origin.textContent =
+      chapter.origin === 'AI_REVIEWED'
+        ? 'AI-предложение принято автором'
+        : chapter.origin === 'LEGACY_UNKNOWN'
+          ? 'Перенесено из предыдущей версии без сведений о происхождении'
+          : 'Добавлено вручную';
+    const secondsId = `creatorChapterSeconds-${chapter.id}`;
+    const titleId = `creatorChapterTitle-${chapter.id}`;
+    const descriptionId = `creatorChapterDescription-${chapter.id}`;
+    const field = (id, labelText, value, type = 'text') => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'grid gap-2';
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      label.className = 'text-label-md font-label-md text-primary';
+      label.htmlFor = id;
+      label.textContent = labelText;
+      input.id = id;
+      input.className = 'platform-input px-4';
+      input.type = type;
+      input.value = value ?? '';
+      input.disabled = !mutable;
+      if (type === 'number') { input.min = '0'; input.step = '1'; input.inputMode = 'numeric'; }
+      if (id === titleId) { input.minLength = 2; input.maxLength = 240; input.required = true; }
+      if (id === descriptionId) input.maxLength = 2000;
+      wrapper.append(label, input);
+      return { wrapper, input };
+    };
+    const seconds = field(secondsId, 'Начало, секунды', Math.floor(chapter.startMs / 1_000), 'number');
+    const title = field(titleId, 'Название', chapter.title);
+    const description = field(descriptionId, 'Описание', chapter.description || '');
+    description.wrapper.classList.add('creator-chapter-description');
+    const actions = document.createElement('div');
+    actions.className = 'creator-chapter-actions';
+    const action = (label, handler, disabled = false, danger = false) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `platform-secondary-button${danger ? ' creator-danger-button' : ''}`;
+      button.textContent = label;
+      button.disabled = !mutable || disabled;
+      button.addEventListener('click', handler);
+      return button;
+    };
+    actions.append(
+      action('Сохранить', () => void saveChapter(chapter, seconds.input, title.input, description.input)),
+      action('Выше', () => void moveChapter(index, -1), index === 0),
+      action('Ниже', () => void moveChapter(index, 1), index === state.chapters.length - 1),
+      action('Удалить', () => void removeChapter(chapter), false, true),
+    );
+    item.append(origin, seconds.wrapper, title.wrapper, description.wrapper, actions);
+    return item;
+  });
+  node('creatorChaptersList').replaceChildren(...rows);
+}
+
+async function reloadChapters() {
+  const result = await getJson(`/v1/creator/webinars/${encodeURIComponent(state.current.id)}/chapters`);
+  renderChapters(result);
+  await refreshReadiness();
+}
+
+async function saveChapter(chapter, secondsInput, titleInput, descriptionInput) {
+  if (!titleInput.checkValidity() || !secondsInput.checkValidity()) {
+    (!titleInput.checkValidity() ? titleInput : secondsInput).focus();
+    setText('creatorChapterStatus', 'Проверьте название и таймкод главы.');
+    return;
+  }
+  setText('creatorChapterStatus', 'Сохраняем главу…');
+  try {
+    await patchJson(
+      `/v1/creator/webinars/${encodeURIComponent(state.current.id)}/chapters/${encodeURIComponent(chapter.id)}`,
+      {
+        expectedRevision: chapter.revision,
+        startMs: Math.round(Number(secondsInput.value) * 1_000),
+        title: titleInput.value.trim(),
+        description: strictNullable(descriptionInput.value),
+      },
+    );
+    await reloadChapters();
+    setText('creatorChapterStatus', 'Глава сохранена.');
+  } catch (error) {
+    setText('creatorChapterStatus', errorCopy(error, 'Не удалось сохранить главу. Обновите данные и повторите.'));
+  }
+}
+
+async function removeChapter(chapter) {
+  if (!window.confirm(`Удалить главу «${chapter.title}»? Опубликованные данные это не затронет.`)) return;
+  setText('creatorChapterStatus', 'Удаляем главу…');
+  try {
+    await deleteJson(
+      `/v1/creator/webinars/${encodeURIComponent(state.current.id)}/chapters/${encodeURIComponent(chapter.id)}`,
+      { expectedRevision: chapter.revision },
+    );
+    await reloadChapters();
+    setText('creatorChapterStatus', 'Глава удалена из черновика.');
+  } catch (error) {
+    setText('creatorChapterStatus', errorCopy(error, 'Не удалось удалить главу. Обновите данные и повторите.'));
+  }
+}
+
+async function moveChapter(index, delta) {
+  const reordered = [...state.chapters];
+  const target = index + delta;
+  if (target < 0 || target >= reordered.length) return;
+  [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+  setText('creatorChapterStatus', 'Меняем порядок глав…');
+  try {
+    const result = await patchJson(`/v1/creator/webinars/${encodeURIComponent(state.current.id)}/chapters/reorder`, {
+      transcriptId: state.chapterTranscript.id,
+      items: reordered.map((chapter, orderIndex) => ({ id: chapter.id, expectedRevision: chapter.revision, orderIndex })),
+    });
+    renderChapters({ transcript: state.chapterTranscript, chapters: result.chapters });
+    await refreshReadiness();
+    setText('creatorChapterStatus', 'Порядок глав сохранён.');
+  } catch (error) {
+    setText('creatorChapterStatus', errorCopy(error, 'Не удалось изменить порядок. Обновите данные и повторите.'));
+  }
+}
+
 function renderTerms(terms) {
   state.terms = terms;
   const list = node('creatorTermsList');
@@ -617,13 +1037,15 @@ async function loadTranscriptWorkspace(webinarId) {
     if (error?.status === 404) return { transcript: null };
     throw error;
   });
-  const [transcriptResult, termsResult, suggestionsResult] = await Promise.all([
+  const [transcriptResult, chaptersResult, termsResult, suggestionsResult] = await Promise.all([
     transcriptRequest,
+    getJson(`/v1/creator/webinars/${encodeURIComponent(webinarId)}/chapters`),
     getJson('/v1/creator/term-dictionary'),
     getJson(`/v1/creator/webinars/${encodeURIComponent(webinarId)}/ai-suggestions`),
   ]);
   if (state.current?.id !== webinarId) return;
   renderTranscript(transcriptResult.transcript);
+  renderChapters(chaptersResult);
   renderTerms(termsResult.terms || []);
   renderAiSuggestions(suggestionsResult.suggestions || []);
   renderMediaAsset(state.current.currentMediaAsset || null);
@@ -662,31 +1084,37 @@ async function loadWebinarList() {
   renderWebinarList();
 }
 
-async function selectWebinar(webinarId, focus = true) {
+async function selectWebinar(webinarId, focus = true, historyMode = 'push') {
   state.activeJobPoll += 1;
   setText('creatorCommandStatus', 'Загружаем вебинар…');
   try {
-    const [detail, scenario] = await Promise.all([
+    const [detail, scenario, materials, readiness] = await Promise.all([
       getJson(`/v1/creator/webinars/${encodeURIComponent(webinarId)}`),
       getJson(`/v1/creator/webinars/${encodeURIComponent(webinarId)}/chat-scenario`),
+      getJson(`/v1/creator/webinars/${encodeURIComponent(webinarId)}/materials`),
+      getJson(`/v1/creator/webinars/${encodeURIComponent(webinarId)}/readiness`),
     ]);
     state.current = detail.webinar;
     state.scenario = scenario.scenario;
     setText('creatorOverviewHeading', state.current.title);
     node('creatorPreviewLink').href = `creator-webinar-preview.html#webinar=${encodeURIComponent(state.current.id)}`;
     renderStatusGrid(state.current);
+    renderPublishedLink(state.current);
     fillMetadata(state.current);
     renderSources(state.current.sources || []);
+    renderMaterials(materials.materials || []);
+    renderWizard(readiness.readiness);
     renderScenario(state.scenario);
     renderSessions(state.current.sessions || []);
     renderTranscript(null);
+    renderChapters({ transcript: null, chapters: [] });
     renderTerms([]);
     renderAiSuggestions([]);
     renderMediaAsset(state.current.currentMediaAsset || null);
     node('creatorNoSelection').hidden = true;
     node('creatorEditor').hidden = false;
-    node('creatorAccessSection').hidden = !(state.membership.role === 'OWNER' && state.current.visibility === 'PRIVATE');
-    if (!node('creatorAccessSection').hidden) {
+    const accessAvailable = state.membership.role === 'OWNER' && state.current.visibility === 'PRIVATE';
+    if (accessAvailable) {
       const result = await getJson(`/v1/creator/webinars/${encodeURIComponent(webinarId)}/access-grants`);
       renderGrants(result.grants || []);
     } else {
@@ -703,7 +1131,7 @@ async function selectWebinar(webinarId, focus = true) {
     }
     renderWebinarList();
     setText('creatorCommandStatus', '');
-    if (focus) window.requestAnimationFrame(() => node('creatorOverviewHeading').focus());
+    activateWizardStep(state.wizardStep, focus, historyMode);
   } catch (error) {
     if ([401, 403].includes(error?.status)) showFatalError(error);
     else setText('creatorCommandStatus', 'Не удалось загрузить вебинар. Проверьте соединение и повторите.');
@@ -714,7 +1142,7 @@ async function refreshCurrent(focus = false) {
   if (!state.current) return;
   const id = state.current.id;
   await loadWebinarList();
-  await selectWebinar(id, focus);
+  await selectWebinar(id, focus, 'none');
 }
 
 async function removeSource(sourceId, button) {
@@ -1086,6 +1514,7 @@ function bindMediaTranscript() {
         ? 'Расшифровка сохранена и отмечена как проверенная.'
         : 'Черновик расшифровки сохранён.');
       await loadWebinarList();
+      await refreshReadiness();
     } catch (error) {
       setText('creatorTranscriptStatus', errorCopy(error, 'Не удалось сохранить расшифровку.'));
     } finally {
@@ -1104,6 +1533,7 @@ function bindMediaTranscript() {
       state.current.transcriptStatus = result.transcript.status;
       renderStatusGrid(state.current);
       renderTranscript(result.transcript);
+      await reloadChapters();
       await loadWebinarList();
       setText('creatorTranscriptStatus', 'Расшифровка опубликована отдельно от вебинара.');
     } catch (error) {
@@ -1146,6 +1576,36 @@ function bindMediaTranscript() {
   }
 }
 
+function bindChapters() {
+  const form = node('creatorChapterForm');
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    clearInvalid(form);
+    if (firstInvalid(form) || !state.chapterTranscript) {
+      setText('creatorChapterStatus', 'Укажите целый таймкод и название главы.');
+      return;
+    }
+    const button = node('creatorChapterAddButton');
+    processing(button, true, 'Добавить главу', 'Добавляем…');
+    try {
+      await post(`/v1/creator/webinars/${encodeURIComponent(state.current.id)}/chapters`, {
+        transcriptId: state.chapterTranscript.id,
+        expectedTranscriptRevision: state.chapterTranscript.revision,
+        startMs: Math.round(Number(node('creatorChapterStart').value) * 1_000),
+        title: node('creatorChapterTitle').value.trim(),
+        description: strictNullable(node('creatorChapterDescription').value),
+      });
+      form.reset();
+      await reloadChapters();
+      setText('creatorChapterStatus', 'Глава добавлена вручную.');
+    } catch (error) {
+      setText('creatorChapterStatus', errorCopy(error, 'Не удалось добавить главу. Обновите данные и повторите.'));
+    } finally {
+      processing(button, false, 'Добавить главу', 'Добавляем…');
+    }
+  });
+}
+
 function bindCreate() {
   const form = node('creatorCreateForm');
   form.addEventListener('submit', async event => {
@@ -1178,29 +1638,91 @@ function bindCreate() {
   });
 }
 
+let metadataAutosaveTimer = 0;
+let metadataSaveInFlight = false;
+let metadataSaveQueued = false;
+
+function metadataFormIsValid(form) {
+  return [...form.elements].every(control => typeof control.checkValidity !== 'function' || control.checkValidity());
+}
+
+async function idempotentMetadataPatch(webinarId, payload, key) {
+  const path = `/v1/creator/webinars/${encodeURIComponent(webinarId)}`;
+  try {
+    return await patchJson(path, payload, { 'Idempotency-Key': key });
+  } catch (error) {
+    if (error?.status && error.status !== 0) throw error;
+    return patchJson(path, payload, { 'Idempotency-Key': key });
+  }
+}
+
+async function saveMetadata({ explicit = false, submitter = null } = {}) {
+  window.clearTimeout(metadataAutosaveTimer);
+  const form = node('creatorMetadataForm');
+  if (!state.current || !['DRAFT', 'NEEDS_REVIEW'].includes(state.current.contentStatus)) return;
+  clearInvalid(form);
+  if (!metadataFormIsValid(form)) {
+    if (explicit) {
+      firstInvalid(form);
+      setText('creatorMetadataStatus', 'Проверьте отмеченное поле и допустимую длину.');
+    }
+    return;
+  }
+  if (metadataSaveInFlight) {
+    metadataSaveQueued = true;
+    return;
+  }
+
+  metadataSaveInFlight = true;
+  const button = explicit ? submitter || node('creatorSaveButton') : null;
+  const buttonLabel = button?.textContent || '';
+  if (button) processing(button, true, buttonLabel, 'Сохраняем…');
+  setText('creatorMetadataStatus', explicit ? 'Сохраняем сведения…' : 'Сохраняем изменения автоматически…');
+  try {
+    const currentId = state.current.id;
+    const result = await idempotentMetadataPatch(currentId, metadataPayload(), operationKey('webinar-metadata'));
+    if (state.current?.id === currentId) {
+      state.current = result.webinar;
+      const index = state.webinars.findIndex(item => item.id === currentId);
+      if (index >= 0) state.webinars[index] = result.webinar;
+      renderStatusGrid(state.current);
+      renderWebinarList();
+      await refreshReadiness();
+    }
+    setText('creatorMetadataStatus', explicit ? 'Сведения сохранены.' : 'Изменения сохранены автоматически.');
+  } catch (error) {
+    setText(
+      'creatorMetadataStatus',
+      errorCopy(error, 'Не удалось сохранить сведения. Изменения остались в форме; проверьте соединение и повторите.'),
+    );
+  } finally {
+    metadataSaveInFlight = false;
+    if (button) processing(button, false, buttonLabel, 'Сохраняем…');
+    if (metadataSaveQueued) {
+      metadataSaveQueued = false;
+      window.setTimeout(() => void saveMetadata(), 0);
+    }
+  }
+}
+
+function scheduleMetadataAutosave(delay) {
+  window.clearTimeout(metadataAutosaveTimer);
+  metadataAutosaveTimer = window.setTimeout(() => void saveMetadata(), delay);
+}
+
 function bindMetadata() {
   node('creatorPrimaryArea').addEventListener('change', () => renderSpecializations(''));
   const form = node('creatorMetadataForm');
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    clearInvalid(form);
-    if (firstInvalid(form)) {
-      setText('creatorMetadataStatus', 'Проверьте отмеченное поле и допустимую длину.');
-      return;
-    }
-    const button = node('creatorSaveButton');
-    processing(button, true, 'Сохранить сведения', 'Сохраняем…');
-    setText('creatorMetadataStatus', '');
-    try {
-      await patchJson(`/v1/creator/webinars/${encodeURIComponent(state.current.id)}`, metadataPayload());
-      await refreshCurrent();
-      setText('creatorMetadataStatus', 'Сведения сохранены.');
-    } catch (error) {
-      setText('creatorMetadataStatus', errorCopy(error, 'Не удалось сохранить сведения. Проверьте поля и соединение.'));
-    } finally {
-      processing(button, false, 'Сохранить сведения', 'Сохраняем…');
-    }
+    await saveMetadata({ explicit: true, submitter: event.submitter });
   });
+  for (const control of form.elements) {
+    if (!control.name) continue;
+    control.addEventListener('input', () => scheduleMetadataAutosave(900));
+    control.addEventListener('change', () => scheduleMetadataAutosave(250));
+    control.addEventListener('blur', () => scheduleMetadataAutosave(0));
+  }
 }
 
 function bindSources() {
@@ -1227,6 +1749,32 @@ function bindSources() {
       setText('creatorSourceStatus', errorCopy(error, 'Не удалось добавить источник. Проверьте ссылку и повторите.'));
     } finally {
       processing(button, false, 'Добавить источник', 'Добавляем…');
+    }
+  });
+}
+
+function bindMaterials() {
+  const form = node('creatorMaterialForm');
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    clearInvalid(form);
+    const file = node('creatorMaterialFile').files?.[0];
+    if (firstInvalid(form) || !file) {
+      setText('creatorMaterialStatus', 'Укажите название и выберите поддерживаемый файл.');
+      return;
+    }
+    const button = node('creatorMaterialButton');
+    processing(button, true, 'Загрузить файл', 'Загружаем…');
+    setText('creatorMaterialStatus', 'Подготавливаем приватную загрузку…');
+    try {
+      await uploadMaterial(file, node('creatorMaterialName').value.trim());
+      form.reset();
+      await reloadMaterials();
+      setText('creatorMaterialStatus', 'Файл проверен и доступен участникам с действующим доступом.');
+    } catch (error) {
+      setText('creatorMaterialStatus', errorCopy(error, 'Не удалось загрузить или проверить файл. Можно выбрать тот же файл и продолжить.'));
+    } finally {
+      processing(button, false, 'Загрузить файл', 'Загружаем…');
     }
   });
 }
@@ -1354,7 +1902,14 @@ async function runCommand(action, button, idleLabel, busyLabel) {
       { 'Idempotency-Key': operationKey(`webinar-${action}`) },
     );
     await refreshCurrent(true);
-    setText('creatorCommandStatus', action === 'archive' ? 'Вебинар архивирован без удаления истории.' : 'Статус вебинара обновлён.');
+    setText(
+      'creatorCommandStatus',
+      action === 'archive'
+        ? 'Вебинар архивирован без удаления истории.'
+        : action === 'publish'
+          ? 'Вебинар опубликован. Точная ссылка доступна ниже.'
+          : 'Вебинар отправлен на модерацию.',
+    );
   } catch (error) {
     setText('creatorCommandStatus', errorCopy(error, 'Не удалось изменить статус. Проверьте условия и повторите.'));
   } finally {
@@ -1391,11 +1946,26 @@ function bindAll() {
   bindCreate();
   bindMetadata();
   bindSources();
+  bindMaterials();
   bindScenario();
   bindSchedule();
   bindAccess();
   bindMediaTranscript();
+  bindChapters();
   bindCommands();
+  node('creatorWizardPrevious').addEventListener('click', () => activateWizardStep(state.wizardStep - 1, true, 'push'));
+  node('creatorWizardNext').addEventListener('click', () => activateWizardStep(state.wizardStep + 1, true, 'push'));
+  window.addEventListener('popstate', () => {
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    const webinarId = fragment.get('webinar');
+    const step = Math.min(8, Math.max(1, Number(fragment.get('step')) || 1));
+    state.wizardStep = step;
+    if (webinarId && webinarId !== state.current?.id && state.webinars.some(item => item.id === webinarId)) {
+      void selectWebinar(webinarId, true, 'none');
+    } else if (state.current) {
+      activateWizardStep(step, true, 'none');
+    }
+  });
 }
 
 async function start() {
@@ -1418,9 +1988,11 @@ async function start() {
     fillReferenceData();
     renderWebinarList();
     setMode('content', 'creatorHeading');
-    const fragmentId = new URLSearchParams(location.hash.slice(1)).get('webinar');
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    const fragmentId = fragment.get('webinar');
+    state.wizardStep = Math.min(8, Math.max(1, Number(fragment.get('step')) || 1));
     const initial = state.webinars.find(item => item.id === fragmentId)?.id || state.webinars[0]?.id;
-    if (initial) await selectWebinar(initial, false);
+    if (initial) await selectWebinar(initial, false, 'replace');
   } catch (error) {
     showFatalError(error);
   }

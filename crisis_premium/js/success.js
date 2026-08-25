@@ -10,7 +10,7 @@ import {
   formatUtcIcsDate,
   getJson,
 } from './utils.js?v=site-review-7';
-import { getRegistrationState } from './registration.js?v=remediation-20260804-1';
+import { getRegistrationState } from './registration.js?v=single-service-20260825-1';
 import { updateTelegramLinks } from './room.js?v=site-review-7';
 import { track } from './analytics.js?v=ana-006-1';
 
@@ -83,21 +83,17 @@ function renderSuccessTemporaryError(error) {
   });
 }
 
-function capitalizeFirst(value) {
-  return value ? `${value[0].toUpperCase()}${value.slice(1)}` : '';
-}
-
 function buildSuccessIntro(data) {
   const scheduledAt = data?.webinar?.scheduledAt;
   if (!scheduledAt) {
-    return 'Ваш доступ открыт. Комната вебинара и раздел записей привязаны к этой регистрации; пароль создавать не нужно.';
+    return 'Ваш доступ открыт. Вебинар уже добавлен в раздел «Мои вебинары»; пароль создавать не нужно.';
   }
   const day = formatMoscowWebinarDay(scheduledAt, data.serverTime);
   const time = formatMoscowWebinarTime(scheduledAt);
   // Обе ветки тернарника были идентичны — схлопнуто без изменения вывода.
-  const dateLabel = `${capitalizeFirst(day)} в ${time} МСК`;
+  const dateLabel = `${day} в ${time} МСК`;
 
-  return `${dateLabel} покажем готовую цепочку АСПБ: вы видите проблему и передаете клиента, команда ведет процедуру, а условия и размер возможного вознаграждения определяются договором. Рабочая ссылка уже доступна на этой странице; Telegram можно подключить отдельно для организационных напоминаний.`;
+  return `Вебинар начнётся ${dateLabel}. Он уже добавлен в раздел «Мои вебинары», где можно проверить дату, открыть комнату в нужное время и позже найти запись.`;
 }
 
 function bindSuccessCalendar(data) {
@@ -158,6 +154,7 @@ export async function hydrateSuccessPage() {
     revealSuccessContent();
     window.dispatchEvent(new CustomEvent('aspb:registration-state', { detail: data }));
     const roomHref = data.webinarUrl || 'webinar.html';
+    const accountHref = data.accountUrl || 'account.html';
     state.serverTimeOffset = ((d) => (Number.isFinite(d) ? d - Date.now() : 0))(new Date(data.serverTime).getTime());
     updateTelegramLinks(data);
     const telegramLink = document.getElementById('successTelegramLink');
@@ -169,8 +166,8 @@ export async function hydrateSuccessPage() {
         telegramLink.classList.remove('pointer-events-none', 'opacity-70');
       }
     }
-    const roomLink = document.getElementById('successRoomLink') || document.querySelector('a[href*="webinar.html"]');
-    if (roomLink) roomLink.setAttribute('href', roomHref);
+    const accountLink = document.getElementById('successAccountLink');
+    if (accountLink) accountLink.setAttribute('href', accountHref);
     const intro = document.getElementById('successIntroText');
     if (intro) intro.textContent = buildSuccessIntro(data);
     const recordingsLink = document.getElementById('successRecordingsLink');
@@ -184,10 +181,12 @@ export async function hydrateSuccessPage() {
       if (intro) {
         intro.textContent = 'Демо-доступ включен: вебинарная комната уже открыта. Можно сразу зайти, проверить видео, чат, таймлайн и финальную заявку так, как это увидит участник после регистрации.';
       }
-      if (roomLink) {
-        roomLink.className = 'flex items-center justify-center gap-2 bg-primary text-on-primary hover:bg-primary/95 py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95 shadow-md';
-        roomLink.innerHTML = '<span class="material-symbols-outlined text-xl">play_circle</span>Открыть вебинар сейчас';
-      }
+      const roomLink = document.getElementById('successImmediateRoomLink') || document.createElement('a');
+      roomLink.id = 'successImmediateRoomLink';
+      roomLink.className = 'flex items-center justify-center gap-2 border border-outline/30 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface py-4 px-6 rounded-xl font-label-md text-label-md transition-[background-color,transform] active:scale-95 shadow-md';
+      roomLink.href = roomHref;
+      roomLink.innerHTML = '<span class="material-symbols-outlined text-xl">play_circle</span>Открыть вебинар сейчас';
+      if (!roomLink.isConnected) accountLink?.insertAdjacentElement('afterend', roomLink);
     }
     bindSuccessCalendar(data);
     hydrateRecordingsSummary().catch(() => {});

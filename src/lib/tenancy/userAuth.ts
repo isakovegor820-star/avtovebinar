@@ -5,6 +5,7 @@ import { env } from '../env.js';
 import { AppError, getClientIp } from '../http.js';
 import { getRequestContext, setContextIdentity } from '../requestContext.js';
 import { createAccessToken, hashIp, hashToken } from '../tokens.js';
+import { DEFAULT_ORGANIZATION_ID } from './constants.js';
 
 export const USER_SESSION_COOKIE_NAME = 'aspb_user_session';
 export const PASSWORDLESS_LOGIN_TOKEN_PURPOSE = 'PASSWORDLESS_LOGIN' as const;
@@ -12,6 +13,10 @@ export const PASSWORDLESS_LOGIN_TOKEN_TTL_MS = 20 * 60 * 1000;
 export const USER_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const USER_SESSION_LAST_SEEN_INTERVAL_MS = 5 * 60 * 1000;
 const OPAQUE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+function organizationScope() {
+  return env.ASPB_SINGLE_ORGANIZATION_MODE === 'on' ? { organizationId: DEFAULT_ORGANIZATION_ID } : {};
+}
 
 type PartitionedCookieOptions = CookieOptions & { partitioned?: boolean };
 type AuthDb = PrismaClient;
@@ -197,6 +202,7 @@ export async function consumePasswordlessLogin(
       const memberships = await tx.organizationMembership.findMany({
         where: {
           userId: authToken.userId,
+          ...organizationScope(),
           status: 'ACTIVE',
           organization: { status: 'ACTIVE' },
         },
@@ -296,6 +302,15 @@ export async function authenticateUserSession(
   if (mfaRequired && !options.allowUnverifiedMfa) return null;
 
   let activeOrganizationId = session.activeOrganizationId;
+  if (env.ASPB_SINGLE_ORGANIZATION_MODE === 'on' && activeOrganizationId !== DEFAULT_ORGANIZATION_ID) {
+    activeOrganizationId = null;
+    if (session.activeOrganizationId) {
+      await db.userSession.updateMany({
+        where: { id: session.id, activeOrganizationId: session.activeOrganizationId },
+        data: { activeOrganizationId: null },
+      });
+    }
+  }
   if (activeOrganizationId) {
     const membership = await db.organizationMembership.findFirst({
       where: {
@@ -360,6 +375,7 @@ export async function getUserSessionSummary(db: AuthDb, session: AuthenticatedUs
   const memberships = await db.organizationMembership.findMany({
     where: {
       userId: session.userId,
+      ...organizationScope(),
       status: 'ACTIVE',
       organization: { status: 'ACTIVE' },
     },
@@ -385,6 +401,9 @@ export async function getUserSessionSummary(db: AuthDb, session: AuthenticatedUs
 
 export async function selectActiveOrganization(db: AuthDb, session: AuthenticatedUserSession, input: unknown) {
   const { organizationId } = activeOrganizationSelectionSchema.parse(input);
+  if (env.ASPB_SINGLE_ORGANIZATION_MODE === 'on' && organizationId !== DEFAULT_ORGANIZATION_ID) {
+    throw new AppError(404, 'Кабинет недоступен', undefined, 'tenant_context_unavailable');
+  }
   const membership = await db.organizationMembership.findFirst({
     where: {
       userId: session.userId,

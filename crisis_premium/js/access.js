@@ -7,7 +7,7 @@ import {
   logoutParticipant,
   participantLoginStatusMessage,
   requestParticipantLogin,
-} from './registration.js?v=remediation-20260805-2';
+} from './registration.js?v=single-service-20260825-1';
 import { formatMoscowDateTime } from './utils.js?v=site-review-7';
 import { updateTelegramLinks } from './room.js?v=site-review-7';
 
@@ -216,6 +216,10 @@ export async function hydrateAccessPage() {
     const data = await getParticipantAccess();
     if (!data?.ok) {
       renderLogin();
+      return;
+    }
+    if (new URLSearchParams(window.location.search).get('next') === 'account') {
+      window.location.replace(data.accountUrl || data.links?.account || 'account.html');
       return;
     }
     renderAccess(data);

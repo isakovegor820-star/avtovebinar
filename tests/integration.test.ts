@@ -321,6 +321,7 @@ beforeEach(async () => {
     TELEGRAM_CONSULTANT_BOT_TOKEN: '',
     TELEGRAM_MANUAL_BROADCAST: 'off',
     EMAIL_MODE: 'log',
+    ASPB_SINGLE_ORGANIZATION_MODE: 'off',
     PLATFORM_ACCOUNTS_ENABLED: 'off',
     PLATFORM_TENANCY_ENFORCEMENT: 'off',
     CREATOR_DASHBOARD_ENABLED: 'off',
@@ -3690,7 +3691,7 @@ describe('critical path integration scenarios', () => {
     const initialDeliveryRun = await deliverPendingEmails(new Date());
     expect(initialDeliveryRun.result.sent).toBe(1);
     const initialDelivery = initialDeliveryRun.deliveries.find(delivery => delivery.kind === 'registration');
-    expect(initialDelivery?.input.webinarUrl).toContain('/crisis_premium/webinar.html#token=');
+    expect(initialDelivery?.input.webinarUrl).toContain('/crisis_premium/access.html?next=account#token=');
     expect(initialDelivery?.input.partnerUrl).toContain('/crisis_premium/webinar.html#token=');
     const initialExchangeToken = getExchangeTokenFromUrl(initialDelivery?.input.webinarUrl ?? '');
     if (!initialExchangeToken) throw new Error('Expected registration confirmation token');
@@ -3700,6 +3701,7 @@ describe('critical path integration scenarios', () => {
       .set('x-csrf-token', userCsrfToken)
       .send({ token: initialExchangeToken });
     expect(initialExchangeResponse.status).toBe(200);
+    expect(initialExchangeResponse.body.accountUrl).toContain('/crisis_premium/account.html');
     const firstRoomToken = getCookieValue(initialExchangeResponse, 'aspb_room_token');
     expect(firstRoomToken).toEqual(expect.any(String));
     await expect(
@@ -7150,6 +7152,17 @@ describe('critical path integration scenarios', () => {
       .send({ token });
     expect(consumed.status).toBe(200);
     expect(consumed.body).toMatchObject({ activeOrganizationId: null, memberships: [] });
+
+    env.ASPB_SINGLE_ORGANIZATION_MODE = 'on';
+    const disabledSelfService = await agent
+      .post('/api/v1/organizations')
+      .set('x-csrf-token', csrfToken)
+      .set('idempotency-key', 'org-create-disabled-0001')
+      .send({ name: 'Внешняя организация' });
+    expect(disabledSelfService.status).toBe(403);
+    expect(disabledSelfService.body.code).toBe('organization_self_service_disabled');
+    await expect(prisma.organization.count({ where: { name: 'Внешняя организация' } })).resolves.toBe(0);
+    env.ASPB_SINGLE_ORGANIZATION_MODE = 'off';
 
     const missingKey = await agent
       .post('/api/v1/organizations')

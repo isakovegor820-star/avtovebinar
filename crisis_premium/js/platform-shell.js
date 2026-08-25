@@ -1,4 +1,4 @@
-import { getJson, post } from './utils.js?v=platform-shell-1';
+import { getJson } from './utils.js?v=platform-shell-1';
 
 const ROLE_LABELS = {
   OWNER: 'Владелец',
@@ -34,7 +34,7 @@ const NAVIGATION = [
     ],
   },
   {
-    label: 'Организация',
+    label: 'Команда',
     items: [
       { label: 'Команда и настройки', href: 'organization.html', roles: ['OWNER'] },
       { label: 'Мой доступ', href: 'platform-access.html?mode=access', roles: ALL_ROLES },
@@ -50,7 +50,7 @@ const PAGE_CONFIG = {
   'moderation.html': { title: 'Модерация', group: 'Работа' },
   'creator-corrections.html': { title: 'Исправления', group: 'Контент' },
   'author-profile.html': { title: 'Профиль автора', group: 'Контент' },
-  'organization.html': { title: 'Команда и настройки', group: 'Организация' },
+  'organization.html': { title: 'Команда и настройки', group: 'Команда' },
 };
 
 function node(tag, className, text) {
@@ -81,7 +81,7 @@ function pageConfig() {
 function createSidebar() {
   const aside = node('aside', 'platform-shell-sidebar');
   aside.id = 'platformSidebar';
-  aside.setAttribute('aria-label', 'Рабочая навигация платформы');
+  aside.setAttribute('aria-label', 'Рабочая навигация АСПБ');
   aside.setAttribute('aria-hidden', 'false');
 
   const close = node('button', 'platform-shell-close', '×');
@@ -94,21 +94,8 @@ function createSidebar() {
   const mark = node('span', 'platform-shell-brand-mark', 'АСПБ');
   mark.setAttribute('aria-hidden', 'true');
   const copy = node('span', 'platform-shell-brand-copy');
-  copy.append(node('strong', '', 'Платформа'), node('span', '', 'Вебинары и правовой контент'));
+  copy.append(node('strong', '', 'Кабинет АСПБ'), node('span', '', 'Вебинары, участники и аналитика'));
   brand.append(mark, copy);
-
-  const switcher = node('div', 'platform-organization-switcher');
-  switcher.hidden = true;
-  const switcherLabel = node('label', '', 'Активная организация');
-  switcherLabel.htmlFor = 'platformShellOrganization';
-  const select = node('select');
-  select.id = 'platformShellOrganization';
-  select.setAttribute('aria-describedby', 'platformShellOrganizationStatus');
-  const switcherStatus = node('span', 'sr-only');
-  switcherStatus.id = 'platformShellOrganizationStatus';
-  switcherStatus.setAttribute('role', 'status');
-  switcherStatus.setAttribute('aria-live', 'polite');
-  switcher.append(switcherLabel, select, switcherStatus);
 
   const nav = node('nav', 'platform-shell-nav');
   nav.setAttribute('aria-label', 'Разделы платформы');
@@ -131,7 +118,7 @@ function createSidebar() {
   userCopy.append(node('strong', '', 'Аккаунт АСПБ'), node('span', '', 'Проверяем доступ…'));
   user.append(avatar, userCopy);
 
-  aside.append(close, brand, switcher, nav, support, user);
+  aside.append(close, brand, nav, support, user);
   return aside;
 }
 
@@ -149,7 +136,7 @@ function createUtilityBar(config) {
   menu.append(menuGlyph);
 
   const breadcrumb = node('div', 'platform-breadcrumb');
-  breadcrumb.append(node('span', '', `Платформа / ${config.group}`), node('strong', '', config.title));
+  breadcrumb.append(node('span', '', `Кабинет АСПБ / ${config.group}`), node('strong', '', config.title));
   leading.append(menu, breadcrumb);
 
   const actions = node('div', 'platform-utility-actions');
@@ -271,16 +258,6 @@ function renderSession(sidebar, utility, session, overview) {
   if (!membership) return;
   const role = membership.role;
   renderNavigation(sidebar.querySelector('[data-platform-navigation]'), role);
-  const switcher = sidebar.querySelector('.platform-organization-switcher');
-  const select = sidebar.querySelector('#platformShellOrganization');
-  select.replaceChildren();
-  for (const item of session.memberships || []) {
-    const option = node('option', '', item.organization.name);
-    option.value = item.organizationId;
-    option.selected = item.organizationId === session.activeOrganizationId;
-    select.append(option);
-  }
-  switcher.hidden = !(session.memberships?.length > 0);
   const displayName = session.user?.displayName || session.user?.email || 'Аккаунт АСПБ';
   const userCard = sidebar.querySelector('[data-platform-user]');
   userCard.querySelector('.platform-shell-user-avatar').textContent = initials(displayName);
@@ -295,25 +272,6 @@ function renderSession(sidebar, utility, session, overview) {
   const count = Number(overview?.attention?.length || 0);
   notifications.textContent = overview ? (count ? `Требует внимания: ${count}` : 'Нет срочных задач') : 'Задачи недоступны';
 
-  select.addEventListener('change', async () => {
-    const nextId = select.value;
-    if (!nextId || nextId === session.activeOrganizationId) return;
-    const confirmed = !document.body.dataset.platformFormDirty || window.confirm('Сменить организацию? Несохранённые изменения на этой странице останутся в текущей организации.');
-    if (!confirmed) {
-      select.value = session.activeOrganizationId;
-      return;
-    }
-    select.disabled = true;
-    sidebar.querySelector('#platformShellOrganizationStatus').textContent = 'Переключаем организацию…';
-    try {
-      await post('/v1/auth/active-organization', { organizationId: nextId });
-      location.reload();
-    } catch {
-      select.value = session.activeOrganizationId;
-      select.disabled = false;
-      sidebar.querySelector('#platformShellOrganizationStatus').textContent = 'Не удалось сменить организацию. Повторите.';
-    }
-  });
 }
 
 function watchDirtyForms(main) {
@@ -336,7 +294,7 @@ async function hydrate(sidebar, utility) {
   } catch {
     const nav = sidebar.querySelector('[data-platform-navigation]');
     nav.replaceChildren();
-    const access = node('a', '', 'Войти в платформу');
+    const access = node('a', '', 'Вход для команды');
     access.href = 'platform-access.html';
     nav.append(access);
     utility.querySelector('[data-platform-role]').textContent = 'Требуется вход';

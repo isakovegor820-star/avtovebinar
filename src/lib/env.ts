@@ -139,6 +139,10 @@ const envSchema = z.object({
   // Expand/switch flags for the tenant migration. Both remain off until the
   // passwordless user-session flow is ready; legacy /admin is independent.
   PLATFORM_ACCOUNTS_ENABLED: z.enum(['on', 'off']).default('off'),
+  // ASPB is a single-owner webinar service. Tenant tables remain as a data
+  // boundary, but public self-service organizations are disabled in normal
+  // runtime. Tests can opt out to keep cross-tenant safety coverage.
+  ASPB_SINGLE_ORGANIZATION_MODE: z.enum(['on', 'off']).default('on'),
   PLATFORM_TENANCY_ENFORCEMENT: z.enum(['on', 'off']).default('off'),
   CREATOR_DASHBOARD_ENABLED: z.enum(['on', 'off']).default('off'),
   PUBLIC_CATALOG_ENABLED: z.enum(['on', 'off']).default('off'),
@@ -181,6 +185,7 @@ type DefaultedProviderConfigKey =
   | 'AI_YANDEX_TIMEOUT_SECONDS';
 type ProductionSecurityConfig = Omit<
   EnvConfig,
+  | 'ASPB_SINGLE_ORGANIZATION_MODE'
   | 'PLATFORM_ACCOUNTS_ENABLED'
   | 'PLATFORM_TENANCY_ENFORCEMENT'
   | 'CREATOR_DASHBOARD_ENABLED'
@@ -194,6 +199,7 @@ type ProductionSecurityConfig = Omit<
   Partial<
     Pick<
       EnvConfig,
+      | 'ASPB_SINGLE_ORGANIZATION_MODE'
       | 'PLATFORM_ACCOUNTS_ENABLED'
       | 'PLATFORM_TENANCY_ENFORCEMENT'
       | 'CREATOR_DASHBOARD_ENABLED'
@@ -555,6 +561,7 @@ function runtimeEnv() {
     CORS_ORIGIN: process.env.CORS_ORIGIN ?? 'http://127.0.0.1:5174',
     TRUST_PROXY: process.env.TRUST_PROXY ?? 'false',
     PLATFORM_ACCOUNTS_ENABLED: process.env.PLATFORM_ACCOUNTS_ENABLED ?? 'off',
+    ASPB_SINGLE_ORGANIZATION_MODE: process.env.ASPB_SINGLE_ORGANIZATION_MODE ?? 'off',
     PLATFORM_TENANCY_ENFORCEMENT: process.env.PLATFORM_TENANCY_ENFORCEMENT ?? 'off',
     CREATOR_DASHBOARD_ENABLED: process.env.CREATOR_DASHBOARD_ENABLED ?? 'off',
     PUBLIC_CATALOG_ENABLED: process.env.PUBLIC_CATALOG_ENABLED ?? 'off',

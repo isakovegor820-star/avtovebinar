@@ -167,7 +167,8 @@ function existingRegistrationVerificationResponse(readiness: PublicEmailReadines
   return {
     ...genericParticipantLoginResponse(readiness),
     verificationRequired: true,
-    accessUrl: buildFrontendUrl('/crisis_premium/access.html'),
+    accessUrl: buildFrontendUrl('/crisis_premium/access.html?next=account'),
+    accountUrl: buildFrontendUrl('/crisis_premium/account.html'),
   };
 }
 
@@ -469,7 +470,8 @@ async function exchangeRegistrationToken(
     ok: true,
     purpose,
     registrationId,
-    accessUrl: buildFrontendUrl('/crisis_premium/access.html'),
+    accessUrl: buildFrontendUrl('/crisis_premium/access.html?next=account'),
+    accountUrl: buildFrontendUrl('/crisis_premium/account.html'),
     successUrl: buildFrontendUrl('/crisis_premium/success.html'),
     webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
     expiresAt: sessionExpiresAt.toISOString(),
@@ -483,6 +485,7 @@ registrationRouter.post(
     if (clean(data.companyWebsite)) {
       res.status(202).json({
         ok: true,
+        accountUrl: buildFrontendUrl('/crisis_premium/account.html'),
         successUrl: buildFrontendUrl('/crisis_premium/success.html'),
         webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
         telegramUrl: publicTelegramUrl(),
@@ -813,6 +816,7 @@ registrationRouter.post(
     setRoomTokenCookie(res, sessionToken, sessionExpiresAt);
     res.status(201).json({
       ok: true,
+      accountUrl: buildFrontendUrl('/crisis_premium/account.html'),
       successUrl,
       webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
       telegramUrl: publicTelegramUrl(),
@@ -1427,6 +1431,7 @@ async function sendRegistrationState(req: Request, res: Response) {
     telegramUrl: publicTelegramUrl(),
     telegramBotUrl,
     accessUrl: buildFrontendUrl('/crisis_premium/access.html'),
+    accountUrl: buildFrontendUrl('/crisis_premium/account.html'),
     webinarUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
     lead: {
       name: registration.lead.name,
@@ -1556,7 +1561,8 @@ registrationRouter.get(
         url: buildFrontendUrl('/crisis_premium/recordings.html'),
       },
       links: {
-        access: buildFrontendUrl('/crisis_premium/access.html'),
+        access: buildFrontendUrl('/crisis_premium/access.html?next=account'),
+        account: buildFrontendUrl('/crisis_premium/account.html'),
         room: buildFrontendUrl('/crisis_premium/webinar.html'),
         register: buildFrontendUrl('/crisis_premium/register.html'),
         recordings: buildFrontendUrl('/crisis_premium/recordings.html'),

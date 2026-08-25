@@ -14,7 +14,7 @@ import {
   getRegistrationState,
   participantLoginStatusMessage,
   requestParticipantLogin,
-} from './registration.js?v=remediation-20260805-2';
+} from './registration.js?v=single-service-20260825-1';
 
 let countdownInterval = null;
 let countdownRetries = 0;

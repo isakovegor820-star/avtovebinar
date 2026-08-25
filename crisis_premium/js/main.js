@@ -6,8 +6,8 @@ import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=remediati
 import { hydrateTimeline } from './video.js?v=remediation-20260804-3';
 import { hydrateRoomContent } from './room-content.js?v=room-content-20260821-1';
 import { hydrateViewerRoom } from './viewer-room.js?v=viewer-account-1';
-import { hydrateSuccessPage } from './success.js?v=remediation-20260804-1';
-import { hydrateAccessPage } from './access.js?v=remediation-20260804-1';
+import { hydrateSuccessPage } from './success.js?v=single-service-20260825-1';
+import { hydrateAccessPage } from './access.js?v=single-service-20260825-1';
 import { hydrateRecordingsPage } from './recordings.js?v=viewer-resources-2';
 import {
   bindRegistrationForm,
@@ -16,7 +16,7 @@ import {
   exchangeUrlTokenIfPresent,
   hydrateParticipantCtas,
   redirectRegisteredUserFromRegisterPage
-} from './registration.js?v=remediation-20260804-1';
+} from './registration.js?v=single-service-20260825-1';
 import { bindQuestionForm } from './questions.js?v=remediation-20260804-3';
 import { bindPartnerApplicationForm } from './partner.js?v=remediation-20260804-1';
 import { track } from './analytics.js?v=ana-006-1';
@@ -48,6 +48,14 @@ async function refreshAfterTokenExchange() {
   const exchangedRoomToken = await exchangeCurrentUrlToken();
   if (!exchangedRoomToken) return;
 
+  if (
+    window.location.pathname.endsWith('access.html') &&
+    new URLSearchParams(window.location.search).get('next') === 'account'
+  ) {
+    window.location.replace('account.html');
+    return;
+  }
+
   if (window.location.pathname.endsWith('webinar.html')) {
     await hydrateWebinarRoom(hydrateRoomFeatures).catch(() => {});
   } else {
@@ -76,7 +84,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindRegistrationClicks();
   track('page_view');
 
-  await exchangeCurrentUrlToken();
+  const exchangedRoomToken = await exchangeCurrentUrlToken();
+  if (
+    exchangedRoomToken &&
+    window.location.pathname.endsWith('access.html') &&
+    new URLSearchParams(window.location.search).get('next') === 'account'
+  ) {
+    window.location.replace('account.html');
+    return;
+  }
 
   if (isWebinarPage) {
     // The protected room response contains its own server time, Telegram URLs and

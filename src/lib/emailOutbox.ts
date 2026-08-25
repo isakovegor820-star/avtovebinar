@@ -321,7 +321,7 @@ async function prepareEmailJob(jobId: string, claimToken: string, now: Date): Pr
       const createdToken = await createHashedToken(PARTICIPANT_LOGIN_TOKEN_PURPOSE, expiresAt);
       return {
         job: currentJob,
-        webinarUrl: buildTokenizedFrontendUrl('/crisis_premium/access.html', createdToken.token),
+        webinarUrl: buildTokenizedFrontendUrl('/crisis_premium/access.html?next=account', createdToken.token),
         partnerUrl: null,
         tokenIds: [createdToken.id],
         timezone: currentJob.webinarSession?.timezone ?? currentJob.registration.webinarSession.timezone,
@@ -347,7 +347,12 @@ async function prepareEmailJob(jobId: string, claimToken: string, now: Date): Pr
     const partnerToken = await createHashedToken(ROOM_EXCHANGE_TOKEN_PURPOSE, expiresAt);
     return {
       job: currentJob,
-      webinarUrl: buildTokenizedFrontendUrl('/crisis_premium/webinar.html', webinarToken.token),
+      webinarUrl: buildTokenizedFrontendUrl(
+        currentJob.type === EMAIL_JOB_REGISTRATION
+          ? '/crisis_premium/access.html?next=account'
+          : '/crisis_premium/webinar.html',
+        webinarToken.token,
+      ),
       partnerUrl: buildTokenizedFrontendUrl('/crisis_premium/webinar.html', partnerToken.token, 'partnerApplication'),
       tokenIds: [webinarToken.id, partnerToken.id],
       timezone: webinarSession.timezone,

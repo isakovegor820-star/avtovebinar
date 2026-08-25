@@ -128,7 +128,7 @@ function renderSection(id, items, cardFactory, emptyId) {
 }
 
 function renderDashboard(data) {
-  node('accountOrganization').textContent = `Организация: ${data.organization.name}`;
+  node('accountOrganization').textContent = `Ваш личный кабинет ${data.organization.name}`;
   node('accountViewerName').textContent = data.viewer?.displayName || 'Имя не указано';
   node('accountViewerEmail').textContent = data.viewer?.email || 'Email не указан';
   node('accountViewerEmailStatus').textContent = data.viewer?.emailVerified ? 'Email подтверждён' : 'Email не подтверждён';

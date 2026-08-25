@@ -318,7 +318,7 @@ describe('email outbox anonymization races', () => {
     expect(executeRaw.mock.invocationCallOrder[1]).toBeLessThan(sendRegistrationEmail.mock.invocationCallOrder[0]);
     expect(sendRegistrationEmail).toHaveBeenCalledWith(
       expect.objectContaining({
-        webinarUrl: expect.stringContaining('/crisis_premium/webinar.html#token='),
+        webinarUrl: expect.stringContaining('/crisis_premium/access.html?next=account#token='),
         partnerUrl: expect.stringContaining('/crisis_premium/webinar.html#token='),
       }),
     );

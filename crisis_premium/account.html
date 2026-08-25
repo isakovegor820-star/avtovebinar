@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <meta name="description" content="Личный кабинет зрителя АСПБ" />
-    <title>Мой кабинет | АСПБ</title>
+    <title>Мои вебинары | АСПБ</title>
     <link rel="stylesheet" href="css/styles.css?v=account-1" />
     <link rel="stylesheet" href="fonts.css?v=self-2" />
     <link rel="stylesheet" href="platform-access.css?v=account-1" />
@@ -29,12 +29,12 @@
       <section id="accountError" class="account-mode platform-panel catalog-state" role="alert">
         <h1>Кабинет недоступен</h1>
         <p id="accountErrorText">Войдите по безопасной ссылке из письма, чтобы увидеть свои материалы.</p>
-        <div class="account-error-actions"><a class="platform-primary-button" href="access.html">Войти в кабинет</a><a href="catalog.html">Перейти в каталог</a></div>
+        <div class="account-error-actions"><a class="platform-primary-button" href="access.html?next=account">Войти в кабинет</a><a href="catalog.html">Перейти в каталог</a></div>
       </section>
       <div id="accountContent" class="account-mode">
         <header class="account-hero">
-          <p class="catalog-eyebrow">Личный раздел</p>
-          <h1>Мой кабинет</h1>
+          <p class="catalog-eyebrow">Личный кабинет АСПБ</p>
+          <h1>Мои вебинары</h1>
           <p id="accountOrganization" class="account-organization"></p>
           <p id="accountStatus" class="account-live-status" aria-live="polite"></p>
         </header>
@@ -46,7 +46,7 @@
         </section>
 
         <section class="account-section" aria-labelledby="accountRecordingsHeading">
-          <div class="account-section-heading"><div><h2 id="accountRecordingsHeading">Доступные записи</h2><p>Здесь указан срок доступа и timezone каждой сессии.</p></div></div>
+          <div class="account-section-heading"><div><h2 id="accountRecordingsHeading">Доступные записи</h2><p>Здесь указаны срок доступа и часовой пояс каждой сессии.</p></div></div>
           <div id="accountRecordings" class="account-card-grid"></div>
           <div id="accountRecordingsEmpty" class="account-empty" hidden><p>Доступных записей пока нет.</p><a href="catalog.html">Открыть каталог</a></div>
         </section>
@@ -81,6 +81,6 @@
         </section>
       </div>
     </main>
-    <script type="module" src="js/account.js?v=account-1"></script>
+    <script type="module" src="js/account.js?v=single-service-20260825-1"></script>
   </body>
 </html>

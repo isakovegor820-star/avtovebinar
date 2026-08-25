@@ -16,7 +16,7 @@ function makeButton(label, className = 'platform-secondary-button') { const butt
 function showError(error) {
   const denied = error?.status === 403;
   const signedOut = error?.status === 401;
-  setText('organizationErrorTitle', signedOut ? 'Войдите в аккаунт' : denied ? 'Раздел доступен владельцу' : 'Не удалось загрузить организацию');
+  setText('organizationErrorTitle', signedOut ? 'Войдите в аккаунт' : denied ? 'Раздел доступен владельцу' : 'Не удалось загрузить команду');
   setText('organizationErrorText', signedOut
     ? 'Откройте аккаунт и войдите по одноразовой ссылке.'
     : denied ? 'Попросите владельца изменить команду или выдать вам роль владельца.'
@@ -68,7 +68,7 @@ function memberCard(member) {
   });
   const remove = makeButton('Удалить доступ');
   remove.addEventListener('click', () => confirmAction({
-    title: 'Удалить доступ к организации?',
+    title: 'Удалить доступ к кабинету АСПБ?',
     text: `${member.email} потеряет доступ к вебинарам и разделам своей роли. История и аудит сохранятся.`,
     label: 'Удалить доступ', trigger: remove,
     action: async () => { await deleteJson(`/v1/organization/memberships/${encodeURIComponent(member.id)}`); article.remove(); status(`Доступ для ${member.email} удалён.`); },
@@ -159,7 +159,7 @@ function bind() {
     if (!email.checkValidity()) { email.setAttribute('aria-invalid', 'true'); setText('organizationInviteEmailError', 'Введите корректный email.'); email.focus(); return; }
     const button = node('organizationInviteButton'); button.disabled = true; button.textContent = 'Отправляем…'; status('Ставим приглашение в очередь…');
     try { await post('/v1/organization/invitations', { email: email.value.trim(), role: node('organizationInviteRole').value }); email.value = ''; await loadInvitations(true); status('Приглашение поставлено в очередь доставки.'); }
-    catch (error) { if (error?.status === 409) { email.setAttribute('aria-invalid', 'true'); setText('organizationInviteEmailError', 'Этот адрес уже состоит в организации.'); email.focus(); } else status('Не удалось отправить приглашение. Проверьте соединение и повторите.'); }
+    catch (error) { if (error?.status === 409) { email.setAttribute('aria-invalid', 'true'); setText('organizationInviteEmailError', 'Этот адрес уже добавлен в команду.'); email.focus(); } else status('Не удалось отправить приглашение. Проверьте соединение и повторите.'); }
     finally { button.disabled = false; button.textContent = 'Отправить приглашение'; }
   });
 }

@@ -4,7 +4,7 @@
 
 import { state } from './state.js';
 import { getJson, formatTimelineTime } from './utils.js?v=site-review-7';
-import { timelinePath } from './registration.js?v=remediation-20260804-1';
+import { timelinePath } from './registration.js?v=single-service-20260825-1';
 import { setChatActivity } from './questions.js?v=remediation-20260804-3';
 
 /* --- cleanup tracking: prevents interval/listener leaks on re-init --- */

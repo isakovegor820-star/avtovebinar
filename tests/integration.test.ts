@@ -335,13 +335,35 @@ beforeEach(async () => {
   });
   // Truncate tables to guarantee absolute test isolation
   await prisma.organizationIdempotencyRecord.deleteMany();
-  // Local integration adapters are explicit test fakes. Production migration
-  // defaults remain disabled; tests opt in to exercise queued worker contracts.
+  await prisma.$executeRawUnsafe(
+    'TRUNCATE TABLE legal_holds, tenant_rollout_entries, author_service_notifications, author_review_tasks, webinar_material_uploads, webinar_materials, telegram_broadcast_previews, telegram_broadcast_templates, telegram_consultant_messages, telegram_bot_events, telegram_manager_callbacks, telegram_manager_chat_binding_tokens, telegram_manager_chat_bindings, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, user_auth_email_jobs, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
+  );
+  // TRUNCATE ... CASCADE also removes control-plane rows with AdminUser foreign keys.
+  // Recreate the migration defaults before each isolated test, then opt local
+  // adapters into the exact features exercised by this suite.
+  await prisma.platformFeatureFlag.createMany({
+    data: [
+      { key: 'analytics_dashboard', enabled: true, description: 'Tenant analytics test flag.' },
+      { key: 'public_reporting', enabled: false, description: 'Public reporting test flag.' },
+      { key: 'moderation_actions', enabled: true, description: 'Moderation actions test flag.' },
+      { key: 'provider_jobs', enabled: true, description: 'Provider jobs test flag.' },
+    ],
+    skipDuplicates: true,
+  });
+  await prisma.tenantRolloutPolicy.createMany({
+    data: [
+      { feature: 'PLATFORM_ACCOUNTS_ONBOARDING', mode: 'ENABLED' },
+      { feature: 'CREATOR_DASHBOARD', mode: 'ENABLED' },
+      { feature: 'PUBLIC_CATALOG', mode: 'ENABLED' },
+      { feature: 'TENANT_CRM', mode: 'ENABLED' },
+      { feature: 'TENANT_TELEGRAM', mode: 'ENABLED' },
+      { feature: 'PROVIDER_JOBS', mode: 'ENABLED' },
+      { feature: 'ANALYTICS_MODERATION', mode: 'ENABLED' },
+    ],
+    skipDuplicates: true,
+  });
   await prisma.platformFeatureFlag.updateMany({ where: { key: 'provider_jobs' }, data: { enabled: true } });
   await prisma.tenantRolloutPolicy.updateMany({ data: { mode: 'ENABLED', revision: 1, updatedByAdminUserId: null } });
-  await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE legal_holds, tenant_rollout_entries, author_service_notifications, author_review_tasks, webinar_material_uploads, webinar_materials, telegram_broadcast_previews, telegram_broadcast_templates, telegram_consultant_messages, telegram_bot_events, telegram_manager_callbacks, telegram_manager_chat_binding_tokens, telegram_manager_chat_bindings, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
-  );
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
   });
@@ -8822,6 +8844,17 @@ describe('critical path integration scenarios', () => {
       status: 'registered',
     });
 
+    const source = await prisma.webinarSource.create({
+      data: {
+        organizationId: tenant.organization.id,
+        webinarId: firstWebinar.id,
+        type: 'OFFICIAL_SOURCE',
+        title: 'Официальный источник для записи',
+        url: 'https://example.org/official-viewer-source',
+        accessedAt: new Date('2026-08-20T00:00:00.000Z'),
+      },
+    });
+
     const dashboard = await viewer.get('/api/v1/viewer/dashboard');
     expect(dashboard.status).toBe(200);
     expect(dashboard.headers['cache-control']).toContain('no-store');
@@ -8836,6 +8869,34 @@ describe('critical path integration scenarios', () => {
     expect(dashboard.body.sections.upcoming).toEqual([
       expect.objectContaining({ webinarId: futureWebinar.id, timezone: 'Asia/Yekaterinburg' }),
     ]);
+
+    const recordingContent = await viewer.get(`/api/v1/viewer/recordings/${firstSession.id}/content`);
+    expect(recordingContent.status).toBe(200);
+    expect(recordingContent.headers['cache-control']).toContain('no-store');
+    expect(recordingContent.body).toMatchObject({
+      webinarSessionId: firstSession.id,
+      mediaState: 'unavailable',
+      transcript: null,
+      chapters: [],
+      materials: [
+        {
+          kind: 'LINK',
+          id: source.id,
+          title: 'Официальный источник для записи',
+          url: 'https://example.org/official-viewer-source',
+          accessedAt: '2026-08-20',
+        },
+      ],
+    });
+    const foreignRecordingContent = await viewer.get(`/api/v1/viewer/recordings/${foreignSession.id}/content`);
+    const unknownRecordingContent = await viewer.get(
+      '/api/v1/viewer/recordings/00000000-0000-4000-8000-000000000000/content',
+    );
+    expect(foreignRecordingContent.status).toBe(404);
+    expect(foreignRecordingContent.body).toMatchObject({
+      code: 'viewer_object_not_found',
+      error: unknownRecordingContent.body.error,
+    });
 
     const favoritePath = `/api/v1/viewer/favorites/${firstWebinar.id}`;
     expect((await viewer.put(favoritePath).set('x-csrf-token', csrfToken).send({})).status).toBe(200);

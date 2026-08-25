@@ -225,6 +225,33 @@ body[data-account-mode='content'] #accountContent {
   gap: 1.25rem;
 }
 
+.account-identity {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 1.5rem;
+}
+
+.account-identity div {
+  min-width: 0;
+  border-radius: 1rem;
+  background: #f3f6f7;
+  padding: 1rem;
+}
+
+.account-identity dt {
+  color: #52616c;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.account-identity dd {
+  margin: 0.35rem 0 0;
+  color: #041627;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
 .account-settings fieldset {
   display: grid;
   min-width: 0;
@@ -279,7 +306,8 @@ body[data-account-mode='content'] #accountContent {
 
 @media (max-width: 48rem) {
   .account-card-grid,
-  .account-settings-form {
+  .account-settings-form,
+  .account-identity {
     grid-template-columns: minmax(0, 1fr);
   }
 

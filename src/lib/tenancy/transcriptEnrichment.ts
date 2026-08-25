@@ -463,6 +463,7 @@ export async function reviewAiSuggestion(
   const role = await requireCreator(db, context);
   return db.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${suggestionId}, 72645193))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${webinarId}, 72645194))`;
     const webinar = await tx.webinar.findFirst({
       where: creatorWebinarWhere(context, role, webinarId),
       select: { id: true },
@@ -504,16 +505,18 @@ export async function reviewAiSuggestion(
         const value = content as z.infer<typeof chapterContentSchema>;
         const chapterTranscript = await tx.transcript.findFirst({
           where: { id: transcriptId, webinarId, organizationId: context.organizationId },
-          select: { status: true, mediaAsset: { select: { durationSeconds: true } } },
+          select: {
+            status: true,
+            mediaAssetId: true,
+            language: true,
+            mediaAsset: { select: { durationSeconds: true } },
+            segments: {
+              orderBy: { orderIndex: 'asc' },
+              select: { orderIndex: true, startMs: true, endMs: true, speaker: true, text: true },
+            },
+          },
         });
-        if (!chapterTranscript || chapterTranscript.status === 'PUBLISHED') {
-          throw new AppError(
-            409,
-            'Опубликованная расшифровка неизменяема. Создайте новую версию расшифровки.',
-            undefined,
-            'chapter_published_immutable',
-          );
-        }
+        if (!chapterTranscript) unavailable('Transcript');
         if (
           !chapterTranscript.mediaAsset.durationSeconds ||
           value.startMs >= chapterTranscript.mediaAsset.durationSeconds * 1_000
@@ -525,15 +528,58 @@ export async function reviewAiSuggestion(
             'chapter_start_out_of_bounds',
           );
         }
+        let chapterTranscriptId = transcriptId;
+        if (chapterTranscript.status === 'PUBLISHED') {
+          const existingDraft = await tx.transcript.findFirst({
+            where: {
+              organizationId: context.organizationId,
+              webinarId,
+              mediaAssetId: chapterTranscript.mediaAssetId,
+              status: 'DRAFT',
+            },
+            orderBy: { version: 'desc' },
+            select: { id: true },
+          });
+          if (existingDraft) {
+            chapterTranscriptId = existingDraft.id;
+          } else {
+            const maximum = await tx.transcript.aggregate({
+              where: { organizationId: context.organizationId, webinarId },
+              _max: { version: true },
+            });
+            const draft = await tx.transcript.create({
+              data: {
+                organizationId: context.organizationId,
+                webinarId,
+                mediaAssetId: chapterTranscript.mediaAssetId,
+                createdByUserId: context.userId,
+                version: (maximum._max.version ?? 0) + 1,
+                status: 'DRAFT',
+                language: chapterTranscript.language,
+                segments: {
+                  create: chapterTranscript.segments.map(segment => ({
+                    orderIndex: segment.orderIndex,
+                    startMs: segment.startMs,
+                    endMs: segment.endMs,
+                    speaker: segment.speaker,
+                    text: segment.text,
+                  })),
+                },
+              },
+              select: { id: true },
+            });
+            chapterTranscriptId = draft.id;
+          }
+        }
         const max = await tx.webinarChapter.aggregate({
-          where: { webinarId, transcriptId },
+          where: { webinarId, transcriptId: chapterTranscriptId },
           _max: { orderIndex: true },
         });
         const chapter = await tx.webinarChapter.create({
           data: {
             organizationId: context.organizationId,
             webinarId,
-            transcriptId,
+            transcriptId: chapterTranscriptId,
             startMs: value.startMs,
             title: value.title,
             description: value.description ?? null,

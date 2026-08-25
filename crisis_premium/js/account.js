@@ -129,6 +129,9 @@ function renderSection(id, items, cardFactory, emptyId) {
 
 function renderDashboard(data) {
   node('accountOrganization').textContent = `Организация: ${data.organization.name}`;
+  node('accountViewerName').textContent = data.viewer?.displayName || 'Имя не указано';
+  node('accountViewerEmail').textContent = data.viewer?.email || 'Email не указан';
+  node('accountViewerEmailStatus').textContent = data.viewer?.emailVerified ? 'Email подтверждён' : 'Email не подтверждён';
   renderSection('accountUpcoming', data.sections.upcoming, createWebinarCard, 'accountUpcomingEmpty');
   renderSection('accountRecordings', data.sections.recordings, createWebinarCard, 'accountRecordingsEmpty');
   renderSection('accountWatched', data.sections.watched, createWebinarCard, 'accountWatchedEmpty');

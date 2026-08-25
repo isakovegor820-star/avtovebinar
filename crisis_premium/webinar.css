@@ -2,12 +2,6 @@
   font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
 }
 
-.glass-panel {
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px);
-}
-
 .card-reveal {
   opacity: 0;
   transform: translateY(16px);
@@ -36,22 +30,9 @@
   opacity: 0.3;
 }
 
-.program-icon-pulse {
-  animation: iconSoftPulse 3s ease-in-out infinite;
-}
-
-@keyframes iconSoftPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(4, 22, 39, 0.1); }
-  50% { box-shadow: 0 0 0 8px rgba(4, 22, 39, 0); }
-}
-
+.program-icon-pulse,
 .notify-icon-pulse {
-  animation: notifyPulse 2.5s ease-in-out infinite;
-}
-
-@keyframes notifyPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 136, 204, 0.2); }
-  50% { box-shadow: 0 0 0 6px rgba(0, 136, 204, 0); }
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 18%);
 }
 
 .notify-btn:hover {
@@ -69,9 +50,7 @@
   }
 }
 
-.live-edge-pulse {
-  animation: liveEdgePulse 1.4s ease-in-out infinite;
-}
+.live-edge-pulse { box-shadow: 0 0 0 4px rgb(239 68 68 / 22%); }
 
 .webinar-flow-tabs {
   top: 80px;

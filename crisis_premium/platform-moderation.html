@@ -7,24 +7,67 @@
     <title>Очередь модерации | АСПБ</title>
     <link rel="stylesheet" href="fonts.css?v=self-2" />
     <link rel="stylesheet" href="platform-moderation.css?v=moderation-1" />
+    <link rel="stylesheet" href="admin-shell.css?v=admin-shell-1" />
   </head>
-  <body>
+  <body class="admin-platform-body admin-platform-ready">
     <a class="skip-link" href="#moderationMain">К очереди модерации</a>
+    <aside class="admin-sidebar" aria-label="Навигация platform admin">
+      <a class="admin-sidebar-brand" href="admin.html"><strong>АСПБ</strong><span>Platform admin · отдельный контур</span></a>
+      <nav class="admin-sidebar-nav">
+        <div class="admin-nav-group"><p class="admin-nav-label">Контроль</p><a href="admin.html#adminOverview">Обзор</a><a href="admin.html#authorVerificationSection">Авторы на проверке</a><a href="#reportQueue" aria-current="page">Контент и жалобы</a></div>
+        <div class="admin-nav-group"><p class="admin-nav-label">Платформа</p><a href="#organizationDirectory">Организации</a><a href="#platformTaxonomy">Справочники</a><a href="admin.html#userAdminSection">Пользователи и роли</a><a href="#platformControls">Флаги и rollout</a></div>
+        <div class="admin-nav-group"><p class="admin-nav-label">Операции</p><a href="#organizationAnalytics">Аналитика</a><a href="#deliveryQueues">Очереди и health</a></div>
+      </nav>
+      <p class="admin-sidebar-meta">Агрегаты скрывают малые группы. Все критические изменения требуют причину и пишутся в аудит.</p>
+    </aside>
+    <div class="admin-workspace">
     <header class="page-header">
       <a class="brand" href="admin.html">АСПБ · platform admin</a>
       <nav aria-label="Разделы администратора">
-        <a href="admin.html">Панель</a>
-        <a aria-current="page" href="platform-moderation.html">Модерация</a>
+        <a href="admin.html">Операционная панель</a>
+        <a aria-current="page" href="platform-moderation.html">Контроль платформы</a>
       </nav>
     </header>
     <main id="moderationMain" tabindex="-1">
       <section class="intro" aria-labelledby="pageTitle">
         <p class="eyebrow">Platform admin · MFA</p>
-        <h1 id="pageTitle">Очередь публичных жалоб</h1>
-        <p>Каждое изменение требует причины и актуальной ревизии. Отклонённая операция не попадает в историю.</p>
+        <h1 id="pageTitle">Контроль платформы</h1>
+        <p>Здесь platform admin видит агрегаты организаций, rollout, health и очередь публичных жалоб — без смешения с ролями организации.</p>
       </section>
 
-      <form id="reportFilters" class="panel filters" aria-labelledby="filtersTitle">
+      <section class="admin-summary-grid" aria-label="Сводка платформы">
+        <article class="panel"><p class="summary-label">Организации</p><p id="organizationMetric" class="summary-value">—</p></article>
+        <article class="panel"><p class="summary-label">Активные feature flags</p><p id="featureMetric" class="summary-value">—</p></article>
+        <article id="platformHealth" class="panel admin-anchor"><p class="summary-label">Готовность сервиса</p><p id="healthMetric" class="summary-value">Проверяем…</p><p id="healthDetail" class="summary-detail" role="status" aria-live="polite"></p></article>
+      </section>
+
+      <section id="organizationDirectory" class="panel admin-anchor" aria-labelledby="organizationDirectoryTitle">
+        <div class="section-heading"><div><p class="eyebrow">Управление tenant</p><h2 id="organizationDirectoryTitle">Организации</h2></div><p id="organizationDirectoryStatus" class="live-status" role="status" aria-live="polite">Загружаем список…</p></div>
+        <div class="admin-table-scroll"><table><thead><tr><th>Организация</th><th>Статус</th><th>Участники</th><th>Вебинары</th><th>Ревизия</th></tr></thead><tbody id="organizationDirectoryRows"></tbody></table></div>
+      </section>
+
+      <section id="organizationAnalytics" class="panel admin-anchor" aria-labelledby="organizationAnalyticsTitle">
+        <div class="section-heading"><div><p class="eyebrow">Аналитика платформы</p><h2 id="organizationAnalyticsTitle">Организации</h2></div><p>Малые группы скрыты по privacy policy</p></div>
+        <p id="organizationAnalyticsStatus" class="live-status" role="status" aria-live="polite">Загружаем агрегаты…</p>
+        <div class="admin-table-scroll"><table><thead><tr><th>Организация</th><th>Регистрации</th><th>Активные зрители</th><th>Вопросы</th><th>CTA</th></tr></thead><tbody id="organizationAnalyticsRows"></tbody></table></div>
+      </section>
+
+      <section id="platformControls" class="admin-control-grid admin-anchor" aria-label="Контроль rollout">
+        <article class="panel"><div class="section-heading"><h2>Feature flags</h2><p id="featureFlagsStatus" class="live-status" role="status" aria-live="polite"></p></div><ul id="featureFlagsList" class="control-list"></ul></article>
+        <article class="panel"><div class="section-heading"><h2>Tenant rollout</h2><p id="rolloutStatus" class="live-status" role="status" aria-live="polite"></p></div><ul id="rolloutList" class="control-list"></ul></article>
+      </section>
+
+      <section id="platformTaxonomy" class="admin-control-grid admin-anchor" aria-label="Справочники платформы">
+        <article class="panel"><div class="section-heading"><h2>Отрасли права</h2><p id="practiceAreasStatus" class="live-status" role="status" aria-live="polite"></p></div><ul id="practiceAreasList" class="control-list taxonomy-list"></ul></article>
+        <article class="panel"><div class="section-heading"><h2>Юрисдикции</h2><p id="jurisdictionsStatus" class="live-status" role="status" aria-live="polite"></p></div><ul id="jurisdictionsList" class="control-list taxonomy-list"></ul></article>
+      </section>
+
+      <section id="deliveryQueues" class="panel admin-anchor" aria-labelledby="deliveryQueuesTitle">
+        <div class="section-heading"><div><p class="eyebrow">Операции</p><h2 id="deliveryQueuesTitle">Очереди и доставки</h2></div><p id="deliveryQueuesStatus" class="live-status" role="status" aria-live="polite">Загружаем состояния…</p></div>
+        <div class="admin-table-scroll"><table><thead><tr><th>Подсистема</th><th>Всего задач</th><th>Состояния</th></tr></thead><tbody id="deliveryQueueRows"></tbody></table></div>
+      </section>
+
+      <form id="reportFilters" class="panel filters admin-anchor" aria-labelledby="filtersTitle">
         <h2 id="filtersTitle">Фильтр очереди</h2>
         <label for="reportStatus">Статус
           <select id="reportStatus" name="status">
@@ -45,7 +88,7 @@
         <p id="queueErrorText"></p>
         <button id="queueRetry" type="button">Повторить</button>
       </section>
-      <section aria-labelledby="queueTitle">
+      <section id="reportQueue" class="admin-anchor" aria-labelledby="queueTitle">
         <div class="section-heading">
           <h2 id="queueTitle">Жалобы</h2>
           <p id="queueCount"></p>
@@ -54,6 +97,7 @@
         <ol id="reportList" class="report-list" aria-busy="true"></ol>
       </section>
     </main>
+    </div>
     <script type="module" src="js/platform-moderation.js?v=moderation-1"></script>
   </body>
 </html>

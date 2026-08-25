@@ -831,9 +831,18 @@ export async function updateCreatorTranscript(
     const latest = await tx.transcript.findFirst({
       where: { webinarId, organizationId: context.organizationId },
       orderBy: { version: 'desc' },
-      select: { id: true },
+      select: { id: true, version: true, status: true, mediaAssetId: true },
     });
-    if (latest?.id !== transcript.id || transcript.revision !== input.expectedRevision) conflict();
+    const continuedDraft =
+      transcript.status === 'PUBLISHED' &&
+      latest?.id !== transcript.id &&
+      latest?.version === transcript.version + 1 &&
+      latest?.status === 'DRAFT' &&
+      latest?.mediaAssetId === transcript.mediaAssetId
+        ? latest
+        : null;
+    if (transcript.revision !== input.expectedRevision) conflict();
+    if (latest?.id !== transcript.id && !continuedDraft) conflict();
     if (!transcript.mediaAsset.durationSeconds) {
       throw new AppError(409, 'Длительность видео не определена', undefined, 'transcript_media_duration_missing');
     }
@@ -845,23 +854,33 @@ export async function updateCreatorTranscript(
 
     let transcriptId = transcript.id;
     if (transcript.status === 'PUBLISHED') {
-      const created = await tx.transcript.create({
-        data: {
-          organizationId: context.organizationId,
-          webinarId,
-          mediaAssetId: transcript.mediaAssetId,
-          createdByUserId: context.userId,
-          version: transcript.version + 1,
-          revision: 1,
-          status: input.status,
-          language: transcript.language,
-          ...review,
-        },
-      });
-      transcriptId = created.id;
+      const draft = continuedDraft
+        ? await tx.transcript.update({
+            where: { id: continuedDraft.id },
+            data: { status: input.status, ...review },
+          })
+        : await tx.transcript.create({
+            data: {
+              organizationId: context.organizationId,
+              webinarId,
+              mediaAssetId: transcript.mediaAssetId,
+              createdByUserId: context.userId,
+              version: transcript.version + 1,
+              revision: 1,
+              status: input.status,
+              language: transcript.language,
+              ...review,
+            },
+          });
+      transcriptId = draft.id;
+      if (continuedDraft) {
+        await tx.transcriptSegment.deleteMany({
+          where: { transcriptId: draft.id, organizationId: context.organizationId },
+        });
+      }
       await tx.transcriptSegment.createMany({
         data: segments.map(segment => ({
-          transcriptId: created.id,
+          transcriptId: draft.id,
           organizationId: context.organizationId,
           ...segment,
         })),

@@ -89,8 +89,8 @@
               <p class="mt-2 text-body-md leading-relaxed text-on-surface-variant">Название и короткий адрес можно изменить позже через поддержку.</p>
             </div>
             <div class="grid gap-2">
-              <label class="text-label-md font-label-md text-primary" for="platformOrganizationName">Название</label>
-              <input id="platformOrganizationName" class="platform-input px-4 text-body-md" name="name" autocomplete="organization" minlength="2" maxlength="160" required aria-describedby="platformOrganizationNameError" />
+              <label class="text-label-md font-label-md text-primary" for="platformOrganizationCreateName">Название</label>
+              <input id="platformOrganizationCreateName" class="platform-input px-4 text-body-md" name="name" autocomplete="organization" minlength="2" maxlength="160" required aria-describedby="platformOrganizationNameError" />
               <p id="platformOrganizationNameError" class="platform-field-error text-label-sm"></p>
             </div>
             <div class="grid gap-2">
@@ -167,7 +167,7 @@
       <section id="platformReady" class="platform-mode platform-panel p-7 md:p-10">
         <div class="platform-ready-mark mb-5" aria-hidden="true">✓</div>
         <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Сессия защищена</p>
-        <h1 id="platformUserName" class="text-headline-md font-headline-md text-primary">Аккаунт АСПБ</h1>
+        <h1 id="platformUserName" class="text-headline-md font-headline-md text-primary" tabindex="-1">Аккаунт АСПБ</h1>
         <dl class="mt-6 grid gap-4 sm:grid-cols-2">
           <div class="rounded-lg bg-surface-container-low p-4">
             <dt class="text-label-sm text-on-surface-variant">Организация</dt>
@@ -179,8 +179,8 @@
           </div>
         </dl>
         <p class="mt-5 text-body-md leading-relaxed text-on-surface-variant">
-          Базовая учётная запись и tenant-контекст готовы. Рабочие разделы платформы будут появляться по мере включения
-          следующих модулей.
+          Защищённая сессия активна. Перейдите в рабочий обзор: там собраны ближайшие запуски, готовность вебинаров,
+          задачи и доступные вашей роли разделы.
         </p>
         <section
           id="platformWebinarAccess"
@@ -255,20 +255,23 @@
           </form>
           <p id="platformMfaSettingsStatus" class="min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
         </section>
-        <div class="mt-7 flex flex-col gap-3 sm:flex-row">
-          <a id="platformAuthorProfileLink" class="platform-primary-button" href="author-profile.html" hidden
+        <div class="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <a id="platformOverviewLink" class="platform-primary-button" href="platform-overview.html"
+            >Открыть рабочий обзор</a
+          >
+          <a id="platformAuthorProfileLink" class="platform-secondary-button" href="author-profile.html" hidden
             >Открыть профиль автора</a
           >
-          <a id="platformCreatorWebinarsLink" class="platform-primary-button" href="creator-webinars.html" hidden
+          <a id="platformCreatorWebinarsLink" class="platform-secondary-button" href="creator-webinars.html" hidden
             >Открыть вебинары</a
           >
-          <a id="platformModerationLink" class="platform-primary-button" href="moderation.html" hidden
+          <a id="platformModerationLink" class="platform-secondary-button" href="moderation.html" hidden
             >Открыть модерацию чата</a
           >
-          <a id="platformOrganizationSettingsLink" class="platform-primary-button" href="organization.html" hidden
+          <a id="platformOrganizationSettingsLink" class="platform-secondary-button" href="organization.html" hidden
             >Открыть команду и настройки</a
           >
-          <a class="platform-primary-button" href="index.html">На главную АСПБ</a>
+          <a class="platform-secondary-button" href="index.html">На главную АСПБ</a>
           <button id="platformLogoutButton" class="platform-secondary-button" type="button">Выйти на этом устройстве</button>
         </div>
         <p id="platformReadyStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
@@ -276,7 +279,7 @@
 
       <section id="platformError" class="platform-mode platform-panel p-7 text-center md:p-10" role="alert">
         <div class="platform-error-mark mx-auto mb-5" aria-hidden="true">!</div>
-        <h1 id="platformErrorTitle" class="text-headline-md font-headline-md text-primary">Не удалось войти</h1>
+        <h1 id="platformErrorTitle" class="text-headline-md font-headline-md text-primary" tabindex="-1">Не удалось войти</h1>
         <p id="platformErrorText" class="mx-auto mt-3 max-w-xl text-body-md leading-relaxed text-on-surface-variant">
           Запросите новую ссылку и повторите попытку.
         </p>

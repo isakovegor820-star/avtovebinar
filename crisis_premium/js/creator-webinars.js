@@ -1640,7 +1640,7 @@ function bindCreate() {
 
 let metadataAutosaveTimer = 0;
 let metadataSaveInFlight = false;
-let metadataSaveQueued = false;
+let metadataSaveQueued = null;
 
 function metadataFormIsValid(form) {
   return [...form.elements].every(control => typeof control.checkValidity !== 'function' || control.checkValidity());
@@ -1669,7 +1669,9 @@ async function saveMetadata({ explicit = false, submitter = null } = {}) {
     return;
   }
   if (metadataSaveInFlight) {
-    metadataSaveQueued = true;
+    if (explicit || !metadataSaveQueued) {
+      metadataSaveQueued = { explicit, submitter };
+    }
     return;
   }
 
@@ -1699,8 +1701,9 @@ async function saveMetadata({ explicit = false, submitter = null } = {}) {
     metadataSaveInFlight = false;
     if (button) processing(button, false, buttonLabel, 'Сохраняем…');
     if (metadataSaveQueued) {
-      metadataSaveQueued = false;
-      window.setTimeout(() => void saveMetadata(), 0);
+      const queuedSave = metadataSaveQueued;
+      metadataSaveQueued = null;
+      window.setTimeout(() => void saveMetadata(queuedSave), 0);
     }
   }
 }
@@ -1990,6 +1993,10 @@ async function start() {
     setMode('content', 'creatorHeading');
     const fragment = new URLSearchParams(location.hash.slice(1));
     const fragmentId = fragment.get('webinar');
+    if (fragment.has('create')) {
+      node('creatorCreateDisclosure').open = true;
+      window.requestAnimationFrame(() => node('creatorNewTitle').focus());
+    }
     state.wizardStep = Math.min(8, Math.max(1, Number(fragment.get('step')) || 1));
     const initial = state.webinars.find(item => item.id === fragmentId)?.id || state.webinars[0]?.id;
     if (initial) await selectWebinar(initial, false, 'replace');

@@ -33,6 +33,13 @@ const allowedKeys = [
 const state = { practiceAreas: [], jurisdictions: [], request: 0 };
 const node = id => document.getElementById(id);
 
+function createText(tag, className, value) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  element.textContent = value;
+  return element;
+}
+
 function setMode(mode) {
   document.body.dataset.catalogMode = mode;
 }
@@ -172,6 +179,19 @@ function card(item) {
   description.className = 'catalog-card-description';
   description.textContent = item.description || 'Описание готовится.';
 
+  const transcriptMatch = item.transcriptMatch ? document.createElement('a') : null;
+  if (transcriptMatch) {
+    const seconds = Math.max(0, Math.floor(item.transcriptMatch.startMs / 1000));
+    const minutes = Math.floor(seconds / 60);
+    const remainder = String(seconds % 60).padStart(2, '0');
+    transcriptMatch.className = 'catalog-transcript-match';
+    transcriptMatch.href = `${item.canonicalPath}#t=${seconds}`;
+    transcriptMatch.append(
+      createText('strong', '', `Транскрипт · ${minutes}:${remainder}`),
+      createText('span', '', item.transcriptMatch.snippet),
+    );
+  }
+
   const facts = document.createElement('dl');
   facts.className = 'catalog-card-facts';
   appendAuthorFact(facts, item.author);
@@ -185,7 +205,9 @@ function card(item) {
     'catalog-card-date',
   );
   appendFact(facts, 'Длительность', item.durationMinutes ? `${item.durationMinutes} мин.` : null);
-  article.append(tags, heading, description, facts);
+  article.append(tags, heading, description);
+  if (transcriptMatch) article.append(transcriptMatch);
+  article.append(facts);
   listItem.append(article);
   return listItem;
 }

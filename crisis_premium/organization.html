@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="fonts.css?v=self-2" />
     <link rel="stylesheet" href="platform-access.css?v=platform-access-2" />
     <link rel="stylesheet" href="organization.css?v=organization-1" />
+    <link rel="stylesheet" href="platform-shell.css?v=platform-shell-2" />
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
   </head>
   <body class="min-h-screen bg-background text-on-surface" data-organization-mode="loading">
@@ -108,11 +109,12 @@
           <p id="organizationConfirmText" class="mt-3 text-body-md leading-relaxed text-on-surface-variant"></p>
         </div>
         <div class="organization-dialog-actions">
-          <button class="platform-secondary-button" value="cancel">Отменить</button>
-          <button id="organizationConfirmAction" class="organization-danger-button" value="confirm">Удалить доступ</button>
+          <button class="platform-secondary-button" type="submit" value="cancel">Отменить</button>
+          <button id="organizationConfirmAction" class="organization-danger-button" type="submit" value="confirm">Удалить доступ</button>
         </div>
       </form>
     </dialog>
+    <script type="module" src="js/platform-shell.js?v=platform-shell-2"></script>
     <script type="module" src="js/organization.js?v=organization-1"></script>
   </body>
 </html>

@@ -61,8 +61,13 @@ async function requireRecordingAccount(req: Request) {
   return registration;
 }
 
-function serializeRecording(recording: RecordingWithSession) {
+function serializeRecording(
+  recording: RecordingWithSession,
+  personalization?: { positionMs: number; durationMs: number | null; completedAt: Date | null; updatedAt: Date } | null,
+  saved = false,
+) {
   const durationSeconds = recording.durationSeconds ?? recording.webinarSession.videoDurationSeconds;
+  const progressDurationMs = personalization?.durationMs ?? durationSeconds * 1000;
   const mediaBase = `/api/media/recording/${encodeURIComponent(recording.id)}`;
   const videoSrc = recording.videoUrl ? `${mediaBase}/video` : null;
   const hlsSrc = recording.hlsUrl ? `${mediaBase}/hls` : null;
@@ -81,6 +86,18 @@ function serializeRecording(recording: RecordingWithSession) {
     orderIndex: recording.orderIndex,
     category: recording.category,
     status: 'available',
+    saved,
+    progress: personalization
+      ? {
+          positionSeconds: Math.round(personalization.positionMs / 1000),
+          durationSeconds: Math.round(progressDurationMs / 1000),
+          percent: progressDurationMs
+            ? Math.min(100, Math.round((personalization.positionMs / progressDurationMs) * 100))
+            : 0,
+          completed: Boolean(personalization.completedAt),
+          updatedAt: personalization.updatedAt.toISOString(),
+        }
+      : { positionSeconds: 0, durationSeconds, percent: 0, completed: false, updatedAt: null },
     webinar: {
       id: recording.webinarSession.id,
       title: recording.webinarSession.title,
@@ -105,6 +122,43 @@ function serializeRecording(recording: RecordingWithSession) {
   };
 }
 
+async function serializeRecordingPlaylist(
+  recordings: RecordingWithSession[],
+  registration: Awaited<ReturnType<typeof requireRecordingAccount>>,
+) {
+  const userId = registration.userId;
+  const organizationId = registration.organizationId;
+  if (!userId || !organizationId) return recordings.map(recording => serializeRecording(recording));
+  const sessionIds = recordings.map(recording => recording.webinarSessionId);
+  const webinarIds = [...new Set(recordings.map(recording => recording.webinarSession.webinarId))];
+  const [progressRows, favoriteRows] = await Promise.all([
+    prisma.viewerWebinarProgress.findMany({
+      where: {
+        userId,
+        organizationId,
+        webinarSessionId: { in: sessionIds },
+      },
+    }),
+    prisma.viewerWebinarFavorite.findMany({
+      where: {
+        userId,
+        organizationId,
+        webinarId: { in: webinarIds },
+      },
+      select: { webinarId: true },
+    }),
+  ]);
+  const progressBySession = new Map(progressRows.map(row => [row.webinarSessionId, row]));
+  const favoriteWebinars = new Set(favoriteRows.map(row => row.webinarId));
+  return recordings.map(recording =>
+    serializeRecording(
+      recording,
+      progressBySession.get(recording.webinarSessionId),
+      favoriteWebinars.has(recording.webinarSession.webinarId),
+    ),
+  );
+}
+
 recordingsRouter.get(
   '/recordings',
   asyncHandler(async (req, res) => {
@@ -122,13 +176,14 @@ recordingsRouter.get(
       'recordings_list',
     );
 
+    const playlist = await serializeRecordingPlaylist(recordings, registration);
     res.setHeader('Cache-Control', 'private, max-age=30');
     res.json({
       ok: true,
       serverTime: now.toISOString(),
       locked: false,
       roomUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
-      recordings: recordings.map(serializeRecording),
+      recordings: playlist,
     });
   }),
 );
@@ -144,7 +199,7 @@ recordingsRouter.get(
       throw new AppError(404, 'Recording not found');
     }
 
-    const playlist = recordings.map(serializeRecording);
+    const playlist = await serializeRecordingPlaylist(recordings, registration);
 
     await saveEventSafely(
       {

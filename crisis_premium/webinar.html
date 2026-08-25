@@ -11,21 +11,16 @@
 <link href="webinar.css?v=room-content-20260821-1" rel="stylesheet"/>
 <link href="flow-tabs.css?v=nav-tabs-7" rel="stylesheet"/>
 <link href="fonts.css?v=self-2" rel="stylesheet"/>
+<link rel="stylesheet" href="viewer-shell.css?v=viewer-shell-2"/>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen flex flex-col">
 <a class="room-skip-link" href="#mainContent">Перейти к основному содержимому</a>
 <noscript><div style="padding:1.5rem;text-align:center;background:#fef3c7;color:#92400e;font-family:Manrope,Arial,sans-serif;font-size:15px">Для просмотра вебинара и работы чата необходим включённый JavaScript. Пожалуйста, включите его в настройках браузера.</div></noscript>
 <!-- TopNavBar -->
-<header class="bg-background/90 backdrop-blur-md shadow-sm docked full-width top-0 sticky z-50">
-<div class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
-<a class="flex flex-col leading-tight shrink-0" href="index.html">
-<span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
-<span class="hidden sm:block text-[11px] leading-4 font-semibold text-on-surface-variant">Антикризисная служба помощи бизнесу</span>
-</a>
-<nav class="hidden md:flex gap-8">
-<!-- FIX 1: nav и кнопка регистрации удалены — пользователь уже в комнате -->
-</nav>
-<a data-room-primary-action class="bg-primary text-on-primary px-6 py-2.5 min-h-[44px] inline-flex items-center justify-center rounded-full text-label-md font-label-md active:scale-[0.96] transition-transform" href="access.html">Мой доступ</a>
+<header class="viewer-header">
+<div class="viewer-header-inner">
+<a class="viewer-brand" href="index.html"><strong>АСПБ</strong><span>Антикризисная служба помощи бизнесу</span></a>
+<nav class="viewer-nav" aria-label="Кабинет зрителя"><a href="catalog.html">Каталог</a><a data-room-primary-action href="account.html#accountUpcoming" aria-current="location">Мои вебинары</a><a href="recordings.html">Записи</a><a href="account.html#accountSavedHeading">Сохранённое</a><a href="account.html#accountProfile">Профиль</a></nav>
 </div>
 </header>
 <div data-current="webinar" data-flow-tabs data-extra-class="webinar-flow-tabs" data-sticky-top="80px"></div>
@@ -38,7 +33,7 @@
 <!-- Status Bar -->
 <div class="flex flex-wrap items-center justify-between gap-4 bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
 <div class="flex items-center gap-3">
-<span class="w-3 h-3 bg-secondary rounded-full animate-pulse"></span>
+<span class="w-3 h-3 bg-secondary rounded-full" aria-hidden="true"></span>
 <span class="font-label-md text-on-surface" id="webinarStatusText">Проверяем доступ к премьере записи...</span>
 </div>
 <div class="flex items-center gap-4 text-on-surface-variant" id="countdownContainer">
@@ -144,7 +139,7 @@
     <div class="flex items-center justify-between w-full">
       <div class="flex items-center gap-4">
         <!-- Play/Pause Button -->
-        <button id="customPlayPauseBtn" type="button" aria-label="Воспроизвести видео" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
+        <button id="customPlayPauseBtn" type="button" aria-label="Воспроизвести видео" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-white hover:bg-white/20 transition-colors flex items-center justify-center">
           <span class="material-symbols-outlined text-[28px]">play_arrow</span>
         </button>
         <div id="customTimeDisplay" class="text-white/85 text-xs tabular-nums whitespace-nowrap" aria-hidden="true">
@@ -155,7 +150,7 @@
 
         <!-- Live Indicator Badge -->
         <div id="customLiveIndicator" class="hidden items-center gap-1.5 text-red-500 font-bold text-xs uppercase tracking-wider bg-red-500/10 px-2.5 py-1 rounded-full border border-red-500/30">
-          <span class="w-1.5 h-1.5 bg-red-600 rounded-full animate-ping"></span>
+          <span class="w-1.5 h-1.5 bg-red-600 rounded-full" aria-hidden="true"></span>
           <span>Премьера</span>
         </div>
 
@@ -169,18 +164,18 @@
       <div class="flex items-center gap-4">
         <!-- Volume / Mute Control -->
         <div class="flex items-center gap-2 group/volume">
-          <button id="customMuteBtn" type="button" aria-label="Выключить звук" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
+          <button id="customMuteBtn" type="button" aria-label="Выключить звук" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-white hover:bg-white/20 transition-colors flex items-center justify-center">
             <span class="material-symbols-outlined text-[24px]">volume_up</span>
           </button>
           <input id="customVolumeSlider" type="range" min="0" max="1" step="0.05" value="1" aria-label="Громкость видео" class="w-16 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-red-600 hover:accent-red-500 transition-[accent-color]"/>
         </div>
 
-        <button id="customCaptionsBtn" type="button" aria-label="Включить субтитры" aria-pressed="false" disabled class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center disabled:opacity-45 disabled:cursor-not-allowed">
+        <button id="customCaptionsBtn" type="button" aria-label="Включить субтитры" aria-pressed="false" disabled class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-white hover:bg-white/20 transition-colors flex items-center justify-center disabled:opacity-45 disabled:cursor-not-allowed">
           <span class="material-symbols-outlined text-[24px]" aria-hidden="true">closed_caption</span>
         </button>
 
         <!-- Fullscreen Button -->
-        <button id="customFullscreenBtn" type="button" aria-label="Открыть видео на весь экран" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
+        <button id="customFullscreenBtn" type="button" aria-label="Открыть видео на весь экран" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-white hover:bg-white/20 transition-colors flex items-center justify-center">
           <span class="material-symbols-outlined text-[24px]">fullscreen</span>
         </button>
       </div>
@@ -241,8 +236,8 @@
 <div class="text-[11px] text-on-surface-variant" id="chatActivity">Сообщения появляются по ходу премьеры записи</div>
 </div>
 <div class="flex items-center gap-2 text-[11px] text-on-surface-variant">
-<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-<span id="chatOnlineLabel">онлайн</span>
+<span class="w-2 h-2 rounded-full bg-green-500" aria-hidden="true"></span>
+<span id="chatOnlineLabel">статус уточняется</span>
 </div>
 </div>
 <div class="flex-grow overflow-y-auto p-4 space-y-3" id="liveChatMessages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false" aria-label="Сообщения и вопросы вебинара">

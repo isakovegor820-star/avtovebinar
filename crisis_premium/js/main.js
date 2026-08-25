@@ -8,7 +8,7 @@ import { hydrateRoomContent } from './room-content.js?v=room-content-20260821-1'
 import { hydrateViewerRoom } from './viewer-room.js?v=viewer-account-1';
 import { hydrateSuccessPage } from './success.js?v=remediation-20260804-1';
 import { hydrateAccessPage } from './access.js?v=remediation-20260804-1';
-import { hydrateRecordingsPage } from './recordings.js?v=remediation-20260804-3';
+import { hydrateRecordingsPage } from './recordings.js?v=viewer-resources-2';
 import {
   bindRegistrationForm,
   bindRegistrationClicks,

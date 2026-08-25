@@ -577,3 +577,14 @@
   -webkit-mask-image: radial-gradient(ellipse at 50% 50%, black 10%, transparent 48%);
   mask-image: radial-gradient(ellipse at 50% 50%, black 10%, transparent 48%);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

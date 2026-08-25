@@ -15,6 +15,8 @@ import {
 } from '../lib/tenancy/authorVerification.js';
 import { resolveTenantContext } from '../lib/tenancy/context.js';
 import { requireAuthenticatedUserSession } from '../lib/tenancy/userAuth.js';
+import { getPlatformOverview } from '../lib/tenancy/platformOverview.js';
+import { requireTenantRollout } from '../lib/tenancy/rolloutPolicy.js';
 
 export const authorPlatformRouter = Router();
 
@@ -57,6 +59,18 @@ function sendPrivateEvidence(res: Response, evidence: { id: string; mimeType: st
   res.setHeader('Content-Disposition', `attachment; filename="evidence-${evidence.id}"`);
   res.type(evidence.mimeType).send(Buffer.from(evidence.content));
 }
+
+authorPlatformRouter.get(
+  '/platform/overview',
+  asyncHandler(async (req, res) => {
+    requirePlatformAccounts();
+    const context = await tenantContextFromRequest(req);
+    await requireTenantRollout(prisma, 'CREATOR_DASHBOARD', context.organizationId);
+    const overview = await getPlatformOverview(prisma, context, req.query);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json({ ok: true, ...overview, correlationId: correlationId() });
+  }),
+);
 
 authorPlatformRouter.get(
   '/author-profile',

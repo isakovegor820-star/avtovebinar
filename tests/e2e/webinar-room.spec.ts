@@ -28,6 +28,29 @@ async function resetDb() {
   await prisma.$executeRawUnsafe(
     'TRUNCATE TABLE legal_holds, tenant_rollout_entries, author_service_notifications, author_review_tasks, webinar_material_uploads, webinar_materials, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, user_auth_tokens, user_sessions, user_auth_email_jobs, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs CASCADE;',
   );
+  // Admin rows own the control-plane audit metadata. The cascading reset therefore
+  // removes the migration defaults as well; recreate them before exercising routes.
+  await prisma.platformFeatureFlag.createMany({
+    data: [
+      { key: 'analytics_dashboard', enabled: true, description: 'Analytics E2E flag.' },
+      { key: 'public_reporting', enabled: true, description: 'Reporting E2E flag.' },
+      { key: 'moderation_actions', enabled: true, description: 'Moderation E2E flag.' },
+      { key: 'provider_jobs', enabled: true, description: 'Provider jobs E2E flag.' },
+    ],
+    skipDuplicates: true,
+  });
+  await prisma.tenantRolloutPolicy.createMany({
+    data: [
+      { feature: 'PLATFORM_ACCOUNTS_ONBOARDING', mode: 'ENABLED' },
+      { feature: 'CREATOR_DASHBOARD', mode: 'ENABLED' },
+      { feature: 'PUBLIC_CATALOG', mode: 'ENABLED' },
+      { feature: 'TENANT_CRM', mode: 'ENABLED' },
+      { feature: 'TENANT_TELEGRAM', mode: 'ENABLED' },
+      { feature: 'PROVIDER_JOBS', mode: 'ENABLED' },
+      { feature: 'ANALYTICS_MODERATION', mode: 'ENABLED' },
+    ],
+    skipDuplicates: true,
+  });
   await prisma.organizationIdempotencyRecord.deleteMany();
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
@@ -259,6 +282,18 @@ test('anonymous visitor sees the access gate only inside the video window', asyn
   await expect(page.locator('body')).toHaveAttribute('data-account-mode', 'error');
   await expect(page.getByRole('heading', { level: 1, name: 'Кабинет недоступен' })).toBeVisible();
   await expect(page.locator('#accountErrorText')).toContainText('безопасной ссылке из письма');
+
+  await page.goto('/crisis_premium/recordings.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { level: 1, name: 'Записи вебинаров' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Войдите в “Мой доступ”, чтобы смотреть записи' }),
+  ).toBeVisible();
+  await expect(page.locator('#recordingResources')).toBeHidden();
+  await expect(page.locator('.viewer-nav a[aria-current="page"]')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  expect(
+    await page.locator('.platform-skip-link').evaluate(element => element.getBoundingClientRect().top),
+  ).toBeLessThan(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
 });
 
 test('platform magic link creates a cookie-only tenant session and removes the fragment token', async ({ page }) => {
@@ -318,6 +353,88 @@ test('platform magic link creates a cookie-only tenant session and removes the f
   expect((await page.context().cookies()).find(cookie => cookie.name === 'aspb_user_session')).toBeUndefined();
 });
 
+test('role-aware platform overview composes real tenant data and stays usable at 320px', async ({ page }) => {
+  await prisma.tenantRolloutPolicy.updateMany({ data: { mode: 'ENABLED', revision: { increment: 1 } } });
+  const organization = await prisma.organization.create({
+    data: {
+      name: 'Правовая студия E2E',
+      slug: `overview-e2e-${Date.now()}`,
+      status: 'ACTIVE',
+      settingsJson: { defaultTimezone: 'Europe/Amsterdam' },
+    },
+  });
+  const user = await prisma.user.create({
+    data: {
+      emailNormalized: `overview-author-${Date.now()}@example.test`,
+      displayName: 'Мария Правова',
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: { organizationId: organization.id, userId: user.id, role: 'AUTHOR', status: 'ACTIVE' },
+  });
+  const author = await prisma.authorProfile.create({
+    data: {
+      organizationId: organization.id,
+      userId: user.id,
+      slug: `overview-author-${Date.now()}`,
+      publicName: 'Мария Правова',
+      verificationStatus: 'VERIFIED',
+    },
+  });
+  const webinar = await prisma.webinar.create({
+    data: {
+      organizationId: organization.id,
+      authorProfileId: author.id,
+      slug: `overview-webinar-${Date.now()}`,
+      title: 'Договорные риски в 2026 году',
+      description: 'Практический разбор договорных рисков для юридической команды.',
+      contentStatus: 'DRAFT',
+      visibility: 'PRIVATE',
+      durationMinutes: 60,
+    },
+  });
+  await prisma.webinarSession.create({
+    data: {
+      organizationId: organization.id,
+      webinarId: webinar.id,
+      title: 'Премьера для команды',
+      scheduledAt: new Date(Date.now() + 24 * 60 * 60_000),
+      timezone: 'Europe/Amsterdam',
+      durationMinutes: 60,
+    },
+  });
+  const rawToken = createAccessToken();
+  await prisma.userAuthToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(rawToken),
+      purpose: 'PASSWORDLESS_LOGIN',
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+  });
+
+  await page.goto(`/crisis_premium/platform-access.html#token=${rawToken}`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#platformOverviewLink').click();
+  await expect(page.locator('body')).toHaveAttribute('data-overview-mode', 'content');
+  await expect(page.locator('#overviewGreeting')).toHaveText('Здравствуйте, Мария');
+  await expect(page.locator('#overviewOrganizationCopy')).toContainText('Правовая студия E2E');
+  await expect(page.locator('#nextSessionWebinar')).toHaveText('Договорные риски в 2026 году');
+  await expect(page.locator('#readinessSteps > li')).toHaveCount(8);
+  await expect(page.locator('[data-platform-navigation]')).toContainText('Профиль автора');
+  await expect(page.locator('[data-platform-navigation]')).not.toContainText('Команда и настройки');
+
+  await page.setViewportSize({ width: 320, height: 760 });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  const menuButton = page.locator('[data-platform-open]');
+  await menuButton.click();
+  await expect(page.locator('#platformSidebar')).toHaveAttribute('aria-hidden', 'false');
+  await page.keyboard.press('Escape');
+  await expect(menuButton).toBeFocused();
+});
+
 test('creator wizard preserves the exact eight steps, autosaves and follows browser history', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 760 });
   await prisma.tenantRolloutPolicy.updateMany({ data: { mode: 'ENABLED', revision: { increment: 1 } } });
@@ -356,7 +473,7 @@ test('creator wizard preserves the exact eight steps, autosaves and follows brow
 
   await page.goto(`/crisis_premium/platform-access.html#token=${rawToken}`, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('body')).toHaveAttribute('data-platform-mode', 'ready');
-  await page.goto('/crisis_premium/creator-webinars.html', { waitUntil: 'domcontentloaded' });
+  await page.goto('/crisis_premium/creator-webinars.html#create', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('body')).toHaveAttribute('data-creator-mode', 'content');
   await page.locator('#creatorNewTitle').fill('Восьмишаговый вебинар');
   await page.locator('#creatorNewSlug').fill(`wizard-webinar-${Date.now()}`);
@@ -1032,29 +1149,35 @@ test('creator builds a private Webinar scenario and previews it without particip
     .locator('#creatorDescription')
     .fill('Практический вебинар о проверке условий договора и снижении юридических рисков бизнеса.');
   await page.locator('#creatorOutcome').fill('Слушатель сможет проверить ключевые условия договора до подписания.');
+  await page.locator('#creatorTargetAudience').fill('Юристы, руководители и владельцы малого бизнеса');
+  await page.locator('#creatorFormat').selectOption('PREMIERE');
+  await page.locator('#creatorDuration').fill('60');
+  const creatorWizardButtons = page.locator('#creatorWizardSteps button');
+  await creatorWizardButtons.nth(1).click();
   await page.locator('#creatorJurisdiction').selectOption(jurisdiction.id);
   await page.locator('#creatorAudienceLevel').selectOption('PRACTITIONER');
   await page.locator('#creatorPrimaryArea').selectOption(rootArea.id);
   await page.locator('#creatorSpecialization').selectOption(specialization.id);
-  await page.locator('#creatorTargetAudience').fill('Юристы, руководители и владельцы малого бизнеса');
-  await page.locator('#creatorFormat').selectOption('PREMIERE');
-  await page.locator('#creatorDuration').fill('60');
   await page.locator('#creatorFreshness').selectOption('CURRENT');
   await page.locator('#creatorCurrentAsOf').fill('2026-08-21');
   await page
     .locator('#creatorDisclaimer')
     .fill('Материал носит информационный характер и не заменяет индивидуальную юридическую консультацию.');
+  await creatorWizardButtons.nth(5).click();
   await page
     .locator('#creatorSyntheticDisclosure')
     .fill('Подготовленные сообщения явно отмечены и не являются репликами реальных зрителей.');
+  await creatorWizardButtons.nth(1).click();
   await page.locator('#creatorSaveButton').click();
   await expect(page.locator('#creatorMetadataStatus')).toContainText('Сведения сохранены');
 
+  await creatorWizardButtons.nth(4).click();
   await page.locator('#creatorSourceTitle').fill('Официальный источник по договорному праву');
   await page.locator('#creatorSourceUrl').fill('https://example.org/legal-source');
   await page.locator('#creatorSourceButton').click();
   await expect(page.locator('#creatorSourcesList')).toContainText('Официальный источник по договорному праву');
 
+  await creatorWizardButtons.nth(3).click();
   await page.locator('.creator-tools-disclosure > summary').click();
   await page.locator('#creatorTerm').fill('АПК РФ');
   await page.locator('#creatorTermExpansion').fill('Арбитражный процессуальный кодекс Российской Федерации');
@@ -1079,6 +1202,7 @@ test('creator builds a private Webinar scenario and previews it without particip
       body: '',
     });
   });
+  await creatorWizardButtons.nth(2).click();
   await page.locator('#creatorVideoFile').setInputFiles({
     name: 'creator-e2e.mp4',
     mimeType: 'video/mp4',
@@ -1102,6 +1226,7 @@ test('creator builds a private Webinar scenario and previews it without particip
   await page.locator('#creatorMediaActivateButton').click();
   await expect(page.locator('#creatorUploadStatus')).toContainText('включена');
 
+  await creatorWizardButtons.nth(3).click();
   await page.locator('#creatorTranscriptGenerateButton').click();
   await expect.poll(async () => prisma.contentJob.count({ where: { type: 'TRANSCRIBE', status: 'PENDING' } })).toBe(1);
   await expect(runContentJobOnce(prisma)).resolves.toMatchObject({ checked: 1, succeeded: 0 });
@@ -1130,6 +1255,7 @@ test('creator builds a private Webinar scenario and previews it without particip
   await titleSuggestion.getByRole('button', { name: 'Принять после проверки' }).click();
   await expect(page.locator('#creatorAiStatus')).toContainText('ручное решение');
 
+  await creatorWizardButtons.nth(5).click();
   await page.locator('#creatorScenarioAddButton').click();
   const scenarioRow = page.locator('.creator-scenario-row').first();
   await scenarioRow.locator('[data-field="offsetSeconds"]').fill('120');
@@ -1143,6 +1269,7 @@ test('creator builds a private Webinar scenario and previews it without particip
   await page.locator('#creatorScenarioPublishButton').click();
   await expect(page.locator('#creatorScenarioStatus')).toContainText('Сценарий опубликован');
 
+  await creatorWizardButtons.nth(6).click();
   await page.locator('#creatorRecurrence').selectOption('ONCE');
   await page.locator('#creatorStartsOn').fill('2032-01-15');
   await page.locator('#creatorScheduleButton').click();
@@ -1160,6 +1287,7 @@ test('creator builds a private Webinar scenario and previews it without particip
     prisma.event.count(),
     prisma.emailOutboxJob.count(),
   ]);
+  await creatorWizardButtons.nth(7).click();
   await page.locator('#creatorPreviewLink').click();
   await expect(page.locator('body')).toHaveAttribute('data-preview-mode', 'content');
   await expect(page.locator('#previewTitle')).toHaveText('Практический разбор: Договорные риски для бизнеса');
@@ -1472,7 +1600,8 @@ test('platform moderation is keyboard-usable, revisioned and confirmed at 320px'
   });
 
   await page.goto('/crisis_premium/platform-moderation.html', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('heading', { level: 1, name: 'Очередь публичных жалоб' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Контроль платформы' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Жалобы' })).toBeVisible();
   await expect(page.getByText('Проверяемое описание публичной жалобы.')).toBeVisible();
   await page.locator('#reportStatus').focus();
   await expect(page.locator('#reportStatus')).toBeFocused();

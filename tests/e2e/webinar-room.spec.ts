@@ -2533,7 +2533,9 @@ test('published room content, captions and player controls stay consistent and k
 test('player renders safe processing, error and unavailable states', async ({ page }) => {
   const { exchangeToken } = await createExchangeRegistration(`media-states-${Date.now()}@aspb.ru`);
   let mediaState: 'processing' | 'error' | 'unavailable' = 'processing';
+  let timelineRequests = 0;
   await page.route('**/api/webinar/timeline/session/current', async route => {
+    timelineRequests += 1;
     const upstream = await route.fetch();
     const payload = await upstream.json();
     await route.fulfill({
@@ -2559,11 +2561,21 @@ test('player renders safe processing, error and unavailable states', async ({ pa
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#videoFallback')).toBeVisible();
   await expect(page.locator('#videoFallback')).toContainText('Не удалось подготовить запись');
+  const requestsBeforeRetry = timelineRequests;
+  const retryButton = page.getByRole('button', { name: 'Повторить подключение' });
+  await retryButton.focus();
+  await expect(retryButton).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => timelineRequests).toBeGreaterThan(requestsBeforeRetry);
+  await expect(page.locator('#videoFallback')).toBeVisible();
 
   mediaState = 'unavailable';
+  await page.setViewportSize({ width: 320, height: 760 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#videoFallback')).toBeVisible();
   await expect(page.locator('#videoFallback')).toContainText('Запись для этой сессии пока недоступна');
+  await expect(page.getByRole('button', { name: 'Повторить подключение' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test('registered participant does not see registration CTA in landing header', async ({ page }) => {

@@ -67,12 +67,15 @@
   <img id="webinarSlide" class="absolute inset-0 w-full h-full object-contain bg-white z-[5]" alt="Слайд презентации"/>
 
   <!-- Fallback Screen when video cannot load -->
-  <div id="videoFallback" class="hidden absolute inset-0 flex-col items-center justify-center text-center p-8 bg-primary-container z-50" role="alert" aria-live="assertive">
-    <div class="w-20 h-20 bg-surface-container-lowest/10 backdrop-blur-md rounded-full flex items-center justify-center mb-6 border border-white/20">
-      <span class="material-symbols-outlined text-white text-4xl">movie</span>
+  <div id="videoFallback" class="hidden absolute inset-0 flex-col items-center justify-center overflow-y-auto text-center p-4 sm:p-8 bg-primary-container z-50" role="alert" aria-live="assertive">
+    <div class="hidden sm:flex w-20 h-20 bg-surface-container-lowest/10 backdrop-blur-md rounded-full items-center justify-center mb-6 border border-white/20">
+      <span class="material-symbols-outlined text-white text-4xl" aria-hidden="true">movie</span>
     </div>
-    <h2 class="text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h2>
-    <p data-video-fallback-text class="text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Поток вебинара временно недоступен. Обновите страницу или попробуйте открыть персональную ссылку позже.</p>
+    <h2 class="text-headline-md sm:text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h2>
+    <p data-video-fallback-text class="text-body-md sm:text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Поток вебинара временно недоступен. Обновите страницу или попробуйте открыть персональную ссылку позже.</p>
+    <button data-video-fallback-retry type="button" class="mt-4 sm:mt-6 min-h-[44px] rounded-full bg-white px-6 py-3 font-label-md text-primary shadow-sm transition-[background-color,transform] hover:bg-primary-fixed active:scale-[0.96]">
+      Повторить подключение
+    </button>
   </div>
 
   <div id="videoProcessing" class="hidden absolute inset-0 flex-col items-center justify-center text-center p-8 bg-primary-container z-40" role="status" aria-live="polite" aria-atomic="true">
@@ -473,7 +476,7 @@
 </div>
 </footer>
 
-<script type="module" src="js/main.js?v=room-content-20260821-1"></script>
+<script type="module" src="js/main.js?v=player-retry-20260825-1"></script>
 <script type="module" src="js/slides.js?v=sync-20260814-1"></script>
 <script src="live-chat.js?v=prepared-questions-1"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>

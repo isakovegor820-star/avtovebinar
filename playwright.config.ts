@@ -41,7 +41,7 @@ export default defineConfig({
       'PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=log E2E_EMAIL_OUTBOX_ENABLED=on TELEGRAM_NOTIFY_MODE=log PLATFORM_ACCOUNTS_ENABLED=on CREATOR_DASHBOARD_ENABLED=on PUBLIC_CATALOG_ENABLED=on TENANT_CRM_ENABLED=on MEDIA_STORAGE_PROVIDER=test_fake STT_PROVIDER=test_fake AI_ENRICHMENT_PROVIDER=test_fake WEBINAR_VIDEO_PROVIDER=local WEBINAR_VIDEO_HLS_URL= WEBINAR_VIDEO_URL=http://127.0.0.1:5175/crisis_premium/assets/webinar.mp4 WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on WORKER_ROLE=api npx tsx src/server.ts',
     url: 'http://127.0.0.1:5175/crisis_premium/index.html',
     reuseExistingServer: false,
-    timeout: 30_000,
+    timeout: 60_000,
   },
   projects: [
     {

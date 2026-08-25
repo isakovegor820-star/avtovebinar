@@ -60,6 +60,18 @@ async function reset() {
       { key: 'provider_jobs', enabled: false, description: 'Provider jobs test flag' },
     ],
   });
+  await prisma.tenantRolloutPolicy.createMany({
+    data: [
+      { feature: 'PLATFORM_ACCOUNTS_ONBOARDING', mode: 'ENABLED' },
+      { feature: 'CREATOR_DASHBOARD', mode: 'ENABLED' },
+      { feature: 'PUBLIC_CATALOG', mode: 'ENABLED' },
+      { feature: 'TENANT_CRM', mode: 'ENABLED' },
+      { feature: 'TENANT_TELEGRAM', mode: 'ENABLED' },
+      { feature: 'PROVIDER_JOBS', mode: 'DISABLED' },
+      { feature: 'ANALYTICS_MODERATION', mode: 'ENABLED' },
+    ],
+    skipDuplicates: true,
+  });
   await prisma.organization.create({
     data: { id: DEFAULT_ORGANIZATION_ID, name: 'АСПБ', slug: DEFAULT_ORGANIZATION_SLUG, status: 'ACTIVE' },
   });

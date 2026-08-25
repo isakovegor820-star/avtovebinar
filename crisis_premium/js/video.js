@@ -50,6 +50,11 @@ function showVideoFallback(fallback, message, mediaGeneration = null) {
   document.getElementById('videoProcessing')?.classList.add('hidden');
   document.getElementById('videoProcessing')?.classList.remove('flex');
   setPlayerState('');
+  const retry = fallback.querySelector('[data-video-fallback-retry]');
+  if (retry) {
+    retry.disabled = false;
+    retry.textContent = 'Повторить подключение';
+  }
   fallback.classList.remove('hidden');
   fallback.classList.add('flex');
 }
@@ -310,6 +315,7 @@ export async function hydrateTimeline() {
   const standbyBackdrop = document.getElementById('webinarStandbyBackdrop');
   const pauseOverlay = document.getElementById('videoPauseOverlay');
   const processing = document.getElementById('videoProcessing');
+  const fallbackRetry = fallback?.querySelector('[data-video-fallback-retry]');
 
   const customControls = document.getElementById('customPlayerControls');
   const playPauseBtn = document.getElementById('customPlayPauseBtn');
@@ -344,6 +350,19 @@ export async function hydrateTimeline() {
   if (_fullscreenHandler) { document.removeEventListener('fullscreenchange', _fullscreenHandler); _fullscreenHandler = null; }
   const mediaSession = beginVideoMediaSession();
   setPlayerState('Загружаем состояние видео…');
+
+  fallbackRetry?.addEventListener(
+    'click',
+    () => {
+      fallbackRetry.disabled = true;
+      fallbackRetry.textContent = 'Подключаемся…';
+      fallback.classList.add('hidden');
+      fallback.classList.remove('flex');
+      setPlayerState('Повторно подключаем видео…');
+      void hydrateTimeline();
+    },
+    { signal: mediaSession.signal },
+  );
 
   // Загрузка состояния эфира с ретраями: один сетевой сбой/429/5xx больше не оставляет
   // «пустой» плеер без объяснения — повторяем, а при окончательной неудаче показываем фолбэк.
@@ -399,15 +418,46 @@ export async function hydrateTimeline() {
 
   processing?.classList.add('hidden');
   processing?.classList.remove('flex');
+  let stalledFallbackTimer = null;
+  const clearStalledFallbackTimer = () => {
+    if (stalledFallbackTimer !== null) {
+      window.clearTimeout(stalledFallbackTimer);
+      stalledFallbackTimer = null;
+    }
+  };
   const announceLoading = () => setPlayerState('Загружаем видео…');
-  const announceBuffering = () => setPlayerState('Видео загружается…');
-  const announceReady = () => setPlayerState('');
+  const announceBuffering = () => {
+    setPlayerState('Видео загружается…');
+    if (stalledFallbackTimer !== null) return;
+    stalledFallbackTimer = window.setTimeout(() => {
+      stalledFallbackTimer = null;
+      video.pause();
+      showVideoFallback(
+        fallback,
+        'Видео не отвечает. Проверьте соединение и повторите подключение.',
+        mediaSession.generation,
+      );
+    }, 12_000);
+  };
+  const announceReady = () => {
+    clearStalledFallbackTimer();
+    setPlayerState('');
+  };
+  const announceMediaError = () => {
+    clearStalledFallbackTimer();
+    showVideoFallback(
+      fallback,
+      'Не удалось загрузить видео. Проверьте соединение и повторите подключение.',
+      mediaSession.generation,
+    );
+  };
+  mediaSession.signal.addEventListener('abort', clearStalledFallbackTimer, { once: true });
   video.addEventListener('loadstart', announceLoading, { signal: mediaSession.signal });
   video.addEventListener('waiting', announceBuffering, { signal: mediaSession.signal });
   video.addEventListener('stalled', announceBuffering, { signal: mediaSession.signal });
   video.addEventListener('canplay', announceReady, { signal: mediaSession.signal });
   video.addEventListener('playing', announceReady, { signal: mediaSession.signal });
-  video.addEventListener('error', announceReady, { signal: mediaSession.signal });
+  video.addEventListener('error', announceMediaError, { signal: mediaSession.signal });
 
   const webinarConfig = state.webinarConfig;
   const serverLiveState = data.liveState || webinarConfig?.liveState || null;

@@ -70,6 +70,16 @@ describe('frontend player safety regressions', () => {
     expect(recordingsJs).toContain('setRecordingPlaybackFailureState(false)');
   });
 
+  it('gives an unavailable webinar video an accessible bounded retry path', () => {
+    expect(webinarHtml).toContain('data-video-fallback-retry');
+    expect(webinarHtml).toContain('Повторить подключение');
+    expect(videoJs).toContain("fallback.querySelector('[data-video-fallback-retry]')");
+    expect(videoJs).toContain("video.addEventListener('error', announceMediaError");
+    expect(videoJs).toContain("video.addEventListener('stalled', announceBuffering");
+    expect(videoJs).toContain('}, 12_000);');
+    expect(videoJs).toContain('void hydrateTimeline()');
+  });
+
   it('uses action labels for media actions and pressed state only for captions', () => {
     const actionSources = [videoJs, recordingsJs, recordingsHtml].join('\n');
     expect(actionSources).not.toContain('aria-pressed');

@@ -6,17 +6,15 @@ product
 
 ## Users
 
-Registered webinar participants who confirm their email, enter the “Мои вебинары” account, and open the relevant scheduled room from its webinar card. Reminder and Telegram deep links may still open the room directly.
+Registered webinar participants who enter a personal autowebinar room from email or Telegram, watch a scheduled АСПБ partner webinar, ask questions, and leave a partner application.
 
-Secondary users are invited АСПБ managers and operators who need the chat, questions, registrations, partner applications, reminders, and CRM state to stay synchronized with the video timeline. External organizations cannot create their own workspaces.
+Secondary users are АСПБ managers and operators who need the chat, questions, registrations, partner applications, reminders, and CRM state to stay synchronized with the video timeline.
 
 ## Product Purpose
 
 The product turns a recorded АСПБ webinar into a managed scheduled event: registration, personal room access, server-based live timing, scripted timeline prompts, chat, questions, partner CTA, CRM capture, email reminders, and Telegram notifications.
 
 Success means the room feels like a clear, reliable scheduled broadcast without pretending that prerecorded content is a real live conversation. Viewers should understand who АСПБ is, what a partner does, what АСПБ handles, how terms are fixed, and what next action to take.
-
-The product is a single-owner АСПБ service. Tenant entities remain an internal authorization boundary and compatibility layer, not a public multi-organization product.
 
 ## Brand Personality
 

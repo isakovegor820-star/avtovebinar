@@ -45,13 +45,13 @@ function setParticipantCtaLabel(link, label) {
 }
 
 function rewriteRegisterLinksForParticipant(data) {
-  const accountUrl = data?.accountUrl || 'account.html';
+  const roomUrl = data?.webinarUrl || 'webinar.html';
   const accessUrl = data?.accessUrl || 'access.html';
 
   document.querySelectorAll('a[href*="register.html"]:not([data-keep-register])').forEach(link => {
     const inAccessRecovery = Boolean(link.closest('#accessLogin, .room-access-recovery, .recordings-access-actions'));
-    const targetUrl = inAccessRecovery ? accessUrl : accountUrl;
-    const label = inAccessRecovery ? 'Войти в кабинет' : 'Мои вебинары';
+    const targetUrl = inAccessRecovery ? accessUrl : roomUrl;
+    const label = inAccessRecovery ? 'Мой доступ' : 'Открыть комнату';
 
     link.setAttribute('href', targetUrl);
     link.dataset.participantCta = 'true';
@@ -112,7 +112,7 @@ export async function redirectRegisteredUserFromRegisterPage() {
       // Server session is authoritative.
     }
 
-    window.location.replace(data.accountUrl || 'account.html');
+    window.location.replace(data.accessUrl || 'access.html');
     return true;
   } catch {
     try {
@@ -304,7 +304,7 @@ export async function handleRegistrationSubmit(event, formOverride) {
     } catch {
       // Cookie/session access is enough when localStorage is unavailable.
     }
-    window.location.replace(result.accountUrl || 'account.html');
+    window.location.href = result.successUrl || 'success.html';
   } catch (error) {
     showFormError(error.message || 'Не удалось отправить регистрацию. Проверьте поля и попробуйте снова.');
     if (button) {

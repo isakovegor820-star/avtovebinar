@@ -1,12 +1,10 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { AppError } from '../http.js';
-import { env } from '../env.js';
 import { getRequestContext } from '../requestContext.js';
 import { hashToken } from '../tokens.js';
 import type { TenantContext } from './context.js';
 import { issueUserSession } from './userAuth.js';
-import { DEFAULT_ORGANIZATION_ID } from './constants.js';
 
 export const ORGANIZATION_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const INVITATION_LOCK_NAMESPACE = 7_106_005_017n;
@@ -305,12 +303,6 @@ export async function acceptOrganizationInvitation(
         select: { invitation: { select: { organizationId: true } } },
       });
       if (!candidate) invitationUnavailable();
-      if (
-        env.ASPB_SINGLE_ORGANIZATION_MODE === 'on' &&
-        candidate.invitation.organizationId !== DEFAULT_ORGANIZATION_ID
-      ) {
-        invitationUnavailable();
-      }
 
       // Invitation mutations always acquire the organization advisory lock before
       // locking token rows. Keeping one lock order prevents accept/revoke deadlocks.
@@ -468,12 +460,7 @@ export async function acceptOrganizationInvitation(
         now,
       });
       const memberships = await tx.organizationMembership.findMany({
-        where: {
-          userId: user.id,
-          ...(env.ASPB_SINGLE_ORGANIZATION_MODE === 'on' ? { organizationId: DEFAULT_ORGANIZATION_ID } : {}),
-          status: 'ACTIVE',
-          organization: { status: 'ACTIVE' },
-        },
+        where: { userId: user.id, status: 'ACTIVE', organization: { status: 'ACTIVE' } },
         orderBy: [{ joinedAt: 'asc' }, { id: 'asc' }],
         select: {
           id: true,

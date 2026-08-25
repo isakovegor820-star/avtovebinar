@@ -190,14 +190,6 @@ platformAuthRouter.post(
   '/organizations',
   asyncHandler(async (req, res) => {
     requirePlatformAccounts();
-    if (getPlatformFeatureFlags().singleOrganization) {
-      throw new AppError(
-        403,
-        'Кабинет предназначен только для команды АСПБ',
-        undefined,
-        'organization_self_service_disabled',
-      );
-    }
     await requireTenantRollout(prisma, 'PLATFORM_ACCOUNTS_ONBOARDING');
     const session = await requireAuthenticatedUserSession(prisma, req);
     const created = await createOrganization(prisma, session, req.body, req.get('idempotency-key'));

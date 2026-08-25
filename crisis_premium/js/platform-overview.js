@@ -1,7 +1,7 @@
 import { getJson } from './utils.js?v=platform-overview-1';
 
 const STATUS_LABELS = {
-  ACTIVE: 'Кабинет активен',
+  ACTIVE: 'Организация активна',
   DRAFT: 'Черновик',
   NEEDS_REVIEW: 'Нужна проверка',
   READY: 'Готово',
@@ -103,7 +103,7 @@ function renderHeader(payload) {
   byId('overviewCommandGrid').dataset.singleCard = String(!creatorAccess);
   byId('overviewOperationsGrid').dataset.singleCard = String(!creatorAccess);
   if (!creatorAccess) {
-    byId('nextSessionEmptyCopy').textContent = 'Запланированные вебинары АСПБ появятся здесь.';
+    byId('nextSessionEmptyCopy').textContent = 'Запланированные вебинары активной организации появятся здесь.';
   }
 }
 
@@ -249,19 +249,19 @@ function renderError(error) {
   const title = byId('overviewErrorTitle');
   const text = byId('overviewErrorText');
   if (error?.status === 401) {
-    title.textContent = 'Сначала войдите в кабинет команды';
+    title.textContent = 'Сначала войдите в платформу';
     text.textContent = 'Откройте защищённую ссылку из письма или запросите новую на странице входа.';
   } else if (error?.status === 403) {
     title.textContent = 'Обзор недоступен для этой роли';
-    text.textContent = 'Обратитесь к владельцу команды, чтобы проверить свою роль.';
+    text.textContent = 'Выберите другую организацию или обратитесь к владельцу команды.';
   } else if (error?.status === 404) {
     title.textContent = 'Обзор ещё не включён';
-    text.textContent = 'Рабочий кабинет АСПБ пока закрыт политикой запуска. Публичная регистрация продолжает работать.';
+    text.textContent = 'Рабочий контур организации пока закрыт политикой запуска. Действующие публичные сценарии не изменены.';
   } else {
     title.textContent = 'Не удалось загрузить обзор';
     text.textContent = navigator.onLine === false
       ? 'Нет соединения с интернетом. Подключитесь к сети и повторите.'
-      : 'Сервер не вернул данные. Повторите запрос — ваш доступ сохранён.';
+      : 'Сервер не вернул данные. Повторите запрос; выбранная организация сохранится.';
   }
   setMode('error');
   title.focus();

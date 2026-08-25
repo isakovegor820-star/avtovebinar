@@ -157,17 +157,17 @@
 <span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
 <span class="hidden sm:block text-[11px] leading-4 font-semibold text-on-surface-variant">Антикризисная служба помощи бизнесу</span>
 </a>
-<div class="hidden lg:flex gap-6 items-center">
+<div class="hidden md:flex gap-8 items-center">
 <a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#about">О вебинаре</a>
 <a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#why-now">Почему сейчас</a>
 <a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#team">Команда</a>
 <a class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-300" href="index.html#faq">Частые вопросы</a>
 </div>
-<a class="bg-primary text-on-primary px-6 py-2.5 min-h-[44px] inline-flex items-center justify-center rounded-full text-label-md font-label-md hover:opacity-90 active:scale-95 transition-[opacity,transform]" href="account.html">
-                Мои вебинары
+<a class="bg-primary text-on-primary px-6 py-2.5 min-h-[44px] inline-flex items-center justify-center rounded-full text-label-md font-label-md hover:opacity-90 active:scale-95 transition-all" href="webinar.html">
+                Комната вебинара
             </a>
 </div>
-<div class="lg:hidden px-gutter pb-3">
+<div class="md:hidden px-gutter pb-3">
 <nav class="flex gap-3 overflow-x-auto text-label-sm font-label-sm" aria-label="Мобильная навигация">
 <a class="shrink-0 min-h-[44px] inline-flex items-center text-on-surface-variant hover:text-primary" href="index.html#about">О вебинаре</a>
 <a class="shrink-0 min-h-[44px] inline-flex items-center text-on-surface-variant hover:text-primary" href="index.html#why-now">Почему сейчас</a>
@@ -198,19 +198,19 @@
                     Ваш доступ открыт
                 </h1>
 <p id="successIntroText" class="font-body-lg text-body-lg text-on-surface-variant max-w-xl mb-12">
-                    Вы зарегистрированы. Вебинар добавлен в ваш личный кабинет. Там показаны дата, статус доступа, записи и напоминания.
+                    Вы зарегистрированы. Дата ближайшей премьеры записи и рабочая ссылка показаны прямо здесь. Сохраните страницу «Мой доступ»; Telegram можно подключить отдельно для организационных напоминаний.
                 </p>
 <div class="w-full flex flex-col gap-4 max-w-2xl">
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-<a id="successAccountLink" class="flex items-center justify-center gap-2 bg-primary text-on-primary hover:bg-primary/95 py-4 px-6 rounded-xl font-label-md text-label-md transition-[background-color,transform] active:scale-95 shadow-md" href="account.html">
-<span class="material-symbols-outlined text-xl">person</span>
-                            Открыть мои вебинары
+<a id="successRoomLink" class="flex items-center justify-center gap-2 bg-primary text-on-primary hover:bg-primary/95 py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95 shadow-md" href="webinar.html">
+<span class="material-symbols-outlined text-xl">meeting_room</span>
+                            Вебинарная комната
                         </a>
-<a id="successRecordingsLink" class="flex items-center justify-center gap-2 border border-outline/30 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface py-4 px-6 rounded-xl font-label-md text-label-md transition-[background-color,transform] active:scale-95 shadow-md" href="recordings.html">
+<a id="successRecordingsLink" class="flex items-center justify-center gap-2 border border-outline/30 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95 shadow-md" href="recordings.html">
 <span class="material-symbols-outlined text-xl">video_library</span>
                             Смотреть записи
                         </a>
-<a id="successTelegramLink" data-telegram-link="bot" class="flex items-center justify-center gap-2 bg-[#0088cc] hover:bg-[#0077b5] text-white py-4 px-6 rounded-xl font-label-md text-label-md transition-[background-color,opacity,transform] active:scale-95 shadow-md opacity-70 pointer-events-none" target="_blank" rel="noreferrer" aria-disabled="true">
+<a id="successTelegramLink" data-telegram-link="bot" class="flex items-center justify-center gap-2 bg-[#0088cc] hover:bg-[#0077b5] text-white py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95 shadow-md opacity-70 pointer-events-none" target="_blank" rel="noreferrer" aria-disabled="true">
 <span class="material-symbols-outlined text-xl">send</span>
                             Telegram-бот
                         </a>
@@ -224,7 +224,7 @@
 <p id="successRecordingsText" class="text-body-sm text-on-surface-variant mt-1">Раздел уже доступен в кабинете.</p>
 </div>
 <div class="grid grid-cols-1 gap-4 mt-2">
-	<button id="successCalendarButton" class="flex items-center justify-center gap-2 border border-outline/30 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface py-4 px-6 rounded-xl font-label-md text-label-md transition-[background-color,transform] active:scale-95">
+	<button id="successCalendarButton" class="flex items-center justify-center gap-2 border border-outline/30 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95">
 <span class="material-symbols-outlined text-xl">calendar_add_on</span>
                             Добавить в календарь
                         </button>
@@ -247,7 +247,7 @@
 </section>
 </div>
 <section class="mt-20 w-full max-w-4xl grid md:grid-cols-2 gap-8">
-<div class="bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 hover:shadow-md transition-shadow">
+<div class="bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 hover:shadow-md transition-all">
 <div class="flex items-center gap-4 mb-4">
 <div class="p-3 bg-secondary-container rounded-xl">
 <span class="material-symbols-outlined text-on-secondary-container">help_outline</span>
@@ -255,11 +255,11 @@
 <h3 class="font-headline-md text-headline-md text-primary">Нужна помощь?</h3>
 </div>
 <p class="font-body-md text-body-md text-on-surface-variant mb-6">Если у вас возникли трудности с регистрацией или входом, наша служба поддержки готова помочь вам в любое время.</p>
-<button id="successSupportBtn" class="text-primary font-label-md text-label-md flex items-center gap-1 hover:gap-2 transition-[gap]">
+<button id="successSupportBtn" class="text-primary font-label-md text-label-md flex items-center gap-1 hover:gap-2 transition-all">
                     Написать в чат <span class="material-symbols-outlined">chevron_right</span>
 </button>
 </div>
-<div class="bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 hover:shadow-md transition-shadow">
+<div class="bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 hover:shadow-md transition-all">
 <div class="flex items-center gap-4 mb-4">
 <div class="p-3 bg-primary-fixed rounded-xl">
 <span class="material-symbols-outlined text-on-primary-fixed">share</span>
@@ -267,7 +267,7 @@
 <h3 class="font-headline-md text-headline-md text-primary">Поделитесь событием</h3>
 </div>
 <p class="font-body-md text-body-md text-on-surface-variant mb-6">Вашим коллегам-юристам тоже может быть интересно. Особенно тем, кто регулярно видит долговые риски клиентов, но не хочет вести всю процедуру внутри своей практики.</p>
-<button id="successCopyLinkBtn" class="text-primary font-label-md text-label-md flex items-center gap-1 hover:gap-2 transition-[gap]">
+<button id="successCopyLinkBtn" class="text-primary font-label-md text-label-md flex items-center gap-1 hover:gap-2 transition-all">
                     Скопировать ссылку <span class="material-symbols-outlined">content_copy</span>
 </button>
 </div>
@@ -280,13 +280,13 @@
 <p class="font-label-sm text-label-sm text-on-surface-variant max-w-xs">© 2026 АСПБ. Все права защищены. Юридическая информация и оферта.</p>
 </div>
 <div class="flex flex-wrap justify-center gap-6">
-<a class="font-label-sm text-label-sm text-on-surface-variant hover:underline" href="privacy.html">Политика конфиденциальности</a>
-<a class="font-label-sm text-label-sm text-on-surface-variant hover:underline" href="terms.html">Пользовательское соглашение</a>
-<a class="font-label-sm text-label-sm text-on-surface-variant hover:underline" href="mailto:partners@aspb.ru">Контакты</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:underline transition-all" href="privacy.html">Политика конфиденциальности</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:underline transition-all" href="terms.html">Пользовательское соглашение</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:underline transition-all" href="mailto:partners@aspb.ru">Контакты</a>
 </div>
 </footer>
 <script src="success-animation.js"></script>
-<script type="module" src="js/main.js?v=single-service-20260825-1"></script>
+<script type="module" src="js/main.js?v=remediation-20260804-1"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="cookie-consent.js"></script>
 </body></html>

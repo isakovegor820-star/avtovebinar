@@ -148,7 +148,7 @@ async function createExchangeRegistration(email: string) {
   return { exchangeToken, registration, session };
 }
 
-async function deliverNextEmailUrl() {
+async function deliverNextEmailToken() {
   let deliveredUrl = '';
   const captureDelivery = async (input: { webinarUrl: string }) => {
     deliveredUrl = input.webinarUrl;
@@ -159,12 +159,6 @@ async function deliverNextEmailUrl() {
     sendParticipantLoginEmail: captureDelivery,
   });
   expect(result.sent).toBe(1);
-  expect(deliveredUrl).toBeTruthy();
-  return deliveredUrl;
-}
-
-async function deliverNextEmailToken() {
-  const deliveredUrl = await deliverNextEmailUrl();
   const token = deliveredUrl ? new URLSearchParams(new URL(deliveredUrl).hash.slice(1)).get('token') : null;
   expect(token).toBeTruthy();
   return token!;
@@ -1897,7 +1891,7 @@ test('catalog registration opens a private viewer account with progress, notes a
 
   await page.goto('/crisis_premium/account.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('body')).toHaveAttribute('data-account-mode', 'content');
-  await expect(page.getByRole('heading', { level: 1, name: 'Мои вебинары' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Мой кабинет' })).toBeVisible();
   await expect(page.locator('#accountRecordings')).toContainText(webinar.title);
   await expect(page.locator('#accountWatched')).toContainText(webinar.title);
   await expect(page.locator('#accountWatched')).toContainText('1 заметка');
@@ -2250,10 +2244,9 @@ test('registration without optional marketing consent activates after email veri
   const pendingRegistration = await prisma.registration.findFirstOrThrow({ where: { leadId: pendingLead.id } });
   expect(pendingRegistration).toMatchObject({ status: 'pending_verification', emailVerifiedAt: null });
 
-  const confirmationUrl = await deliverNextEmailUrl();
-  await page.goto(confirmationUrl, { waitUntil: 'domcontentloaded' });
-  await expect(page).toHaveURL(/account\.html$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Мои вебинары' })).toBeVisible();
+  const token = await deliverNextEmailToken();
+  await page.goto(`/crisis_premium/webinar.html#token=${token}`, { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/webinar\.html$/);
   expect(page.url()).not.toContain('token=');
 
   const savedLead = await prisma.lead.findUniqueOrThrow({ where: { email } });
@@ -2267,8 +2260,6 @@ test('registration without optional marketing consent activates after email veri
   expect(savedRegistration.status).toBe('registered');
   expect(savedRegistration.emailVerifiedAt).toBeInstanceOf(Date);
 
-  await page.getByRole('button', { name: 'Открыть страницу сессии' }).click();
-  await expect(page).toHaveURL(/webinar\.html$/);
   const access = await expectDailyRoomState(page);
   expect(['waiting', 'pre_live', 'live', 'replay']).toContain(access.accessStatus);
 });
@@ -2710,12 +2701,10 @@ test('registered participant does not see registration CTA in landing header', a
   await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`, { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/webinar\.html$/);
 
-  await page.setViewportSize({ width: 1024, height: 800 });
   await page.goto('/crisis_premium/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('header a[href*="register.html"]')).toHaveCount(0);
-  await expect(page.locator('header a[data-participant-cta="true"]')).toContainText('Мои вебинары');
-  await expect(page.locator('header a[data-participant-cta="true"]')).toHaveAttribute('href', /account\.html/);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+  await expect(page.locator('header a[data-participant-cta="true"]')).toContainText('Открыть комнату');
+  await expect(page.locator('header a[data-participant-cta="true"]')).toHaveAttribute('href', /webinar\.html/);
 });
 
 test('published recording stays available before the daily broadcast', async ({ page }) => {

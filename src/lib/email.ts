@@ -174,7 +174,7 @@ function buildEmailText(input: BaseEmailInput, intro: string) {
     '',
     'Тема: Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности',
     `Начало: ${scheduled} (${timezoneLabel(timezone)})`,
-    `Ваша персональная ссылка: ${input.webinarUrl}`,
+    `Ваша персональная ссылка на комнату: ${input.webinarUrl}`,
     `Telegram-уведомления: ${telegramUrl}`,
     input.partnerUrl ? `Заявка на партнерский договор: ${input.partnerUrl}` : '',
     '',
@@ -259,12 +259,12 @@ export async function sendCrmMarketingEmail(input: { to: string; subject: string
 }
 
 export async function sendUserPasswordlessLoginEmail(input: PasswordlessLoginEmailInput) {
-  const subject = 'Вход в кабинет команды АСПБ';
+  const subject = 'Вход в платформу АСПБ';
   const greeting = input.displayName?.trim() ? `${input.displayName.trim()},` : 'Здравствуйте,';
   const text = [
     greeting,
     '',
-    'Откройте ссылку, чтобы войти в рабочий кабинет команды АСПБ:',
+    'Откройте ссылку, чтобы войти в платформу юридических вебинаров АСПБ:',
     input.loginUrl,
     '',
     `Ссылка действует ${input.expiresInMinutes} минут и только один раз.`,
@@ -287,7 +287,7 @@ export async function sendOrganizationInvitationEmail(input: OrganizationInvitat
   const text = [
     'Здравствуйте,',
     '',
-    `Вас пригласили в команду «${input.organizationName}» в рабочем кабинете АСПБ.`,
+    `Вас пригласили в организацию «${input.organizationName}» на платформе АСПБ.`,
     `Роль: ${input.roleLabel}.`,
     `Принять приглашение: ${input.invitationUrl}`,
     '',
@@ -315,7 +315,7 @@ export async function sendWebinarAccessInvitationEmail(input: WebinarAccessInvit
   const text = [
     'Здравствуйте,',
     '',
-    `Команда «${input.organizationName}» пригласила вас на закрытый вебинар:`,
+    `Организация «${input.organizationName}» пригласила вас на закрытый вебинар:`,
     input.webinarTitle,
     `Принять приглашение: ${input.invitationUrl}`,
     '',
@@ -382,20 +382,17 @@ export async function verifyEmailConnectivity() {
 
 export async function sendRegistrationEmail(input: BaseEmailInput) {
   const subject = 'Вы зарегистрированы на вебинар АСПБ';
-  const text = buildEmailText(
-    input,
-    'вы зарегистрированы на вебинар АСПБ. После подтверждения вебинар появится в разделе «Мои вебинары».',
-  );
+  const text = buildEmailText(input, 'вы зарегистрированы на вебинар АСПБ.');
 
   return deliverEmail({ ...input, subject, text });
 }
 
 export async function sendParticipantLoginEmail(input: BaseEmailInput) {
-  const subject = 'Ваша ссылка для входа в «Мои вебинары» АСПБ';
+  const subject = 'Ваша ссылка для входа в Мой доступ АСПБ';
   const timezone = input.timezone ?? 'Europe/Moscow';
   const scheduled = formatScheduled(input.scheduledAt, timezone);
   const text = [
-    `${input.name}, вы запросили вход в раздел «Мои вебинары» АСПБ.`,
+    `${input.name}, вы запросили вход в Мой доступ АСПБ.`,
     '',
     'Откройте одноразовую ссылку, чтобы восстановить доступ на этом устройстве:',
     input.webinarUrl,

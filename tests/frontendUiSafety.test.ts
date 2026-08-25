@@ -16,9 +16,6 @@ describe('frontend player safety regressions', () => {
   const roomContentJs = readProjectFile('crisis_premium/js/room-content.js');
   const accessJs = readProjectFile('crisis_premium/js/access.js');
   const registrationJs = readProjectFile('crisis_premium/js/registration.js');
-  const siteMainJs = readProjectFile('crisis_premium/js/main.js');
-  const platformAccessJs = readProjectFile('crisis_premium/js/platform-access.js');
-  const platformAccessHtml = readProjectFile('crisis_premium/platform-access.html');
   const questionsJs = readProjectFile('crisis_premium/js/questions.js');
   const landingMainJs = readProjectFile('crisis_premium/main.js');
   const webinarHtml = readProjectFile('crisis_premium/webinar.html');
@@ -143,17 +140,6 @@ describe('frontend player safety regressions', () => {
     expect(roomJs).toContain('participantLoginStatusMessage(result)');
     expect(accessJs).toContain('participantLoginStatusMessage(result)');
     expect(roomJs).not.toContain('мы отправили одноразовую ссылку');
-  });
-
-  it('keeps ASPB single-owner onboarding separate from the viewer webinar account', () => {
-    expect(platformAccessHtml).not.toContain('platformOrganizationCreateForm');
-    expect(platformAccessHtml).toContain('Примите приглашение в команду АСПБ');
-    expect(platformAccessJs).not.toContain("post('/v1/organizations'");
-    expect(registrationJs).toContain("window.location.replace(result.accountUrl || 'account.html')");
-    expect(registrationJs).toContain("window.location.replace(data.accountUrl || 'account.html')");
-    expect(accessJs).toContain("new URLSearchParams(window.location.search).get('next') === 'account'");
-    expect(siteMainJs).toContain("window.location.replace('account.html')");
-    expect(viewerAccountHtml).toContain('<h1>Мои вебинары</h1>');
   });
 
   it('makes flip cards keyboard-operable disclosures without automatic state changes', () => {

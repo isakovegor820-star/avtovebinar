@@ -3,7 +3,6 @@ import type { PrismaClient } from '@prisma/client';
 
 export type PlatformFeatureFlags = {
   platformAccounts: boolean;
-  singleOrganization: boolean;
   tenantEnforcement: boolean;
   creatorDashboard: boolean;
   publicCatalog: boolean;
@@ -14,7 +13,6 @@ export type PlatformFeatureFlags = {
 export function getPlatformFeatureFlags(): PlatformFeatureFlags {
   return {
     platformAccounts: env.PLATFORM_ACCOUNTS_ENABLED === 'on',
-    singleOrganization: env.ASPB_SINGLE_ORGANIZATION_MODE === 'on',
     tenantEnforcement: env.PLATFORM_TENANCY_ENFORCEMENT === 'on',
     creatorDashboard: env.CREATOR_DASHBOARD_ENABLED === 'on',
     publicCatalog: env.PUBLIC_CATALOG_ENABLED === 'on',

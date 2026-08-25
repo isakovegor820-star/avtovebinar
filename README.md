@@ -2,28 +2,12 @@
 
 Платформа автовебинара АСПБ: статический frontend в `crisis_premium`, Node.js/TypeScript backend, PostgreSQL/Prisma, CRM-админка, серверный live-тайминг, чат, вопросы, партнерские заявки, email outbox и Telegram-уведомления.
 
-## Продуктовый режим: единый сервис АСПБ
-
-Проект работает как собственный вебинарный сервис АСПБ, а не как маркетплейс
-для сторонних организаций:
-
-- вебинары создаёт и обслуживает только приглашённая команда АСПБ;
-- участник после регистрации и подтверждения email попадает в раздел «Мои
-  вебинары», а комнату открывает из карточки нужной сессии;
-- рабочий кабинет команды и личный кабинет участника используют разные входы и
-  разные cookie-сессии;
-- публичное самостоятельное создание организаций и переключение между ними
-  отключены при `ASPB_SINGLE_ORGANIZATION_MODE=on` (режим включён по умолчанию);
-- tenant-таблицы сохранены как внутренний контур безопасности и совместимости,
-  но не являются пользовательской функцией для внешних компаний.
-
 ## Архитектура доступа
 
 Доступ в вебинарную комнату cookie-only:
 
 - одноразовый `exchange-token` поддерживается только для первичного обмена через `POST /api/registration/exchange` с body `{ "token": "..." }`; legacy `POST /api/registration/exchange/:token` временно поддерживается;
-- письмо подтверждения регистрации и ссылка восстановления открывают `access.html?next=account#token=...`; после обмена токена участник попадает в «Мои вебинары»;
-- reminder и специальные Telegram-ссылки могут вести прямо в `webinar.html#token=...`; legacy `?token=...` остается рабочим для старых ссылок;
+- письма, reminder и Telegram-ссылки используют одноразовый `webinar.html#token=...`; legacy `?token=...` остается рабочим для старых ссылок;
 - backend удаляет exchange-token, выпускает session-token и ставит `HttpOnly` cookie `aspb_room_token`;
 - URL очищается от `token`;
 - дальнейшие запросы комнаты используют только cookie и endpoints `session/current`.
@@ -59,12 +43,11 @@ TEN-004 добавляет passwordless User auth: durable email outbox с hash-
 membership и отдельным durable outbox. TEN-008 сохраняет обязательную MFA
 `AdminUser` и добавляет владельцам организаций TOTP MFA: enrollment действует
 10 минут, секрет хранится зашифрованным, а непроверенная MFA-сессия не получает
-tenant-данные и доступ к защищённым endpoints. Рабочие модули управляются
-отдельными rollout-флагами, а режим единственного сервиса задаётся независимо:
+tenant-данные и доступ к защищённым endpoints. До controlled switch оба
+rollout-флага остаются выключены:
 
 ```text
 PLATFORM_ACCOUNTS_ENABLED=off
-ASPB_SINGLE_ORGANIZATION_MODE=on
 PLATFORM_TENANCY_ENFORCEMENT=off
 CREATOR_DASHBOARD_ENABLED=off
 PUBLIC_CATALOG_ENABLED=off
@@ -128,7 +111,7 @@ Sessions, registrations, analytics, access grants, media, approval и истор
 может снять `isSynthetic`, а публикация требует явной маркировки подготовленных
 сообщений.
 
-Кабинет команды АСПБ доступен по `/crisis_premium/creator-webinars.html` только
+Кабинет организации доступен по `/crisis_premium/creator-webinars.html` только
 при включённых platform/creator flags. Он показывает независимые content,
 media, transcript, scenario и session статусы, позволяет заполнить юридические
 метаданные, HTTPS-источники, подготовленный чат, расписание и private grants.

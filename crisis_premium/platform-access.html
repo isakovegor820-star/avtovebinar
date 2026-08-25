@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>Вход для команды | АСПБ</title>
+    <title>Вход в платформу | АСПБ</title>
     <link rel="stylesheet" href="css/styles.css?v=platform-access-1" />
     <link rel="stylesheet" href="fonts.css?v=self-2" />
     <link rel="stylesheet" href="platform-access.css?v=platform-access-2" />
@@ -27,7 +27,7 @@
             >Антикризисная служба помощи бизнесу</span
           >
         </a>
-        <span class="text-label-md font-label-md text-on-surface-variant">Кабинет команды</span>
+        <span class="text-label-md font-label-md text-on-surface-variant">Юридическая платформа</span>
       </div>
     </header>
 
@@ -41,7 +41,7 @@
       </section>
 
       <section id="platformLogin" class="platform-mode platform-panel p-7 md:p-10">
-        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Команда АСПБ</p>
+        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Аккаунт платформы</p>
         <h1 id="platformLoginTitle" class="text-headline-lg-mobile font-headline-lg-mobile text-primary md:text-headline-lg md:font-headline-lg">
           Войти по одноразовой ссылке
         </h1>
@@ -64,7 +64,7 @@
               aria-describedby="platformEmailHint platformEmailError"
             />
             <p id="platformEmailHint" class="text-label-sm text-on-surface-variant">
-              Используйте email, на который вас пригласили в команду АСПБ.
+              На этот адрес придут ссылка для входа и приглашения в команду.
             </p>
             <p id="platformEmailError" class="platform-field-error text-label-sm" aria-live="polite"></p>
           </div>
@@ -77,12 +77,30 @@
       </section>
 
       <section id="platformOnboarding" class="platform-mode platform-panel p-7 md:p-10">
-        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Закрытый доступ</p>
-        <h1 class="text-headline-md font-headline-md text-primary">Примите приглашение в команду АСПБ</h1>
+        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Первый вход</p>
+        <h1 class="text-headline-md font-headline-md text-primary">Создайте организацию или примите приглашение</h1>
         <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">
-          Самостоятельное создание сторонних кабинетов отключено. Доступ к вебинарам, CRM и аналитике выдаёт владелец кабинета АСПБ.
+          Организация изолирует вебинары, команду и CRM. Вы станете её владельцем, но не получите права администратора платформы.
         </p>
-        <div class="mt-8 max-w-xl">
+        <div class="platform-onboarding-grid mt-8">
+          <form id="platformCreateOrganizationForm" class="platform-settings-panel grid gap-4" novalidate>
+            <div>
+              <h2 class="text-headline-sm font-headline-sm text-primary">Создать организацию</h2>
+              <p class="mt-2 text-body-md leading-relaxed text-on-surface-variant">Название и короткий адрес можно изменить позже через поддержку.</p>
+            </div>
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="platformOrganizationCreateName">Название</label>
+              <input id="platformOrganizationCreateName" class="platform-input px-4 text-body-md" name="name" autocomplete="organization" minlength="2" maxlength="160" required aria-describedby="platformOrganizationNameError" />
+              <p id="platformOrganizationNameError" class="platform-field-error text-label-sm"></p>
+            </div>
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="platformOrganizationSlug">Короткий адрес</label>
+              <input id="platformOrganizationSlug" class="platform-input px-4 text-body-md" name="slug" inputmode="url" minlength="2" maxlength="63" pattern="[A-Za-z0-9А-Яа-яЁё -]+" aria-describedby="platformOrganizationSlugHint platformOrganizationSlugError" />
+              <p id="platformOrganizationSlugHint" class="text-label-sm text-on-surface-variant">Например: <bdi>legal-team</bdi>. Если оставить пустым, адрес сформируется из названия.</p>
+              <p id="platformOrganizationSlugError" class="platform-field-error text-label-sm"></p>
+            </div>
+            <button id="platformCreateOrganizationButton" class="platform-primary-button" type="submit">Создать организацию</button>
+          </form>
           <form id="platformAcceptInvitationForm" class="platform-settings-panel grid gap-4" novalidate>
             <div>
               <h2 class="text-headline-sm font-headline-sm text-primary">Принять приглашение</h2>
@@ -101,13 +119,13 @@
 
       <section id="platformSelect" class="platform-mode platform-panel p-7 md:p-10">
         <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Защищённый вход выполнен</p>
-        <h1 class="text-headline-md font-headline-md text-primary">Выберите рабочий кабинет</h1>
+        <h1 class="text-headline-md font-headline-md text-primary">Выберите организацию</h1>
         <p class="mt-3 text-body-md text-on-surface-variant">
-          Доступен только внутренний рабочий кабинет АСПБ.
+          Вы увидите только организации, в которых у вас есть активное членство.
         </p>
         <form id="platformOrganizationForm" class="mt-7 grid gap-4">
           <div class="grid gap-2">
-            <label class="text-label-md font-label-md text-primary" for="platformOrganization">Рабочий кабинет</label>
+            <label class="text-label-md font-label-md text-primary" for="platformOrganization">Организация</label>
             <select id="platformOrganization" class="platform-input px-4 text-body-md" name="organizationId" required></select>
           </div>
           <button id="platformOrganizationButton" class="platform-primary-button" type="submit">Продолжить</button>
@@ -119,7 +137,7 @@
         <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Дополнительная защита</p>
         <h1 class="text-headline-md font-headline-md text-primary">Подтвердите вход</h1>
         <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">
-          Введите шестизначный код из приложения-аутентификатора. До проверки рабочие данные АСПБ недоступны.
+          Введите шестизначный код из приложения-аутентификатора. До проверки коды и данные организации недоступны.
         </p>
         <form id="platformMfaForm" class="mt-7 grid gap-4" novalidate>
           <div class="grid gap-2">
@@ -152,7 +170,7 @@
         <h1 id="platformUserName" class="text-headline-md font-headline-md text-primary" tabindex="-1">Аккаунт АСПБ</h1>
         <dl class="mt-6 grid gap-4 sm:grid-cols-2">
           <div class="rounded-lg bg-surface-container-low p-4">
-            <dt class="text-label-sm text-on-surface-variant">Рабочий кабинет</dt>
+            <dt class="text-label-sm text-on-surface-variant">Организация</dt>
             <dd id="platformOrganizationName" class="mt-1 text-body-md font-bold text-primary">—</dd>
           </div>
           <div class="rounded-lg bg-surface-container-low p-4">
@@ -269,6 +287,6 @@
       </section>
     </main>
 
-    <script type="module" src="js/platform-access.js?v=single-service-20260825-1"></script>
+    <script type="module" src="js/platform-access.js?v=platform-access-2"></script>
   </body>
 </html>

@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
-    <meta name="description" content="Рабочий обзор вебинарного сервиса АСПБ" />
-    <title>Рабочий обзор | АСПБ</title>
+    <meta name="description" content="Рабочий обзор организации на платформе АСПБ" />
+    <title>Обзор организации | АСПБ</title>
     <link rel="stylesheet" href="css/styles.css?v=platform-overview-1" />
     <link rel="stylesheet" href="fonts.css?v=self-2" />
     <link rel="stylesheet" href="platform-access.css?v=platform-overview-1" />
@@ -19,7 +19,7 @@
       <section id="overviewLoading" class="overview-mode overview-state-card" aria-live="polite">
         <div class="platform-spinner" aria-hidden="true"></div>
         <div>
-          <h1>Собираем рабочий обзор АСПБ</h1>
+          <h1>Собираем обзор организации</h1>
           <p>Проверяем ближайшие запуски, готовность вебинаров и рабочие очереди.</p>
         </div>
       </section>
@@ -28,7 +28,7 @@
         <div class="overview-state-mark" aria-hidden="true">!</div>
         <div>
           <h1 id="overviewErrorTitle" tabindex="-1">Обзор недоступен</h1>
-          <p id="overviewErrorText">Проверьте вход в кабинет команды и повторите.</p>
+          <p id="overviewErrorText">Проверьте вход и активную организацию, затем повторите.</p>
           <div class="overview-state-actions">
             <button id="overviewRetry" class="platform-primary-button" type="button">Повторить</button>
             <a class="platform-secondary-button" href="platform-access.html?mode=access">Проверить доступ</a>
@@ -39,12 +39,12 @@
       <div id="overviewContent" class="overview-mode overview-content">
         <header class="overview-welcome">
           <div>
-            <p class="overview-eyebrow">Рабочий центр АСПБ</p>
+            <p class="overview-eyebrow">Рабочий центр организации</p>
             <h1 id="overviewGreeting">Добро пожаловать</h1>
-            <p id="overviewOrganizationCopy">Вебинары, участники и задачи команды собраны в одном месте.</p>
+            <p id="overviewOrganizationCopy">Все данные относятся только к активной организации.</p>
           </div>
           <div class="overview-welcome-actions">
-            <span id="overviewOrganizationStatus" class="overview-status" data-tone="neutral">Статус кабинета</span>
+            <span id="overviewOrganizationStatus" class="overview-status" data-tone="neutral">Статус организации</span>
             <a id="overviewCreateWebinar" class="overview-secondary-action" href="creator-webinars.html#create">Перейти к созданию</a>
           </div>
         </header>
@@ -148,7 +148,7 @@
               <a href="crm.html?queue=overdue"><span>Просрочено</span><strong id="crmOverdue">—</strong></a>
               <a href="crm.html?queue=without_task"><span>Без задачи</span><strong id="crmWithoutTask">—</strong></a>
             </div>
-            <p id="crmTimezone" class="overview-card-note">Сроки рассчитываются в часовом поясе АСПБ.</p>
+            <p id="crmTimezone" class="overview-card-note">Сроки рассчитываются в часовом поясе организации.</p>
             <p id="crmUnavailable" class="overview-empty overview-empty-compact" hidden>CRM недоступна для вашей роли.</p>
           </article>
 
@@ -186,7 +186,7 @@
         <p id="overviewStatus" class="overview-live-status" role="status" aria-live="polite"></p>
       </div>
     </main>
-    <script type="module" src="js/platform-shell.js?v=single-service-20260825-1"></script>
-    <script type="module" src="js/platform-overview.js?v=single-service-20260825-1"></script>
+    <script type="module" src="js/platform-shell.js?v=platform-shell-2"></script>
+    <script type="module" src="js/platform-overview.js?v=platform-overview-1"></script>
   </body>
 </html>

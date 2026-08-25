@@ -32,12 +32,12 @@
       <div id="organizationContent" class="organization-mode grid gap-10">
         <header>
           <p class="text-label-sm font-label-sm text-on-surface-variant">Управление доступом</p>
-          <h1 id="organizationTitle" class="mt-2 text-headline-lg-mobile font-headline-lg-mobile text-primary md:text-headline-lg md:font-headline-lg" tabindex="-1">Команда АСПБ</h1>
+          <h1 id="organizationTitle" class="mt-2 text-headline-lg-mobile font-headline-lg-mobile text-primary md:text-headline-lg md:font-headline-lg" tabindex="-1">Организация</h1>
           <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">Владелец управляет настройками, ролями и приглашениями. Роли ограничивают доступ к контенту, CRM, модерации и аналитике.</p>
         </header>
 
         <section class="platform-panel p-6 md:p-8" aria-labelledby="organizationSettingsTitle">
-          <h2 id="organizationSettingsTitle" class="text-headline-md font-headline-md text-primary">Настройки кабинета АСПБ</h2>
+          <h2 id="organizationSettingsTitle" class="text-headline-md font-headline-md text-primary">Настройки организации</h2>
           <form id="organizationSettingsForm" class="mt-6 grid gap-5" novalidate>
             <div class="grid gap-2">
               <label class="text-label-md font-label-md text-primary" for="organizationName">Название</label>
@@ -83,7 +83,7 @@
                 <option value="CRM_MANAGER">CRM-менеджер — работает с контактами и задачами</option>
                 <option value="ANALYST">Аналитик — смотрит обезличенную аналитику</option>
                 <option value="AUDITOR">Аудитор — читает разрешённые журналы</option>
-                <option value="OWNER">Владелец — полностью управляет кабинетом АСПБ</option>
+                <option value="OWNER">Владелец — полностью управляет организацией</option>
               </select>
             </div>
             <button id="organizationInviteButton" class="platform-primary-button" type="submit">Отправить приглашение</button>
@@ -96,7 +96,7 @@
       </div>
 
       <section id="organizationError" class="organization-mode platform-panel p-7 text-center md:p-10" role="alert">
-        <h1 id="organizationErrorTitle" class="text-headline-md font-headline-md text-primary" tabindex="-1">Не удалось загрузить команду</h1>
+        <h1 id="organizationErrorTitle" class="text-headline-md font-headline-md text-primary" tabindex="-1">Не удалось загрузить организацию</h1>
         <p id="organizationErrorText" class="mx-auto mt-3 max-w-xl text-body-md leading-relaxed text-on-surface-variant"></p>
         <button id="organizationRetry" class="platform-primary-button mx-auto mt-7" type="button">Повторить</button>
       </section>
@@ -114,7 +114,7 @@
         </div>
       </form>
     </dialog>
-    <script type="module" src="js/platform-shell.js?v=single-service-20260825-1"></script>
-    <script type="module" src="js/organization.js?v=single-service-20260825-1"></script>
+    <script type="module" src="js/platform-shell.js?v=platform-shell-2"></script>
+    <script type="module" src="js/organization.js?v=organization-1"></script>
   </body>
 </html>

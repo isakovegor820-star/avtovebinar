@@ -438,10 +438,8 @@ jobs:
           git checkout --detach "$deploy_sha"
           test "$(git rev-parse HEAD)" = "$deploy_sha"
           bash scripts/assert-clean-deploy-worktree.sh
-          if [ ! -d backups ]; then
-            echo "Pre-deploy backup directory is missing: $deploy_path/backups" >&2
-            exit 1
-          fi
+          COMPOSE_ENV_FILE=.env.production BACKUP_DIR=backups \
+            bash scripts/create-deploy-backup.sh
           verified_backup_file="$(find backups -maxdepth 1 -type f -name 'aspb-postgres-*.sql.gz' -print | sort | tail -n 1)"
           if [ -z "$verified_backup_file" ]; then
             echo "No pre-deploy PostgreSQL backup found in $deploy_path/backups" >&2
@@ -586,10 +584,8 @@ jobs:
           git checkout --detach "$deploy_sha"
           test "$(git rev-parse HEAD)" = "$deploy_sha"
           bash scripts/assert-clean-deploy-worktree.sh
-          if [ ! -d backups ]; then
-            echo "Pre-deploy backup directory is missing: $deploy_path/backups" >&2
-            exit 1
-          fi
+          COMPOSE_ENV_FILE=.env.production BACKUP_DIR=backups \
+            bash scripts/create-deploy-backup.sh
           verified_backup_file="$(find backups -maxdepth 1 -type f -name 'aspb-postgres-*.sql.gz' -print | sort | tail -n 1)"
           if [ -z "$verified_backup_file" ]; then
             echo "No pre-deploy PostgreSQL backup found in $deploy_path/backups" >&2

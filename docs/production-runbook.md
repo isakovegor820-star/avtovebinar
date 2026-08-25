@@ -504,7 +504,11 @@ Ignored review-артефакты `crisis_premium/_diffs_*` и `_full_diffs*`
 может превышать 24 часа. Порог задаётся
 `VERIFIED_BACKUP_MAX_AGE_SECONDS`. Единственный bypass для документированной
 аварийной процедуры — явный `ALLOW_DEPLOY_WITHOUT_VERIFIED_BACKUP=on`; обычный
-CI его не устанавливает.
+CI его не устанавливает. Штатные staging/production jobs перед deploy сами
+создают новую атомарную проверенную копию через
+`scripts/create-deploy-backup.sh`, используя закрытый `.env.production` и
+нативный `pg_dump`; отсутствие утилит, URL базы или приватных прав файла
+останавливает релиз до migrations.
 
 ## Ротация секретов после небезопасных прав
 

@@ -591,6 +591,34 @@ test('exchange token is removed from URL and daily room stays cookie-only', asyn
   await expect(page.locator('#partnerApplicationStatus')).toContainText('Заявка отправлена');
 });
 
+test('unavailable video offers a keyboard retry without overflowing a 320px viewport', async ({ page }) => {
+  const { exchangeToken } = await createExchangeRegistration(`media-retry-${Date.now()}@aspb.ru`);
+  let timelineRequests = 0;
+  await page.route('**/api/webinar/timeline/session/current', async route => {
+    timelineRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false }),
+    });
+  });
+
+  await page.setViewportSize({ width: 320, height: 760 });
+  await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/webinar\.html$/);
+  const fallback = page.locator('#videoFallback');
+  const retryButton = page.getByRole('button', { name: 'Повторить подключение' });
+  await expect(fallback).toBeVisible();
+  await expect(retryButton).toBeVisible();
+  const requestsBeforeRetry = timelineRequests;
+  await retryButton.focus();
+  await expect(retryButton).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => timelineRequests).toBeGreaterThan(requestsBeforeRetry);
+  await expect(fallback).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('registered participant does not see registration CTA in landing header', async ({ page }) => {
   const { exchangeToken } = await createExchangeRegistration(`landing-nav-${Date.now()}@aspb.ru`);
 

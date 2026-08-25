@@ -162,6 +162,9 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
   if (config.EMAIL_MODE === 'send' && (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS)) {
     errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required when EMAIL_MODE="send" in production');
   }
+  if (config.EMAIL_MODE !== 'send') {
+    errors.push('EMAIL_MODE must be "send" in production because participant access is delivered by email');
+  }
   const needsTelegramAdmin =
     config.TELEGRAM_NOTIFY_MODE === 'send' ||
     config.TELEGRAM_ADMIN_BOT_POLLING === 'on' ||

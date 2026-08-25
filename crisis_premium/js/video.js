@@ -47,8 +47,19 @@ function showVideoFallback(fallback, message, mediaGeneration = null) {
   document.getElementById('videoPlayOverlay')?.classList.add('hidden');
   document.getElementById('videoPauseOverlay')?.classList.add('hidden');
   document.getElementById('customPlayerControls')?.classList.add('hidden');
+  setPlayerState('');
+  const retry = fallback.querySelector('[data-video-fallback-retry]');
+  if (retry) {
+    retry.disabled = false;
+    retry.textContent = 'Повторить подключение';
+  }
   fallback.classList.remove('hidden');
   fallback.classList.add('flex');
+}
+
+function setPlayerState(message) {
+  const status = document.getElementById('webinarPlayerStatus');
+  if (status) status.textContent = message || '';
 }
 
 function beginVideoMediaSession() {
@@ -297,6 +308,7 @@ export async function hydrateTimeline() {
   const playOverlay = document.getElementById('videoPlayOverlay');
   const standbyBackdrop = document.getElementById('webinarStandbyBackdrop');
   const pauseOverlay = document.getElementById('videoPauseOverlay');
+  const fallbackRetry = fallback?.querySelector('[data-video-fallback-retry]');
 
   const customControls = document.getElementById('customPlayerControls');
   const playPauseBtn = document.getElementById('customPlayPauseBtn');
@@ -330,7 +342,20 @@ export async function hydrateTimeline() {
   if (_visibilityHandler) { document.removeEventListener('visibilitychange', _visibilityHandler); _visibilityHandler = null; }
   if (_fullscreenHandler) { document.removeEventListener('fullscreenchange', _fullscreenHandler); _fullscreenHandler = null; }
   const mediaSession = beginVideoMediaSession();
-  if (playerStatus) playerStatus.textContent = '';
+  setPlayerState('Загружаем состояние видео…');
+
+  fallbackRetry?.addEventListener(
+    'click',
+    () => {
+      fallbackRetry.disabled = true;
+      fallbackRetry.textContent = 'Подключаемся…';
+      fallback.classList.add('hidden');
+      fallback.classList.remove('flex');
+      setPlayerState('Повторно подключаем видео…');
+      void hydrateTimeline();
+    },
+    { signal: mediaSession.signal },
+  );
 
   // Загрузка состояния эфира с ретраями: один сетевой сбой/429/5xx больше не оставляет
   // «пустой» плеер без объяснения — повторяем, а при окончательной неудаче показываем фолбэк.
@@ -402,6 +427,45 @@ export async function hydrateTimeline() {
       fallback.classList.remove('flex');
     }
   } else {
+    let stalledFallbackTimer = null;
+    const clearStalledFallbackTimer = () => {
+      if (stalledFallbackTimer !== null) {
+        window.clearTimeout(stalledFallbackTimer);
+        stalledFallbackTimer = null;
+      }
+    };
+    const announceBuffering = () => {
+      setPlayerState('Видео загружается…');
+      if (stalledFallbackTimer !== null) return;
+      stalledFallbackTimer = window.setTimeout(() => {
+        stalledFallbackTimer = null;
+        video.pause();
+        showVideoFallback(
+          fallback,
+          'Видео не отвечает. Проверьте соединение и повторите подключение.',
+          mediaSession.generation,
+        );
+      }, 12_000);
+    };
+    const announceReady = () => {
+      clearStalledFallbackTimer();
+      setPlayerState('');
+    };
+    const announceMediaError = () => {
+      clearStalledFallbackTimer();
+      showVideoFallback(
+        fallback,
+        'Не удалось загрузить видео. Проверьте соединение и повторите подключение.',
+        mediaSession.generation,
+      );
+    };
+    mediaSession.signal.addEventListener('abort', clearStalledFallbackTimer, { once: true });
+    video.addEventListener('loadstart', () => setPlayerState('Загружаем видео…'), { signal: mediaSession.signal });
+    video.addEventListener('waiting', announceBuffering, { signal: mediaSession.signal });
+    video.addEventListener('stalled', announceBuffering, { signal: mediaSession.signal });
+    video.addEventListener('canplay', announceReady, { signal: mediaSession.signal });
+    video.addEventListener('playing', announceReady, { signal: mediaSession.signal });
+    video.addEventListener('error', announceMediaError, { signal: mediaSession.signal });
     await initializeVideoSource(video, data.video || {}, fallback, mediaSession);
   }
 

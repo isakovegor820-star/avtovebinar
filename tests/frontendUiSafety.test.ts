@@ -28,7 +28,7 @@ describe('frontend player safety regressions', () => {
     expect(endedBranch).toBeGreaterThan(-1);
     expect(initializeCall).toBeGreaterThan(endedBranch);
     expect(branchSource).toContain('stopVideoMedia(video, { ended: Boolean(isEnded) })');
-    expect(branchSource).toMatch(/if \(isPreLive \|\| isEnded\)[\s\S]+?} else \{\s+await initializeVideoSource/);
+    expect(branchSource).toMatch(/if \(isPreLive \|\| isEnded\)[\s\S]+?} else \{[\s\S]+?await initializeVideoSource/);
     expect(videoJs).toContain('serverLiveState?.isEnded || endedByClock');
     expect(videoJs).toContain('const mediaSession = beginVideoMediaSession()');
     expect(videoJs).toContain('mediaGeneration !== _mediaGeneration');
@@ -44,6 +44,16 @@ describe('frontend player safety regressions', () => {
     expect(recordingsJs).toContain("controls.setAttribute('inert', '')");
     expect(recordingsJs).toContain('setRecordingPlaybackFailureState(true)');
     expect(recordingsJs).toContain('setRecordingPlaybackFailureState(false)');
+  });
+
+  it('gives an unavailable webinar video an accessible bounded retry path', () => {
+    expect(webinarHtml).toContain('data-video-fallback-retry');
+    expect(webinarHtml).toContain('Повторить подключение');
+    expect(videoJs).toContain("fallback.querySelector('[data-video-fallback-retry]')");
+    expect(videoJs).toContain("video.addEventListener('error', announceMediaError");
+    expect(videoJs).toContain("video.addEventListener('stalled', announceBuffering");
+    expect(videoJs).toContain('}, 12_000);');
+    expect(videoJs).toContain('void hydrateTimeline()');
   });
 
   it('uses action labels without contradictory aria-pressed toggle state', () => {

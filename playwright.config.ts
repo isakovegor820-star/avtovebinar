@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const defaultE2eDatabaseUrl = 'postgresql://aspb:aspb@localhost:5432/aspb_autowebinar?schema=test';
+const e2ePort = process.env.E2E_PORT ?? '5175';
+const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
 process.env.NODE_ENV ??= 'test';
 process.env.DATABASE_URL ??= defaultE2eDatabaseUrl;
 
@@ -28,17 +30,16 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: 'http://127.0.0.1:5175',
+    baseURL: e2eBaseUrl,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
   webServer: {
-    command:
-      'PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=send TELEGRAM_NOTIFY_MODE=log WEBINAR_VIDEO_PROVIDER=local WEBINAR_VIDEO_HLS_URL= WEBINAR_VIDEO_URL=http://127.0.0.1:5175/crisis_premium/assets/webinar.mp4 WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on WORKER_ROLE=api npx tsx src/server.ts',
-    url: 'http://127.0.0.1:5175/crisis_premium/index.html',
+    command: `PORT=${e2ePort} PUBLIC_SITE_URL=${e2eBaseUrl} NODE_ENV=test EMAIL_MODE=send TELEGRAM_NOTIFY_MODE=log WEBINAR_VIDEO_PROVIDER=local WEBINAR_VIDEO_HLS_URL= WEBINAR_VIDEO_URL=${e2eBaseUrl}/crisis_premium/assets/webinar.mp4 WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on WORKER_ROLE=api npx tsx src/server.ts`,
+    url: `${e2eBaseUrl}/crisis_premium/index.html`,
     reuseExistingServer: false,
-    timeout: 30_000,
+    timeout: 60_000,
   },
   projects: [
     {

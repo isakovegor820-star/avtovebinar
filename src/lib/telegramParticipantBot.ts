@@ -30,10 +30,6 @@ import {
   isLeadIdentityActive,
   isParticipantRegistrationActive,
 } from './leadSecurity.js';
-import { canAccessRegisteredWebinar } from './tenancy/webinarAccess.js';
-import { getWebinarAccess } from './time.js';
-import { createCorrelationId } from './requestContext.js';
-import { buildServerDedupKey, recordAnalyticsEvent, type AnalyticsEventName } from './analyticsEvents.js';
 
 // A revocation may wait for one already-started Telegram provider request
 // (20s hard deadline), then takes the short Lead data lock and commits.
@@ -157,30 +153,10 @@ async function createRoomUrl(registrationId: string, purpose = 'telegram_room') 
     await acquireLeadSecurityLock(tx, registrationRef.leadId);
     const activeRegistration = await tx.registration.findUnique({
       where: { id: registrationId },
-      include: { lead: true, webinarSession: true },
+      include: { lead: true },
     });
-    if (
-      !activeRegistration ||
-      !isParticipantRegistrationActive(activeRegistration) ||
-      activeRegistration.webinarSession.lifecycleStatus === 'CANCELLED'
-    ) {
+    if (!activeRegistration || !isParticipantRegistrationActive(activeRegistration)) {
       logger.warn({ registrationId, purpose }, 'Telegram room link skipped for inactive registration');
-      return null;
-    }
-    if (!(await canAccessRegisteredWebinar(tx as unknown as typeof prisma, activeRegistration))) {
-      logger.warn({ registrationId, purpose }, 'Telegram room link skipped for inaccessible Webinar');
-      return null;
-    }
-    const access = getWebinarAccess(
-      new Date(),
-      activeRegistration.webinarSession.scheduledAt,
-      activeRegistration.webinarSession.durationMinutes,
-      activeRegistration.webinarSession.replayAvailableHours,
-      activeRegistration.webinarSession.roomOpenBeforeMinutes,
-      activeRegistration.webinarSession.replayEnabled,
-    );
-    if (access.accessStatus === 'closed') {
-      logger.warn({ registrationId, purpose }, 'Telegram room link skipped for expired session access');
       return null;
     }
 
@@ -192,32 +168,10 @@ async function createRoomUrl(registrationId: string, purpose = 'telegram_room') 
 }
 
 async function findLatestRegistrationByChat(chatId: string) {
-  const accessible = await findAccessibleRegistrationsByChat(chatId);
-  const rank = (status: string) => ({ live: 0, pre_live: 1, waiting: 2, replay: 3 })[status] ?? 4;
-  accessible.sort((left, right) => {
-    const rankDiff = rank(left.access.accessStatus) - rank(right.access.accessStatus);
-    if (rankDiff) return rankDiff;
-    if (['waiting', 'pre_live'].includes(left.access.accessStatus)) {
-      return (
-        left.registration.webinarSession.scheduledAt.getTime() - right.registration.webinarSession.scheduledAt.getTime()
-      );
-    }
-    return (
-      right.registration.webinarSession.scheduledAt.getTime() - left.registration.webinarSession.scheduledAt.getTime()
-    );
-  });
-  return accessible[0]?.registration ?? null;
-}
-
-async function findAccessibleRegistrationsByChat(chatId: string) {
-  const registrations = await prisma.registration.findMany({
+  return prisma.registration.findFirst({
     where: {
       status: 'registered',
       emailVerifiedAt: { not: null },
-      webinarSession: {
-        lifecycleStatus: { not: 'CANCELLED' },
-        webinar: { contentStatus: 'PUBLISHED', archivedAt: null },
-      },
       lead: {
         telegramChatId: chatId,
         telegramBindingVersion: TELEGRAM_BINDING_VERSION,
@@ -227,115 +181,33 @@ async function findAccessibleRegistrationsByChat(chatId: string) {
     },
     include: {
       lead: true,
-      webinarSession: { include: { webinar: { include: { sources: { orderBy: { orderIndex: 'asc' } } } } } },
+      webinarSession: true,
     },
-    orderBy: [{ webinarSession: { scheduledAt: 'asc' } }, { registeredAt: 'desc' }],
-    take: 50,
+    orderBy: { registeredAt: 'desc' },
   });
-  const now = new Date();
-  const accessible: Array<{
-    registration: (typeof registrations)[number];
-    access: ReturnType<typeof getWebinarAccess>;
-  }> = [];
-  for (const registration of registrations) {
-    if (!(await canAccessRegisteredWebinar(prisma, registration, now))) continue;
-    const access = getWebinarAccess(
-      now,
-      registration.webinarSession.scheduledAt,
-      registration.webinarSession.durationMinutes,
-      registration.webinarSession.replayAvailableHours,
-      registration.webinarSession.roomOpenBeforeMinutes,
-      registration.webinarSession.replayEnabled,
-    );
-    if (access.accessStatus !== 'closed') accessible.push({ registration, access });
-  }
-  return accessible;
-}
-
-function formatSessionDate(date: Date, timezone: string) {
-  return new Intl.DateTimeFormat('ru-RU', {
-    timeZone: timezone,
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
-}
-
-function participantAccessLabel(status: string) {
-  if (status === 'live') return 'идёт сейчас';
-  if (status === 'pre_live') return 'комната открыта';
-  if (status === 'replay') return 'доступна запись';
-  return 'ожидает начала';
-}
-
-function safeMaterialUrl(value: string | null | undefined) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password) return null;
-    const hostname = url.hostname.toLowerCase();
-    if (
-      hostname === 'localhost' ||
-      hostname.endsWith('.localhost') ||
-      /^(?:127\.|10\.|192\.168\.|169\.254\.|0\.|\[?::1\]?$)/.test(hostname) ||
-      /^172\.(?:1[6-9]|2\d|3[01])\./.test(hostname)
-    ) {
-      return null;
-    }
-    return url.toString();
-  } catch {
-    return null;
-  }
 }
 
 async function saveBotEvent(input: {
-  eventName: Extract<
-    AnalyticsEventName,
-    | 'telegram_repeat_start'
-    | 'telegram_start_without_registration'
-    | 'telegram_subscribe'
-    | 'telegram_participant_command'
-  >;
+  eventName: string;
   leadId?: string;
   registrationId?: string;
   webinarSessionId?: string;
   metadata?: Record<string, unknown>;
-  providerMessageId?: string;
-  correlationId?: string;
 }) {
-  const correlationId = input.correlationId ?? createCorrelationId('telegram_participant');
-  const providerMessageId = input.providerMessageId;
-  const safeMetadata = Object.fromEntries(
-    Object.entries(input.metadata ?? {}).filter(
-      ([key, value]) =>
-        ['command', 'outcome', 'isRebind'].includes(key) && ['string', 'boolean', 'number'].includes(typeof value),
-    ),
-  );
-  const operationKey = `participant:${providerMessageId ?? correlationId}:${input.eventName}`;
+  const data = {
+    eventName: input.eventName,
+    page: 'telegram_bot',
+    source: 'telegram',
+    metadataJson: input.metadata as Prisma.InputJsonValue | undefined,
+  };
   if (!input.leadId) {
-    await prisma.$transaction(async tx => {
-      await recordAnalyticsEvent(tx as unknown as typeof prisma, {
-        eventName: input.eventName,
-        source: 'telegram',
-        dedupKey: buildServerDedupKey(input.eventName, operationKey),
-        correlationId,
-        scope: { kind: 'platform' },
-        page: '/telegram/participant',
-        attributes: safeMetadata,
-      });
-      await tx.telegramBotEvent.upsert({
-        where: { dedupKey: operationKey },
-        update: {},
-        create: {
-          botIdentity: 'PARTICIPANT',
-          direction: 'INBOUND',
-          eventType: input.eventName,
-          correlationId,
-          providerMessageId,
-          dedupKey: operationKey,
-          status: 'accepted',
-          metadataJson: safeMetadata as Prisma.InputJsonValue,
-        },
-      });
+    await prisma.event.create({
+      data: {
+        ...data,
+        leadId: null,
+        registrationId: null,
+        webinarSessionId: null,
+      },
     });
     return true;
   }
@@ -345,7 +217,7 @@ async function saveBotEvent(input: {
     const activeRegistration = input.registrationId
       ? await tx.registration.findUnique({
           where: { id: input.registrationId },
-          include: { lead: true, webinarSession: true },
+          include: { lead: true },
         })
       : null;
     if (
@@ -356,38 +228,12 @@ async function saveBotEvent(input: {
       return false;
     }
 
-    if (input.webinarSessionId && input.webinarSessionId !== activeRegistration.webinarSessionId) return false;
-    await recordAnalyticsEvent(tx as unknown as typeof prisma, {
-      eventName: input.eventName,
-      source: 'telegram',
-      dedupKey: buildServerDedupKey(input.eventName, operationKey),
-      correlationId,
-      scope: { kind: 'trusted', registrationId: activeRegistration.id },
-      page: '/telegram/participant',
-      attributes: safeMetadata,
-    });
-    const exactTenantScope =
-      activeRegistration.organizationId &&
-      activeRegistration.webinarId &&
-      activeRegistration.organizationId === activeRegistration.webinarSession.organizationId &&
-      activeRegistration.webinarId === activeRegistration.webinarSession.webinarId;
-    await tx.telegramBotEvent.upsert({
-      where: { dedupKey: operationKey },
-      update: {},
-      create: {
-        organizationId: exactTenantScope ? activeRegistration.organizationId : null,
-        webinarId: exactTenantScope ? activeRegistration.webinarId : null,
-        webinarSessionId: exactTenantScope ? activeRegistration.webinarSessionId : null,
-        registrationId: exactTenantScope ? activeRegistration.id : null,
-        crmContactId: exactTenantScope ? activeRegistration.crmContactId : null,
-        botIdentity: 'PARTICIPANT',
-        direction: 'INBOUND',
-        eventType: input.eventName,
-        correlationId,
-        providerMessageId,
-        dedupKey: operationKey,
-        status: 'accepted',
-        metadataJson: safeMetadata as Prisma.InputJsonValue,
+    await tx.event.create({
+      data: {
+        ...data,
+        leadId: activeRegistration.leadId,
+        registrationId: activeRegistration.id,
+        webinarSessionId: input.webinarSessionId ?? activeRegistration.webinarSessionId,
       },
     });
     return true;
@@ -463,8 +309,6 @@ function getTelegramProfile(update: TelegramUpdate) {
 }
 
 async function handleStart(chatId: string, text: string, update: TelegramUpdate) {
-  const correlationId = createCorrelationId('telegram_participant_start');
-  const providerMessageId = update.message?.message_id ? String(update.message.message_id) : undefined;
   const { telegramUserId, telegramUsername, telegramFirstName } = getTelegramProfile(update);
   const payload = text.split(/\s+/)[1]?.trim();
   if (!payload) {
@@ -494,10 +338,10 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
         registrationId: activeRegistration.id,
         webinarSessionId: activeRegistration.webinarSessionId,
         metadata: {
-          outcome: 'already_bound',
+          username: telegramUsername,
+          telegramFirstName,
+          telegramUserId,
         },
-        providerMessageId,
-        correlationId,
       });
       notifyAdminSafely(
         notifyTelegramSubscription({
@@ -539,10 +383,11 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
     await saveBotEvent({
       eventName: 'telegram_start_without_registration',
       metadata: {
-        outcome: 'registration_required',
+        chatId,
+        username: telegramUsername,
+        telegramFirstName,
+        telegramUserId,
       },
-      providerMessageId,
-      correlationId,
     });
     notifyAdminSafely(
       notifyTelegramBotStart({
@@ -592,11 +437,11 @@ async function handleStart(chatId: string, text: string, update: TelegramUpdate)
     registrationId: registration.id,
     webinarSessionId: registration.webinarSessionId,
     metadata: {
+      username: telegramUsername,
+      telegramFirstName,
+      telegramUserId,
       isRebind,
-      outcome: 'bound',
     },
-    providerMessageId,
-    correlationId,
   });
 
   const roomUrl = await createRoomUrl(registration.id, 'telegram_start_room');
@@ -675,103 +520,6 @@ async function handleStatus(chatId: string) {
   );
 }
 
-async function handleWebinars(chatId: string) {
-  const accessible = await findAccessibleRegistrationsByChat(chatId);
-  if (!accessible.length) {
-    await sendTelegramMessageToChat(
-      chatId,
-      'Доступных вебинаров пока нет. Откройте каталог и зарегистрируйтесь на нужную сессию.',
-      { replyMarkup: telegramUrlButton('Открыть каталог', buildFrontendUrl('/crisis_premium/catalog.html')) },
-    );
-    return;
-  }
-  const rows = accessible
-    .slice(0, 8)
-    .flatMap(({ registration, access }, index) => [
-      `${index + 1}. ${registration.webinarSession.webinar.title}`,
-      `${formatSessionDate(registration.webinarSession.scheduledAt, registration.webinarSession.timezone)} (${registration.webinarSession.timezone}) — ${participantAccessLabel(access.accessStatus)}`,
-    ]);
-  await sendTelegramMessageToChat(
-    chatId,
-    [
-      'Ваши доступные вебинары:',
-      '',
-      ...rows,
-      accessible.length > 8 ? `Показаны 8 из ${accessible.length}. Полный список — в кабинете.` : '',
-      '',
-      '/room — открыть актуальную комнату',
-      '/materials — материалы актуального вебинара',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    { replyMarkup: telegramUrlButton('Открыть кабинет', buildFrontendUrl('/crisis_premium/account.html')) },
-  );
-}
-
-async function handleMy(chatId: string) {
-  const accessible = await findAccessibleRegistrationsByChat(chatId);
-  const current = await findLatestRegistrationByChat(chatId);
-  if (!current) {
-    await sendTelegramMessageToChat(
-      chatId,
-      'Активный доступ не найден. Зарегистрируйтесь на вебинар или проверьте срок ранее выданного доступа.',
-      { replyMarkup: telegramUrlButton('Открыть каталог', buildFrontendUrl('/crisis_premium/catalog.html')) },
-    );
-    return;
-  }
-  const currentAccess = accessible.find(item => item.registration.id === current.id)?.access;
-  await sendTelegramMessageToChat(
-    chatId,
-    [
-      'Мой доступ:',
-      '',
-      `Актуальный вебинар: ${current.webinarSession.webinar.title}`,
-      `Сессия: ${formatSessionDate(current.webinarSession.scheduledAt, current.webinarSession.timezone)} (${current.webinarSession.timezone})`,
-      `Состояние: ${participantAccessLabel(currentAccess?.accessStatus ?? 'waiting')}`,
-      `Всего доступно: ${accessible.length}`,
-      '',
-      'Настройки маркетинговых и сервисных уведомлений изменяются отдельно в кабинете.',
-    ].join('\n'),
-    { replyMarkup: telegramUrlButton('Открыть кабинет', buildFrontendUrl('/crisis_premium/account.html')) },
-  );
-}
-
-async function handleMaterials(chatId: string) {
-  const registration = await findLatestRegistrationByChat(chatId);
-  if (!registration) {
-    await sendTelegramMessageToChat(chatId, 'Материалы недоступны: активная регистрация не найдена.');
-    return;
-  }
-  const materials = registration.webinarSession.webinar.sources
-    .map(source => ({ title: source.title.trim(), url: safeMaterialUrl(source.url) }))
-    .filter(source => source.title.length > 0);
-  if (!materials.length) {
-    await sendTelegramMessageToChat(
-      chatId,
-      `К вебинару «${registration.webinarSession.webinar.title}» материалы пока не опубликованы.`,
-    );
-    return;
-  }
-  const rows = materials
-    .slice(0, 10)
-    .map((material, index) =>
-      material.url ? `${index + 1}. ${material.title}\n${material.url}` : `${index + 1}. ${material.title}`,
-    );
-  const roomUrl = await createRoomUrl(registration.id, 'telegram_materials_room');
-  await sendTelegramMessageToChat(
-    chatId,
-    [
-      `Материалы: ${registration.webinarSession.webinar.title}`,
-      '',
-      ...rows,
-      materials.length > 10 ? `Показаны 10 из ${materials.length}.` : '',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    roomUrl ? { replyMarkup: telegramUrlButton('Открыть вебинар', roomUrl) } : {},
-  );
-}
-
 async function handleRoom(chatId: string) {
   const registration = await findLatestRegistrationByChat(chatId);
   if (!registration) {
@@ -798,11 +546,8 @@ async function handleHelp(chatId: string) {
     [
       'Команды АСПБ:',
       '',
-      '/webinars — доступные вебинары и сессии',
-      '/my — мой доступ и кабинет',
       '/status — проверить регистрацию и время премьеры записи',
       '/room — получить персональную ссылку в комнату',
-      '/materials — материалы актуального вебинара',
       '/unsubscribe — немедленно отказаться от рекламы в Telegram',
       '/help — помощь',
       '',
@@ -914,7 +659,6 @@ async function handleMarketingUnsubscribe(chatId: string) {
 
 async function handleUpdate(update: TelegramUpdate) {
   const message = update.message;
-  if (!message) return;
   const chatId = message?.chat?.id ? String(message.chat.id) : '';
   const text = message?.text?.trim() || '';
   if (!chatId || !text) return;
@@ -927,18 +671,6 @@ async function handleUpdate(update: TelegramUpdate) {
     return;
   }
 
-  const command = text.startsWith('/') ? text.split(/\s+/)[0]!.split('@')[0]!.toLowerCase() : 'free_text';
-  const commandRegistration = await findLatestRegistrationByChat(chatId);
-  await saveBotEvent({
-    eventName: 'telegram_participant_command',
-    leadId: commandRegistration?.leadId,
-    registrationId: commandRegistration?.id,
-    webinarSessionId: commandRegistration?.webinarSessionId,
-    metadata: { command },
-    providerMessageId: String(message.message_id),
-    correlationId: createCorrelationId('telegram_participant_command'),
-  });
-
   if (text.startsWith('/unsubscribe') || text.startsWith('/stop') || /^стоп$/i.test(text)) {
     await handleMarketingUnsubscribe(chatId);
     return;
@@ -949,23 +681,8 @@ async function handleUpdate(update: TelegramUpdate) {
     return;
   }
 
-  if (text.startsWith('/webinars')) {
-    await handleWebinars(chatId);
-    return;
-  }
-
-  if (text.startsWith('/my')) {
-    await handleMy(chatId);
-    return;
-  }
-
   if (text.startsWith('/room')) {
     await handleRoom(chatId);
-    return;
-  }
-
-  if (text.startsWith('/materials')) {
-    await handleMaterials(chatId);
     return;
   }
 
@@ -976,7 +693,7 @@ async function handleUpdate(update: TelegramUpdate) {
 
   await sendTelegramMessageToChat(
     chatId,
-    'Сообщение получил. Используйте /webinars для списка доступов, /room для актуальной комнаты или /help для всех команд.',
+    'Сообщение получил. Для проверки регистрации используйте /status, для ссылки на вебинарную комнату — /room.',
   );
 }
 

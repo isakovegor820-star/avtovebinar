@@ -17,11 +17,7 @@ const proxyUrl = env.TELEGRAM_HTTPS_PROXY?.trim();
 const telegramProxyAgent = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
 
 if (telegramProxyAgent) {
-  const parsedProxy = new URL(proxyUrl!);
-  logger.info(
-    { proxyEndpoint: `${parsedProxy.protocol}//${parsedProxy.host}` },
-    '[ASPБ telegram] исходящие к Telegram идут через прокси (обход блокировки)',
-  );
+  logger.info({ proxy: proxyUrl }, '[ASPБ telegram] исходящие к Telegram идут через прокси (обход блокировки)');
 }
 
 // Жёсткий дедлайн на запрос к Telegram. Без него зависший сокет (особенно через

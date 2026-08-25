@@ -3,6 +3,7 @@ import { prisma } from './prisma.js';
 import { ASPB_KNOWLEDGE_BASE } from './aspbKnowledge.js';
 import { acquireLeadSecurityLock, isParticipantRegistrationActive } from './leadSecurity.js';
 
+const AI_MANAGER_NAME = 'Анна, менеджер АСПБ';
 const RESPONSE_PROBABILITY = 0.28;
 const MIN_RESPONSE_GAP_SECONDS = 75;
 
@@ -74,7 +75,6 @@ export async function maybeScheduleAiManagerReply(input: AiQuestionInput) {
       where: { id: input.questionId },
       include: {
         registration: { include: { lead: true } },
-        webinarSession: { select: { organizationId: true, webinarId: true } },
       },
     });
     if (
@@ -90,7 +90,7 @@ export async function maybeScheduleAiManagerReply(input: AiQuestionInput) {
     const lastAiMessage = await tx.webinarChatMessage.findFirst({
       where: {
         webinarSessionId: input.webinarSessionId,
-        messageType: 'AI_MODERATOR',
+        kind: 'ai_manager',
       },
       orderBy: { visibleAt: 'desc' },
     });
@@ -102,13 +102,10 @@ export async function maybeScheduleAiManagerReply(input: AiQuestionInput) {
     return tx.webinarChatMessage.create({
       data: {
         webinarSessionId: input.webinarSessionId,
-        organizationId: activeQuestion.webinarSession.organizationId,
-        webinarId: activeQuestion.webinarSession.webinarId,
         registrationId: input.registrationId,
-        kind: 'ai_moderator',
-        messageType: 'AI_MODERATOR',
-        authorName: 'AI-модератор',
-        authorRole: 'AI-модератор',
+        kind: 'ai_manager',
+        authorName: AI_MANAGER_NAME,
+        authorRole: 'менеджер АСПБ',
         message: buildAiManagerResponse(input.text),
         isSynthetic: true,
         visibleAt,

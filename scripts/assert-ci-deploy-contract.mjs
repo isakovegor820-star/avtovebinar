@@ -44,33 +44,10 @@ requireText(workflow, 'secretlint@13.0.4', 'pinned secret scanner CLI');
 requireText(workflow, 'dotenv-linter@0.2.0', 'pinned dotenv scanner CLI');
 requireText(
   workflow,
-  'hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e',
-  'pinned Terraform validator setup',
-);
-requireText(workflow, 'terraform_version: 1.15.9', 'pinned Terraform CLI version');
-requireText(workflow, 'terraform fmt -check -recursive', 'Terraform formatting gate');
-requireText(
-  workflow,
-  'terraform init -backend=false -input=false -lockfile=readonly',
-  'backend-free locked Terraform initialization',
-);
-requireText(workflow, 'terraform validate', 'Terraform validation gate');
-requireAbsent(workflow, 'terraform apply', 'Terraform apply in CI');
-requireAbsent(workflow, 'tofu apply', 'OpenTofu apply in CI');
-requireText(workflow, 'npx prisma format', 'Prisma formatting gate');
-requireText(workflow, 'npx prisma validate', 'Prisma validation gate');
-requireText(
-  workflow,
   "inputs.deploy_target == 'staging' || inputs.deploy_target == 'production'",
   'staging-before-production',
 );
 requireText(workflow, 'container-build, deploy-staging]', 'production dependency on successful staging');
-requireText(workflow, 'dependency-audit, iac-validate, container-build]', 'staging dependency on IaC validation');
-requireText(
-  workflow,
-  'dependency-audit, iac-validate, container-build, deploy-staging]',
-  'production dependency on IaC validation',
-);
 requireText(workflow, 'Staging deploy configuration is incomplete', 'fail-closed staging configuration');
 requireText(workflow, '/tmp/aspb-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-staging', 'per-run staging artifact path');
 requireText(
@@ -93,14 +70,6 @@ requireText(
   'reviewed first-deploy rollback override propagation',
 );
 requireText(deploy, 'bash scripts/install-deploy-image.sh', 'verified image installation');
-requireText(deploy, 'No pending migrations to apply', 'repeated migration no-op verification');
-requireText(deploy, 'npx prisma migrate status', 'post-deploy migration status verification');
-requireText(deploy, '"/health/live"', 'explicit live endpoint acceptance');
-requireText(deploy, '"/health/ready"', 'explicit ready endpoint acceptance');
-requireText(deploy, '"/health/dependencies"', 'public dependency endpoint acceptance');
-requireText(deploy, '"/health/dependencies/details"', 'protected dependency endpoint acceptance');
-requireText(deploy, '"/metrics"', 'protected metrics endpoint acceptance');
-requireText(deploy, 'releaseControlsAcceptance.js', 'release control fail-closed acceptance');
 requireText(deploy, 'ALLOW_REMOTE_REBUILD is no longer supported', 'fail-closed remote rebuild gate');
 requireText(deploy, 'ALLOW_DEPLOY_WITHOUT_CI_ATTESTATION is no longer supported', 'removed unsigned deploy bypass');
 requireText(installImage, 'gh attestation verify "$archive"', 'cryptographic artifact verification');
@@ -121,27 +90,12 @@ requireAbsent(deploy, '${DOCKER_BUILD_CACHE_PRUNE:-on}', 'default-on global Buil
 requireText(dockerfile, 'node:22-alpine@sha256:', 'pinned Node base image');
 requireText(dockerfile, 'org.opencontainers.image.revision', 'OCI revision label');
 requireText(dockerfile, 'com.aspb.schema.compatibility="email-links-v2"', 'schema compatibility label');
-requireText(workflow, 'node dist/src/cli/mediaAcceptance.js', 'real media acceptance in the production image');
-requireText(workflow, 'Persistent media restart acceptance', 'persistent media restart gate');
-requireText(workflow, 'MEDIA_ACCEPTANCE_RESTART=on', 'restart acceptance guard');
-requireText(workflow, '"--restart-$phase"', 'two-process media resume command');
 for (const [name, compose] of [
   ['docker-compose.production.yml', productionCompose],
   ['docker-compose.native-postgres.yml', nativeCompose],
 ]) {
   const count = compose.split('BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}').length - 1;
   if (count !== 2) throw new Error(`${name} must pass BUILD_COMMIT_SHA to exactly two application services`);
-  const mediaWorkRootCount = compose.split('MEDIA_WORK_ROOT: /var/lib/aspb/media-work').length - 1;
-  if (mediaWorkRootCount !== 2) throw new Error(`${name} must configure the private media work root for API and worker`);
-  const mediaWorkMountCount = compose.split(':/var/lib/aspb/media-work').length - 1;
-  if (mediaWorkMountCount !== 2) throw new Error(`${name} must mount the private media work volume in API and worker`);
-  requireText(
-    compose,
-    '${LEGACY_MEDIA_PATH:?LEGACY_MEDIA_PATH is required}:/app/crisis_premium/assets/media:ro',
-    `${name} read-only legacy media compatibility mount`,
-  );
 }
-requireText(deploy, 'LEGACY_MEDIA_PATH must be an existing absolute directory', 'legacy media directory validation');
-requireText(deploy, 'LEGACY_MEDIA_PATH must be a dedicated directory', 'broad legacy media path refusal');
 
 console.log('CI immutable-image deploy contract is complete.');

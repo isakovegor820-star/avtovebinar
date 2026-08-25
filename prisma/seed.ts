@@ -14,7 +14,6 @@ import {
   DEFAULT_SYSTEM_OWNER_EMAIL,
   DEFAULT_SYSTEM_OWNER_MEMBERSHIP_ID,
   DEFAULT_SYSTEM_OWNER_USER_ID,
-  DEFAULT_WEBINAR_ID,
 } from '../src/lib/tenancy/constants.js';
 
 const prisma = new PrismaClient();
@@ -26,40 +25,6 @@ type SeedTenantClient = Pick<
 >;
 const INITIAL_OWNER_SEED_LOCK_ID = 1_096_175_682n;
 const LEGACY_TENANT_SEED_LOCK_ID = 1_096_175_683n;
-
-const INITIAL_PRACTICE_AREAS = [
-  ['practice_bankruptcy', 'bankruptcy', 'Банкротство'],
-  ['practice_tax', 'tax-law', 'Налоговое право'],
-  ['practice_corporate', 'corporate-law', 'Корпоративное право'],
-  ['practice_contracts', 'contract-law', 'Договорная работа'],
-  ['practice_civil', 'civil-law-procedure', 'Гражданское право и процесс'],
-  ['practice_arbitration', 'arbitration-procedure', 'Арбитражный процесс'],
-  ['practice_labor', 'labor-law', 'Трудовое право'],
-  ['practice_criminal', 'criminal-law-procedure', 'Уголовное право и процесс'],
-  ['practice_family', 'family-law', 'Семейное право'],
-  ['practice_ip', 'intellectual-property', 'Интеллектуальная собственность'],
-  ['practice_privacy', 'privacy-compliance', 'Персональные данные и compliance'],
-  ['practice_real_estate', 'real-estate', 'Недвижимость'],
-  ['practice_enforcement', 'enforcement-proceedings', 'Исполнительное производство'],
-  ['practice_international', 'international-law', 'Международное право'],
-] as const;
-
-async function ensureInitialLegalTaxonomy() {
-  await prisma.$transaction(async tx => {
-    for (const [index, [id, slug, name]] of INITIAL_PRACTICE_AREAS.entries()) {
-      await tx.legalPracticeArea.upsert({
-        where: { id },
-        update: {},
-        create: { id, slug, name, orderIndex: index },
-      });
-    }
-    await tx.jurisdiction.upsert({
-      where: { id: 'jurisdiction_ru' },
-      update: {},
-      create: { id: 'jurisdiction_ru', code: 'RU', name: 'Российская Федерация' },
-    });
-  });
-}
 
 export async function ensureLegacyTenantBootstrap(client: SeedTenantClient) {
   await client.$executeRaw`SELECT pg_advisory_xact_lock(${LEGACY_TENANT_SEED_LOCK_ID})`;
@@ -166,16 +131,10 @@ export async function createInitialOwnerIfMissing(
 
 async function main() {
   await prisma.$transaction(tx => ensureLegacyTenantBootstrap(tx));
-  await ensureInitialLegalTaxonomy();
   const scheduledAt = getNextWebinarDate(new Date());
 
   const session = await prisma.webinarSession.upsert({
-    where: {
-      webinarId_scheduledAt: {
-        webinarId: DEFAULT_WEBINAR_ID,
-        scheduledAt,
-      },
-    },
+    where: { scheduledAt },
     update: {
       title: WEBINAR_TITLE,
       durationMinutes: WEBINAR_DURATION_MINUTES,
@@ -190,7 +149,6 @@ async function main() {
     },
     create: {
       organizationId: DEFAULT_ORGANIZATION_ID,
-      webinarId: DEFAULT_WEBINAR_ID,
       title: WEBINAR_TITLE,
       scheduledAt,
       durationMinutes: WEBINAR_DURATION_MINUTES,

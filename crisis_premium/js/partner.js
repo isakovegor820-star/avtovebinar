@@ -3,7 +3,7 @@
  */
 
 import { post } from './utils.js?v=site-review-7';
-import { track } from './analytics.js?v=ana-006-1';
+import { track } from './analytics.js?v=site-review-7';
 
 export function bindPartnerApplicationForm() {
   const form = document.getElementById('partnerApplicationForm');

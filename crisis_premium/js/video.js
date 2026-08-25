@@ -47,20 +47,8 @@ function showVideoFallback(fallback, message, mediaGeneration = null) {
   document.getElementById('videoPlayOverlay')?.classList.add('hidden');
   document.getElementById('videoPauseOverlay')?.classList.add('hidden');
   document.getElementById('customPlayerControls')?.classList.add('hidden');
-  document.getElementById('videoProcessing')?.classList.add('hidden');
-  document.getElementById('videoProcessing')?.classList.remove('flex');
-  setPlayerState('');
   fallback.classList.remove('hidden');
   fallback.classList.add('flex');
-}
-
-function setPlayerState(message) {
-  const visibleState = document.getElementById('playerStateIndicator');
-  const screenReaderState = document.getElementById('webinarPlayerStatus');
-  if (screenReaderState) screenReaderState.textContent = message || '';
-  if (!visibleState) return;
-  visibleState.textContent = message || '';
-  visibleState.classList.toggle('hidden', !message);
 }
 
 function beginVideoMediaSession() {
@@ -309,7 +297,6 @@ export async function hydrateTimeline() {
   const playOverlay = document.getElementById('videoPlayOverlay');
   const standbyBackdrop = document.getElementById('webinarStandbyBackdrop');
   const pauseOverlay = document.getElementById('videoPauseOverlay');
-  const processing = document.getElementById('videoProcessing');
 
   const customControls = document.getElementById('customPlayerControls');
   const playPauseBtn = document.getElementById('customPlayPauseBtn');
@@ -343,7 +330,7 @@ export async function hydrateTimeline() {
   if (_visibilityHandler) { document.removeEventListener('visibilitychange', _visibilityHandler); _visibilityHandler = null; }
   if (_fullscreenHandler) { document.removeEventListener('fullscreenchange', _fullscreenHandler); _fullscreenHandler = null; }
   const mediaSession = beginVideoMediaSession();
-  setPlayerState('Загружаем состояние видео…');
+  if (playerStatus) playerStatus.textContent = '';
 
   // Загрузка состояния эфира с ретраями: один сетевой сбой/429/5xx больше не оставляет
   // «пустой» плеер без объяснения — повторяем, а при окончательной неудаче показываем фолбэк.
@@ -366,49 +353,6 @@ export async function hydrateTimeline() {
     return;
   }
 
-  // Waiting payloads intentionally omit video details; their countdown branch
-  // below owns the UI. A media state is enforced only after the server returns
-  // the protected video projection.
-  const mediaState = data.video ? data.video.state || (data.video.expected ? 'ready' : 'unavailable') : 'ready';
-  if (mediaState !== 'ready') {
-    video.pause();
-    video.removeAttribute('src');
-    video.removeAttribute('poster');
-    video.load();
-    fallback?.classList.add('hidden');
-    fallback?.classList.remove('flex');
-    processing?.classList.add('hidden');
-    processing?.classList.remove('flex');
-    if (mediaState === 'processing') {
-      document.getElementById('videoPlayOverlay')?.classList.add('hidden');
-      document.getElementById('customPlayerControls')?.classList.add('hidden');
-      processing?.classList.remove('hidden');
-      processing?.classList.add('flex');
-      setPlayerState('Видео обрабатывается');
-    } else {
-      showVideoFallback(
-        fallback,
-        mediaState === 'error'
-          ? 'Не удалось подготовить запись. Команда АСПБ уже получила информацию и проверяет видео.'
-          : 'Запись для этой сессии пока недоступна. Проверьте доступ позже.',
-        mediaSession.generation,
-      );
-    }
-    return;
-  }
-
-  processing?.classList.add('hidden');
-  processing?.classList.remove('flex');
-  const announceLoading = () => setPlayerState('Загружаем видео…');
-  const announceBuffering = () => setPlayerState('Видео загружается…');
-  const announceReady = () => setPlayerState('');
-  video.addEventListener('loadstart', announceLoading, { signal: mediaSession.signal });
-  video.addEventListener('waiting', announceBuffering, { signal: mediaSession.signal });
-  video.addEventListener('stalled', announceBuffering, { signal: mediaSession.signal });
-  video.addEventListener('canplay', announceReady, { signal: mediaSession.signal });
-  video.addEventListener('playing', announceReady, { signal: mediaSession.signal });
-  video.addEventListener('error', announceReady, { signal: mediaSession.signal });
-
   const webinarConfig = state.webinarConfig;
   const serverLiveState = data.liveState || webinarConfig?.liveState || null;
   // Всегда конечное положительное число (фолбэк 568). На это опирается скраббер:
@@ -427,7 +371,6 @@ export async function hydrateTimeline() {
   const isLive = webinarConfig && webinarConfig.status === 'live' && !isReplay;
   const isTestMode = webinarConfig && webinarConfig.status === 'test';
   const isLiveVisual = isLive || isTestMode;
-  const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
   const nowServerMs = Date.now() + state.serverTimeOffset;
   const scheduledAtMs = Number(webinarConfig?.scheduledAt);
   const endedByClock = Boolean(
@@ -457,19 +400,6 @@ export async function hydrateTimeline() {
     if (fallback) {
       fallback.classList.add('hidden');
       fallback.classList.remove('flex');
-    }
-  } else if (prefersReducedMotion) {
-    video.pause();
-    if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
-    if (playOverlay) {
-      playOverlay.classList.remove('hidden', 'opacity-0', 'webinar-prelive-overlay');
-      playOverlay.innerHTML = `
-        <span class="w-14 h-14 bg-white/12 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-white/25 shadow-lg">
-          <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
-        </span>
-        <span class="block text-headline-sm text-white font-bold tracking-wide uppercase">Начать просмотр премьеры</span>
-        <span class="block text-body-md text-white/75 mt-1 max-w-md">Автовоспроизведение отключено по настройкам движения устройства</span>
-      `;
     }
   } else {
     await initializeVideoSource(video, data.video || {}, fallback, mediaSession);
@@ -829,27 +759,6 @@ export async function hydrateTimeline() {
 
   activateTimelineEvent(video.currentTime, data.timeline || []);
 
-  document.addEventListener(
-    'aspb:room-seek-request',
-    event => {
-      if (isPreLive || isEnded || _endedMediaState) return;
-      const requested = Number(event.detail?.seconds);
-      if (!Number.isFinite(requested)) return;
-      const ceiling = isLiveVisual ? getLivePosition() : video.duration || videoDuration;
-      const target = clamp(requested, 0, Math.max(0, ceiling));
-      video.currentTime = target;
-      window.__aspbVideoPosition = target;
-      if (isLiveVisual) {
-        manualBehindLive = getLivePosition() - target > liveToleranceSeconds;
-        pausedFromLive = false;
-        updateLiveControls();
-      }
-      if (currentTimeText) currentTimeText.textContent = formatTimelineTime(target);
-      if (playerStatus) playerStatus.textContent = `Переход к ${formatTimelineTime(target)}`;
-    },
-    { signal: mediaSession.signal },
-  );
-
   function startBroadcastFromClick() {
     if (isPreLive || isEnded) return;
 
@@ -906,7 +815,7 @@ export async function hydrateTimeline() {
         return;
       }
       startBroadcastFromClick();
-    }, { signal: mediaSession.signal });
+    });
   }
 
   if (pauseOverlay) {
@@ -916,13 +825,13 @@ export async function hydrateTimeline() {
         if (!seekToLive({ userTriggered: true })) return;
       }
       video.play().then(() => { pauseOverlay.classList.add('hidden'); }).catch(() => {});
-    }, { signal: mediaSession.signal });
+    });
   }
 
   function toggleMuteState() {
     if (video.muted) {
       video.muted = false;
-      video.volume = volumeSlider?.value || 1;
+      video.volume = volumeSlider.value || 1;
       if (volumeSlider && volumeSlider.value === '0') {
         volumeSlider.value = 1;
         video.volume = 1;
@@ -979,7 +888,7 @@ export async function hydrateTimeline() {
         // Обе ветки (live/replay) делали одно и то же — схлопнуто без изменения поведения.
         togglePlayState();
       }
-    }, { signal: mediaSession.signal });
+    });
   }
 
   _visibilityHandler = () => {
@@ -997,7 +906,7 @@ export async function hydrateTimeline() {
   }
 
   if (playPauseBtn) {
-    playPauseBtn.addEventListener('click', () => { togglePlayState(); }, { signal: mediaSession.signal });
+    playPauseBtn.addEventListener('click', () => { togglePlayState(); });
   }
 
   if (returnToLiveBtn) {
@@ -1006,7 +915,7 @@ export async function hydrateTimeline() {
       if (video.paused) {
         video.play().catch(err => console.log('Return to live play failed:', err));
       }
-    }, { signal: mediaSession.signal });
+    });
   }
 
   video.addEventListener(
@@ -1037,7 +946,7 @@ export async function hydrateTimeline() {
   );
 
   if (muteBtn) {
-    muteBtn.addEventListener('click', () => { toggleMuteState(); }, { signal: mediaSession.signal });
+    muteBtn.addEventListener('click', () => { toggleMuteState(); });
   }
 
   if (volumeSlider) {
@@ -1050,7 +959,7 @@ export async function hydrateTimeline() {
         if (muteBtn) muteBtn.querySelector('span').textContent = video.volume < 0.5 ? 'volume_down' : 'volume_up';
       }
       updateMuteAccessibility();
-    }, { signal: mediaSession.signal });
+    });
   }
 
   if (fullscreenBtn && container) {
@@ -1084,7 +993,7 @@ export async function hydrateTimeline() {
           fullscreenBtn.setAttribute('aria-label', 'Открыть видео на весь экран');
         }).catch(err => { console.error('Fullscreen exit failed:', err); });
       }
-    }, { signal: mediaSession.signal });
+    });
 
     _fullscreenHandler = () => {
       if (document.fullscreenElement === container) {
@@ -1203,21 +1112,21 @@ export async function hydrateTimeline() {
       if (scrubResumePlay) video.play().catch(() => {});
     }
 
-    seekContainer.addEventListener('pointerdown', onScrubStart, { signal: mediaSession.signal });
-    seekContainer.addEventListener('pointermove', onScrubMove, { signal: mediaSession.signal });
-    seekContainer.addEventListener('pointerup', onScrubEnd, { signal: mediaSession.signal });
-    seekContainer.addEventListener('pointercancel', onScrubEnd, { signal: mediaSession.signal });
+    seekContainer.addEventListener('pointerdown', onScrubStart);
+    seekContainer.addEventListener('pointermove', onScrubMove);
+    seekContainer.addEventListener('pointerup', onScrubEnd);
+    seekContainer.addEventListener('pointercancel', onScrubEnd);
     // Защита от «залипания»: если захват указателя потерян (контекстное меню, системный
     // жест, long-press) и pointerup не пришёл — снимаем флаг, чтобы полоса не застыла.
     seekContainer.addEventListener('lostpointercapture', () => {
       if (isScrubbing) endScrub();
-    }, { signal: mediaSession.signal });
+    });
     // Двойная страховка от «залипания»: если setPointerCapture не сработал и палец/мышь
     // отпустили мимо полосы, pointerup/cancel прилетят в window, а не в seekContainer —
     // завершаем скраб и тут. onScrubEnd идемпотентен (проверяет isScrubbing + pointerId),
     // поэтому в обычном пути это просто no-op и happy-path не ломается.
-    window.addEventListener('pointerup', onScrubEnd, { signal: mediaSession.signal });
-    window.addEventListener('pointercancel', onScrubEnd, { signal: mediaSession.signal });
+    window.addEventListener('pointerup', onScrubEnd);
+    window.addEventListener('pointercancel', onScrubEnd);
 
     // Клавиатура (доступность): стрелки мотают на 5 секунд, Home/End — к границам.
     seekContainer.addEventListener('keydown', (e) => {
@@ -1238,7 +1147,7 @@ export async function hydrateTimeline() {
       } else {
         paintScrub(target);
       }
-    }, { signal: mediaSession.signal });
+    });
   }
 
   // FIX 5: touchstart для мобильных
@@ -1277,20 +1186,20 @@ export async function hydrateTimeline() {
     scheduleControlsHide();
   }
 
-  container.addEventListener('mousemove', showControlsBriefly, { signal: mediaSession.signal });
-  container.addEventListener('mouseenter', showControlsBriefly, { signal: mediaSession.signal });
-  container.addEventListener('touchstart', showControlsBriefly, { passive: true, signal: mediaSession.signal });
+  container.addEventListener('mousemove', showControlsBriefly);
+  container.addEventListener('mouseenter', showControlsBriefly);
+  container.addEventListener('touchstart', showControlsBriefly, { passive: true });
   container.addEventListener('focusin', () => {
     if (controlsTimeout) clearTimeout(controlsTimeout);
     controlsTimeout = null;
     setControlsVisible(true);
-  }, { signal: mediaSession.signal });
+  });
   container.addEventListener('focusout', event => {
     if (event.relatedTarget && container.contains(event.relatedTarget)) return;
     scheduleControlsHide();
-  }, { signal: mediaSession.signal });
+  });
   container.addEventListener('mouseleave', () => {
     if (controlsTimeout) clearTimeout(controlsTimeout);
     hideControlsIfAllowed();
-  }, { signal: mediaSession.signal });
+  });
 }

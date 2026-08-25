@@ -95,7 +95,6 @@
     @media (max-width: 620px) { .hot-grid { grid-template-columns:1fr; } }
   </style>
   <link rel="stylesheet" href="admin-funnel.css?v=remediation-20260804-1" />
-  <link rel="stylesheet" href="admin-verification.css?v=author-verification-1" />
 </head>
 <body>
   <header>
@@ -151,29 +150,6 @@
           <button id="createUserBtn">Добавить</button>
         </div>
         <div id="usersList"></div>
-      </section>
-
-      <section class="panel hidden" id="authorVerificationSection" aria-labelledby="authorVerificationHeading">
-        <div class="top">
-          <div>
-            <h2 id="authorVerificationHeading">Проверка авторов</h2>
-            <div class="sub">Документы приватны. Автор увидит только публичный комментарий, внутренняя причина останется в аудите.</div>
-          </div>
-          <button id="authorVerificationRefreshBtn" class="ghost" type="button">Обновить</button>
-        </div>
-        <div class="filters">
-          <label for="authorVerificationStatusFilter" class="sub">Статус</label>
-          <select id="authorVerificationStatusFilter">
-            <option value="">Все статусы</option>
-            <option value="PENDING">На проверке</option>
-            <option value="NEEDS_INFO">Нужно уточнение</option>
-            <option value="VERIFIED">Проверен</option>
-            <option value="REJECTED">Отклонён</option>
-            <option value="SUSPENDED">Приостановлен</option>
-          </select>
-        </div>
-        <p id="authorVerificationStatus" class="status-line" role="status" aria-live="polite"></p>
-        <div id="authorVerificationList" class="verification-list"></div>
       </section>
 
       <div class="layout">
@@ -266,6 +242,6 @@
     </section>
   </main>
 
-  <script src="admin.js?v=author-verification-1"></script>
+  <script src="admin.js?v=remediation-20260804-1"></script>
 </body>
 </html>

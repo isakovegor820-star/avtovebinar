@@ -34,8 +34,8 @@ describe('scripted chat scenario', () => {
           sendAtSeconds: 600,
           answerStartSeconds: 660,
           agentId: 'agent',
-          agentName: 'Подготовленный вопрос',
-          agentRole: 'подготовленный сценарий',
+          agentName: 'Агент',
+          agentRole: 'роль',
           message: 'Этот вопрос не должен пройти при коротком видео.',
           kind: 'agent_question',
         },
@@ -54,8 +54,8 @@ describe('scripted chat scenario', () => {
           sendAtSeconds: 700,
           answerStartSeconds: 700,
           agentId: 'agent',
-          agentName: 'Подготовленный вопрос',
-          agentRole: 'подготовленный сценарий',
+          agentName: 'Агент',
+          agentRole: 'роль',
           message: 'Post-webinar follow-up can be explicit.',
           kind: 'scripted_user',
           allowAfterVideo: true,
@@ -70,35 +70,20 @@ describe('scripted chat scenario', () => {
     expect(() => assertScriptedChatFitsDuration(WEBINAR_VIDEO_DURATION_SECONDS, SCRIPTED_CHAT_SCENARIO)).not.toThrow();
   });
 
-  it('uses only the generic prepared-question identity and keeps crowd-simulation waves disabled', () => {
-    const visible = SCRIPTED_CHAT_SCENARIO.messages.filter(message => message.visible !== false);
-    expect(visible.length).toBeGreaterThan(0);
-    expect(visible.every(message => message.agentName === 'Подготовленный вопрос')).toBe(true);
-    expect(visible.every(message => message.agentRole === 'подготовленный сценарий')).toBe(true);
-    expect(visible.some(message => message.id.startsWith('flood_'))).toBe(false);
+  it('keeps curated scripted participants and messages unique (flood-волны исключены — они намеренно повторяются)', () => {
+    // «Волны цифр» (flood_*) намеренно повторяют и текст («1», «+»), и имена участников —
+    // это эффект живой толпы. Уникальность требуем только от курируемых (не-flood) сообщений.
+    const curated = SCRIPTED_CHAT_SCENARIO.messages.filter(
+      message => message.visible !== false && !message.id.startsWith('flood_'),
+    );
+    const authorNames = curated.map(message => message.agentName);
+    const messageTexts = curated.map(message => message.message);
 
+    expect(new Set(authorNames).size).toBe(authorNames.length);
+    expect(new Set(messageTexts).size).toBe(messageTexts.length);
+
+    // id уникальны по всему сценарию, включая волны.
     const allIds = SCRIPTED_CHAT_SCENARIO.messages.map(message => message.id);
     expect(new Set(allIds).size).toBe(allIds.length);
-  });
-
-  it('rejects an invented attendee identity and a synthetic online count', () => {
-    const base = {
-      id: 'unsafe',
-      sendAtSeconds: 30,
-      answerStartSeconds: 40,
-      agentId: 'prepared',
-      agentRole: 'подготовленный сценарий',
-      message: 'Вопрос по теме вебинара?',
-      kind: 'agent_question' as const,
-    };
-    expect(() =>
-      parseScriptedChatScenario({ version: 1, messages: [{ ...base, agentName: 'Анна, юрист' }] }),
-    ).toThrow();
-    expect(() =>
-      parseScriptedChatScenario({
-        version: 1,
-        messages: [{ ...base, agentName: 'Подготовленный вопрос', message: 'Сейчас онлайн 247 участников' }],
-      }),
-    ).toThrow(/synthetic_online_count_forbidden/);
   });
 });

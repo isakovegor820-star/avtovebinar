@@ -29,9 +29,3 @@ export function setCache<T>(key: string, value: T, ttlMs: number) {
     cache.delete(oldest);
   }
 }
-
-export function deleteCacheByPrefix(prefix: string) {
-  for (const key of cache.keys()) {
-    if (key.startsWith(prefix)) cache.delete(key);
-  }
-}

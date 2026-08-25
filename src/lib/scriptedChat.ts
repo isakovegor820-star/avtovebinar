@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { syntheticScenarioViolation } from './chatPolicy.js';
 
 export type ScriptedChatKind = 'scripted_user' | 'agent_question';
 
@@ -14,10 +13,8 @@ const scriptedChatMessageSchema = z
     answerStartSeconds: z.number().int().nonnegative().optional(),
     relatedVideoSeconds: z.number().int().nonnegative().optional(),
     agentId: z.string().min(1),
-    // Legacy file fields remain for compatibility, but only generic labels are
-    // allowed. A prepared message must never impersonate a real attendee.
-    agentName: z.literal('Подготовленный вопрос'),
-    agentRole: z.literal('подготовленный сценарий'),
+    agentName: z.string().min(1),
+    agentRole: z.string().min(1),
     // min(1): короткие реакции-«флуд» в чат — «+», «1», «10» — это 1–2 символа.
     // Пустые строки по-прежнему отсекаются, длинные вопросы не затрагиваются.
     message: z.string().trim().min(1).max(700),
@@ -31,6 +28,26 @@ const scriptedChatMessageSchema = z
   .refine(value => value.answerStartSeconds !== undefined || value.relatedVideoSeconds !== undefined, {
     message: 'Each scripted chat message needs answerStartSeconds or relatedVideoSeconds',
   });
+
+// Блок-лист фамилий публичных лиц: запрещаем выдавать их за «участников» эфира
+// (юридический + репутационный риск фабрикации высказываний под реальными именами).
+const BLOCKED_PUBLIC_FIGURE_SURNAMES = [
+  'путин',
+  'медведев',
+  'мишустин',
+  'лавров',
+  'зеленский',
+  'байден',
+  'трамп',
+  'навальный',
+  'кадыров',
+  'песков',
+];
+
+function containsBlockedPublicName(name: string): string | null {
+  const tokens = name.toLowerCase().split(/\s+/);
+  return BLOCKED_PUBLIC_FIGURE_SURNAMES.find(surname => tokens.includes(surname)) ?? null;
+}
 
 const scriptedChatScenarioSchema = z
   .object({
@@ -51,12 +68,12 @@ const scriptedChatScenarioSchema = z
       }
       ids.add(message.id);
 
-      const violation = syntheticScenarioViolation(message.message);
-      if (violation) {
+      const blocked = containsBlockedPublicName(message.agentName);
+      if (blocked) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ['messages', index, 'message'],
-          message: violation,
+          path: ['messages', index, 'agentName'],
+          message: `Scripted chat author "${message.agentName}" matches a public-figure surname ("${blocked}") — use a fictional non-identifying name`,
         });
       }
     }
@@ -129,8 +146,8 @@ function toRuntimeMessage(message: ScriptedChatScenarioItem): ScriptedChatMessag
     answerStartSeconds: message.answerStartSeconds,
     relatedVideoSeconds: message.relatedVideoSeconds,
     agentId: message.agentId,
-    authorName: 'Подготовленный вопрос',
-    authorRole: 'подготовленный сценарий',
+    authorName: message.agentName,
+    authorRole: message.agentRole,
     message: message.message,
     kind: message.kind,
     isSynthetic: true,

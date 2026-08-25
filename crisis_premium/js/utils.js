@@ -60,11 +60,11 @@ export async function csrfHeaders() {
   return token ? { 'x-csrf-token': token } : {};
 }
 
-export async function post(path, body, headers = {}) {
+export async function post(path, body) {
   const response = await fetchWithTimeout(`${API}${path}`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...headers, ...(await csrfHeaders()) },
+    headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
     body: JSON.stringify(body)
   });
 
@@ -76,104 +76,7 @@ export async function post(path, body, headers = {}) {
     throw error;
   }
 
-  if (response.status === 204) {
-    return { ok: true };
-  }
   return response.json();
-}
-
-export async function postDownload(path, body) {
-  const response = await fetchWithTimeout(`${API}${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const error = new Error(payload.error || 'Не удалось сформировать файл');
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
-  }
-
-  const disposition = response.headers.get('content-disposition') || '';
-  const match = disposition.match(/filename="([A-Za-z0-9._-]+)"/);
-  return {
-    blob: await response.blob(),
-    fileName: match?.[1] || 'crm-contacts.csv',
-    rowCount: Number(response.headers.get('x-crm-export-row-count') || 0),
-  };
-}
-
-export async function patchJson(path, body, headers = {}) {
-  const response = await fetchWithTimeout(`${API}${path}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...headers, ...(await csrfHeaders()) },
-    body: JSON.stringify(body)
-  });
-
-  const payload = response.status === 204 ? { ok: true } : await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(payload.error || 'Ошибка запроса');
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
-  }
-  return payload;
-}
-
-export async function putJson(path, body = {}) {
-  const response = await fetchWithTimeout(`${API}${path}`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
-    body: JSON.stringify(body),
-  });
-  const payload = response.status === 204 ? { ok: true } : await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(payload.error || 'Ошибка запроса');
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
-  }
-  return payload;
-}
-
-export async function deleteJson(path, body = {}) {
-  const response = await fetchWithTimeout(`${API}${path}`, {
-    method: 'DELETE',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
-    body: JSON.stringify(body),
-  });
-  const payload = response.status === 204 ? { ok: true } : await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(payload.error || 'Ошибка запроса');
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
-  }
-  return payload;
-}
-
-export async function postBinary(path, body, headers = {}) {
-  const response = await fetchWithTimeout(`${API}${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { ...headers, ...(await csrfHeaders()) },
-    body
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(payload.error || 'Ошибка запроса');
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
-  }
-  return payload;
 }
 
 export async function getJson(path) {

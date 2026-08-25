@@ -6,7 +6,6 @@ import {
   sendParticipantLoginEmail,
   sendRegistrationEmail,
   sendReminderEmail,
-  sendSessionChangeEmail,
   type ReminderKind,
 } from './email.js';
 import { logger } from './logger.js';
@@ -24,7 +23,6 @@ import {
 } from './roomLinks.js';
 import { createAccessToken, hashToken } from './tokens.js';
 import { EMAIL_OUTBOX_STALE_SENDING_MS } from './emailOutboxPolicy.js';
-import { canAccessRegisteredWebinar } from './tenancy/webinarAccess.js';
 
 export { EMAIL_OUTBOX_STALE_SENDING_MS } from './emailOutboxPolicy.js';
 
@@ -32,8 +30,6 @@ export const EMAIL_JOB_REGISTRATION = 'registration_confirmation';
 export const EMAIL_JOB_REMINDER = 'webinar_reminder';
 export const EMAIL_JOB_REPLAY = 'webinar_replay';
 export const EMAIL_JOB_PARTICIPANT_LOGIN = 'participant_access_login';
-export const EMAIL_JOB_SESSION_RESCHEDULED = 'webinar_session_rescheduled';
-export const EMAIL_JOB_SESSION_CANCELLED = 'webinar_session_cancelled';
 
 const EMAIL_OUTBOX_BATCH_SIZE = 25;
 const EMAIL_OUTBOX_MAX_ATTEMPTS = 10;
@@ -63,15 +59,12 @@ type PreparedEmailJob = {
   webinarUrl: string;
   partnerUrl: string | null;
   tokenIds: string[];
-  timezone: string;
-  webinarTitle: string;
 };
 
 export type EmailOutboxSenders = {
   sendRegistrationEmail?: typeof sendRegistrationEmail;
   sendReminderEmail?: typeof sendReminderEmail;
   sendParticipantLoginEmail?: typeof sendParticipantLoginEmail;
-  sendSessionChangeEmail?: typeof sendSessionChangeEmail;
 };
 
 function normalizeError(error: unknown) {
@@ -134,11 +127,8 @@ export async function enqueueParticipantLoginEmail(tx: EmailOutboxTx, input: Enq
   });
 }
 
-export async function enqueueReminderEmail(
-  tx: EmailOutboxTx,
-  input: EnqueueBase & { kind: ReminderKind; scheduleVersion?: number },
-) {
-  // Идемпотентно: unique registration/type/kind/scheduleVersion + skipDuplicates
+export async function enqueueReminderEmail(tx: EmailOutboxTx, input: EnqueueBase & { kind: ReminderKind }) {
+  // Идемпотентно: уникальный индекс (registrationId, type, reminderKind) + skipDuplicates
   // гарантируют ровно одну джобу на вид напоминания, даже при гонке нескольких тиков/реплик.
   // Возвращаем число реально созданных строк (0 — если такое напоминание уже было поставлено).
   const result = await tx.emailOutboxJob.createMany({
@@ -154,7 +144,6 @@ export async function enqueueReminderEmail(
         webinarUrl: EMAIL_OUTBOX_LINK_PENDING,
         partnerUrl: null,
         reminderKind: input.kind,
-        sessionScheduleVersion: input.scheduleVersion ?? 1,
         nextAttemptAt: new Date(),
       },
     ],
@@ -175,40 +164,8 @@ export async function enqueueReplayEmail(tx: EmailOutboxTx, input: EnqueueBase) 
   return null;
 }
 
-export async function enqueueSessionChangeEmails(
-  tx: EmailOutboxTx,
-  input: {
-    kind: 'rescheduled' | 'cancelled';
-    webinarSessionId: string;
-    scheduledAt: Date;
-    scheduleVersion: number;
-    registrations: Array<{ id: string; lead: { email: string; name: string } }>;
-  },
-) {
-  if (input.registrations.length === 0) return 0;
-  const type = input.kind === 'rescheduled' ? EMAIL_JOB_SESSION_RESCHEDULED : EMAIL_JOB_SESSION_CANCELLED;
-  const result = await tx.emailOutboxJob.createMany({
-    data: input.registrations.map(registration => ({
-      type,
-      status: 'pending',
-      registrationId: registration.id,
-      webinarSessionId: input.webinarSessionId,
-      toEmail: registration.lead.email,
-      toName: registration.lead.name,
-      scheduledAt: input.scheduledAt,
-      webinarUrl: EMAIL_OUTBOX_LINK_PENDING,
-      partnerUrl: null,
-      reminderKind: 'session-change',
-      sessionScheduleVersion: input.scheduleVersion,
-      nextAttemptAt: new Date(),
-    })),
-    skipDuplicates: true,
-  });
-  return result.count;
-}
-
 async function sendEmailJob(prepared: PreparedEmailJob, senders: EmailOutboxSenders) {
-  const { job, webinarUrl, partnerUrl, timezone } = prepared;
+  const { job, webinarUrl, partnerUrl } = prepared;
   if (job.type === EMAIL_JOB_PARTICIPANT_LOGIN) {
     return (senders.sendParticipantLoginEmail ?? sendParticipantLoginEmail)({
       to: job.toEmail,
@@ -216,7 +173,6 @@ async function sendEmailJob(prepared: PreparedEmailJob, senders: EmailOutboxSend
       scheduledAt: job.scheduledAt,
       webinarUrl,
       partnerUrl: partnerUrl ?? undefined,
-      timezone,
     });
   }
 
@@ -231,19 +187,6 @@ async function sendEmailJob(prepared: PreparedEmailJob, senders: EmailOutboxSend
       scheduledAt: job.scheduledAt,
       webinarUrl,
       partnerUrl: partnerUrl ?? undefined,
-      timezone,
-    });
-  }
-
-  if (job.type === EMAIL_JOB_SESSION_RESCHEDULED || job.type === EMAIL_JOB_SESSION_CANCELLED) {
-    return (senders.sendSessionChangeEmail ?? sendSessionChangeEmail)({
-      kind: job.type === EMAIL_JOB_SESSION_RESCHEDULED ? 'rescheduled' : 'cancelled',
-      to: job.toEmail,
-      name: job.toName,
-      scheduledAt: job.scheduledAt,
-      timezone,
-      webinarUrl,
-      webinarTitle: prepared.webinarTitle,
     });
   }
 
@@ -253,7 +196,6 @@ async function sendEmailJob(prepared: PreparedEmailJob, senders: EmailOutboxSend
     scheduledAt: job.scheduledAt,
     webinarUrl,
     partnerUrl: partnerUrl ?? undefined,
-    timezone,
   });
 }
 
@@ -284,9 +226,6 @@ async function prepareEmailJob(jobId: string, claimToken: string, now: Date): Pr
       currentJob.registration?.status === 'pending_verification' &&
       !currentJob.registration.emailVerifiedAt &&
       isLeadIdentityActive(currentJob.registration.lead);
-    const webinarAccessible = currentJob?.registration
-      ? await canAccessRegisteredWebinar(tx as unknown as typeof prisma, currentJob.registration, now)
-      : false;
     if (
       !currentJob ||
       currentJob.status !== 'sending' ||
@@ -294,9 +233,6 @@ async function prepareEmailJob(jobId: string, claimToken: string, now: Date): Pr
       currentJob.claimToken !== claimToken ||
       !currentJob.registration ||
       currentJob.registration.leadId !== registrationRef.leadId ||
-      !webinarAccessible ||
-      (currentJob.type !== EMAIL_JOB_SESSION_CANCELLED &&
-        currentJob.registration.webinarSession.lifecycleStatus === 'CANCELLED') ||
       (!pendingConfirmation && !isParticipantRegistrationActive(currentJob.registration))
     ) {
       return null;
@@ -324,23 +260,10 @@ async function prepareEmailJob(jobId: string, claimToken: string, now: Date): Pr
         webinarUrl: buildTokenizedFrontendUrl('/crisis_premium/access.html', createdToken.token),
         partnerUrl: null,
         tokenIds: [createdToken.id],
-        timezone: currentJob.webinarSession?.timezone ?? currentJob.registration.webinarSession.timezone,
-        webinarTitle: currentJob.webinarSession?.title ?? currentJob.registration.webinarSession.title,
       };
     }
 
     const webinarSession = currentJob.webinarSession ?? currentJob.registration.webinarSession;
-    if (currentJob.type === EMAIL_JOB_SESSION_CANCELLED) {
-      return {
-        job: currentJob,
-        webinarUrl: '',
-        partnerUrl: null,
-        tokenIds: [],
-        timezone: webinarSession.timezone,
-        webinarTitle: webinarSession.title,
-      };
-    }
-
     const configuredExpiry = getRoomTokenExpiresAt(webinarSession);
     const expiresAt = new Date(Math.max(configuredExpiry.getTime(), now.getTime() + EMAIL_LINK_MIN_TTL_MS));
     const webinarToken = await createHashedToken(ROOM_EXCHANGE_TOKEN_PURPOSE, expiresAt);
@@ -350,8 +273,6 @@ async function prepareEmailJob(jobId: string, claimToken: string, now: Date): Pr
       webinarUrl: buildTokenizedFrontendUrl('/crisis_premium/webinar.html', webinarToken.token),
       partnerUrl: buildTokenizedFrontendUrl('/crisis_premium/webinar.html', partnerToken.token, 'partnerApplication'),
       tokenIds: [webinarToken.id, partnerToken.id],
-      timezone: webinarSession.timezone,
-      webinarTitle: webinarSession.title,
     };
   });
 }
@@ -454,18 +375,12 @@ async function deliverPreparedEmailJob(prepared: PreparedEmailJob, senders: Emai
         currentJob.registration?.status === 'pending_verification' &&
         !currentJob.registration.emailVerifiedAt &&
         isLeadIdentityActive(currentJob.registration.lead);
-      const webinarAccessible = currentJob?.registration
-        ? await canAccessRegisteredWebinar(tx as unknown as typeof prisma, currentJob.registration, clock())
-        : false;
       const stillDeliverable =
         currentJob?.status === 'sending' &&
         !currentJob.sentAt &&
         currentJob.claimToken === job.claimToken &&
         currentJob.registration?.leadId === registrationRef.leadId &&
         currentJob.toEmail.toLowerCase() === currentJob.registration.lead.email.toLowerCase() &&
-        webinarAccessible &&
-        (currentJob.type === EMAIL_JOB_SESSION_CANCELLED ||
-          currentJob.registration.webinarSession.lifecycleStatus !== 'CANCELLED') &&
         (pendingConfirmation || isParticipantRegistrationActive(currentJob.registration));
 
       if (!stillDeliverable || !currentJob) {

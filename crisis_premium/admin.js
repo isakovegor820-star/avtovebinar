@@ -52,11 +52,6 @@ const broadcastStatus = requiredElement('broadcastStatus');
 const newUserRole = requiredElement('newUserRole');
 const userAdminSection = requiredElement('userAdminSection');
 const usersList = requiredElement('usersList');
-const authorVerificationSection = requiredElement('authorVerificationSection');
-const authorVerificationRefreshBtn = requiredElement('authorVerificationRefreshBtn');
-const authorVerificationStatusFilter = requiredElement('authorVerificationStatusFilter');
-const authorVerificationStatus = requiredElement('authorVerificationStatus');
-const authorVerificationList = requiredElement('authorVerificationList');
 
     function showToast(message, isError) {
       var t = document.createElement('div');
@@ -782,157 +777,6 @@ const authorVerificationList = requiredElement('authorVerificationList');
       }
     }
 
-    const AUTHOR_VERIFICATION_LABELS = {
-      PENDING: 'На проверке',
-      NEEDS_INFO: 'Нужно уточнение',
-      VERIFIED: 'Проверен',
-      REJECTED: 'Отклонён',
-      SUSPENDED: 'Приостановлен'
-    };
-
-    const AUTHOR_VERIFICATION_TRANSITIONS = {
-      PENDING: ['NEEDS_INFO', 'VERIFIED', 'REJECTED'],
-      VERIFIED: ['SUSPENDED'],
-      SUSPENDED: ['VERIFIED']
-    };
-
-    function authorVerificationLabel(status) {
-      return AUTHOR_VERIFICATION_LABELS[status] || status;
-    }
-
-    function verificationDetail(label, value) {
-      return node('div', {}, [
-        node('strong', { text:label }),
-        node('span', { text:value || '—' })
-      ]);
-    }
-
-    function renderAuthorVerificationReview(item) {
-      const transitions = AUTHOR_VERIFICATION_TRANSITIONS[item.status] || [];
-      if (!transitions.length) {
-        return node('div', { class:'verification-review' }, [
-          node('div', { class:'sub', text:'Для этого статуса нет доступного перехода.' }),
-          item.publicComment ? node('div', { text:'Комментарий автору: ' + item.publicComment }) : node('span'),
-          item.internalReason ? node('div', { text:'Внутренняя причина: ' + item.internalReason }) : node('span')
-        ]);
-      }
-
-      const selectId = 'verification-status-' + item.id;
-      const publicId = 'verification-public-' + item.id;
-      const internalId = 'verification-internal-' + item.id;
-      const actionStatusId = 'verification-action-status-' + item.id;
-      const transitionSelect = node('select', { id:selectId });
-      transitions.forEach(status => transitionSelect.append(node('option', { value:status, text:authorVerificationLabel(status) })));
-      const publicComment = node('textarea', { id:publicId, maxlength:'2000' });
-      const internalReason = node('textarea', { id:internalId, maxlength:'4000' });
-      const actionStatus = node('p', { id:actionStatusId, class:'status-line', role:'status', 'aria-live':'polite' });
-      const submit = node('button', {
-        class:'review-action',
-        type:'button',
-        text:'Сохранить решение',
-        onclick:async () => {
-          const status = transitionSelect.value;
-          const publicValue = publicComment.value.trim();
-          const internalValue = internalReason.value.trim();
-          if (status === 'NEEDS_INFO' && !publicValue) {
-            actionStatus.textContent = 'Добавьте комментарий, который увидит автор.';
-            publicComment.focus();
-            return;
-          }
-          if (['NEEDS_INFO', 'REJECTED', 'SUSPENDED'].includes(status) && !internalValue) {
-            actionStatus.textContent = 'Добавьте внутреннюю причину решения.';
-            internalReason.focus();
-            return;
-          }
-          submit.disabled = true;
-          actionStatus.textContent = 'Сохраняем решение…';
-          try {
-            await api('/api/v1/platform/author-verifications/' + item.id, {
-              method:'PATCH',
-              body:JSON.stringify({
-                status,
-                publicComment:publicValue || null,
-                internalReason:internalValue || null
-              })
-            });
-            authorVerificationStatus.textContent = 'Решение сохранено и записано в аудит.';
-            await loadAuthorVerifications();
-          } catch (error) {
-            actionStatus.textContent = error.message || 'Не удалось сохранить решение.';
-            submit.disabled = false;
-          }
-        }
-      });
-      return node('div', { class:'verification-review' }, [
-        node('label', { for:selectId }, [node('span', { text:'Решение' }), transitionSelect]),
-        node('label', { for:publicId }, [
-          node('span', { text:'Комментарий автору — обязателен при запросе уточнения' }),
-          publicComment
-        ]),
-        node('label', { for:internalId }, [
-          node('span', { text:'Внутренняя причина — автор её не увидит' }),
-          internalReason
-        ]),
-        submit,
-        actionStatus
-      ]);
-    }
-
-    function renderAuthorVerifications(items) {
-      clear(authorVerificationList);
-      if (!items.length) {
-        authorVerificationList.append(node('p', { class:'sub', text:'Заявок с этим статусом пока нет.' }));
-        return;
-      }
-      items.forEach(item => {
-        const profile = item.profile;
-        const evidence = node('div', { class:'verification-evidence' });
-        (item.evidence || []).forEach(file => {
-          evidence.append(node('a', {
-            href:'/api/v1/platform/author-verifications/evidence/' + file.id,
-            download:'',
-            text:file.originalName + ' · ' + Math.ceil(file.sizeBytes / 1024) + ' КБ'
-          }));
-        });
-        if (!item.evidence?.length) evidence.append(node('span', { class:'sub', text:'Нет документов' }));
-        authorVerificationList.append(node('article', { class:'verification-card' }, [
-          node('div', { class:'verification-summary' }, [
-            node('h3', { text:profile.publicName || 'Имя не указано' }),
-            node('div', { class:'verification-meta' }, [
-              node('span', { class:'pill', text:authorVerificationLabel(item.status) }),
-              node('span', { text:profile.organization.name }),
-              node('span', { text:'Отправлено ' + fmtDate(item.submittedAt) })
-            ])
-          ]),
-          node('div', { class:'verification-details' }, [
-            verificationDetail('Описание', profile.bio),
-            verificationDetail('Опыт', profile.experience),
-            verificationDetail('Специализации', (profile.specializations || []).join(', ')),
-            verificationDetail('Организация и регион', [profile.professionalOrganization, profile.region].filter(Boolean).join(' · '))
-          ]),
-          node('div', {}, [node('strong', { text:'Приватные документы' }), evidence]),
-          renderAuthorVerificationReview(item)
-        ]));
-      });
-    }
-
-    async function loadAuthorVerifications() {
-      const status = authorVerificationStatusFilter.value;
-      authorVerificationStatus.textContent = 'Загружаем заявки…';
-      try {
-        const query = status ? '?status=' + encodeURIComponent(status) : '';
-        const data = await api('/api/v1/platform/author-verifications' + query);
-        authorVerificationSection.classList.remove('hidden');
-        renderAuthorVerifications(data.items || []);
-        authorVerificationStatus.textContent = data.items?.length
-          ? 'Заявок: ' + data.items.length + (data.nextCursor ? '. Показаны первые 50.' : '.')
-          : 'Актуальных заявок нет.';
-      } catch (error) {
-        authorVerificationSection.classList.add('hidden');
-        if (!String(error.message || '').includes('Недостаточно прав')) throw error;
-      }
-    }
-
     async function loadAll() {
       // allSettled: сбой одного раздела (например, прав не хватает) не должен гасить
       // остальные. Справочники грузим первыми — от них зависят рендеры менеджеров/статусов.
@@ -941,7 +785,7 @@ const authorVerificationList = requiredElement('authorVerificationList');
         ['сводка', loadSummary], ['воронка', loadFunnel], ['горячие лиды', loadHotLeads],
         ['регистрации', loadRegistrations], ['заявки', loadApplications], ['вопросы', loadQuestions],
         ['премьера записи', loadLiveMirror],
-        ['пользователи', loadUsers], ['проверка авторов', loadAuthorVerifications], ['статус рассылки', loadBroadcastStatus],
+        ['пользователи', loadUsers], ['статус рассылки', loadBroadcastStatus],
       ];
       const results = await Promise.allSettled(sections.map(([, fn]) => fn()));
       const failed = results
@@ -1016,8 +860,6 @@ const authorVerificationList = requiredElement('authorVerificationList');
     }
     hotRefreshBtn.addEventListener('click', loadHotLeads);
     usersRefreshBtn.addEventListener('click', loadUsers);
-    authorVerificationRefreshBtn.addEventListener('click', loadAuthorVerifications);
-    authorVerificationStatusFilter.addEventListener('change', loadAuthorVerifications);
     createUserBtn.addEventListener('click', createUser);
     broadcastBtn.addEventListener('click', sendBroadcast);
     funnelRefreshBtn.addEventListener('click', loadFunnel);

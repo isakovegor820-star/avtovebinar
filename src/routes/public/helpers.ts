@@ -1,7 +1,6 @@
 /**
  * Shared helpers for public route sub-modules.
  */
-import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../../lib/http.js';
@@ -11,7 +10,7 @@ import { getClientIp } from '../../lib/http.js';
 import { getCountdown, getDailyBroadcastDate, getWebinarAccess, parseFirstSeenCookie } from '../../lib/time.js';
 import { getEffectiveVideoDurationMinutes } from '../../lib/webinarLive.js';
 import { prisma } from '../../lib/prisma.js';
-import { getRequestContext, setContextIdentity } from '../../lib/requestContext.js';
+import { setContextIdentity } from '../../lib/requestContext.js';
 import {
   buildFrontendUrl,
   getParticipantSessionExpiresAt,
@@ -27,16 +26,6 @@ import { logger } from '../../lib/logger.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import { getVisitorId, hasAnalyticsConsent } from '../../lib/visitor.js';
 import { acquireLeadSecurityLock, isParticipantRegistrationActive } from '../../lib/leadSecurity.js';
-import { canAccessRegisteredWebinar } from '../../lib/tenancy/webinarAccess.js';
-import {
-  ANALYTICS_EVENT_REGISTRY,
-  buildServerDedupKey,
-  type AnalyticsEventName,
-  type AnalyticsSource,
-  recordAnalyticsEvent,
-  safeAnalyticsFailureCode,
-  validateAnalyticsAttributes,
-} from '../../lib/analyticsEvents.js';
 
 export {
   buildFrontendUrl,
@@ -127,14 +116,6 @@ export async function findRegistrationByToken(token: string) {
     return null;
   }
 
-  if (tokenRecord.registration.webinarSession.lifecycleStatus === 'CANCELLED') {
-    return null;
-  }
-
-  if (!(await canAccessRegisteredWebinar(prisma, tokenRecord.registration))) {
-    return null;
-  }
-
   return tokenRecord.registration;
 }
 
@@ -164,14 +145,6 @@ export async function findRegistrationBySessionToken(token: string) {
     return null;
   }
 
-  if (tokenRecord.registration.webinarSession.lifecycleStatus === 'CANCELLED') {
-    return null;
-  }
-
-  if (!(await canAccessRegisteredWebinar(prisma, tokenRecord.registration))) {
-    return null;
-  }
-
   return tokenRecord.registration;
 }
 
@@ -182,7 +155,7 @@ export async function findRegistrationForRequest(req: Request) {
   }
   const registration = await findRegistrationBySessionToken(cookieToken);
   if (registration) {
-    setContextIdentity({ userId: registration.userId ?? registration.leadId });
+    setContextIdentity({ userId: registration.leadId });
   }
   return registration;
 }
@@ -277,7 +250,7 @@ export function notifySafely(task: Promise<unknown>) {
 }
 
 export type SaveEventInput = {
-  eventName: AnalyticsEventName;
+  eventName: string;
   req: any;
   registration?: {
     id: string;
@@ -294,65 +267,7 @@ export type SaveEventInput = {
   analyticsOnly?: boolean;
   webinarSessionId?: string | null;
   dailyRoom?: boolean;
-  dedupKey?: string;
-  eventSource?: AnalyticsSource;
-  clientOccurredAt?: Date | null;
 };
-
-function serverEventSource(eventName: AnalyticsEventName): AnalyticsSource {
-  if (eventName.startsWith('registration_') || eventName === 'participant_login_request') return 'registration';
-  if (eventName === 'telegram_click') return 'registration';
-  if (eventName.startsWith('recording') || eventName === 'recordings_open') return 'replay';
-  if (
-    eventName.startsWith('video_') ||
-    eventName.startsWith('webinar_room_') ||
-    eventName.startsWith('question_') ||
-    eventName.startsWith('partner_') ||
-    eventName === 'viewer_heartbeat'
-  ) {
-    return 'room';
-  }
-  if (eventName.startsWith('telegram_')) return 'telegram';
-  return ANALYTICS_EVENT_REGISTRY[eventName].sources[0];
-}
-
-function serverEventAttributes(eventName: AnalyticsEventName, metadata: Record<string, unknown> | undefined) {
-  const input = metadata ?? {};
-  if (eventName === 'question_submit') {
-    return validateAnalyticsAttributes(eventName, {
-      questionId: input.questionId,
-      showToParticipants: input.showToParticipants,
-    });
-  }
-  if (eventName === 'partner_application_submit') {
-    return validateAnalyticsAttributes(eventName, { partnerApplicationId: input.partnerApplicationId });
-  }
-  if (eventName === 'recording_open') {
-    return validateAnalyticsAttributes(eventName, { recordingId: input.recordingId });
-  }
-  // clientsProblem and any unrecognized legacy metadata are intentionally not
-  // copied into the v1 analytics contract.
-  return validateAnalyticsAttributes(eventName, {});
-}
-
-function logicalEventKey(
-  input: SaveEventInput,
-  registrationId: string | null,
-  effectiveSessionId: string | null,
-  attributes: Record<string, unknown>,
-) {
-  if (input.dedupKey) return input.dedupKey;
-  const entityId =
-    (typeof attributes.questionId === 'string' && attributes.questionId) ||
-    (typeof attributes.partnerApplicationId === 'string' && attributes.partnerApplicationId) ||
-    (typeof attributes.recordingId === 'string' && attributes.recordingId);
-  if (entityId) return buildServerDedupKey(input.eventName, entityId);
-  if (registrationId) {
-    return buildServerDedupKey(input.eventName, `${registrationId}:${effectiveSessionId ?? 'no-session'}`);
-  }
-  const correlationId = getRequestContext()?.correlationId ?? crypto.randomUUID();
-  return buildServerDedupKey(input.eventName, correlationId);
-}
 
 export async function saveEvent(input: SaveEventInput) {
   const analyticsConsent = hasAnalyticsConsent(input.req);
@@ -363,12 +278,37 @@ export async function saveEvent(input: SaveEventInput) {
       ? await findRegistrationForRequest(input.req)
       : input.registration;
 
+  const eventData = {
+    eventName: input.eventName,
+    visitorId: aggregateOnly ? null : getVisitorId(input.req),
+    page: input.page ?? null,
+    source: aggregateOnly ? null : (input.source ?? null),
+    utmSource: aggregateOnly ? null : (input.utmSource ?? null),
+    utmMedium: aggregateOnly ? null : (input.utmMedium ?? null),
+    utmCampaign: aggregateOnly ? null : (input.utmCampaign ?? null),
+    userAgent: aggregateOnly ? null : (input.req.headers['user-agent'] ?? null),
+    ipHash: aggregateOnly ? null : hashIp(getClientIp(input.req)),
+    metadataJson: aggregateOnly ? undefined : (input.metadata as Prisma.InputJsonValue | undefined),
+  };
+
+  if (!registration) {
+    await prisma.event.create({
+      data: {
+        ...eventData,
+        leadId: null,
+        registrationId: null,
+        webinarSessionId: null,
+      },
+    });
+    return null;
+  }
+
   // Room events belong to the session the participant actually opened, not to
   // the historical session stored on their original Registration. Callers that
   // already built access pass the exact id; generic browser analytics can ask
   // this helper to resolve the same daily-room selection centrally.
-  const effectiveWebinarSessionId = registration
-    ? input.webinarSessionId !== undefined
+  const effectiveWebinarSessionId =
+    input.webinarSessionId !== undefined
       ? input.webinarSessionId
       : input.dailyRoom
         ? await (async () => {
@@ -381,30 +321,7 @@ export async function saveEvent(input: SaveEventInput) {
             }
             return (await buildDailyRoomAccessPayload(currentRegistration, new Date())).webinarSession.id;
           })()
-        : registration.webinarSessionId
-    : null;
-  const attributes = serverEventAttributes(input.eventName, input.metadata);
-  const dedupKey = logicalEventKey(input, registration?.id ?? null, effectiveWebinarSessionId, attributes);
-  const source = input.eventSource ?? serverEventSource(input.eventName);
-
-  if (!registration) {
-    await recordAnalyticsEvent(prisma, {
-      eventName: input.eventName,
-      source,
-      dedupKey,
-      scope: { kind: 'platform' },
-      attributes,
-      page: input.page ?? null,
-      visitorId: aggregateOnly ? null : getVisitorId(input.req),
-      userAgent: aggregateOnly ? null : (input.req.headers['user-agent'] ?? null),
-      ipHash: aggregateOnly ? null : hashIp(getClientIp(input.req)),
-      utmSource: aggregateOnly ? null : (input.utmSource ?? null),
-      utmMedium: aggregateOnly ? null : (input.utmMedium ?? null),
-      utmCampaign: aggregateOnly ? null : (input.utmCampaign ?? null),
-      clientOccurredAt: input.clientOccurredAt,
-    });
-    return null;
-  }
+        : registration.webinarSessionId;
 
   // Erasure fence: a request may have resolved its participant session before
   // anonymization started. Serialize every linked event with anonymization and
@@ -424,78 +341,16 @@ export async function saveEvent(input: SaveEventInput) {
       return null;
     }
 
-    await recordAnalyticsEvent(tx as unknown as typeof prisma, {
-      eventName: input.eventName,
-      source,
-      dedupKey,
-      scope: aggregateOnly
-        ? { kind: 'trusted', webinarSessionId: effectiveWebinarSessionId ?? activeRegistration.webinarSessionId }
-        : {
-            kind: 'participant',
-            trustedRegistrationId: activeRegistration.id,
-            effectiveWebinarSessionId: effectiveWebinarSessionId ?? activeRegistration.webinarSessionId,
-          },
-      attributes: aggregateOnly ? {} : attributes,
-      page: input.page ?? null,
-      visitorId: aggregateOnly ? null : getVisitorId(input.req),
-      userAgent: aggregateOnly ? null : (input.req.headers['user-agent'] ?? null),
-      ipHash: aggregateOnly ? null : hashIp(getClientIp(input.req)),
-      utmSource: aggregateOnly ? null : (input.utmSource ?? null),
-      utmMedium: aggregateOnly ? null : (input.utmMedium ?? null),
-      utmCampaign: aggregateOnly ? null : (input.utmCampaign ?? null),
-      clientOccurredAt: input.clientOccurredAt,
+    await tx.event.create({
+      data: {
+        ...eventData,
+        leadId: activeRegistration.leadId,
+        registrationId: activeRegistration.id,
+        webinarSessionId: effectiveWebinarSessionId,
+      },
     });
     return activeRegistration;
   });
-}
-
-// Explicit schemaVersion=0 compatibility writer. It exists only for old
-// browser payloads during rollout and preserves the prior consent behavior.
-// New application writers must call saveEvent/recordAnalyticsEvent instead.
-export async function saveLegacyEvent(input: Omit<SaveEventInput, 'dedupKey' | 'eventSource' | 'clientOccurredAt'>) {
-  const analyticsConsent = hasAnalyticsConsent(input.req);
-  const aggregateOnly = Boolean(input.analyticsOnly && !analyticsConsent);
-  const registration = aggregateOnly
-    ? null
-    : input.registration === undefined
-      ? await findRegistrationForRequest(input.req)
-      : input.registration;
-  const effectiveWebinarSessionId = registration
-    ? input.webinarSessionId !== undefined
-      ? input.webinarSessionId
-      : input.dailyRoom
-        ? await (async () => {
-            const currentRegistration = await prisma.registration.findUnique({
-              where: { id: registration.id },
-              include: { lead: true, webinarSession: true },
-            });
-            if (!currentRegistration || currentRegistration.leadId !== registration.leadId) {
-              return registration.webinarSessionId;
-            }
-            return (await buildDailyRoomAccessPayload(currentRegistration, new Date())).webinarSession.id;
-          })()
-        : registration.webinarSessionId
-    : null;
-  await prisma.event.create({
-    data: {
-      schemaVersion: 0,
-      scopeKind: 'legacy',
-      eventName: input.eventName,
-      visitorId: aggregateOnly ? null : getVisitorId(input.req),
-      leadId: registration?.leadId ?? null,
-      registrationId: registration?.id ?? null,
-      webinarSessionId: effectiveWebinarSessionId,
-      page: input.page ?? null,
-      source: aggregateOnly ? null : (input.source ?? null),
-      utmSource: aggregateOnly ? null : (input.utmSource ?? null),
-      utmMedium: aggregateOnly ? null : (input.utmMedium ?? null),
-      utmCampaign: aggregateOnly ? null : (input.utmCampaign ?? null),
-      userAgent: aggregateOnly ? null : (input.req.headers['user-agent'] ?? null),
-      ipHash: aggregateOnly ? null : hashIp(getClientIp(input.req)),
-      metadataJson: aggregateOnly ? undefined : (input.metadata as Prisma.InputJsonValue | undefined),
-    },
-  });
-  return registration;
 }
 
 export async function saveEventSafely(input: SaveEventInput, operation: string) {
@@ -507,7 +362,7 @@ export async function saveEventSafely(input: SaveEventInput, operation: string) 
     // but best-effort and must not turn that committed success into a client 500.
     logger.error(
       {
-        failureCode: safeAnalyticsFailureCode(error),
+        err: error,
         operation,
         eventName: input.eventName,
         registrationId: input.registration?.id ?? null,

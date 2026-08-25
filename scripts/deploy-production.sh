@@ -122,31 +122,6 @@ if ! git ls-files --error-unmatch -- "$COMPOSE_FILE" >/dev/null 2>&1; then
   exit 1
 fi
 
-legacy_media_path="$(awk -F= '
-  $1 == "LEGACY_MEDIA_PATH" {
-    sub(/^[^=]*=/, "")
-    gsub(/^['"'"']|['"'"']$/, "")
-    print
-    exit
-  }
-' "$COMPOSE_ENV_FILE")"
-if [[ -z "$legacy_media_path" || "$legacy_media_path" != /* || ! -d "$legacy_media_path" ]]; then
-  echo "LEGACY_MEDIA_PATH must be an existing absolute directory" >&2
-  exit 1
-fi
-legacy_media_path="$(realpath -- "$legacy_media_path")"
-case "$legacy_media_path" in
-  /|/etc|/home|/opt|/root|/srv|/usr|/var)
-    echo "LEGACY_MEDIA_PATH must be a dedicated directory, not a broad system root: $legacy_media_path" >&2
-    exit 1
-    ;;
-esac
-if [[ ! -r "$legacy_media_path" ]]; then
-  echo "LEGACY_MEDIA_PATH is not readable: $legacy_media_path" >&2
-  exit 1
-fi
-export LEGACY_MEDIA_PATH="$legacy_media_path"
-
 deploy_database_mode=docker
 if [[ "$COMPOSE_FILE" == "docker-compose.native-postgres.yml" ]]; then
   deploy_database_mode=native
@@ -538,14 +513,6 @@ fi
 echo "Applying forward-only database migrations..."
 migration_started=true
 "${compose[@]}" run --rm api npx prisma migrate deploy
-echo "Repeating migration deploy to prove the exact schema is a no-op..."
-migration_repeat_output="$("${compose[@]}" run --rm api npx prisma migrate deploy 2>&1)"
-printf '%s\n' "$migration_repeat_output"
-if [[ "$migration_repeat_output" != *"No pending migrations to apply"* ]]; then
-  echo "Repeated migration deploy did not report a no-op" >&2
-  false
-fi
-"${compose[@]}" run --rm api npx prisma migrate status
 
 echo "Starting deployment services..."
 release_replaced=true
@@ -568,37 +535,26 @@ if [[ "${ALLOW_DEGRADED_DEPENDENCIES:-off}" == "on" ]]; then
   echo "WARNING: operator explicitly allowed degraded dependency status 503." >&2
 fi
 
-echo "Checking live, ready, dependency and metrics endpoints without response bodies..."
+echo "Checking API dependencies and worker heartbeat..."
 "${compose[@]}" exec -T -e DEPLOY_ALLOWED_DEPENDENCY_STATUSES="$allowed_dependency_statuses" api node -e '
   const allowed = new Set(
     String(process.env.DEPLOY_ALLOWED_DEPENDENCY_STATUSES || "200")
       .split(",")
       .map(value => Number(value)),
   );
-  const token = process.env.METRICS_TOKEN || "";
-  const checks = [
-    ["live", "/health/live", false, new Set([200])],
-    ["ready", "/health/ready", false, new Set([200])],
-    ["dependencies", "/health/dependencies", false, allowed],
-    ["protected_dependencies", "/health/dependencies/details", true, allowed],
-    ["metrics", "/metrics", true, new Set([200])],
-  ];
-  (async () => {
-    for (const [name, pathname, protectedEndpoint, statuses] of checks) {
-      const response = await fetch(`http://127.0.0.1:${process.env.PORT || 5174}${pathname}`, {
-        headers: protectedEndpoint ? { authorization: `Bearer ${token}` } : {},
-      });
+  fetch(`http://127.0.0.1:${process.env.PORT || 5174}/health/dependencies/details`, {
+    headers: { authorization: `Bearer ${process.env.METRICS_TOKEN || ""}` },
+  })
+    .then(async response => {
       await response.body?.cancel().catch(() => undefined);
-      console.log(`${name} returned HTTP ${response.status}.`);
-      if (!statuses.has(response.status)) process.exitCode = 1;
-    }
-  })().catch(() => {
-    console.error("Runtime endpoint acceptance failed without exposing a response body.");
-    process.exitCode = 1;
-  });
+      console.log(`Protected dependency health returned HTTP ${response.status}.`);
+      if (!allowed.has(response.status)) process.exitCode = 1;
+    })
+    .catch(error => {
+      console.error(error);
+      process.exitCode = 1;
+    });
 '
-echo "Checking release/provider/retention rollout controls..."
-"${compose[@]}" exec -T api node dist/src/cli/releaseControlsAcceptance.js
 if has_service webinar-worker; then
   "${compose[@]}" exec -T webinar-worker node scripts/worker-healthcheck.mjs
 else

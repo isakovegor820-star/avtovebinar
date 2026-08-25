@@ -2,7 +2,6 @@ import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { env } from './env.js';
 import { logger } from './logger.js';
-import { getRequestContext } from './requestContext.js';
 
 export class AppError extends Error {
   constructor(
@@ -31,15 +30,13 @@ export function getClientIp(req: Request) {
   return req.socket.remoteAddress ?? '0.0.0.0';
 }
 
-export function errorMiddleware(error: unknown, req: Request, res: Response, _next: NextFunction) {
-  const correlationId = getRequestContext()?.correlationId;
+export function errorMiddleware(error: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (error instanceof AppError) {
     return res.status(error.statusCode).json({
       ok: false,
       error: error.message,
       code: error.code ?? (isErrorDetails(error.details) ? error.details.code : undefined),
       details: error.details,
-      correlationId,
     });
   }
 
@@ -48,18 +45,6 @@ export function errorMiddleware(error: unknown, req: Request, res: Response, _ne
       ok: false,
       error: 'Validation failed',
       details: error.flatten(),
-      code: 'validation_failed',
-      correlationId,
-    });
-  }
-
-  if (isPayloadTooLargeError(error)) {
-    const analyticsRequest = req.originalUrl === '/api/events' || req.originalUrl.startsWith('/api/events?');
-    return res.status(413).json({
-      ok: false,
-      error: analyticsRequest ? 'Analytics request is too large' : 'Размер запроса превышает допустимый',
-      code: analyticsRequest ? 'analytics_payload_too_large' : 'payload_too_large',
-      correlationId,
     });
   }
 
@@ -74,14 +59,7 @@ export function errorMiddleware(error: unknown, req: Request, res: Response, _ne
     ok: false,
     error: 'Internal server error',
     code: 'internal_error',
-    correlationId,
   });
-}
-
-function isPayloadTooLargeError(value: unknown): value is { status: 413 } {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as { status?: unknown; statusCode?: unknown; type?: unknown };
-  return candidate.status === 413 || candidate.statusCode === 413 || candidate.type === 'entity.too.large';
 }
 
 function isErrorDetails(value: unknown): value is { code: string } {

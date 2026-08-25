@@ -1,133 +1,87 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
-import { AppError, asyncHandler, getClientIp } from '../../lib/http.js';
+import { asyncHandler } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { buildTelegramStartUrl } from '../../lib/telegram.js';
-import {
-  adaptLegacyAnalyticsAttributes,
-  ANALYTICS_EVENT_REGISTRY,
-  CURRENT_ANALYTICS_SCHEMA_VERSION,
-  legacyAnalyticsEventSchema,
-  parseAnalyticsV1Request,
-  recordAnalyticsEvent,
-  type AnalyticsEventName,
-} from '../../lib/analyticsEvents.js';
-import { getRequestContext } from '../../lib/requestContext.js';
-import { logger } from '../../lib/logger.js';
-import { getVisitorId, hasAnalyticsConsent } from '../../lib/visitor.js';
-import { hashIp } from '../../lib/tokens.js';
-import {
-  buildDailyRoomAccessPayload,
-  clean,
-  findRegistrationForRequest,
-  saveEventSafely,
-  saveLegacyEvent,
-} from './helpers.js';
+import { PUBLIC_ANALYTICS_EVENTS } from '../../lib/events.js';
+import { clean, saveEvent, saveEventSafely } from './helpers.js';
 
 export const eventsRouter = Router();
 
-const MAX_ANALYTICS_REQUEST_BYTES = 12 * 1024;
-export const eventSchema = legacyAnalyticsEventSchema;
+const MAX_METADATA_KEYS = 20;
+const MAX_METADATA_BYTES = 4096;
+const MAX_METADATA_DEPTH = 4;
 
-function assertAnalyticsRequestSize(body: unknown) {
-  let bytes = Number.POSITIVE_INFINITY;
-  try {
-    bytes = Buffer.byteLength(JSON.stringify(body), 'utf8');
-  } catch {
-    // Validation below returns the same public error shape without serializing
-    // the original request into a response or log.
+const utmSchema = {
+  source: z.string().trim().max(120).optional().or(z.literal('')),
+  utmSource: z.string().trim().max(120).optional().or(z.literal('')),
+  utmMedium: z.string().trim().max(120).optional().or(z.literal('')),
+  utmCampaign: z.string().trim().max(120).optional().or(z.literal('')),
+  utmContent: z.string().trim().max(120).optional().or(z.literal('')),
+  utmTerm: z.string().trim().max(120).optional().or(z.literal('')),
+};
+
+function isMetadataTooDeep(value: unknown, depth = 0): boolean {
+  if (depth > MAX_METADATA_DEPTH) {
+    return true;
   }
-  if (bytes > MAX_ANALYTICS_REQUEST_BYTES) {
-    throw new AppError(413, 'Analytics request is too large', undefined, 'analytics_payload_too_large');
+  if (!value || typeof value !== 'object') {
+    return false;
   }
+
+  const values = Array.isArray(value) ? value : Object.values(value);
+  return values.some(item => isMetadataTooDeep(item, depth + 1));
 }
 
-function hasScopeHints(data: ReturnType<typeof parseAnalyticsV1Request>) {
-  return Boolean(data.organizationId || data.webinarId || data.webinarSessionId || data.registrationId || data.userId);
-}
+const metadataSchema = z.record(z.string(), z.unknown()).superRefine((metadata, ctx) => {
+  if (Object.keys(metadata).length > MAX_METADATA_KEYS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `metadata must contain at most ${MAX_METADATA_KEYS} keys`,
+    });
+  }
+
+  const serialized = JSON.stringify(metadata);
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_METADATA_BYTES) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `metadata must be at most ${MAX_METADATA_BYTES} bytes`,
+    });
+  }
+
+  if (isMetadataTooDeep(metadata)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `metadata nesting must be at most ${MAX_METADATA_DEPTH} levels`,
+    });
+  }
+});
+
+export const eventSchema = z.object({
+  eventName: z.enum(PUBLIC_ANALYTICS_EVENTS),
+  page: z.string().trim().max(160).optional(),
+  metadata: metadataSchema.optional(),
+  ...utmSchema,
+});
 
 eventsRouter.post(
   '/events',
   asyncHandler(async (req, res) => {
-    assertAnalyticsRequestSize(req.body);
-    if ((req.body as { schemaVersion?: unknown } | null)?.schemaVersion === undefined) {
-      const legacy = legacyAnalyticsEventSchema.parse(req.body);
-      const eventName = legacy.eventName as AnalyticsEventName;
-      logger.info(
-        { eventName, correlationId: getRequestContext()?.correlationId },
-        'analytics_legacy_payload_accepted',
-      );
-      await saveLegacyEvent({
-        eventName,
-        req,
-        page: legacy.page,
-        metadata: adaptLegacyAnalyticsAttributes(eventName, legacy.metadata),
-        source: clean(legacy.source),
-        utmSource: clean(legacy.utmSource),
-        utmMedium: clean(legacy.utmMedium),
-        utmCampaign: clean(legacy.utmCampaign),
-        analyticsOnly: true,
-        dailyRoom: legacy.page === '/crisis_premium/webinar.html',
-      });
-      res.status(201).json({
-        ok: true,
-        schemaVersion: 0,
-        legacyCompatibility: true,
-        correlationId: getRequestContext()?.correlationId,
-      });
-      return;
-    }
-
-    const now = new Date();
-    const data = parseAnalyticsV1Request(req.body, now);
-    const registration = await findRegistrationForRequest(req);
-    if (!registration && (ANALYTICS_EVENT_REGISTRY[data.eventName].scope === 'tenant' || hasScopeHints(data))) {
-      throw new AppError(404, 'Analytics scope not found', undefined, 'analytics_scope_not_found');
-    }
-    const effectiveWebinarSessionId =
-      registration && data.source === 'room'
-        ? (await buildDailyRoomAccessPayload(registration, now)).webinarSession.id
-        : registration?.webinarSessionId;
-    const analyticsConsent = hasAnalyticsConsent(req);
-    const result = await recordAnalyticsEvent(prisma, {
+    const data = eventSchema.parse(req.body);
+    await saveEvent({
       eventName: data.eventName,
-      source: data.source,
-      dedupKey: data.dedupKey,
-      correlationId: getRequestContext()?.correlationId,
-      scope: registration
-        ? {
-            kind: 'participant',
-            trustedRegistrationId: registration.id,
-            effectiveWebinarSessionId,
-            identifiable: analyticsConsent,
-            hints: {
-              organizationId: data.organizationId,
-              webinarId: data.webinarId,
-              webinarSessionId: data.webinarSessionId,
-              registrationId: data.registrationId,
-              userId: data.userId,
-            },
-          }
-        : { kind: 'platform' },
-      attributes: data.attributes,
+      req,
       page: data.page,
-      visitorId: analyticsConsent ? getVisitorId(req) : null,
-      userAgent: analyticsConsent ? (req.headers['user-agent'] ?? null) : null,
-      ipHash: analyticsConsent ? hashIp(getClientIp(req)) : null,
-      utmSource: analyticsConsent ? (data.utmSource ?? null) : null,
-      utmMedium: analyticsConsent ? (data.utmMedium ?? null) : null,
-      utmCampaign: analyticsConsent ? (data.utmCampaign ?? null) : null,
-      clientOccurredAt: data.clientOccurredAt,
+      metadata: data.metadata,
+      source: clean(data.source),
+      utmSource: clean(data.utmSource),
+      utmMedium: clean(data.utmMedium),
+      utmCampaign: clean(data.utmCampaign),
+      analyticsOnly: true,
+      dailyRoom: data.page === '/crisis_premium/webinar.html',
     });
-    res.status(result.replayed ? 200 : 201).json({
-      ok: true,
-      accepted: true,
-      replayed: result.replayed,
-      schemaVersion: CURRENT_ANALYTICS_SCHEMA_VERSION,
-      occurredAt: result.occurredAt.toISOString(),
-      correlationId: result.correlationId,
-    });
+    res.status(201).json({ ok: true });
   }),
 );
 

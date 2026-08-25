@@ -7,7 +7,6 @@ playwright-report/
 blob-report/
 outputs/
 .impeccable/
-.terraform/
 
 # Tailwind build output
 crisis_premium/css/styles.css

@@ -20,24 +20,6 @@
   // и без бирюзового #0f766e — он зарезервирован за модераторами.
   var COLORS = ['#1e40af', '#0369a1', '#b45309', '#be123c', '#15803d', '#475569'];
 
-  function setChatContentState(state, text) {
-    chatContainer.dataset.state = state;
-    var existing = document.getElementById('chatListState');
-    if (!text) {
-      if (existing) existing.remove();
-      return;
-    }
-    var status = existing || document.createElement('p');
-    status.id = 'chatListState';
-    status.className = 'text-body-sm text-on-surface-variant leading-relaxed p-2';
-    status.setAttribute('role', 'status');
-    status.setAttribute('aria-live', 'polite');
-    status.textContent = text;
-    if (!existing) chatContainer.appendChild(status);
-  }
-
-  setChatContentState('loading', 'Загружаем сообщения комнаты…');
-
   // --- Полноэкранный чат-оверлей (YouTube-style), синхронный с основным чатом ---
   var recentMsgs = [];            // буфер последних отрендеренных сообщений (для seed при входе в fullscreen)
   var RECENT_CAP = 40;
@@ -89,47 +71,11 @@
 
   function authorLabel(msg) {
     // Имя модератора уже содержит роль (напр. «Юлия, модератор АСПБ») — не дублируем authorRole.
-    if (msg.kind === 'ai_moderator' || msg.kind === 'moderator' || msg.kind === 'system') return msg.authorName;
+    if (msg.kind === 'ai_manager' || msg.kind === 'moderator') return msg.authorName;
     if (msg.kind === 'prepared_question' || msg.kind === 'agent_question') {
       return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
     }
     return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
-  }
-
-  function syntheticDisclosure(msg) {
-    if (msg.isSynthetic !== true) return '';
-    return msg.kind === 'ai_moderator' ? 'AI-модератор' : 'Подготовленный вопрос';
-  }
-
-  function buildGroundingControl(msg) {
-    var grounding = msg && msg.grounding;
-    if (!grounding || (grounding.type !== 'transcript' && grounding.type !== 'source')) return null;
-    if (grounding.type === 'transcript') {
-      var seconds = Number(grounding.timestampSeconds);
-      if (!Number.isFinite(seconds) || seconds < 0) return null;
-      var seek = document.createElement('button');
-      seek.type = 'button';
-      seek.className = 'chat-grounding-link';
-      seek.textContent = 'Фрагмент ' + String(grounding.label || '');
-      seek.setAttribute('aria-label', 'Перейти к основанию ответа на таймкоде ' + String(grounding.label || ''));
-      seek.addEventListener('click', function() {
-        document.dispatchEvent(
-          new CustomEvent('aspb:room-seek-request', {
-            detail: { seconds: Math.floor(seconds), source: 'chat_grounding' },
-          }),
-        );
-      });
-      return seek;
-    }
-    if (typeof grounding.url !== 'string' || !grounding.url.startsWith('https://')) return null;
-    var source = document.createElement('a');
-    source.className = 'chat-grounding-link';
-    source.href = grounding.url;
-    source.target = '_blank';
-    source.rel = 'noopener noreferrer';
-    source.textContent = 'Открыть источник';
-    source.setAttribute('aria-label', 'Открыть основание ответа: ' + String(grounding.title || 'источник'));
-    return source;
   }
 
   function ensureFsOverlay() {
@@ -168,8 +114,6 @@
     var text = document.createElement('span');
     text.className = 'fs-chat-text';
     text.textContent = msg.message;
-    var disclosure = syntheticDisclosure(msg);
-    if (disclosure) row.setAttribute('aria-label', disclosure + '. ' + msg.message);
     body.append(author, document.createTextNode(' '), text);
 
     row.append(avatar, body);
@@ -223,7 +167,6 @@
     var renderKey = msg.questionId ? 'question:' + msg.questionId : msg.id;
     if (!renderKey || renderedMessages.has(renderKey)) return;
     renderedMessages.add(renderKey);
-    setChatContentState('content', '');
 
     var isModerator = msg.kind === 'moderator';
 
@@ -241,8 +184,6 @@
       item.style.paddingBottom = '6px';
       item.style.borderRadius = '6px';
     }
-    var disclosure = syntheticDisclosure(msg);
-    if (disclosure) item.setAttribute('aria-label', disclosure + '. ' + msg.message);
 
     var avatarColor = isModerator ? '#0f766e' : getColor(msg.authorName);
     var avatar = document.createElement('div');
@@ -278,16 +219,7 @@
     text.style.fontWeight = isModerator ? '500' : 'normal';
     text.textContent = msg.message;
 
-    body.append(author);
-    if (disclosure) {
-      var badge = document.createElement('span');
-      badge.className = 'chat-synthetic-label';
-      badge.textContent = disclosure;
-      body.append(badge);
-    }
-    body.append(text);
-    var groundingControl = buildGroundingControl(msg);
-    if (groundingControl) body.append(groundingControl);
+    body.append(author, text);
     item.append(avatar, body);
     chatContainer.appendChild(item);
     chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -329,7 +261,6 @@
       setInputState(true, 'Вопросы откроются в момент старта премьеры');
       setActivity('Подготовленное обсуждение и форма вопросов откроются в момент старта премьеры');
       setOnlineLabel('ожидание');
-      setChatContentState('unavailable', 'Сообщения откроются вместе с премьерой записи.');
       return;
     }
 
@@ -364,22 +295,15 @@
           addMessage(msg);
         });
       }
-      if (renderedMessages.size === 0 && data.liveState?.chatStatus !== 'locked') {
-        setChatContentState('empty', 'Сообщений пока нет. Вы можете первым задать вопрос команде АСПБ.');
-      }
       return true;
     } catch {
-      setActivity('Не удалось обновить чат. Повторяем подключение автоматически…');
-      if (renderedMessages.size === 0) {
-        setChatContentState('error', 'Не удалось загрузить сообщения. Проверяем соединение и повторим автоматически.');
-      }
+      setActivity('Подключаем чат к вашей комнате...');
       return false;
     }
   }
 
   window.__liveChatRefresh = refreshChat;
   window.__liveChatAddMessage = addMessage;
-  window.__liveChatSetState = setChatContentState;
 
   // --- smart polling: backoff on errors, pause when tab hidden ---
   var chatTimer = null;
@@ -434,7 +358,7 @@
     addMessage({
       id: detail.chatMessageId || ('local_' + Date.now()),
       questionId: detail.questionId,
-      kind: 'participant',
+      kind: 'user',
       authorName: currentLead && currentLead.name ? currentLead.name : 'Вы',
       authorRole: currentLead && currentLead.professionalStatus ? currentLead.professionalStatus : '',
       message: detail.text,

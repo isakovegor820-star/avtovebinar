@@ -20,10 +20,12 @@ type ModeratorIntroSession = {
 export function buildModeratorIntroText(session: ModeratorIntroSession) {
   const topic = session.title?.trim() ? `Тема премьеры записи: «${session.title.trim()}». ` : '';
   return (
-    'Добро пожаловать на вебинар АСПБ! ' +
+    'Добро пожаловать на вебинар АСПБ! 👋 Я модератор и веду этот чат. ' +
     topic +
-    'Чат модерируется командой организации. Подготовленные вопросы всегда отмечены отдельно. ' +
-    'Ваш вопрос увидит модератор и при необходимости передаст автору.'
+    'Разбираем, как юристу законно и системно зарабатывать на кризисных ситуациях бизнеса: ' +
+    'находить клиентов, передавать сложные кейсы арбитражным управляющим АСПБ и получать ' +
+    'вознаграждение по договору. Пишите вопросы прямо в чат — на то, что спикер не успеет ' +
+    'разобрать в заранее записанном материале, отвечу здесь я или передам вопрос команде.'
   );
 }
 
@@ -37,10 +39,9 @@ export function buildModeratorIntroMessage(session: ModeratorIntroSession) {
     questionId: null as string | null,
     offsetSeconds: 0,
     visibleAt: new Date(session.scheduledAt.getTime() - 1000),
-    kind: 'system' as const,
-    authorName: 'Система АСПБ',
-    authorRole: 'Системное сообщение',
+    kind: MODERATOR_CHAT_KIND,
+    authorName: MODERATOR_NAME,
+    authorRole: MODERATOR_ROLE,
     message: buildModeratorIntroText(session),
-    isSynthetic: false as const,
   };
 }

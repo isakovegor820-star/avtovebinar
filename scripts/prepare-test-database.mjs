@@ -28,24 +28,7 @@ if (!existsSync(testVideoPath)) {
 }
 
 const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const resetSetting = process.env.ASPB_ALLOW_TEST_SCHEMA_RESET;
-if (resetSetting && resetSetting !== 'on' && resetSetting !== 'off') {
-  console.error('ASPB_ALLOW_TEST_SCHEMA_RESET must be either on or off when provided');
-  process.exit(1);
-}
-
-const prismaArgs =
-  resetSetting === 'on'
-    ? ['--no-install', 'prisma', 'migrate', 'reset', '--force', '--skip-seed']
-    : ['--no-install', 'prisma', 'migrate', 'deploy'];
-
-if (resetSetting === 'on') {
-  console.warn('Explicit test-only schema reset authorized by ASPB_ALLOW_TEST_SCHEMA_RESET=on.');
-} else {
-  console.log('Applying additive migrations without resetting the test schema.');
-}
-
-const result = spawnSync(command, prismaArgs, {
+const result = spawnSync(command, ['--no-install', 'prisma', 'migrate', 'reset', '--force', '--skip-seed'], {
   env: process.env,
   stdio: 'inherit',
   shell: false,

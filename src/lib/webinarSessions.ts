@@ -15,7 +15,7 @@ import {
   WEBINAR_VIDEO_DURATION_SECONDS,
 } from './webinarTimeline.js';
 import { getEffectiveVideoDurationMinutes } from './webinarLive.js';
-import { DEFAULT_ORGANIZATION_ID, DEFAULT_WEBINAR_ID } from './tenancy/constants.js';
+import { DEFAULT_ORGANIZATION_ID } from './tenancy/constants.js';
 
 function pointsToRecordingAsset(value: string | null | undefined) {
   if (!value) return false;
@@ -49,18 +49,12 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
 
   const session = await prisma.webinarSession
     .upsert({
-      where: {
-        webinarId_scheduledAt: {
-          webinarId: DEFAULT_WEBINAR_ID,
-          scheduledAt,
-        },
-      },
+      where: { scheduledAt },
       update: {
         status,
       },
       create: {
         organizationId: DEFAULT_ORGANIZATION_ID,
-        webinarId: DEFAULT_WEBINAR_ID,
         title: WEBINAR_TITLE,
         scheduledAt,
         durationMinutes: WEBINAR_DURATION_MINUTES,
@@ -76,17 +70,10 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
     })
     .catch(async (error: unknown) => {
       // Гонка при первом обращении к новой дате эфира: два параллельных INSERT в upsert →
-      // P2002 (@@unique([webinarId, scheduledAt])). Строку уже создал конкурент — читаем её, чтобы
+      // P2002 (@@unique([scheduledAt])). Строку уже создал конкурент — читаем её, чтобы
       // регистрация не падала с 500 и лид не терялся.
       if ((error as { code?: string })?.code === 'P2002') {
-        const existing = await prisma.webinarSession.findUnique({
-          where: {
-            webinarId_scheduledAt: {
-              webinarId: DEFAULT_WEBINAR_ID,
-              scheduledAt,
-            },
-          },
-        });
+        const existing = await prisma.webinarSession.findUnique({ where: { scheduledAt } });
         if (existing) return existing;
       }
       throw error;

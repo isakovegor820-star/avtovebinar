@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { AppError } from '../http.js';
 import type { TenantContext } from './context.js';
 import { requireTenantRole } from './context.js';
+import { getTenantRolloutDecision } from './rolloutPolicy.js';
 
 const AUTHOR_PROFILE_LOCK_NAMESPACE = 7_106_009_017n;
 export const AUTHOR_EVIDENCE_MAX_BYTES = 5 * 1024 * 1024;
@@ -344,6 +345,11 @@ export async function uploadAuthorEvidence(
       where: { organizationId_userId: { organizationId: context.organizationId, userId: context.userId } },
     });
     if (!profile) profileUnavailable();
+    if (
+      !(await getTenantRolloutDecision(tx as unknown as PrismaClient, 'PUBLIC_CATALOG', profile.organizationId)).enabled
+    ) {
+      profileUnavailable();
+    }
     if (!EDITABLE_PROFILE_STATUSES.includes(profile.verificationStatus)) {
       throw new AppError(409, 'Документы нельзя изменить в текущем статусе', undefined, 'author_evidence_not_editable');
     }

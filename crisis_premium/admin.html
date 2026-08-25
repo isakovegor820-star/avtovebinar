@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>Управление платформой | АСПБ</title>
+  <title>АСПБ admin</title>
   <style>
     :root { color-scheme: light; --blue:#041627; --muted:#5d6673; --line:#dbe2ea; --bg:#f7f9fb; --soft:#eef4fb; --white:#fff; --accent:#d2e4fb; }
     * { box-sizing: border-box; }
@@ -96,32 +96,19 @@
   </style>
   <link rel="stylesheet" href="admin-funnel.css?v=remediation-20260804-1" />
   <link rel="stylesheet" href="admin-verification.css?v=author-verification-1" />
-  <link rel="stylesheet" href="fonts.css?v=self-2" />
-  <link rel="stylesheet" href="admin-shell.css?v=admin-shell-1" />
 </head>
-<body class="admin-platform-body">
-  <a class="admin-skip-link" href="#adminMain">К основному содержанию</a>
-  <aside class="admin-sidebar" aria-label="Навигация platform admin">
-    <a class="admin-sidebar-brand" href="admin.html"><strong>АСПБ</strong><span>Platform admin · отдельный контур</span></a>
-    <nav class="admin-sidebar-nav">
-      <div class="admin-nav-group"><p class="admin-nav-label">Контроль</p><a href="#adminOverview" aria-current="page">Обзор</a><a href="#authorVerificationSection">Авторы на проверке</a><a href="platform-moderation.html#reportQueue">Контент и жалобы</a></div>
-      <div class="admin-nav-group"><p class="admin-nav-label">Платформа</p><a href="platform-moderation.html#organizationDirectory">Организации</a><a href="platform-moderation.html#platformTaxonomy">Справочники</a><a href="#userAdminSection">Пользователи и роли</a><a href="platform-moderation.html#platformControls">Флаги и rollout</a></div>
-      <div class="admin-nav-group"><p class="admin-nav-label">Операции</p><a href="#adminAnalytics">Аналитика</a><a href="platform-moderation.html#deliveryQueues">Очереди и health</a></div>
-    </nav>
-    <p class="admin-sidebar-meta">Вход только с MFA. Роль в организации не даёт доступа к platform admin.</p>
-  </aside>
-  <div class="admin-workspace">
+<body>
   <header>
     <div class="wrap top">
       <div>
-        <h1>Управление платформой</h1>
-        <div class="sub">Проверка авторов, пользователи, операционные очереди и аналитика</div>
+        <h1>АСПБ admin</h1>
+        <div class="sub">Регистрации, вопросы и базовая аналитика автовебинара</div>
       </div>
-      <button id="logoutBtn" class="secondary hidden" type="button">Выйти</button>
+      <button id="logoutBtn" class="secondary hidden">Выйти</button>
     </div>
   </header>
 
-  <main id="adminMain" class="wrap" tabindex="-1">
+  <main class="wrap">
     <section id="loginPanel" class="panel login">
       <h2 id="adminLoginTitle">Вход</h2>
       <form id="loginForm" class="login-form" aria-labelledby="adminLoginTitle" inert aria-busy="true">
@@ -135,7 +122,6 @@
     </section>
 
     <section id="appPanel" class="hidden">
-      <span id="adminOverview" class="viewer-section-anchor" aria-hidden="true"></span>
       <div class="grid" id="metrics"></div>
 
       <section class="panel">
@@ -144,7 +130,7 @@
             <h2>Горячие участники</h2>
             <div class="sub">Приоритет для менеджера: Telegram, вход в комнату, вопросы, заявки или ручная отметка.</div>
           </div>
-          <button id="hotRefreshBtn" class="ghost" type="button">Обновить</button>
+          <button id="hotRefreshBtn" class="ghost">Обновить</button>
         </div>
         <div id="hotLeadsNode" class="hot-grid"></div>
       </section>
@@ -155,14 +141,14 @@
             <h2>Менеджеры и роли</h2>
             <div class="sub">Owner/admin управляют доступом. Менеджеры видят всех лидов, действия пишутся в audit log.</div>
           </div>
-          <button id="usersRefreshBtn" class="ghost" type="button">Обновить</button>
+          <button id="usersRefreshBtn" class="ghost">Обновить</button>
         </div>
         <div class="filters">
-          <label class="admin-field"><span>Имя</span><input id="newUserName" autocomplete="name" placeholder="Анна Смирнова" /></label>
-          <label class="admin-field"><span>Email для входа</span><input id="newUserEmail" type="email" autocomplete="email" placeholder="name@example.ru" /></label>
-          <label class="admin-field"><span>Временный пароль</span><input id="newUserPassword" type="password" autocomplete="new-password" /></label>
-          <label class="admin-field"><span>Роль</span><select id="newUserRole"></select></label>
-          <button id="createUserBtn" type="button">Добавить пользователя</button>
+          <input id="newUserName" placeholder="Имя менеджера" />
+          <input id="newUserEmail" placeholder="Email для входа" />
+          <input id="newUserPassword" type="password" placeholder="Временный пароль" />
+          <select id="newUserRole"></select>
+          <button id="createUserBtn">Добавить</button>
         </div>
         <div id="usersList"></div>
       </section>
@@ -192,21 +178,21 @@
 
       <div class="layout">
         <div>
-          <section id="adminAnalytics" class="panel">
+          <section class="panel">
             <div class="top">
               <div>
                 <h2>Маркетинговая воронка</h2>
                 <div class="sub">Конверсии за период: от посетителя до партнерского договора.</div>
               </div>
-              <button id="funnelRefreshBtn" class="ghost" type="button">Обновить</button>
+              <button id="funnelRefreshBtn" class="ghost">Обновить</button>
             </div>
             <div class="filters">
-              <label class="admin-field"><span>Начало периода</span><input id="funnelFrom" type="date" /></label>
-              <label class="admin-field"><span>Конец периода</span><input id="funnelTo" type="date" /></label>
-              <label class="admin-field"><span>Модель атрибуции</span><select id="funnelAttribution">
+              <input id="funnelFrom" type="date" />
+              <input id="funnelTo" type="date" />
+              <select id="funnelAttribution" aria-label="Модель атрибуции">
                 <option value="firstTouch">Атрибуция: первый контакт</option>
                 <option value="lastTouch">Атрибуция: последний контакт</option>
-              </select></label>
+              </select>
             </div>
             <div id="funnelMetrics"></div>
           </section>
@@ -214,24 +200,24 @@
           <section class="panel">
             <h2>Регистрации и воронка</h2>
             <div class="filters" id="queueTabs">
-              <button class="ghost" data-queue="all" type="button">Все</button>
-              <button class="ghost" data-queue="new" type="button">Новые</button>
-              <button class="ghost" data-queue="today" type="button">Сегодня</button>
-              <button class="ghost" data-queue="hot" type="button">Горячие</button>
-              <button class="ghost" data-queue="questions" type="button">Вопросы</button>
-              <button class="ghost" data-queue="applications" type="button">Заявки</button>
-              <button class="ghost" data-queue="contracts" type="button">Договоры</button>
+              <button class="ghost" data-queue="all">Все</button>
+              <button class="ghost" data-queue="new">Новые</button>
+              <button class="ghost" data-queue="today">Сегодня</button>
+              <button class="ghost" data-queue="hot">Горячие</button>
+              <button class="ghost" data-queue="questions">Вопросы</button>
+              <button class="ghost" data-queue="applications">Заявки</button>
+              <button class="ghost" data-queue="contracts">Договоры</button>
             </div>
             <div class="filters">
-              <label class="admin-field"><span>Поиск</span><input id="queryInput" type="search" placeholder="Имя, email или телефон" /></label>
-              <label class="admin-field"><span>Дата</span><input id="dateInput" type="date" /></label>
-              <label class="admin-field"><span>Статус</span><select id="statusFilter"></select></label>
-              <label class="admin-field"><span>Менеджер</span><select id="managerFilter"></select></label>
-              <label class="admin-field"><span>Telegram</span><select id="telegramFilter"><option value="">Все</option><option value="yes">Подключён</option><option value="no">Не подключён</option></select></label>
-              <label class="admin-field"><span>Комната</span><select id="roomFilter"><option value="">Все</option><option value="yes">Заходил</option><option value="no">Не заходил</option></select></label>
-              <label class="admin-field"><span>Вопросы</span><select id="questionFilter"><option value="">Все</option><option value="yes">Есть вопрос</option></select></label>
-              <label class="admin-field"><span>Заявки</span><select id="applicationFilter"><option value="">Все</option><option value="yes">Есть заявка</option></select></label>
-              <button id="refreshBtn" type="button">Обновить</button>
+              <input id="queryInput" placeholder="Имя, email, телефон" />
+              <input id="dateInput" type="date" />
+              <select id="statusFilter"></select>
+              <select id="managerFilter"></select>
+              <select id="telegramFilter"><option value="">Telegram: все</option><option value="yes">подключен</option><option value="no">не подключен</option></select>
+              <select id="roomFilter"><option value="">Комната: все</option><option value="yes">заходил</option><option value="no">не заходил</option></select>
+              <select id="questionFilter"><option value="">Вопросы: все</option><option value="yes">есть вопрос</option></select>
+              <select id="applicationFilter"><option value="">Заявки: все</option><option value="yes">есть заявка</option></select>
+              <button id="refreshBtn">Обновить</button>
             </div>
             <div id="registrationsNode"></div>
           </section>
@@ -244,9 +230,9 @@
           <section class="panel">
             <h2>Telegram-новости участникам</h2>
             <div class="sub">Рекламное сообщение уйдёт только адресатам с отдельным действующим согласием на Telegram текущей версии. Перед постановкой в очередь будет показано точное число получателей.</div>
-            <label class="admin-field admin-field-wide" for="broadcastText"><span>Текст сообщения</span><textarea id="broadcastText" placeholder="Например, напоминание о дате премьеры"></textarea></label>
+            <textarea id="broadcastText" placeholder="Например: Завтра в 19:30 МСК разберем, как юристу не терять клиентов с долговыми рисками и передавать их в АСПБ."></textarea>
             <div class="broadcast-actions">
-              <button id="broadcastBtn" type="button">Проверить получателей</button>
+              <button id="broadcastBtn">Проверить получателей</button>
               <span id="broadcastStatus" class="status-line"></span>
             </div>
           </section>
@@ -257,7 +243,7 @@
                 <h2>Чат вебинара</h2>
                 <div class="sub">Слева — модерация вопросов (ответить · переслать · забанить). Справа — премьера записи, как её видит участник.</div>
               </div>
-              <button id="chatRefreshBtn" class="ghost" type="button">Обновить</button>
+              <button id="chatRefreshBtn" class="ghost">Обновить</button>
             </div>
             <div class="chat-cols">
               <div class="chat-pane">
@@ -279,7 +265,6 @@
       </div>
     </section>
   </main>
-  </div>
 
   <script src="admin.js?v=author-verification-1"></script>
 </body>

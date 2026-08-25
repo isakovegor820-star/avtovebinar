@@ -70,12 +70,11 @@ describe('frontend player safety regressions', () => {
     expect(recordingsJs).toContain('setRecordingPlaybackFailureState(false)');
   });
 
-  it('uses action labels for media actions and exposes pressed state only for actual toggles', () => {
-    expect(videoJs).not.toContain('aria-pressed');
+  it('uses action labels for media actions and pressed state only for captions', () => {
+    const actionSources = [videoJs, recordingsJs, recordingsHtml].join('\n');
+    expect(actionSources).not.toContain('aria-pressed');
     expect(videoJs).toContain("video.paused ? 'Воспроизвести видео' : 'Поставить видео на паузу'");
     expect(recordingsJs).toContain("video.muted ? 'Включить звук' : 'Выключить звук'");
-    expect(recordingsHtml).toContain('data-recording-filter="all" aria-pressed="true"');
-    expect(recordingsJs).toContain("item.setAttribute('aria-pressed', item === button ? 'true' : 'false')");
     expect(webinarHtml).toContain('id="customCaptionsBtn"');
     expect(webinarHtml).toContain('aria-pressed="false"');
     expect(roomContentJs).toContain("button.setAttribute('aria-pressed', String(enabled))");

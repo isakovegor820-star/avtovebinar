@@ -12,8 +12,6 @@ import { prisma } from '../lib/prisma.js';
 import { getRequestContext } from '../lib/requestContext.js';
 import { createAccessToken, hashToken } from '../lib/tokens.js';
 import { recordCrmScoreSignalForRegistration } from '../lib/tenancy/crm.js';
-import { getParticipantWebinarMaterialContent } from '../lib/tenancy/webinarMaterials.js';
-import { getPublishedViewerContent } from '../lib/viewerContent.js';
 import {
   ROOM_SESSION_TOKEN_PURPOSE,
   buildFrontendUrl,
@@ -26,7 +24,6 @@ export const viewerAccountRouter = Router();
 
 const entityIdSchema = z.string().trim().min(8).max(64);
 const sessionParamsSchema = z.object({ sessionId: entityIdSchema }).strict();
-const recordingMaterialParamsSchema = z.object({ sessionId: entityIdSchema, materialId: entityIdSchema }).strict();
 const webinarParamsSchema = z.object({ webinarId: entityIdSchema }).strict();
 const registrationParamsSchema = z.object({ registrationId: entityIdSchema }).strict();
 const noteParamsSchema = z.object({ noteId: entityIdSchema }).strict();
@@ -133,11 +130,7 @@ async function findOwnedSession(context: Awaited<ReturnType<typeof requireViewer
       organizationId: context.organizationId,
       webinarSessionId: sessionId,
     },
-    include: {
-      lead: true,
-      webinarSession: true,
-      webinar: { include: { currentMediaAsset: { select: { status: true } } } },
-    },
+    include: { lead: true, webinarSession: true, webinar: true },
   });
   if (!registration || !registration.webinarId || !isParticipantRegistrationActive(registration)) safeNotFound();
   return registration;
@@ -225,11 +218,6 @@ viewerAccountRouter.get(
     res.json({
       ok: true,
       serverTime: now.toISOString(),
-      viewer: {
-        displayName: context.registration.lead.name,
-        email: context.registration.lead.email,
-        emailVerified: Boolean(context.registration.emailVerifiedAt),
-      },
       organization: organization ?? { id: context.organizationId, name: 'Организация', slug: null },
       sections: {
         upcoming: items.filter(item => item.accessState === 'upcoming'),
@@ -287,53 +275,6 @@ viewerAccountRouter.post(
       roomUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
       correlationId: accountCorrelationId(),
     });
-  }),
-);
-
-viewerAccountRouter.get(
-  '/viewer/recordings/:sessionId/content',
-  asyncHandler(async (req, res) => {
-    const { sessionId } = sessionParamsSchema.parse(req.params);
-    const context = await requireViewerContext(req);
-    const registration = await findOwnedSession(context, sessionId);
-    if (accessProjection(registration, new Date()).state !== 'available') safeNotFound();
-    const content = await getPublishedViewerContent(
-      prisma,
-      {
-        organizationId: context.organizationId,
-        webinarId: registration.webinarId!,
-        webinarSessionId: sessionId,
-      },
-      {
-        materialPath: materialId =>
-          `/api/v1/viewer/recordings/${encodeURIComponent(sessionId)}/materials/${encodeURIComponent(materialId)}`,
-      },
-    );
-    if (!content) safeNotFound();
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.json({ ok: true, ...content, correlationId: accountCorrelationId() });
-  }),
-);
-
-viewerAccountRouter.get(
-  '/viewer/recordings/:sessionId/materials/:materialId',
-  asyncHandler(async (req, res) => {
-    const { sessionId, materialId } = recordingMaterialParamsSchema.parse(req.params);
-    const context = await requireViewerContext(req);
-    const registration = await findOwnedSession(context, sessionId);
-    if (accessProjection(registration, new Date()).state !== 'available') safeNotFound();
-    const result = await getParticipantWebinarMaterialContent(
-      prisma,
-      context.organizationId,
-      registration.webinarId!,
-      materialId,
-    );
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Disposition', `attachment; filename="material-${result.material.id}"`);
-    res.type(result.object.contentType);
-    if (result.object.contentLength !== undefined) res.setHeader('Content-Length', String(result.object.contentLength));
-    result.object.body.pipe(res);
   }),
 );
 

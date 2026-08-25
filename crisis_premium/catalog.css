@@ -317,34 +317,6 @@ body[data-detail-mode='content'] #detailContent {
   -webkit-line-clamp: 3;
 }
 
-.catalog-transcript-match {
-  display: grid;
-  gap: 0.35rem;
-  border-radius: 0.8rem;
-  background: #eef4f7;
-  padding: 0.85rem;
-  color: #193a54;
-  line-height: 1.5;
-  text-decoration: none;
-}
-
-.catalog-transcript-match strong {
-  font-size: 0.75rem;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.catalog-transcript-match span {
-  color: #4a5560;
-  font-size: 0.875rem;
-  text-wrap: pretty;
-}
-
-.catalog-transcript-match:focus-visible {
-  outline: 0.2rem solid #9a6c00;
-  outline-offset: 0.18rem;
-}
-
 .catalog-card-facts {
   display: grid;
   gap: 0.65rem;

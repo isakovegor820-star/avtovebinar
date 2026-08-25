@@ -488,10 +488,10 @@ export async function hydrateTimeline() {
   if (liveBadge && webinarConfig) {
     if (isTestMode) {
       liveBadge.className = 'absolute top-4 right-4 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md';
-      liveBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-white rounded-full"></span>ТЕСТ ПРЕМЬЕРЫ';
+      liveBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>ТЕСТ ПРЕМЬЕРЫ';
     } else if (isLive) {
       liveBadge.className = 'absolute top-4 right-4 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md';
-      liveBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-white rounded-full"></span>ПРЕМЬЕРА ЗАПИСИ';
+      liveBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>ПРЕМЬЕРА ЗАПИСИ';
     } else if (isReplay) {
       liveBadge.className = 'absolute top-4 right-4 bg-black/55 backdrop-blur-sm px-3 py-1.5 rounded-full text-white text-[11px] font-bold tracking-wider z-10 flex items-center gap-1.5 shadow-md';
       liveBadge.innerHTML = '<span class="material-symbols-outlined text-[15px]">play_circle</span>ЗАПИСЬ';

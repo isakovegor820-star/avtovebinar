@@ -87,14 +87,6 @@ export async function enqueuePasswordlessLogin(db: AuthDb, input: unknown) {
       return;
     }
     if (!user) {
-      // A platform-admin identity is a separate security principal. Keep the
-      // public response non-enumerating, but never silently create a tenant
-      // User merely because the same email exists in AdminUser.
-      const platformAdmin = await tx.adminUser.findUnique({
-        where: { email },
-        select: { id: true },
-      });
-      if (platformAdmin) return;
       user = await tx.user.create({
         data: { emailNormalized: email, kind: 'HUMAN', status: 'PENDING' },
         select: { id: true, kind: true, status: true },

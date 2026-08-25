@@ -2,7 +2,7 @@
  * recordings.js — cabinet media library and recording playback.
  */
 
-import { deleteJson, getJson, post, putJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=site-review-7';
+import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=site-review-7';
 import { track } from './analytics.js?v=ana-006-1';
 
 let hlsInstance = null;
@@ -17,10 +17,6 @@ const heartbeatMarks = new Set();
 let currentPlaylist = [];
 let currentServerTime = null;
 let searchQuery = '';
-let recordingFilter = 'all';
-let currentContent = null;
-let currentNotes = [];
-let transcriptQuery = '';
 let actionsBound = false;
 
 const WATCHED_STORAGE_KEY = 'aspb:watchedRecordings';
@@ -78,19 +74,6 @@ function loadHlsScript() {
 function setText(id, value) {
   const node = document.getElementById(id);
   if (node) node.textContent = value;
-}
-
-function setRecordingResourcesAvailable(available) {
-  const resources = document.getElementById('recordingResources');
-  if (!resources) return;
-  resources.hidden = !available;
-  if (available) {
-    resources.removeAttribute('inert');
-    resources.removeAttribute('aria-hidden');
-  } else {
-    resources.setAttribute('inert', '');
-    resources.setAttribute('aria-hidden', 'true');
-  }
 }
 
 function setRecordingPlaybackFailureState(failed) {
@@ -156,14 +139,13 @@ function statusLabel(recording, serverTime) {
 
 function showEmpty() {
   clearTemporaryError();
-  setRecordingResourcesAvailable(false);
   const root = document.getElementById('recordingsApp');
   if (!root) return;
   document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
   root.innerHTML = `
     <section class="recordings-empty">
       <span class="material-symbols-outlined">video_library</span>
-      <h2>Записи пока готовятся</h2>
+      <h1>Записи пока готовятся</h1>
       <p>Как только материал будет опубликован, он появится здесь без повторной регистрации.</p>
       <a href="webinar.html" class="recordings-primary-link">Открыть вебинар</a>
     </section>
@@ -172,7 +154,6 @@ function showEmpty() {
 
 function showLocked(payload) {
   clearTemporaryError();
-  setRecordingResourcesAvailable(false);
   const root = document.getElementById('recordingsApp');
   if (!root) return;
   document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
@@ -182,7 +163,7 @@ function showLocked(payload) {
   root.innerHTML = `
     <section class="recordings-empty">
       <span class="material-symbols-outlined">${isLive ? 'live_tv' : 'lock_clock'}</span>
-      <h2>${isLive ? 'Сейчас идет премьера записи' : 'Запись откроется после премьеры'}</h2>
+      <h1>${isLive ? 'Сейчас идет премьера записи' : 'Запись откроется после премьеры'}</h1>
       <p>${
         isLive
           ? 'Не открываем постоянную запись во время премьеры, чтобы сохранить последовательность программы. Подключайтесь к комнате и смотрите по таймлайну.'
@@ -199,7 +180,6 @@ function isAccessError(error) {
 
 function showAccessGate() {
   clearTemporaryError();
-  setRecordingResourcesAvailable(false);
   const root = document.getElementById('recordingsApp');
   if (!root) return;
   root.innerHTML = `
@@ -211,7 +191,7 @@ function showAccessGate() {
         </div>
         <div class="recordings-access-copy">
           <p class="recordings-access-kicker">Библиотека участника</p>
-          <h2>Войдите в “Мой доступ”, чтобы смотреть записи</h2>
+          <h1>Войдите в “Мой доступ”, чтобы смотреть записи</h1>
           <p>Записи — часть личной библиотеки участника. Если вы уже регистрировались, не заполняйте форму повторно: войдите по email и откройте материалы без пароля.</p>
           <div class="recordings-access-actions">
             <a href="access.html" class="recordings-primary-link">Я уже зарегистрирован — войти</a>
@@ -247,7 +227,6 @@ function showTemporaryError(error, retry) {
   const button = document.getElementById('recordingsRequestRetry');
   if (!errorNode || !app || !button) return;
 
-  setRecordingResourcesAvailable(false);
   if (text) text.textContent = temporaryRequestMessage(error);
   app.hidden = true;
   errorNode.hidden = false;
@@ -287,105 +266,6 @@ function recordingMatchesQuery(recording, query) {
   return haystack.includes(query);
 }
 
-function seekRecording(seconds) {
-  const video = document.getElementById('recordingVideo');
-  if (!video || !Number.isFinite(seconds)) return;
-  video.currentTime = Math.max(0, Math.min(seconds, Number.isFinite(video.duration) ? video.duration : seconds));
-  video.focus({ preventScroll: true });
-}
-
-function resourceButton(label, seconds) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.textContent = label;
-  button.addEventListener('click', () => seekRecording(seconds));
-  return button;
-}
-
-function renderRecordingTranscript() {
-  const list = document.getElementById('recordingTranscript');
-  const segments = currentContent?.transcript?.segments || [];
-  const query = transcriptQuery.trim().toLocaleLowerCase('ru-RU');
-  const matches = segments.filter(segment => !query || `${segment.speaker || ''} ${segment.text}`.toLocaleLowerCase('ru-RU').includes(query));
-  list.replaceChildren(...matches.slice(0, 80).map(segment => {
-    const item = document.createElement('li');
-    item.append(
-      resourceButton(formatTimelineTime(segment.startMs / 1000), segment.startMs / 1000),
-      textNode('span', segment.speaker ? `${segment.speaker}: ${segment.text}` : segment.text),
-    );
-    return item;
-  }));
-  setText('recordingTranscriptCount', segments.length ? `${matches.length} из ${segments.length} фрагментов${matches.length > 80 ? ' · показаны первые 80' : ''}` : 'Опубликованного транскрипта пока нет.');
-}
-
-function textNode(tag, value, className = '') {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  element.textContent = value;
-  return element;
-}
-
-function renderRecordingContent(content) {
-  currentContent = content;
-  const chapters = document.getElementById('recordingChapters');
-  chapters.replaceChildren(...(content.chapters || []).map(chapter => {
-    const item = document.createElement('li');
-    item.append(resourceButton(`${formatTimelineTime(chapter.startMs / 1000)} · ${chapter.title}`, chapter.startMs / 1000));
-    if (chapter.description) item.append(textNode('p', chapter.description));
-    return item;
-  }));
-  document.getElementById('recordingChaptersEmpty').hidden = Boolean(content.chapters?.length);
-
-  const materials = document.getElementById('recordingMaterials');
-  materials.replaceChildren(...(content.materials || []).map(material => {
-    const item = document.createElement('li');
-    const link = document.createElement('a');
-    link.textContent = material.title;
-    link.href = material.kind === 'FILE' ? material.downloadPath : material.url;
-    if (material.kind === 'LINK') { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
-    item.append(link, textNode('span', material.kind === 'FILE' ? 'Файл для участников' : `Источник${material.accessedAt ? ` · проверен ${material.accessedAt}` : ''}`));
-    return item;
-  }));
-  document.getElementById('recordingMaterialsEmpty').hidden = Boolean(content.materials?.length);
-  renderRecordingTranscript();
-}
-
-function renderRecordingNotes(notes) {
-  currentNotes = notes;
-  const list = document.getElementById('recordingNotes');
-  list.replaceChildren(...notes.map(note => {
-    const item = document.createElement('li');
-    item.append(resourceButton(formatTimelineTime(note.timestampSeconds), note.timestampSeconds), textNode('p', note.body));
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.dataset.noteId = note.id;
-    remove.textContent = 'Удалить заметку';
-    item.append(remove);
-    return item;
-  }));
-  if (!notes.length) list.append(textNode('li', 'Заметок пока нет. Добавьте первую в нужном месте записи.', 'recording-resource-empty'));
-}
-
-async function loadRecordingResources(recording) {
-  setText('recordingResourcesStatus', 'Загружаем материалы и личные заметки…');
-  transcriptQuery = '';
-  const search = document.getElementById('recordingTranscriptSearch');
-  if (search) search.value = '';
-  const [content, notes] = await Promise.allSettled([
-    getJson(`/v1/viewer/recordings/${encodeURIComponent(recording.webinarSessionId)}/content`),
-    getJson(`/v1/viewer/notes?sessionId=${encodeURIComponent(recording.webinarSessionId)}`),
-  ]);
-  if (currentRecordingId !== recording.id) return;
-  if (content.status === 'fulfilled') renderRecordingContent(content.value);
-  else {
-    currentContent = null;
-    renderRecordingContent({ chapters: [], materials: [], transcript: null });
-  }
-  if (notes.status === 'fulfilled') renderRecordingNotes(notes.value.notes || []);
-  else renderRecordingNotes([]);
-  setText('recordingResourcesStatus', content.status === 'fulfilled' && notes.status === 'fulfilled' ? 'Материалы готовы.' : 'Часть материалов временно не загрузилась. Видео и доступ сохранены.');
-}
-
 function renderPlaylist(activeId) {
   const list = document.getElementById('recordingsPlaylist');
   if (!list) return;
@@ -393,19 +273,12 @@ function renderPlaylist(activeId) {
 
   const watched = getWatchedIds();
   const query = searchQuery.trim().toLowerCase();
-  const visible = currentPlaylist.filter(recording => {
-    if (!recordingMatchesQuery(recording, query)) return false;
-    const isWatched = Boolean(recording.progress?.completed || recording.progress?.percent >= 90 || watched.has(recording.id));
-    if (recordingFilter === 'unfinished') return !isWatched;
-    if (recordingFilter === 'watched') return isWatched;
-    if (recordingFilter === 'saved') return Boolean(recording.saved);
-    return true;
-  });
+  const visible = currentPlaylist.filter(recording => recordingMatchesQuery(recording, query));
 
   if (!visible.length) {
     const empty = document.createElement('p');
     empty.className = 'playlist-empty';
-    empty.textContent = query ? 'Ничего не найдено по запросу.' : 'В этом разделе записей нет. Выберите другой фильтр.';
+    empty.textContent = query ? 'Ничего не найдено по запросу.' : 'Записей пока нет.';
     list.appendChild(empty);
     return;
   }
@@ -413,7 +286,7 @@ function renderPlaylist(activeId) {
   visible.forEach(recording => {
     const index = currentPlaylist.indexOf(recording);
     const isActive = recording.id === activeId;
-    const isWatched = Boolean(recording.progress?.completed || recording.progress?.percent >= 90 || watched.has(recording.id));
+    const isWatched = watched.has(recording.id);
 
     let statusClass = 'recording-status';
     let statusText = statusLabel(recording, currentServerTime);
@@ -465,62 +338,6 @@ function bindStaticActions() {
   search?.addEventListener('input', () => {
     searchQuery = search.value || '';
     renderPlaylist(currentRecordingId);
-  });
-
-  document.getElementById('recordingsFilters')?.addEventListener('click', event => {
-    const button = event.target.closest('button[data-recording-filter]');
-    if (!button) return;
-    recordingFilter = button.dataset.recordingFilter || 'all';
-    document.querySelectorAll('[data-recording-filter]').forEach(item => {
-      item.setAttribute('aria-pressed', item === button ? 'true' : 'false');
-    });
-    renderPlaylist(currentRecordingId);
-  });
-
-  document.getElementById('recordingTranscriptSearch')?.addEventListener('input', event => {
-    transcriptQuery = event.currentTarget.value || '';
-    renderRecordingTranscript();
-  });
-
-  document.getElementById('recordingNoteForm')?.addEventListener('submit', async event => {
-    event.preventDefault();
-    const recording = currentPlaylist.find(item => item.id === currentRecordingId);
-    const input = document.getElementById('recordingNoteBody');
-    const error = document.getElementById('recordingNoteError');
-    input.removeAttribute('aria-invalid');
-    error.textContent = '';
-    if (!recording || !input.value.trim()) {
-      input.setAttribute('aria-invalid', 'true');
-      error.textContent = 'Напишите текст заметки.';
-      input.focus();
-      return;
-    }
-    const button = event.currentTarget.querySelector('button[type="submit"]');
-    button.disabled = true;
-    try {
-      const result = await post('/v1/viewer/notes', {
-        sessionId: recording.webinarSessionId,
-        timestampSeconds: document.getElementById('recordingVideo')?.currentTime || 0,
-        body: input.value.trim(),
-      });
-      input.value = '';
-      renderRecordingNotes([...currentNotes, result.note]);
-    } catch {
-      error.textContent = 'Не удалось сохранить заметку. Проверьте соединение и повторите.';
-    } finally { button.disabled = false; }
-  });
-
-  document.getElementById('recordingNotes')?.addEventListener('click', async event => {
-    const button = event.target.closest('button[data-note-id]');
-    if (!button) return;
-    button.disabled = true;
-    try {
-      await deleteJson(`/v1/viewer/notes/${encodeURIComponent(button.dataset.noteId)}`);
-      renderRecordingNotes(currentNotes.filter(note => note.id !== button.dataset.noteId));
-    } catch {
-      button.disabled = false;
-      setText('recordingResourcesStatus', 'Не удалось удалить заметку. Повторите.');
-    }
   });
 
   document.getElementById('recordingFullscreenAction')?.addEventListener('click', () => {
@@ -687,24 +504,9 @@ function bindControls(video, recording) {
   video.addEventListener('play', updatePlayIcon);
   video.addEventListener('pause', updatePlayIcon);
   video.addEventListener('loadedmetadata', updateTime);
-  video.addEventListener('loadedmetadata', () => {
-    const savedPosition = Number(recording.progress?.positionSeconds || 0);
-    if (savedPosition > 0 && video.currentTime < 1 && savedPosition < video.duration - 5) {
-      video.currentTime = savedPosition;
-      updateTime();
-    }
-  }, { once: true });
   video.addEventListener('ended', () => {
     track('recording_finish', { recordingId: recording.id });
     markWatched(recording.id);
-    const total = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : recording.durationSeconds || 0;
-    if (total) {
-      void putJson(`/v1/viewer/progress/${encodeURIComponent(recording.webinarSessionId)}`, {
-        positionSeconds: total,
-        durationSeconds: total,
-        eventId: `recording-complete:${recording.id}`,
-      }).catch(() => {});
-    }
     updatePlayIcon();
   });
   updateTime();
@@ -730,11 +532,6 @@ function bindControls(video, recording) {
         visibilityState: 'visible',
         playbackMode: 'replay',
       });
-      void putJson(`/v1/viewer/progress/${encodeURIComponent(recording.webinarSessionId)}`, {
-        positionSeconds: video.currentTime,
-        durationSeconds: total,
-        eventId: `recording-progress:${recording.id}:${heartbeatInterval}`,
-      }).catch(() => {});
     }
     const percent = (video.currentTime / total) * 100;
     [25, 50, 75].forEach(mark => {
@@ -889,7 +686,6 @@ function applyRecording(recording, playlist, serverTime) {
 
   currentPlaylist = playlist;
   currentServerTime = serverTime;
-  setRecordingResourcesAvailable(true);
   resetProgressTracking(recording.id);
   bindStaticActions();
   setText('recordingEyebrow', 'Запись');
@@ -907,7 +703,6 @@ function applyRecording(recording, playlist, serverTime) {
     );
   });
   bindControls(video, recording);
-  void loadRecordingResources(recording);
 }
 
 async function loadRecording(id) {

@@ -470,44 +470,6 @@ paths:
           description: Unknown and cross-tenant memberships are intentionally indistinguishable
         '409':
           description: Mutation would remove the last available active human owner
-  /api/v1/platform/overview:
-    get:
-      summary: Read the role-aware working overview for the active organization
-      description: The organization and role are resolved only from the authenticated user session. The response composes tenant-scoped webinar readiness, the next session, safe audit activity, and only the analytics or CRM summaries allowed for the active role. No organization identifier is accepted from the client.
-      security:
-        - userSessionCookie: []
-      parameters:
-        - name: webinarId
-          in: query
-          required: false
-          schema: { type: string, minLength: 1, maxLength: 191 }
-          description: Optional webinar to use for the readiness card; foreign and unavailable ids are indistinguishable.
-      responses:
-        '200':
-          description: Private no-store overview for the server-selected tenant and active role
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [ok, generatedAt, user, membership, organization, webinarOptions, attention, activity, publications]
-                properties:
-                  ok: { type: boolean, enum: [true] }
-                  generatedAt: { type: string, format: date-time }
-                  user: { type: object }
-                  membership: { type: object }
-                  organization: { type: object }
-                  nextSession: { type: object, nullable: true }
-                  webinarOptions: { type: array, items: { type: object } }
-                  selectedWebinar: { type: object, nullable: true }
-                  attention: { type: array, items: { type: object } }
-                  metrics: { type: object, nullable: true }
-                  crm: { type: object, nullable: true }
-                  activity: { type: array, items: { type: object } }
-                  publications: { type: array, items: { type: object } }
-                  correlationId: { type: string, nullable: true }
-        '401': { description: User session is missing, expired or MFA-challenged }
-        '403': { description: Active membership cannot access the requested tenant data }
-        '404': { description: Platform accounts or the tenant creator-dashboard rollout is disabled }
   /api/v1/author-profile:
     get:
       summary: Read the current author's tenant-scoped profile and verification state
@@ -716,62 +678,15 @@ paths:
           description: Strict payload, consent or CSRF validation failed
         '404':
           description: Unknown, cross-tenant, wrong-session, closed or rollout-disabled target
-  /api/recordings:
-    get:
-      summary: List recordings available to the current registered viewer
-      description: Returns only published media that remains accessible to the trusted cookie registration. Server-owned viewing progress and saved state are included when the registration is linked to a User.
-      security:
-        - participantSessionCookie: []
-      responses:
-        '200': { description: Private recording playlist with progress and saved state }
-        '401': { description: Trusted registration cookie is missing }
-  /api/recordings/{id}:
-    get:
-      summary: Read one accessible recording and its playlist
-      security:
-        - participantSessionCookie: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string, minLength: 1, maxLength: 191 }
-      responses:
-        '200': { description: Private recording detail with progress and saved state }
-        '404': { description: Unknown, unpublished, unavailable or foreign recording }
   /api/v1/viewer/dashboard:
     get:
       summary: Read the current viewer account in the cookie-selected tenant
-      description: Returns the viewer identity projection plus upcoming, recording, watched, saved and unavailable sections with progress, replay expiry and timezone. A favorite never grants access.
+      description: Returns upcoming, recording, watched, saved and unavailable sections with progress, replay expiry and timezone. A favorite never grants access.
       security:
         - participantSessionCookie: []
       responses:
         '200': { description: Private no-store viewer dashboard }
         '404': { description: Missing legacy scope, unknown viewer or inaccessible tenant }
-  /api/v1/viewer/recordings/{sessionId}/content:
-    get:
-      summary: Read published learning content for one accessible recording
-      description: Repeats same-user and same-tenant authorization and returns only published transcript segments, chapters, allowed sources and participant materials.
-      security:
-        - participantSessionCookie: []
-      parameters:
-        - $ref: '#/components/parameters/WebinarSessionId'
-      responses:
-        '200': { description: Private no-store recording learning content }
-        '404': { description: Unknown, expired, revoked, unpublished or foreign session }
-  /api/v1/viewer/recordings/{sessionId}/materials/{materialId}:
-    get:
-      summary: Download one participant material after repeated authorization
-      security:
-        - participantSessionCookie: []
-      parameters:
-        - $ref: '#/components/parameters/WebinarSessionId'
-        - name: materialId
-          in: path
-          required: true
-          schema: { type: string, minLength: 8, maxLength: 64 }
-      responses:
-        '200': { description: Authorized private material stream }
-        '404': { description: Unknown, expired, revoked, unavailable or foreign material }
   /api/v1/viewer/registrations/{registrationId}/activate:
     post:
       summary: Select one owned registration and issue a fresh room session cookie
@@ -3223,15 +3138,6 @@ paths:
       security: [{ adminSessionCookie: [] }]
       responses:
         '200': { description: Safe flag values and optimistic revisions; owner/admin only }
-  /api/admin/platform/directory:
-    get:
-      summary: Read the platform organization, taxonomy and queue directory
-      description: Returns an MFA-protected non-PII projection for the separate platform-admin shell. Organization results are capped at 100, taxonomy results at 500 per kind, and queue values are aggregated by state.
-      security: [{ adminSessionCookie: [] }]
-      responses:
-        '200': { description: Private no-store directory projection with explicit truncation flags }
-        '401': { description: MFA AdminUser session missing; tenant sessions are not accepted }
-        '403': { description: AdminUser role is not owner/admin }
   /api/admin/platform/feature-flags/{key}:
     patch:
       summary: Change a managed fail-closed feature flag

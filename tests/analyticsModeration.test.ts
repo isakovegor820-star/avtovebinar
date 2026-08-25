@@ -60,18 +60,6 @@ async function reset() {
       { key: 'provider_jobs', enabled: false, description: 'Provider jobs test flag' },
     ],
   });
-  await prisma.tenantRolloutPolicy.createMany({
-    data: [
-      { feature: 'PLATFORM_ACCOUNTS_ONBOARDING', mode: 'ENABLED' },
-      { feature: 'CREATOR_DASHBOARD', mode: 'ENABLED' },
-      { feature: 'PUBLIC_CATALOG', mode: 'ENABLED' },
-      { feature: 'TENANT_CRM', mode: 'ENABLED' },
-      { feature: 'TENANT_TELEGRAM', mode: 'ENABLED' },
-      { feature: 'PROVIDER_JOBS', mode: 'DISABLED' },
-      { feature: 'ANALYTICS_MODERATION', mode: 'ENABLED' },
-    ],
-    skipDuplicates: true,
-  });
   await prisma.organization.create({
     data: { id: DEFAULT_ORGANIZATION_ID, name: 'АСПБ', slug: DEFAULT_ORGANIZATION_SLUG, status: 'ACTIVE' },
   });
@@ -826,9 +814,6 @@ describe('MOD-001..MOD-005 moderation and governance', () => {
     expect(response.status).toBe(401);
     expect(response.body).toMatchObject({ ok: false });
     expect(JSON.stringify(response.body)).not.toMatch(/email|phone|telegram/i);
-    const directoryResponse = await request(app).get('/api/admin/platform/directory');
-    expect(directoryResponse.status).toBe(401);
-    expect(JSON.stringify(directoryResponse.body)).not.toMatch(/email|phone|telegram/i);
   });
 
   it('enforces the AdminUser and tenant role matrix without exposing aggregate PII', async () => {
@@ -845,24 +830,8 @@ describe('MOD-001..MOD-005 moderation and governance', () => {
       expect(response.body.excludedFields).toEqual(
         expect.arrayContaining(['chat', 'notes', 'email', 'phone', 'telegramIdentifiers']),
       );
-      const directoryResponse = await authorized.agent.get('/api/admin/platform/directory');
-      expect(directoryResponse.status).toBe(200);
-      expect(directoryResponse.headers['cache-control']).toContain('no-store');
-      expect(directoryResponse.body.organizations.items).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: scope.organization.id, name: scope.organization.name })]),
-      );
-      expect(directoryResponse.body.taxonomy).toMatchObject({
-        practiceAreas: expect.any(Array),
-        jurisdictions: expect.any(Array),
-      });
-      expect(directoryResponse.body.queues).toHaveLength(4);
-      expect(Object.keys(directoryResponse.body.organizations.items[0])).not.toEqual(
-        expect.arrayContaining(['email', 'phone', 'telegramId', 'chatId', 'notes']),
-      );
-      expect(JSON.stringify(directoryResponse.body.organizations.items)).not.toMatch(/@|phone|chatId|message|notes/i);
     }
     expect((await platformViewer.agent.get('/api/admin/analytics/organizations')).status).toBe(403);
-    expect((await platformViewer.agent.get('/api/admin/platform/directory')).status).toBe(403);
 
     for (const role of ['OWNER', 'ANALYST', 'AUDITOR'] as const) {
       const user = await prisma.user.create({

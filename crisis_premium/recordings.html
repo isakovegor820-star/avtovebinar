@@ -8,20 +8,21 @@
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg"/>
 <link rel="stylesheet" href="cookie-consent.css?v=compact-1"/>
 <link href="flow-tabs.css?v=nav-tabs-7" rel="stylesheet"/>
-<link rel="stylesheet" href="recordings.css?v=viewer-resources-2"/>
+<link rel="stylesheet" href="recordings.css?v=remediation-20260804-1"/>
 <link href="fonts.css?v=self-2" rel="stylesheet"/>
-<link rel="stylesheet" href="viewer-shell.css?v=viewer-shell-2"/>
 </head>
 <body class="recordings-page">
-<a class="platform-skip-link" href="#recordingsMain">К основному содержанию</a>
-<header class="viewer-header">
-<div class="viewer-header-inner">
-<a class="viewer-brand" href="index.html"><strong>АСПБ</strong><span>Антикризисная служба помощи бизнесу</span></a>
-<nav class="viewer-nav" aria-label="Кабинет зрителя"><a href="catalog.html">Каталог</a><a href="account.html#accountUpcoming">Мои вебинары</a><a href="recordings.html" aria-current="page">Записи</a><a href="account.html#accountSavedHeading">Сохранённое</a><a href="account.html#accountProfile">Профиль</a></nav>
+<header class="sticky top-0 w-full z-50 bg-background/90 backdrop-blur-md shadow-sm">
+<div class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
+<a class="flex flex-col leading-tight shrink-0" href="index.html">
+<span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
+<span class="hidden sm:block text-[11px] leading-4 font-semibold text-on-surface-variant">Антикризисная служба помощи бизнесу</span>
+</a>
+<a class="bg-primary text-on-primary px-6 py-2.5 min-h-[44px] inline-flex items-center justify-center rounded-full text-label-md font-label-md hover:opacity-90 active:scale-95 transition-all" href="access.html">Мой доступ</a>
 </div>
 </header>
 <div data-current="recordings" data-flow-tabs></div>
-<main id="recordingsMain" class="recordings-shell" tabindex="-1">
+<main class="recordings-shell">
 <section class="recordings-header" aria-labelledby="recordingsPageTitle">
 <div>
 <h1 id="recordingsPageTitle">Записи вебинаров</h1>
@@ -82,27 +83,12 @@
 <span class="material-symbols-outlined">search</span>
 <input id="recordingsSearch" type="search" placeholder="Поиск по записям" aria-label="Поиск по записям" autocomplete="off">
 </label>
-<div id="recordingsFilters" class="recordings-filters" role="group" aria-label="Фильтр записей">
-<button type="button" data-recording-filter="all" aria-pressed="true">Все</button>
-<button type="button" data-recording-filter="unfinished" aria-pressed="false">Не досмотрено</button>
-<button type="button" data-recording-filter="watched" aria-pressed="false">Просмотрено</button>
-<button type="button" data-recording-filter="saved" aria-pressed="false">Сохранено</button>
-</div>
 </div>
 <div id="recordingsPlaylist" class="recordings-playlist"></div>
 </aside>
 </div>
-<section id="recordingResources" class="recording-resources" aria-labelledby="recordingResourcesTitle" hidden inert aria-hidden="true">
-<div class="recording-resources-heading"><div><span class="recording-eyebrow">Учебные материалы</span><h2 id="recordingResourcesTitle">Главы, транскрипт и заметки</h2></div><p id="recordingResourcesStatus" role="status" aria-live="polite">Выберите запись.</p></div>
-<div class="recording-resource-grid">
-<article class="recording-resource-card"><h3>Главы</h3><p id="recordingChaptersEmpty" class="recording-resource-empty">Главы ещё не опубликованы.</p><ol id="recordingChapters" class="recording-resource-list"></ol></article>
-<article class="recording-resource-card recording-transcript-card"><h3>Транскрипт</h3><label class="recording-resource-field" for="recordingTranscriptSearch"><span>Поиск по тексту</span><input id="recordingTranscriptSearch" type="search" autocomplete="off" placeholder="Например, субсидиарная ответственность" /></label><p id="recordingTranscriptCount" class="recording-resource-meta" role="status" aria-live="polite"></p><ol id="recordingTranscript" class="recording-transcript-list"></ol></article>
-<article class="recording-resource-card"><h3>Материалы и источники</h3><p id="recordingMaterialsEmpty" class="recording-resource-empty">Материалы ещё не опубликованы.</p><ul id="recordingMaterials" class="recording-resource-list"></ul></article>
-<article class="recording-resource-card"><h3>Личные заметки</h3><p class="recording-resource-meta">Заметки видны только вам и привязаны к текущему моменту записи.</p><form id="recordingNoteForm" class="recording-note-form" novalidate><label class="recording-resource-field" for="recordingNoteBody"><span>Текст заметки</span><textarea id="recordingNoteBody" maxlength="4000" required aria-describedby="recordingNoteError" placeholder="Запишите мысль или вопрос"></textarea></label><p id="recordingNoteError" class="recording-note-error" role="status" aria-live="polite"></p><button type="submit">Сохранить заметку</button></form><ol id="recordingNotes" class="recording-note-list"></ol></article>
-</div>
-</section>
 </main>
-<script type="module" src="js/main.js?v=viewer-resources-2"></script>
+<script type="module" src="js/main.js?v=remediation-20260804-3"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="cookie-consent.js"></script>
 </body></html>

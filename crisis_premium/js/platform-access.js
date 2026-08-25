@@ -182,18 +182,13 @@ function renderSession(session) {
 
   if (!session.activeOrganizationId && session.memberships.length === 0) {
     setText('platformOnboardingStatus', '');
-    showMode('onboarding', 'platformOrganizationCreateName');
+    showMode('onboarding', 'platformOrganizationName');
     return;
   }
 
   const membership = session.memberships.find(item => item.organizationId === session.activeOrganizationId);
   if (!membership) {
     renderError({ status: 401 });
-    return;
-  }
-  const accessParams = new URLSearchParams(window.location.search);
-  if (accessParams.get('next') === 'overview' && accessParams.get('mode') !== 'access' && !acceptedWebinarAccess) {
-    window.location.replace('platform-overview.html');
     return;
   }
   setText('platformUserName', session.user.displayName || 'Аккаунт АСПБ');
@@ -350,7 +345,7 @@ function clearOrganizationCreateIdempotencyKey() {
 }
 
 function clearOnboardingErrors() {
-  for (const id of ['platformOrganizationCreateName', 'platformOrganizationSlug', 'platformInvitationToken']) {
+  for (const id of ['platformOrganizationName', 'platformOrganizationSlug', 'platformInvitationToken']) {
     node(id).removeAttribute('aria-invalid');
   }
   setText('platformOrganizationNameError', '');
@@ -364,7 +359,7 @@ function bindOnboardingForms() {
     event.preventDefault();
     clearOnboardingErrors();
     const form = event.currentTarget;
-    const name = node('platformOrganizationCreateName');
+    const name = node('platformOrganizationName');
     const slug = node('platformOrganizationSlug');
     if (!name.checkValidity()) {
       name.setAttribute('aria-invalid', 'true');

@@ -35,7 +35,7 @@ body.recordings-page header {
   border-bottom: 1px solid rgba(41, 102, 163, 0.12);
   box-shadow: 0 10px 30px rgba(4, 22, 39, 0.06) !important;
 }
-body.recordings-page header a:not([aria-current]),
+body.recordings-page header a,
 body.recordings-page header span { color: #041627 !important; }
 body.recordings-page header a.bg-primary {
   background: #041627 !important;
@@ -184,6 +184,7 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
   font-size: clamp(36px, 5vw, 48px);
   box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.08);
   transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  animation: playPulse 2.4s ease-in-out infinite;
 }
 .recording-overlay-button:hover span {
   transform: scale(1.05);
@@ -368,36 +369,6 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
 }
 .recordings-search[hidden] { display: none; }
 
-.recordings-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.recordings-filters button {
-  min-height: 40px;
-  border: 1px solid rgba(4, 22, 39, 0.14);
-  border-radius: 11px;
-  background: #fff;
-  padding: 7px 10px;
-  color: #52616c;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.recordings-filters button[aria-pressed='true'] {
-  border-color: #041627;
-  background: #041627;
-  color: #fff;
-}
-
-.recordings-filters button:focus-visible {
-  outline: 3px solid #9a6c00;
-  outline-offset: 3px;
-}
-
 .recordings-playlist {
   display: flex;
   flex-direction: column;
@@ -525,7 +496,7 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
   box-shadow: 0 18px 45px rgba(41, 102, 163, 0.08);
 }
 .recordings-empty .material-symbols-outlined { font-size: 54px; color: #2966a3; }
-.recordings-empty h2 { margin: 18px 0 10px; color: #041627; font-size: clamp(24px, 3vw, 32px); font-weight: 800; }
+.recordings-empty h1 { margin: 18px 0 10px; color: #041627; font-size: clamp(24px, 3vw, 32px); font-weight: 800; }
 .recordings-empty p { margin: 0; color: #44474c; font-size: clamp(15px, 1.6vw, 17px); line-height: 1.55; max-width: 560px; }
 .recordings-primary-link {
   display: inline-flex;
@@ -607,7 +578,7 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
 .recordings-access-visual strong { max-width: 380px; font-size: 30px; line-height: 1.14; }
 .recordings-access-copy { display: flex; flex-direction: column; justify-content: center; padding: 42px 46px; text-align: left; }
 .recordings-access-kicker { margin: 0 0 10px !important; color: #2966a3 !important; font-size: 13px !important; font-weight: 800 !important; line-height: 1.3 !important; }
-.recordings-access-copy h2 { margin: 0; color: #041627; font-size: clamp(28px, 4vw, 40px); line-height: 1.08; font-weight: 800; text-wrap: balance; }
+.recordings-access-copy h1 { margin: 0; color: #041627; font-size: clamp(28px, 4vw, 40px); line-height: 1.08; font-weight: 800; text-wrap: balance; }
 .recordings-access-copy p { max-width: 560px; margin: 16px 0 0; color: #3f4650; font-size: 17px; line-height: 1.58; }
 .recordings-access-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 28px; }
 .recordings-access-actions .recordings-primary-link { margin: 0; padding: 17px 26px; border-radius: 8px; background: #041627; box-shadow: none; }
@@ -615,6 +586,7 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
 .recordings-secondary-link { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 8px; color: #2966a3; text-decoration: none; font-weight: 900; }
 
 @keyframes gateEnter { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes playPulse { 0%, 100% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.08); } 50% { box-shadow: 0 0 0 18px rgba(255, 255, 255, 0.03); } }
 
 /* ── Адаптив ────────────────────────────────────────────────────────── */
 /* Ниже 1100px — одна колонка: видео и инфо сверху, плейлист под ними. */
@@ -660,192 +632,4 @@ body.recordings-page header a.bg-primary:hover { background: #103355 !important;
   .recording-action,
   .recordings-primary-link,
   .recordings-secondary-link { transition: none; }
-}
-
-.recording-resources {
-  margin-block-start: clamp(32px, 6vw, 64px);
-}
-
-.recording-resources-heading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 20px;
-  margin-block-end: 18px;
-}
-
-.recording-resources-heading h2 {
-  max-width: 24ch;
-  margin: 6px 0 0;
-  color: #041627;
-  font-size: clamp(24px, 4vw, 36px);
-  line-height: 1.12;
-  text-wrap: balance;
-}
-
-.recording-resources-heading > p {
-  max-width: 32rem;
-  margin: 0;
-  color: #52616c;
-  line-height: 1.55;
-}
-
-.recording-resource-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.recording-resource-card {
-  min-width: 0;
-  border: 1px solid rgba(4, 22, 39, 0.12);
-  border-radius: 24px;
-  background: #fff;
-  padding: clamp(18px, 3vw, 26px);
-  box-shadow: 0 14px 36px rgba(4, 22, 39, 0.06), 0 2px 5px rgba(4, 22, 39, 0.04);
-}
-
-.recording-resource-card h3 {
-  margin: 0 0 16px;
-  color: #041627;
-  font-size: 20px;
-}
-
-.recording-resource-list,
-.recording-transcript-list,
-.recording-note-list {
-  display: grid;
-  margin: 0;
-  padding: 0;
-  gap: 9px;
-  list-style: none;
-}
-
-.recording-resource-list li,
-.recording-transcript-list li,
-.recording-note-list li {
-  min-width: 0;
-  border-radius: 16px;
-  background: #f3f6f7;
-  padding: 12px;
-}
-
-.recording-resource-list button,
-.recording-transcript-list button,
-.recording-note-list button {
-  min-height: 40px;
-  border: 1px solid rgba(4, 22, 39, 0.14);
-  border-radius: 11px;
-  background: #fff;
-  padding: 8px 12px;
-  color: #193a54;
-  font: inherit;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.recording-note-form button {
-  min-height: 44px;
-  border: 0;
-  border-radius: 11px;
-  background: #041627;
-  padding: 9px 14px;
-  color: #fff;
-  font: inherit;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.recording-note-list button[data-note-id] {
-  margin-block-start: 8px;
-  border-color: rgba(139, 30, 23, 0.3);
-  color: #8b1e17;
-}
-
-.recording-resource-list p,
-.recording-transcript-list span,
-.recording-note-list p {
-  margin: 7px 0 0;
-  color: #52616c;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
-.recording-resource-list a {
-  color: #193a54;
-  font-weight: 750;
-  overflow-wrap: anywhere;
-  text-underline-offset: 3px;
-}
-
-.recording-resource-list span {
-  display: block;
-  margin-block-start: 4px;
-  color: #52616c;
-  font-size: 13px;
-}
-
-.recording-resource-field {
-  display: grid;
-  gap: 7px;
-  color: #041627;
-  font-size: 13px;
-  font-weight: 750;
-}
-
-.recording-resource-field input,
-.recording-resource-field textarea {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid rgba(4, 22, 39, 0.2);
-  border-radius: 12px;
-  padding: 10px 12px;
-  color: #041627;
-  font: inherit;
-  font-size: 16px;
-}
-
-.recording-resource-field textarea {
-  min-height: 110px;
-  resize: vertical;
-}
-
-.recording-resource-meta,
-.recording-resource-empty,
-.recording-note-error {
-  color: #52616c;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.recording-note-form {
-  display: grid;
-  gap: 8px;
-  margin-block: 16px;
-}
-
-.recording-note-form button {
-  width: fit-content;
-}
-
-.recording-note-error {
-  min-height: 20px;
-  margin: 0;
-  color: #8b1e17;
-}
-
-.recording-resource-card :focus-visible {
-  outline: 3px solid #9a6c00;
-  outline-offset: 3px;
-}
-
-@media (max-width: 48rem) {
-  .recording-resources-heading {
-    align-items: start;
-    flex-direction: column;
-  }
-
-  .recording-resource-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }

@@ -47,6 +47,11 @@ requireText(
   "inputs.deploy_target == 'staging' || inputs.deploy_target == 'production'",
   'staging-before-production',
 );
+requireText(
+  workflow,
+  "(github.event_name == 'push' && github.ref == 'refs/heads/main') ||",
+  'automatic production deploy from main',
+);
 requireText(workflow, 'container-build, deploy-staging]', 'production dependency on successful staging');
 requireText(workflow, 'Staging deploy configuration is incomplete', 'fail-closed staging configuration');
 requireText(workflow, '/tmp/aspb-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-staging', 'per-run staging artifact path');

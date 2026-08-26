@@ -702,23 +702,23 @@ jobs:
           fi
           cd "$deploy_path"
           production_env_file=.env.production
+          production_api_container=""
+          while IFS= read -r candidate_container; do
+            candidate_environment="$(docker inspect \
+              --format '{{range .Config.Env}}{{println .}}{{end}}' \
+              "$candidate_container")"
+            candidate_public_origin="$(printf '%s\n' "$candidate_environment" | sed -n 's/^PUBLIC_SITE_URL=//p' | tail -n 1)"
+            candidate_database_url="$(printf '%s\n' "$candidate_environment" | sed -n 's/^DATABASE_URL=//p' | tail -n 1)"
+            candidate_worker_role="$(printf '%s\n' "$candidate_environment" | sed -n 's/^WORKER_ROLE=//p' | tail -n 1)"
+            if [[ "$candidate_public_origin" == https://aspb-partners.ru* &&
+                  "$candidate_database_url" == *"/aspb_autowebinar?"* &&
+                  "$candidate_worker_role" != "webinar" ]]; then
+              production_api_container="$candidate_container"
+              break
+            fi
+          done < <(docker ps --format '{{.ID}}')
           production_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$production_env_file" | tail -n 1)"
           if [[ "$production_public_origin" == https://*staging* ]]; then
-            production_api_container=""
-            while IFS= read -r candidate_container; do
-              candidate_environment="$(docker inspect \
-                --format '{{range .Config.Env}}{{println .}}{{end}}' \
-                "$candidate_container")"
-              candidate_public_origin="$(printf '%s\n' "$candidate_environment" | sed -n 's/^PUBLIC_SITE_URL=//p' | tail -n 1)"
-              candidate_database_url="$(printf '%s\n' "$candidate_environment" | sed -n 's/^DATABASE_URL=//p' | tail -n 1)"
-              candidate_worker_role="$(printf '%s\n' "$candidate_environment" | sed -n 's/^WORKER_ROLE=//p' | tail -n 1)"
-              if [[ "$candidate_public_origin" == https://aspb-partners.ru* &&
-                    "$candidate_database_url" == *"/aspb_autowebinar?"* &&
-                    "$candidate_worker_role" != "webinar" ]]; then
-                production_api_container="$candidate_container"
-                break
-              fi
-            done < <(docker ps --format '{{.ID}}')
             if [[ -z "$production_api_container" ]] || ! docker inspect "$production_api_container" >/dev/null 2>&1; then
               echo "Cannot recover production environment: running API container is unavailable" >&2
               exit 1
@@ -749,6 +749,38 @@ jobs:
             echo "PRODUCTION origin/database isolation is not provisioned" >&2
             exit 1
           fi
+          production_database_host="$(DATABASE_URL_VALUE="$production_database_url" node --input-type=module -e '
+            const databaseUrl = new URL(process.env.DATABASE_URL_VALUE || "");
+            process.stdout.write(databaseUrl.hostname);
+          ')"
+          if [[ "$production_database_host" == "postgres" ]]; then
+            if [[ -z "$production_api_container" ]]; then
+              echo "Docker PostgreSQL topology requires the running production API container" >&2
+              exit 1
+            fi
+            production_compose_file=docker-compose.production.yml
+            production_compose_project="$(docker inspect \
+              --format '{{index .Config.Labels "com.docker.compose.project"}}' \
+              "$production_api_container")"
+            if [[ ! "$production_compose_project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+              echo "Cannot determine the existing production Compose project" >&2
+              exit 1
+            fi
+            echo "Using the existing Docker PostgreSQL production topology."
+          else
+            production_compose_file=docker-compose.native-postgres.yml
+            production_compose_project=aspb-platform-production
+            if [[ -n "$production_api_container" ]]; then
+              existing_compose_project="$(docker inspect \
+                --format '{{index .Config.Labels "com.docker.compose.project"}}' \
+                "$production_api_container")"
+              if [[ "$existing_compose_project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+                production_compose_project="$existing_compose_project"
+              fi
+            fi
+            echo "Using the native PostgreSQL production topology."
+          fi
+          unset production_database_url
           dirty_worktree="$(git status --porcelain=v1 --untracked-files=all -- . \
             ':(exclude)backups/**' \
             ':(exclude)test-results/**' \
@@ -764,14 +796,24 @@ jobs:
           git checkout --detach "$deploy_sha"
           test "$(git rev-parse HEAD)" = "$deploy_sha"
           bash scripts/assert-clean-deploy-worktree.sh
-          COMPOSE_ENV_FILE="$production_env_file" BACKUP_DIR=backups \
-            bash scripts/create-deploy-backup.sh
+          if [[ "$production_compose_file" == "docker-compose.production.yml" ]]; then
+            DATABASE_URL= PG_DATABASE_URL= \
+            COMPOSE_PROJECT_NAME="$production_compose_project" \
+            COMPOSE_FILE="$production_compose_file" \
+            COMPOSE_ENV_FILE="$production_env_file" \
+            BACKUP_DIR=backups \
+              bash scripts/backup-postgres.sh
+          else
+            COMPOSE_ENV_FILE="$production_env_file" BACKUP_DIR=backups \
+              bash scripts/create-deploy-backup.sh
+          fi
           verified_backup_file="$(find backups -maxdepth 1 -type f -name 'aspb-postgres-*.sql.gz' -print | sort | tail -n 1)"
           if [ -z "$verified_backup_file" ]; then
             echo "No pre-deploy PostgreSQL backup found in $deploy_path/backups" >&2
             exit 1
           fi
-          COMPOSE_FILE=docker-compose.native-postgres.yml \
+          COMPOSE_PROJECT_NAME="$production_compose_project" \
+          COMPOSE_FILE="$production_compose_file" \
           COMPOSE_ENV_FILE="$production_env_file" \
           DEPLOY_COMMIT_SHA="$deploy_sha" \
           DEPLOY_VERIFIED_CI_SHA="$deploy_sha" \

@@ -82,6 +82,7 @@ requireText(
 requireText(workflow, 'DEPLOY_LOCK_HELD=on', 'checkout covered by inherited deploy lock');
 requireText(workflow, 'STAGING_NATIVE_POSTGRES_STORAGE_PATH', 'staging native PostgreSQL capacity path');
 requireText(workflow, 'Resolve and validate staging runtime origin', 'staging runtime origin preflight');
+requireText(workflow, 'Rejected staging PUBLIC_SITE_URL host:', 'actionable rejected staging host evidence');
 requireText(workflow, 'host must contain the staging safety marker', 'staging hostname safety marker');
 requireText(
   workflow,

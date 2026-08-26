@@ -459,6 +459,7 @@ jobs:
           authority="${authority%/}"
           allowed_host="${authority%%:*}"
           if [[ "${allowed_host,,}" != *staging* ]]; then
+            echo "Rejected staging PUBLIC_SITE_URL host: $allowed_host" >&2
             echo "Staging PUBLIC_SITE_URL host must contain the staging safety marker" >&2
             exit 1
           fi

@@ -675,6 +675,13 @@ curl -H "Authorization: Bearer $METRICS_TOKEN" https://ваш-домен/metrics
 3. Выпустить сертификат Let's Encrypt через Certbot.
 4. В `.env.production` указать `PUBLIC_SITE_URL=https://ваш-домен`.
 
+Для `staging` обязателен отдельный HTTPS origin, hostname которого содержит
+маркер `staging` (например, `staging.example.com`). Нельзя использовать
+production-origin, даже если deploy path и база данных формально отдельные:
+smoke-тест иначе способен подтвердить не тот контур. Deploy workflow печатает
+только отклонённый публичный hostname и завершает работу до checkout, backup,
+миграций и запуска контейнеров.
+
 ## Backup
 
 Создать backup:

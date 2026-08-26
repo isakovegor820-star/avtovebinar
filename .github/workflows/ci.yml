@@ -393,6 +393,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [sast, secret-scan, verify, e2e, dependency-audit, iac-validate, container-build]
     environment: staging
+    outputs:
+      public_url: ${{ steps.staging-origin.outputs.public_url }}
+      allowed_host: ${{ steps.staging-origin.outputs.allowed_host }}
     concurrency:
       group: deploy-staging
       cancel-in-progress: false
@@ -416,6 +419,61 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve and validate staging runtime origin
+        id: staging-origin
+        env:
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+          printf -v deploy_path_q '%q' "$STAGING_DEPLOY_PATH"
+          origin_record="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key \
+            "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
+            "bash -s -- $deploy_path_q" <<'REMOTE'
+          set -Eeuo pipefail
+          deploy_path="$1"
+          if [[ "$deploy_path" != /* || ! -d "$deploy_path" ]]; then
+            echo "Invalid staging deploy path" >&2
+            exit 1
+          fi
+          env_file="$deploy_path/.env.production"
+          if [[ ! -f "$env_file" || -L "$env_file" ]]; then
+            echo "Staging .env.production must be a regular non-symlink file" >&2
+            exit 1
+          fi
+          public_site_url="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$env_file" | tail -n 1)"
+          public_site_url="${public_site_url%$'\r'}"
+          case "$public_site_url" in
+            \"*\") public_site_url="${public_site_url:1:${#public_site_url}-2}" ;;
+            \'*\') public_site_url="${public_site_url:1:${#public_site_url}-2}" ;;
+          esac
+          if [[ ! "$public_site_url" =~ ^https://([A-Za-z0-9-]+\.)*[A-Za-z0-9-]+(:[0-9]+)?/?$ ]]; then
+            echo "Staging PUBLIC_SITE_URL must be an HTTPS origin without credentials, query, fragment, or path" >&2
+            exit 1
+          fi
+          authority="${public_site_url#https://}"
+          authority="${authority%/}"
+          allowed_host="${authority%%:*}"
+          if [[ "${allowed_host,,}" != *staging* ]]; then
+            echo "Staging PUBLIC_SITE_URL host must contain the staging safety marker" >&2
+            exit 1
+          fi
+          printf '%s\t%s\n' "$public_site_url" "$allowed_host"
+          REMOTE
+          )"
+          IFS=$'\t' read -r public_site_url allowed_host <<< "$origin_record"
+          if [ -z "$public_site_url" ] || [ -z "$allowed_host" ]; then
+            echo "Could not resolve the staging runtime origin" >&2
+            exit 1
+          fi
+          echo "Staging runtime origin: $public_site_url"
+          echo "public_url=$public_site_url" >> "$GITHUB_OUTPUT"
+          echo "allowed_host=$allowed_host" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to staging over SSH
         env:
           STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
@@ -423,6 +481,7 @@ jobs:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
           STAGING_NATIVE_POSTGRES_STORAGE_PATH: ${{ secrets.STAGING_NATIVE_POSTGRES_STORAGE_PATH }}
+          STAGING_MIN_DEPLOY_FREE_PERCENT: ${{ vars.STAGING_MIN_DEPLOY_FREE_PERCENT || '5' }}
           ALLOW_FIRST_DEPLOY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_first_deploy && 'on' || 'off' }}
         run: |
           install -m 700 -d ~/.ssh
@@ -435,6 +494,7 @@ jobs:
           printf -v repository_q '%q' "$GITHUB_REPOSITORY"
           printf -v postgres_storage_path_q '%q' "$STAGING_NATIVE_POSTGRES_STORAGE_PATH"
           printf -v allow_first_deploy_q '%q' "$ALLOW_FIRST_DEPLOY"
+          printf -v min_free_percent_q '%q' "$STAGING_MIN_DEPLOY_FREE_PERCENT"
           remote_artifact_dir="/tmp/aspb-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-staging"
           printf -v artifact_dir_q '%q' "$remote_artifact_dir"
           ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
@@ -450,7 +510,7 @@ jobs:
             ".deploy-artifact/aspb-image-$GITHUB_SHA.tar.gz.sha256" \
             "$STAGING_SSH_USER@$STAGING_SSH_HOST:$remote_artifact_dir/"
           ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
-            "bash -s -- $deploy_path_q $deploy_sha_q $ci_run_url_q $artifact_dir_q $source_ref_q $repository_q $postgres_storage_path_q $allow_first_deploy_q" <<'REMOTE'
+            "bash -s -- $deploy_path_q $deploy_sha_q $ci_run_url_q $artifact_dir_q $source_ref_q $repository_q $postgres_storage_path_q $allow_first_deploy_q $min_free_percent_q" <<'REMOTE'
           set -Eeuo pipefail
           deploy_path="$1"
           deploy_sha="$2"
@@ -460,6 +520,7 @@ jobs:
           github_repository="$6"
           native_postgres_storage_path="$7"
           allow_first_deploy="$8"
+          min_free_percent="$9"
           if [[ ! "$artifact_dir" =~ ^/tmp/aspb-deploy-[0-9]+-[0-9]+-staging$ ]]; then
             echo "Invalid staging artifact directory: $artifact_dir" >&2
             exit 1
@@ -470,6 +531,10 @@ jobs:
           fi
           if [[ "$allow_first_deploy" != "on" && "$allow_first_deploy" != "off" ]]; then
             echo "Invalid staging first-deploy flag" >&2
+            exit 1
+          fi
+          if [[ ! "$min_free_percent" =~ ^[1-9][0-9]?$ ]] || (( min_free_percent > 99 )); then
+            echo "Invalid staging minimum free-space percentage" >&2
             exit 1
           fi
           image_archive="$artifact_dir/aspb-image-$deploy_sha.tar.gz"
@@ -525,6 +590,7 @@ jobs:
           DEPLOY_IMAGE_CHECKSUM_FILE="$image_checksum" \
           NATIVE_POSTGRES_STORAGE_PATH="$native_postgres_storage_path" \
           VERIFIED_BACKUP_FILE="$verified_backup_file" \
+          MIN_DEPLOY_FREE_PERCENT="$min_free_percent" \
           ALLOW_DEPLOY_WITHOUT_ROLLBACK="$allow_first_deploy" \
             bash scripts/deploy-production.sh
           REMOTE
@@ -553,8 +619,8 @@ jobs:
 
       - name: Require staging acceptance configuration
         env:
-          STAGING_PUBLIC_URL: ${{ secrets.STAGING_PUBLIC_URL }}
-          ASPB_STAGING_ALLOWED_HOST: ${{ secrets.STAGING_ALLOWED_HOST }}
+          STAGING_PUBLIC_URL: ${{ needs.deploy-staging.outputs.public_url }}
+          ASPB_STAGING_ALLOWED_HOST: ${{ needs.deploy-staging.outputs.allowed_host }}
         run: |
           if [ -z "$STAGING_PUBLIC_URL" ] || [ -z "$ASPB_STAGING_ALLOWED_HOST" ]; then
             echo "Staging acceptance requires STAGING_PUBLIC_URL and STAGING_ALLOWED_HOST." >&2
@@ -563,8 +629,8 @@ jobs:
 
       - name: Verify deployed staging health and readiness
         env:
-          STAGING_PUBLIC_URL: ${{ secrets.STAGING_PUBLIC_URL }}
-          ASPB_STAGING_ALLOWED_HOST: ${{ secrets.STAGING_ALLOWED_HOST }}
+          STAGING_PUBLIC_URL: ${{ needs.deploy-staging.outputs.public_url }}
+          ASPB_STAGING_ALLOWED_HOST: ${{ needs.deploy-staging.outputs.allowed_host }}
           ASPB_ALLOW_STAGING_ACCEPTANCE: on
         run: >-
           node scripts/staging/smoke.mjs
@@ -587,7 +653,8 @@ jobs:
       github.ref == 'refs/heads/main' &&
       inputs.deploy_target == 'production'
     runs-on: ubuntu-latest
-    needs: [sast, secret-scan, verify, e2e, dependency-audit, iac-validate, container-build, deploy-staging, staging-smoke]
+    needs:
+      [sast, secret-scan, verify, e2e, dependency-audit, iac-validate, container-build, deploy-staging, staging-smoke]
     environment: production
     concurrency:
       group: deploy-production

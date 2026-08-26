@@ -81,6 +81,24 @@ requireText(
 );
 requireText(workflow, 'DEPLOY_LOCK_HELD=on', 'checkout covered by inherited deploy lock');
 requireText(workflow, 'STAGING_NATIVE_POSTGRES_STORAGE_PATH', 'staging native PostgreSQL capacity path');
+requireText(workflow, 'Resolve and validate staging runtime origin', 'staging runtime origin preflight');
+requireText(workflow, 'host must contain the staging safety marker', 'staging hostname safety marker');
+requireText(
+  workflow,
+  "STAGING_MIN_DEPLOY_FREE_PERCENT: ${{ vars.STAGING_MIN_DEPLOY_FREE_PERCENT || '5' }}",
+  'staging-only free-space percentage override',
+);
+requireText(workflow, 'MIN_DEPLOY_FREE_PERCENT="$min_free_percent"', 'staging free-space percentage propagation');
+requireText(
+  workflow,
+  'STAGING_PUBLIC_URL: ${{ needs.deploy-staging.outputs.public_url }}',
+  'smoke target bound to the deployed staging runtime origin',
+);
+requireText(
+  workflow,
+  'ASPB_STAGING_ALLOWED_HOST: ${{ needs.deploy-staging.outputs.allowed_host }}',
+  'smoke hostname bound to the deployed staging runtime origin',
+);
 requireText(workflow, 'PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH', 'production native PostgreSQL capacity path');
 requireText(
   workflow,
@@ -133,7 +151,8 @@ for (const [name, compose] of [
   const count = compose.split('BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}').length - 1;
   if (count !== 2) throw new Error(`${name} must pass BUILD_COMMIT_SHA to exactly two application services`);
   const mediaWorkRootCount = compose.split('MEDIA_WORK_ROOT: /var/lib/aspb/media-work').length - 1;
-  if (mediaWorkRootCount !== 2) throw new Error(`${name} must configure the private media work root for API and worker`);
+  if (mediaWorkRootCount !== 2)
+    throw new Error(`${name} must configure the private media work root for API and worker`);
   const mediaWorkMountCount = compose.split(':/var/lib/aspb/media-work').length - 1;
   if (mediaWorkMountCount !== 2) throw new Error(`${name} must mount the private media work volume in API and worker`);
   requireText(

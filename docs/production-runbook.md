@@ -838,7 +838,14 @@ repository нужно до deploy выполнить `gh auth status` под т�
 - secretlint и dotenv-linter
 - staging deploy по push в `main` и перед production: отсутствие любого
   `STAGING_*` secret роняет job, checkout exact `github.sha` выполняется
-  без `git pull`, с tracked `docker-compose.native-postgres.yml`
+  без `git pull`, с tracked `docker-compose.native-postgres.yml`; публичный
+  origin читается из защищённого staging `.env.production`, обязан быть HTTPS
+  origin без path/query/credentials и содержать `staging` в hostname, после
+  чего тот же origin передаётся в smoke job без отдельного дублирующего секрета
+- staging capacity сохраняет абсолютный резерв минимум 3 GiB, а процентный
+  порог изолирован от production через GitHub Environment variable
+  `STAGING_MIN_DEPLOY_FREE_PERCENT` (по умолчанию 5%); production продолжает
+  использовать fail-closed значение 15%
 - production deploy — только через ручной `workflow_dispatch` с
   `deploy_target=production`, ветки `main`, после успешного staging того же
   `github.sha`, всех required jobs и approval защищённого GitHub environment

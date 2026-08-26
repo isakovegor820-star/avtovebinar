@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 source scripts/release-safety.sh
 
-for required_command in awk basename dirname docker gh sha256sum; do
+for required_command in awk basename dirname docker sha256sum; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Missing required command for attested image installation: $required_command" >&2
     exit 1
@@ -54,7 +54,13 @@ if [[ ! "$source_ref" =~ ^refs/(heads|tags)/[A-Za-z0-9._/-]+$ || "$source_ref" =
   echo "DEPLOY_SOURCE_REF must be a safe full Git ref" >&2
   exit 1
 fi
-if ! command -v gh >/dev/null 2>&1; then
+attestation_cli="${DEPLOY_GH_BIN:-gh}"
+if [[ "$attestation_cli" != "gh" ]]; then
+  if [[ "$attestation_cli" != "$artifact_dir/gh" || ! -f "$attestation_cli" || -L "$attestation_cli" || ! -x "$attestation_cli" ]]; then
+    echo "DEPLOY_GH_BIN must be the executable non-symlink verifier in the per-run artifact directory" >&2
+    exit 1
+  fi
+elif ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI with attestation support is required to verify deploy provenance" >&2
   exit 1
 fi
@@ -62,7 +68,7 @@ fi
 # The checksum protects transport pairing. The Sigstore/GitHub attestation is
 # the non-forgeable source identity: exact archive bytes, repository, workflow,
 # source commit and ref must all match before docker load can mutate local state.
-if ! gh attestation verify "$archive" \
+if ! "$attestation_cli" attestation verify "$archive" \
   --repo "$github_repository" \
   --signer-workflow "$github_repository/.github/workflows/ci.yml" \
   --source-digest "$release_sha" \

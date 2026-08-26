@@ -44,8 +44,23 @@ if [[ -e "$docker_log" ]]; then
   echo "docker was mutated before attestation verification" >&2
   exit 1
 fi
+if env "${common_env[@]}" MOCK_GH_STATUS=0 DEPLOY_GH_BIN="$mock_bin/gh" \
+  bash scripts/install-deploy-image.sh "$archive" "$checksum" "$release_sha" >/dev/null 2>&1; then
+  echo "Out-of-directory deploy verifier was accepted" >&2
+  exit 1
+fi
 
 env "${common_env[@]}" MOCK_GH_STATUS=0 \
+  bash scripts/install-deploy-image.sh "$archive" "$checksum" "$release_sha" >/dev/null
+grep -q '^load -i ' "$docker_log"
+test ! -e "$archive"
+test ! -e "$checksum"
+
+rm -f -- "$docker_log"
+cp "$mock_bin/gh" "$artifact_dir/gh"
+printf 'fake archive\n' >"$archive"
+printf '%064d  %s\n' 0 "$(basename -- "$archive")" | tr '0' 'a' >"$checksum"
+env "${common_env[@]}" MOCK_GH_STATUS=0 DEPLOY_GH_BIN="$artifact_dir/gh" \
   bash scripts/install-deploy-image.sh "$archive" "$checksum" "$release_sha" >/dev/null
 grep -q '^load -i ' "$docker_log"
 test ! -e "$archive"

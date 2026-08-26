@@ -62,6 +62,9 @@ requireText(
 );
 requireText(workflow, 'DEPLOY_LOCK_HELD=on', 'checkout covered by inherited deploy lock');
 requireText(workflow, 'STAGING_NATIVE_POSTGRES_STORAGE_PATH', 'staging native PostgreSQL capacity path');
+requireText(workflow, 'COMPOSE_PROJECT_NAME=aspb-platform-staging', 'isolated staging Compose project');
+requireText(workflow, 'ASPB_CONTAINER_PREFIX=aspb-platform-staging', 'isolated staging container namespace');
+requireText(workflow, 'ASPB_BIND_PORT=5176', 'isolated staging bind port');
 requireText(workflow, 'PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH', 'production native PostgreSQL capacity path');
 requireText(
   workflow,
@@ -102,5 +105,16 @@ for (const [name, compose] of [
   const count = compose.split('BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}').length - 1;
   if (count !== 2) throw new Error(`${name} must pass BUILD_COMMIT_SHA to exactly two application services`);
 }
+requireText(
+  nativeCompose,
+  'container_name: ${ASPB_CONTAINER_PREFIX:-aspb-autowebinar}-api',
+  'configurable native API container name',
+);
+requireText(
+  nativeCompose,
+  'container_name: ${ASPB_CONTAINER_PREFIX:-aspb-autowebinar}-worker',
+  'configurable native worker container name',
+);
+requireText(nativeCompose, '127.0.0.1:${ASPB_BIND_PORT:-5174}:5174', 'configurable native bind port');
 
 console.log('CI immutable-image deploy contract is complete.');

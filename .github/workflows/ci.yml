@@ -447,6 +447,9 @@ jobs:
           fi
           COMPOSE_FILE=docker-compose.native-postgres.yml \
           COMPOSE_ENV_FILE=.env.production \
+          COMPOSE_PROJECT_NAME=aspb-platform-staging \
+          ASPB_CONTAINER_PREFIX=aspb-platform-staging \
+          ASPB_BIND_PORT=5176 \
           DEPLOY_COMMIT_SHA="$deploy_sha" \
           DEPLOY_VERIFIED_CI_SHA="$deploy_sha" \
           DEPLOY_VERIFIED_CI_RUN_URL="$ci_run_url" \

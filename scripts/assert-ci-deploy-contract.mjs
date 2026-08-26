@@ -90,6 +90,8 @@ requireText(
   'reviewed first-deploy rollback override propagation',
 );
 requireText(deploy, 'bash scripts/install-deploy-image.sh', 'verified image installation');
+requireText(deploy, 'if [[ "$deploy_environment" == "production" ]]', 'production-only private media probe');
+requireText(deploy, 'node scripts/check-webinar-video.mjs', 'production webinar media validation');
 requireText(deploy, 'ALLOW_REMOTE_REBUILD is no longer supported', 'fail-closed remote rebuild gate');
 requireText(deploy, 'ALLOW_DEPLOY_WITHOUT_CI_ATTESTATION is no longer supported', 'removed unsigned deploy bypass');
 requireText(installImage, '"$attestation_cli" attestation verify "$archive"', 'cryptographic artifact verification');

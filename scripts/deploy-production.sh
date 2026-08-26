@@ -496,8 +496,12 @@ fi
 echo "Validating production environment before replacing containers..."
 "${compose[@]}" run --rm --no-deps api \
   node --input-type=module -e "await import('./dist/src/lib/env.js')"
-echo "Validating the configured production webinar media source..."
-"${compose[@]}" run --rm --no-deps api node scripts/check-webinar-video.mjs
+if [[ "$deploy_environment" == "production" ]]; then
+  echo "Validating the configured production webinar media source..."
+  "${compose[@]}" run --rm --no-deps api node scripts/check-webinar-video.mjs
+else
+  echo "Skipping the private production webinar media probe in isolated staging."
+fi
 
 if has_service webinar-worker && [[ -n "$previous_worker_container" ]]; then
   echo "Quiescing the existing webinar worker before credential/token migrations..."

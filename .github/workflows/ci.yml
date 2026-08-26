@@ -704,10 +704,21 @@ jobs:
           production_env_file=.env.production
           production_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$production_env_file" | tail -n 1)"
           if [[ "$production_public_origin" == https://*staging* ]]; then
-            production_api_container="$(docker ps \
-              --filter label=com.docker.compose.service=api \
-              --filter publish=5174 \
-              --format '{{.ID}}' | head -n 1)"
+            production_api_container=""
+            while IFS= read -r candidate_container; do
+              candidate_environment="$(docker inspect \
+                --format '{{range .Config.Env}}{{println .}}{{end}}' \
+                "$candidate_container")"
+              candidate_public_origin="$(printf '%s\n' "$candidate_environment" | sed -n 's/^PUBLIC_SITE_URL=//p' | tail -n 1)"
+              candidate_database_url="$(printf '%s\n' "$candidate_environment" | sed -n 's/^DATABASE_URL=//p' | tail -n 1)"
+              candidate_worker_role="$(printf '%s\n' "$candidate_environment" | sed -n 's/^WORKER_ROLE=//p' | tail -n 1)"
+              if [[ "$candidate_public_origin" == https://aspb-partners.ru* &&
+                    "$candidate_database_url" == *"/aspb_autowebinar?"* &&
+                    "$candidate_worker_role" != "webinar" ]]; then
+                production_api_container="$candidate_container"
+                break
+              fi
+            done < <(docker ps --format '{{.ID}}')
             if [[ -z "$production_api_container" ]] || ! docker inspect "$production_api_container" >/dev/null 2>&1; then
               echo "Cannot recover production environment: running API container is unavailable" >&2
               exit 1

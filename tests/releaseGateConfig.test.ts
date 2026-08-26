@@ -43,19 +43,32 @@ describe('release gate configuration', () => {
     expect(packageJson).toContain('"release:verify"');
   });
 
+  it('keeps STAGING provisioning explicit and isolated from production runtime resources', () => {
+    const workflow = workspaceFile('.github/workflows/ci.yml');
+    const provisioning = workspaceFile('scripts/provision-staging-host.sh');
+
+    expect(workflow).toContain("inputs.deploy_target == 'staging-provision'");
+    expect(workflow).toContain('inputs.confirm_staging_provision');
+    expect(workflow).toContain('COMPOSE_PROJECT_NAME=aspb-platform-staging');
+    expect(workflow).toContain('ASPB_CONTAINER_PREFIX=aspb-platform-staging');
+    expect(workflow).toContain('ASPB_BIND_PORT=5176');
+    expect(provisioning).toContain('expected_public_host="staging.72-56-38-62.sslip.io"');
+    expect(provisioning).toContain('expected_postgres_container="aspb-platform-staging-postgres"');
+    expect(provisioning).toContain('staging_database="aspb_staging"');
+    expect(provisioning).toContain('set_env_value EMAIL_MODE log');
+    expect(provisioning).toContain('set_env_value TELEGRAM_NOTIFY_MODE log');
+    expect(provisioning).not.toContain('aspb-partners-postgres');
+  });
+
   it('keeps analytics metadata validation resolvable during pg_dump restore', () => {
-    const migration = workspaceFile(
-      'prisma/migrations/20260825150000_restore_safe_analytics_function/migration.sql',
-    );
+    const migration = workspaceFile('prisma/migrations/20260825150000_restore_safe_analytics_function/migration.sql');
 
     expect(migration).toContain('ALTER FUNCTION analytics_metadata_is_safe(JSONB, INTEGER)');
     expect(migration).toContain('SET search_path FROM CURRENT');
   });
 
   it('keeps creator autosave command persistence allowed by the database', () => {
-    const migration = workspaceFile(
-      'prisma/migrations/20260825151000_webinar_metadata_command/migration.sql',
-    );
+    const migration = workspaceFile('prisma/migrations/20260825151000_webinar_metadata_command/migration.sql');
 
     expect(migration).toContain("'metadata_update'");
     expect(migration).toContain('webinar_commands_action_check');

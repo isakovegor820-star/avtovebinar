@@ -19,8 +19,14 @@ on:
         options:
           - none
           - staging-inventory
+          - staging-provision
           - staging
           - production
+      confirm_staging_provision:
+        description: Confirm the reviewed isolated STAGING database, port 5176, Nginx and TLS provisioning action
+        required: true
+        type: boolean
+        default: false
       allow_first_deploy:
         description: Allow the selected staging/production target to start without an existing rollback image
         required: true
@@ -478,6 +484,63 @@ jobs:
           docker ps -a --format '{{.Names}} status={{.Status}} ports={{.Ports}}' 2>/dev/null | grep -E '(^|[-_])(aspb|autowebinar)([-_]|$)' || true
           REMOTE
 
+  provision-staging:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.deploy_target == 'staging-provision' &&
+      inputs.confirm_staging_provision
+    runs-on: ubuntu-latest
+    needs: [sast, secret-scan, verify, e2e, dependency-audit, iac-validate, container-build]
+    environment: staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Checkout reviewed provisioning code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Validate provisioning configuration
+        env:
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "$STAGING_SSH_HOST" ] || [ -z "$STAGING_SSH_USER" ] || [ -z "$STAGING_SSH_KEY" ] || [ -z "$STAGING_DEPLOY_PATH" ]; then
+            echo "STAGING provisioning configuration is incomplete." >&2
+            exit 1
+          fi
+          test -x scripts/provision-staging-host.sh
+
+      - name: Provision isolated STAGING database, Nginx and TLS
+        env:
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging_provision_key
+          chmod 600 ~/.ssh/staging_provision_key
+          remote_script="/tmp/aspb-staging-provision-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.sh"
+          printf -v remote_script_q '%q' "$remote_script"
+          printf -v deploy_path_q '%q' "$STAGING_DEPLOY_PATH"
+          cleanup_remote_script() {
+            ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_provision_key \
+              "$STAGING_SSH_USER@$STAGING_SSH_HOST" "rm -f -- $remote_script_q" >/dev/null 2>&1 || true
+          }
+          trap cleanup_remote_script EXIT
+          scp -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_provision_key \
+            scripts/provision-staging-host.sh \
+            "$STAGING_SSH_USER@$STAGING_SSH_HOST:$remote_script"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_provision_key \
+            "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
+            "chmod 700 -- $remote_script_q && bash $remote_script_q $deploy_path_q staging.72-56-38-62.sslip.io 5176 aspb-platform-staging aspb-platform-staging-postgres"
+          cleanup_remote_script
+          trap - EXIT
+
   deploy-staging:
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -646,6 +709,17 @@ jobs:
             exit 75
           fi
           cd "$deploy_path"
+          staging_container_prefix="$(sed -n 's/^ASPB_CONTAINER_PREFIX=//p' .env.production | tail -n 1)"
+          staging_bind_port="$(sed -n 's/^ASPB_BIND_PORT=//p' .env.production | tail -n 1)"
+          staging_database_url="$(sed -n 's/^DATABASE_URL=//p' .env.production | tail -n 1)"
+          if [[ "$staging_container_prefix" != "aspb-platform-staging" || "$staging_bind_port" != "5176" ]]; then
+            echo "STAGING container/port isolation is not provisioned" >&2
+            exit 1
+          fi
+          if [[ "$staging_database_url" != *"/aspb_staging?"* || "$staging_database_url" == *"aspb_autowebinar"* ]]; then
+            echo "STAGING database isolation is not provisioned" >&2
+            exit 1
+          fi
           dirty_worktree="$(git status --porcelain=v1 --untracked-files=all -- . \
             ':(exclude)backups/**' \
             ':(exclude)test-results/**' \
@@ -670,6 +744,9 @@ jobs:
           fi
           COMPOSE_FILE=docker-compose.native-postgres.yml \
           COMPOSE_ENV_FILE=.env.production \
+          COMPOSE_PROJECT_NAME=aspb-platform-staging \
+          ASPB_CONTAINER_PREFIX=aspb-platform-staging \
+          ASPB_BIND_PORT=5176 \
           DEPLOY_COMMIT_SHA="$deploy_sha" \
           DEPLOY_VERIFIED_CI_SHA="$deploy_sha" \
           DEPLOY_VERIFIED_CI_RUN_URL="$ci_run_url" \

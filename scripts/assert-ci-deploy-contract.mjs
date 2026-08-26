@@ -76,6 +76,13 @@ requireText(workflow, 'Staging deploy configuration is incomplete', 'fail-closed
 requireText(workflow, "inputs.deploy_target == 'staging-inventory'", 'read-only staging inventory dispatch');
 requireText(workflow, 'candidate_host_port_5176_free=', 'staging isolation port inventory');
 requireText(workflow, 'database_target_has_staging_marker=', 'staging database isolation inventory');
+requireText(workflow, "inputs.deploy_target == 'staging-provision'", 'explicit staging provisioning dispatch');
+requireText(workflow, 'inputs.confirm_staging_provision', 'reviewed staging provisioning confirmation');
+requireText(workflow, 'scripts/provision-staging-host.sh', 'tracked staging provisioning script');
+requireText(workflow, 'aspb-platform-staging-postgres', 'isolated staging PostgreSQL container');
+requireText(workflow, 'COMPOSE_PROJECT_NAME=aspb-platform-staging', 'isolated staging Compose project');
+requireText(workflow, 'ASPB_CONTAINER_PREFIX=aspb-platform-staging', 'isolated staging container namespace');
+requireText(workflow, 'ASPB_BIND_PORT=5176', 'isolated staging application port');
 requireText(workflow, '/tmp/aspb-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-staging', 'per-run staging artifact path');
 requireText(
   workflow,

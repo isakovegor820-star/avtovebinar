@@ -95,6 +95,8 @@ fi
 grep -q 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6' .github/workflows/ci.yml
 grep -q 'gh_2.98.0_linux_amd64.tar.gz' .github/workflows/ci.yml
 grep -q 'DEPLOY_GH_BIN="$attestation_cli"' .github/workflows/ci.yml
+grep -q 'DEPLOY_ATTESTATION_BUNDLE="$attestation_bundle"' .github/workflows/ci.yml
+grep -q 'gh attestation download "$archive"' .github/workflows/ci.yml
 grep -q -- '--source-digest "$release_sha"' scripts/install-deploy-image.sh
 grep -q -- '--deny-self-hosted-runners' scripts/install-deploy-image.sh
 grep -q 'DEPLOY_LOCK_HELD=on' .github/workflows/ci.yml

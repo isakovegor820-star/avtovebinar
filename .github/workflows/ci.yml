@@ -547,6 +547,9 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
        (inputs.deploy_target == 'staging' || inputs.deploy_target == 'production'))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
     needs: [sast, secret-scan, verify, e2e, dependency-audit, iac-validate, container-build]
     environment: staging
     outputs:
@@ -570,6 +573,28 @@ jobs:
           printf '%s  %s\n' \
             3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de \
             "$gh_cli_archive" | sha256sum -c -
+
+      - name: Download and verify offline deploy attestation bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive="aspb-image-$GITHUB_SHA.tar.gz"
+          archive_digest="$(sha256sum ".deploy-artifact/$archive" | awk '{ print $1 }')"
+          (
+            cd .deploy-artifact
+            gh attestation download "$archive" --repo "$GITHUB_REPOSITORY"
+            source_bundle="sha256:$archive_digest.jsonl"
+            target_bundle="aspb-image-$GITHUB_SHA.attestation.jsonl"
+            test -s "$source_bundle"
+            mv "$source_bundle" "$target_bundle"
+            gh attestation verify "$archive" \
+              --bundle "$target_bundle" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ci.yml" \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref "$GITHUB_REF" \
+              --deny-self-hosted-runners
+          )
 
       - name: Check staging configuration
         env:
@@ -667,13 +692,14 @@ jobs:
             "umask 077; mkdir -- $artifact_dir_q"
           cleanup_remote_artifacts() {
             ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
-              "rm -f -- $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz.sha256 $artifact_dir_q/gh_2.98.0_linux_amd64.tar.gz $artifact_dir_q/gh; rmdir -- $artifact_dir_q 2>/dev/null || true" \
+              "rm -f -- $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz.sha256 $artifact_dir_q/aspb-image-$GITHUB_SHA.attestation.jsonl $artifact_dir_q/gh_2.98.0_linux_amd64.tar.gz $artifact_dir_q/gh; rmdir -- $artifact_dir_q 2>/dev/null || true" \
               >/dev/null 2>&1 || true
           }
           trap cleanup_remote_artifacts EXIT
           scp -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key \
             ".deploy-artifact/aspb-image-$GITHUB_SHA.tar.gz" \
             ".deploy-artifact/aspb-image-$GITHUB_SHA.tar.gz.sha256" \
+            ".deploy-artifact/aspb-image-$GITHUB_SHA.attestation.jsonl" \
             ".deploy-artifact/gh_2.98.0_linux_amd64.tar.gz" \
             "$STAGING_SSH_USER@$STAGING_SSH_HOST:$remote_artifact_dir/"
           ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_key "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
@@ -706,10 +732,11 @@ jobs:
           fi
           image_archive="$artifact_dir/aspb-image-$deploy_sha.tar.gz"
           image_checksum="$image_archive.sha256"
+          attestation_bundle="$artifact_dir/aspb-image-$deploy_sha.attestation.jsonl"
           gh_cli_archive="$artifact_dir/gh_2.98.0_linux_amd64.tar.gz"
           attestation_cli="$artifact_dir/gh"
           cleanup_artifacts() {
-            rm -f -- "$image_archive" "$image_checksum" "$gh_cli_archive" "$attestation_cli"
+            rm -f -- "$image_archive" "$image_checksum" "$attestation_bundle" "$gh_cli_archive" "$attestation_cli"
             rmdir -- "$artifact_dir" 2>/dev/null || true
           }
           trap cleanup_artifacts EXIT
@@ -782,6 +809,7 @@ jobs:
           DEPLOY_PREBUILT_IMAGES=on \
           DEPLOY_IMAGE_ARCHIVE="$image_archive" \
           DEPLOY_IMAGE_CHECKSUM_FILE="$image_checksum" \
+          DEPLOY_ATTESTATION_BUNDLE="$attestation_bundle" \
           DEPLOY_GH_BIN="$attestation_cli" \
           NATIVE_POSTGRES_STORAGE_PATH="$native_postgres_storage_path" \
           VERIFIED_BACKUP_FILE="$verified_backup_file" \
@@ -848,6 +876,9 @@ jobs:
       github.ref == 'refs/heads/main' &&
       inputs.deploy_target == 'production'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
     needs:
       [sast, secret-scan, verify, e2e, dependency-audit, iac-validate, container-build, deploy-staging, staging-smoke]
     environment: production
@@ -869,6 +900,28 @@ jobs:
           printf '%s  %s\n' \
             3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de \
             "$gh_cli_archive" | sha256sum -c -
+
+      - name: Download and verify offline deploy attestation bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive="aspb-image-$GITHUB_SHA.tar.gz"
+          archive_digest="$(sha256sum ".deploy-artifact/$archive" | awk '{ print $1 }')"
+          (
+            cd .deploy-artifact
+            gh attestation download "$archive" --repo "$GITHUB_REPOSITORY"
+            source_bundle="sha256:$archive_digest.jsonl"
+            target_bundle="aspb-image-$GITHUB_SHA.attestation.jsonl"
+            test -s "$source_bundle"
+            mv "$source_bundle" "$target_bundle"
+            gh attestation verify "$archive" \
+              --bundle "$target_bundle" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ci.yml" \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref "$GITHUB_REF" \
+              --deny-self-hosted-runners
+          )
 
       - name: Require production deployment configuration
         env:
@@ -910,13 +963,14 @@ jobs:
             "umask 077; mkdir -- $artifact_dir_q"
           cleanup_remote_artifacts() {
             ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/production_key "$PRODUCTION_SSH_USER@$PRODUCTION_SSH_HOST" \
-              "rm -f -- $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz.sha256 $artifact_dir_q/gh_2.98.0_linux_amd64.tar.gz $artifact_dir_q/gh; rmdir -- $artifact_dir_q 2>/dev/null || true" \
+              "rm -f -- $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz $artifact_dir_q/aspb-image-$GITHUB_SHA.tar.gz.sha256 $artifact_dir_q/aspb-image-$GITHUB_SHA.attestation.jsonl $artifact_dir_q/gh_2.98.0_linux_amd64.tar.gz $artifact_dir_q/gh; rmdir -- $artifact_dir_q 2>/dev/null || true" \
               >/dev/null 2>&1 || true
           }
           trap cleanup_remote_artifacts EXIT
           scp -o StrictHostKeyChecking=accept-new -i ~/.ssh/production_key \
             ".deploy-artifact/aspb-image-$GITHUB_SHA.tar.gz" \
             ".deploy-artifact/aspb-image-$GITHUB_SHA.tar.gz.sha256" \
+            ".deploy-artifact/aspb-image-$GITHUB_SHA.attestation.jsonl" \
             ".deploy-artifact/gh_2.98.0_linux_amd64.tar.gz" \
             "$PRODUCTION_SSH_USER@$PRODUCTION_SSH_HOST:$remote_artifact_dir/"
           ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/production_key "$PRODUCTION_SSH_USER@$PRODUCTION_SSH_HOST" \
@@ -944,10 +998,11 @@ jobs:
           fi
           image_archive="$artifact_dir/aspb-image-$deploy_sha.tar.gz"
           image_checksum="$image_archive.sha256"
+          attestation_bundle="$artifact_dir/aspb-image-$deploy_sha.attestation.jsonl"
           gh_cli_archive="$artifact_dir/gh_2.98.0_linux_amd64.tar.gz"
           attestation_cli="$artifact_dir/gh"
           cleanup_artifacts() {
-            rm -f -- "$image_archive" "$image_checksum" "$gh_cli_archive" "$attestation_cli"
+            rm -f -- "$image_archive" "$image_checksum" "$attestation_bundle" "$gh_cli_archive" "$attestation_cli"
             rmdir -- "$artifact_dir" 2>/dev/null || true
           }
           trap cleanup_artifacts EXIT
@@ -1006,6 +1061,7 @@ jobs:
           DEPLOY_PREBUILT_IMAGES=on \
           DEPLOY_IMAGE_ARCHIVE="$image_archive" \
           DEPLOY_IMAGE_CHECKSUM_FILE="$image_checksum" \
+          DEPLOY_ATTESTATION_BUNDLE="$attestation_bundle" \
           DEPLOY_GH_BIN="$attestation_cli" \
           NATIVE_POSTGRES_STORAGE_PATH="$native_postgres_storage_path" \
           VERIFIED_BACKUP_FILE="$verified_backup_file" \

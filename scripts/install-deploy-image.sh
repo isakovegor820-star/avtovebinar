@@ -55,6 +55,7 @@ if [[ ! "$source_ref" =~ ^refs/(heads|tags)/[A-Za-z0-9._/-]+$ || "$source_ref" =
   exit 1
 fi
 attestation_cli="${DEPLOY_GH_BIN:-gh}"
+attestation_bundle="${DEPLOY_ATTESTATION_BUNDLE:-}"
 if [[ "$attestation_cli" != "gh" ]]; then
   if [[ "$attestation_cli" != "$artifact_dir/gh" || ! -f "$attestation_cli" || -L "$attestation_cli" || ! -x "$attestation_cli" ]]; then
     echo "DEPLOY_GH_BIN must be the executable non-symlink verifier in the per-run artifact directory" >&2
@@ -64,17 +65,42 @@ elif ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI with attestation support is required to verify deploy provenance" >&2
   exit 1
 fi
+if [[ -n "$attestation_bundle" ]]; then
+  expected_bundle="$artifact_dir/aspb-image-$release_sha.attestation.jsonl"
+  if [[ "$attestation_bundle" != "$expected_bundle" || ! -s "$attestation_bundle" || -L "$attestation_bundle" ]]; then
+    echo "DEPLOY_ATTESTATION_BUNDLE must be the non-empty non-symlink exact-SHA bundle in the per-run artifact directory" >&2
+    exit 1
+  fi
+elif [[ "$attestation_cli" != "gh" ]]; then
+  echo "A scoped deploy verifier requires an offline DEPLOY_ATTESTATION_BUNDLE" >&2
+  exit 1
+fi
 
 # The checksum protects transport pairing. The Sigstore/GitHub attestation is
 # the non-forgeable source identity: exact archive bytes, repository, workflow,
 # source commit and ref must all match before docker load can mutate local state.
-if ! "$attestation_cli" attestation verify "$archive" \
+attestation_verified=false
+if [[ -n "$attestation_bundle" ]]; then
+  if "$attestation_cli" attestation verify "$archive" \
+    --bundle "$attestation_bundle" \
+    --repo "$github_repository" \
+    --signer-workflow "$github_repository/.github/workflows/ci.yml" \
+    --source-digest "$release_sha" \
+    --source-ref "$source_ref" \
+    --deny-self-hosted-runners \
+    >/dev/null; then
+    attestation_verified=true
+  fi
+elif "$attestation_cli" attestation verify "$archive" \
   --repo "$github_repository" \
   --signer-workflow "$github_repository/.github/workflows/ci.yml" \
   --source-digest "$release_sha" \
   --source-ref "$source_ref" \
   --deny-self-hosted-runners \
   >/dev/null; then
+  attestation_verified=true
+fi
+if [[ "$attestation_verified" != "true" ]]; then
   echo "Deploy image has no valid trusted GitHub build-provenance attestation" >&2
   exit 1
 fi
@@ -92,4 +118,7 @@ docker tag "$build_ref" "aspb-autowebinar-api:$release_sha"
 docker tag "$build_ref" "aspb-autowebinar-worker:$release_sha"
 docker image rm "$build_ref" >/dev/null
 rm -f -- "$archive" "$checksum_file"
+if [[ -n "$attestation_bundle" ]]; then
+  rm -f -- "$attestation_bundle"
+fi
 echo "Installed CI-built application image for exact commit $release_sha."

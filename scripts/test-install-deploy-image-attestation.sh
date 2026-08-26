@@ -60,10 +60,13 @@ rm -f -- "$docker_log"
 cp "$mock_bin/gh" "$artifact_dir/gh"
 printf 'fake archive\n' >"$archive"
 printf '%064d  %s\n' 0 "$(basename -- "$archive")" | tr '0' 'a' >"$checksum"
-env "${common_env[@]}" MOCK_GH_STATUS=0 DEPLOY_GH_BIN="$artifact_dir/gh" \
+bundle="$artifact_dir/aspb-image-$release_sha.attestation.jsonl"
+printf '{}\n' >"$bundle"
+env "${common_env[@]}" MOCK_GH_STATUS=0 DEPLOY_GH_BIN="$artifact_dir/gh" DEPLOY_ATTESTATION_BUNDLE="$bundle" \
   bash scripts/install-deploy-image.sh "$archive" "$checksum" "$release_sha" >/dev/null
 grep -q '^load -i ' "$docker_log"
 test ! -e "$archive"
 test ! -e "$checksum"
+test ! -e "$bundle"
 
 echo "Deploy artifact attestation gate regression checks passed."

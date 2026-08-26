@@ -56,6 +56,12 @@ describe('release gate configuration', () => {
     expect(provisioning).toContain('expected_postgres_container="aspb-platform-staging-postgres"');
     expect(provisioning).toContain('staging_database="aspb_staging"');
     expect(provisioning).toContain('/$staging_database?schema=public"');
+    expect(provisioning).toContain('staging_secret_marker="isolated-v1"');
+    expect(provisioning).toContain('set_env_value WEBINAR_MEDIA_ORIGIN_TOKEN "$staging_media_origin_token"');
+    expect(provisioning).toContain('set_env_value ADMIN_LOGIN "$staging_admin_login"');
+    expect(provisioning).toContain('set_env_value MEDIA_STORAGE_PROVIDER unconfigured');
+    expect(provisioning).toContain('set_env_value STT_PROVIDER unconfigured');
+    expect(provisioning).toContain('set_env_value AI_ENRICHMENT_PROVIDER unconfigured');
     expect(provisioning).toContain('staging_certificate_name="aspb-autowebinar-staging"');
     expect(provisioning).toContain('--cert-name "$staging_certificate_name"');
     expect(provisioning).toContain('set_env_value EMAIL_MODE log');

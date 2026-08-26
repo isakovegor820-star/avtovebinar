@@ -16,6 +16,9 @@ staging_database="aspb_staging"
 staging_role="aspb_staging_app"
 staging_postgres_port="5434"
 staging_certificate_name="aspb-autowebinar-staging"
+public_origin="https://$public_host"
+staging_secret_marker="isolated-v1"
+staging_admin_login="staging-admin@aspb.test"
 
 if [[ "$deploy_path" != /* || ! -d "$deploy_path" || -L "$deploy_path" ]]; then
   echo "STAGING deploy path must be an existing absolute non-symlink directory" >&2
@@ -146,6 +149,8 @@ cp --preserve=mode,timestamps "$env_file" "$env_backup"
 chmod 600 "$env_backup"
 
 existing_database_url="$(read_env_value DATABASE_URL)"
+existing_public_origin="$(read_env_value PUBLIC_SITE_URL)"
+existing_secret_marker="$(read_env_value ASPB_STAGING_SECRET_SET_ID)"
 staging_password="$(node --input-type=module -e '
   try {
     const value = new URL(process.argv[1]);
@@ -162,6 +167,26 @@ if [[ ! "$staging_password" =~ ^[a-f0-9]{64}$ ]]; then
   echo "Generated STAGING database credential failed validation" >&2
   exit 1
 fi
+
+isolated_hex_secret() {
+  local key="$1" current
+  current="$(read_env_value "$key")"
+  if [[ "$existing_public_origin" == "$public_origin" && "$existing_secret_marker" == "$staging_secret_marker" && "$current" =~ ^[a-f0-9]{64}$ ]]; then
+    printf '%s' "$current"
+  else
+    openssl rand -hex 32
+  fi
+}
+
+staging_admin_password="$(read_env_value ADMIN_PASSWORD)"
+if [[ "$existing_public_origin" != "$public_origin" || "$existing_secret_marker" != "$staging_secret_marker" || ! "$staging_admin_password" =~ ^Staging1-[a-f0-9]{48}$ ]]; then
+  staging_admin_password="Staging1-$(openssl rand -hex 24)"
+fi
+staging_admin_cookie_secret="$(isolated_hex_secret ADMIN_COOKIE_SECRET)"
+staging_ip_hash_secret="$(isolated_hex_secret IP_HASH_SECRET)"
+staging_access_hash_secret="$(isolated_hex_secret WEBINAR_ACCESS_HASH_SECRET)"
+staging_metrics_token="$(isolated_hex_secret METRICS_TOKEN)"
+staging_media_origin_token="$(isolated_hex_secret WEBINAR_MEDIA_ORIGIN_TOKEN)"
 
 postgres_owner="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$postgres_container" | sed -n 's/^POSTGRES_USER=//p' | tail -n 1)"
 postgres_admin_database="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$postgres_container" | sed -n 's/^POSTGRES_DB=//p' | tail -n 1)"
@@ -184,7 +209,6 @@ fi
 docker exec "$postgres_container" psql -v ON_ERROR_STOP=1 -U "$postgres_owner" -d "$postgres_admin_database" \
   -c "ALTER DATABASE $staging_database OWNER TO $staging_role" >/dev/null
 
-public_origin="https://$public_host"
 postgres_scheme=postgresql
 database_url="${postgres_scheme}://$staging_role:$staging_password@host.docker.internal:$staging_postgres_port/$staging_database?schema=public&connection_limit=10&pool_timeout=20"
 backup_database_url="${postgres_scheme}://$staging_role:$staging_password@$postgres_host:$staging_postgres_port/$staging_database?schema=public"
@@ -193,6 +217,14 @@ set_env_value NODE_ENV production
 set_env_value PORT 5174
 set_env_value PUBLIC_SITE_URL "$public_origin"
 set_env_value CORS_ORIGIN "$public_origin"
+set_env_value ASPB_STAGING_SECRET_SET_ID "$staging_secret_marker"
+set_env_value ADMIN_LOGIN "$staging_admin_login"
+set_env_value ADMIN_PASSWORD "$staging_admin_password"
+set_env_value ADMIN_COOKIE_SECRET "$staging_admin_cookie_secret"
+set_env_value IP_HASH_SECRET "$staging_ip_hash_secret"
+set_env_value WEBINAR_ACCESS_HASH_SECRET "$staging_access_hash_secret"
+set_env_value METRICS_TOKEN "$staging_metrics_token"
+set_env_value WEBINAR_MEDIA_ORIGIN_TOKEN "$staging_media_origin_token"
 set_env_value DATABASE_URL "$database_url"
 set_env_value PG_DATABASE_URL "$backup_database_url"
 set_env_value ASPB_CONTAINER_PREFIX "$container_prefix"
@@ -203,6 +235,19 @@ set_env_value E2E_EMAIL_OUTBOX_ENABLED off
 set_env_value SMTP_HOST ''
 set_env_value SMTP_USER ''
 set_env_value SMTP_PASS ''
+set_env_value MEDIA_STORAGE_PROVIDER unconfigured
+set_env_value MEDIA_S3_ENDPOINT ''
+set_env_value MEDIA_S3_BUCKET ''
+set_env_value MEDIA_S3_ACCESS_KEY_ID ''
+set_env_value MEDIA_S3_SECRET_ACCESS_KEY ''
+set_env_value STT_PROVIDER unconfigured
+set_env_value STT_YANDEX_API_KEY ''
+set_env_value STT_YANDEX_FOLDER_ID ''
+set_env_value STT_YANDEX_AUDIO_URI_PREFIX ''
+set_env_value AI_ENRICHMENT_PROVIDER unconfigured
+set_env_value AI_YANDEX_API_KEY ''
+set_env_value AI_YANDEX_FOLDER_ID ''
+set_env_value AI_YANDEX_MODEL_URI ''
 set_env_value TELEGRAM_GROUP_URL https://t.me/example
 set_env_value TELEGRAM_NOTIFY_MODE log
 set_env_value TELEGRAM_ADMIN_BOT_TOKEN ''
@@ -218,6 +263,8 @@ set_env_value TELEGRAM_CONSULTANT_BOT_POLLING off
 set_env_value TELEGRAM_NEWS_BROADCAST off
 set_env_value TELEGRAM_MANUAL_BROADCAST off
 set_env_value TENANT_TELEGRAM_BOTS_ENABLED off
+set_env_value RETENTION_APPLY_ENABLED off
+set_env_value ADMIN_DEV_BYPASS false
 set_env_value WEBINAR_TEST_ROOM_MODE off
 set_env_value WEBINAR_PREVIEW_MODE off
 chmod 600 "$env_file"
@@ -230,6 +277,16 @@ if [[ "$configured_origin" != "$public_origin" || "$configured_database_url" != 
 fi
 if [[ "$configured_origin" == *"aspb-partners.ru"* || "$configured_database_url" == *"aspb_autowebinar"* ]]; then
   echo "STAGING environment still references a production marker" >&2
+  exit 1
+fi
+for isolated_secret in ADMIN_COOKIE_SECRET IP_HASH_SECRET WEBINAR_ACCESS_HASH_SECRET METRICS_TOKEN WEBINAR_MEDIA_ORIGIN_TOKEN; do
+  if [[ ! "$(read_env_value "$isolated_secret")" =~ ^[a-f0-9]{64}$ ]]; then
+    echo "STAGING isolated secret validation failed for $isolated_secret" >&2
+    exit 1
+  fi
+done
+if [[ "$(read_env_value ASPB_STAGING_SECRET_SET_ID)" != "$staging_secret_marker" || "$(read_env_value ADMIN_LOGIN)" != "$staging_admin_login" ]]; then
+  echo "STAGING secret isolation marker validation failed" >&2
   exit 1
 fi
 

@@ -73,6 +73,9 @@ requireText(
 );
 requireText(stagingSmoke, "for (const pathname of ['/health', '/health/ready'])", 'dependency-aware staging smoke');
 requireText(workflow, 'Staging deploy configuration is incomplete', 'fail-closed staging configuration');
+requireText(workflow, "inputs.deploy_target == 'staging-inventory'", 'read-only staging inventory dispatch');
+requireText(workflow, 'candidate_host_port_5176_free=', 'staging isolation port inventory');
+requireText(workflow, 'database_target_has_staging_marker=', 'staging database isolation inventory');
 requireText(workflow, '/tmp/aspb-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-staging', 'per-run staging artifact path');
 requireText(
   workflow,

@@ -18,6 +18,7 @@ on:
         default: none
         options:
           - none
+          - staging-inventory
           - staging
           - production
       allow_first_deploy:
@@ -384,6 +385,98 @@ jobs:
           bash scripts/test-deploy-release-safety.sh
           bash scripts/test-install-deploy-image-attestation.sh
           bash scripts/test-infra-safety.sh
+
+  staging-inventory:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'staging-inventory'
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: staging-inventory
+      cancel-in-progress: false
+    steps:
+      - name: Inspect staging isolation prerequisites without mutations
+        env:
+          STAGING_SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_DEPLOY_PATH: ${{ secrets.STAGING_DEPLOY_PATH }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "$STAGING_SSH_HOST" ] || [ -z "$STAGING_SSH_USER" ] || [ -z "$STAGING_SSH_KEY" ] || [ -z "$STAGING_DEPLOY_PATH" ]; then
+            echo "Staging inventory configuration is incomplete." >&2
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging_inventory_key
+          chmod 600 ~/.ssh/staging_inventory_key
+          printf -v deploy_path_q '%q' "$STAGING_DEPLOY_PATH"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i ~/.ssh/staging_inventory_key \
+            "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
+            "bash -s -- $deploy_path_q" <<'REMOTE'
+          set -Eeuo pipefail
+          deploy_path="$1"
+          if [[ "$deploy_path" != /* || ! -d "$deploy_path" ]]; then
+            echo "staging_deploy_path_valid=false"
+            exit 1
+          fi
+          env_file="$deploy_path/.env.production"
+          if [[ ! -f "$env_file" || -L "$env_file" ]]; then
+            echo "staging_env_file_valid=false"
+            exit 1
+          fi
+          read_env_value() {
+            local name="$1" value
+            value="$(sed -n "s/^${name}=//p" "$env_file" | tail -n 1)"
+            value="${value%$'\r'}"
+            case "$value" in
+              \"*\") value="${value:1:${#value}-2}" ;;
+              \'*\') value="${value:1:${#value}-2}" ;;
+            esac
+            printf '%s' "$value"
+          }
+          public_site_url="$(read_env_value PUBLIC_SITE_URL)"
+          runtime_host="${public_site_url#*://}"
+          runtime_host="${runtime_host%%/*}"
+          runtime_host="${runtime_host%%:*}"
+          database_url="$(read_env_value DATABASE_URL)"
+          database_target="${database_url%%\?*}"
+          database_name="${database_target##*/}"
+          app_port="$(read_env_value PORT)"
+          [[ "$app_port" =~ ^[0-9]+$ ]] || app_port=invalid
+          if [[ "${runtime_host,,}" == *staging* ]]; then
+            runtime_marker=true
+          else
+            runtime_marker=false
+          fi
+          if [[ "${database_name,,}" == *staging* || "${database_name,,}" == *test* ]]; then
+            database_marker=true
+          else
+            database_marker=false
+          fi
+          if command -v ss >/dev/null 2>&1 && ss -ltnH 'sport = :5176' 2>/dev/null | grep -q .; then
+            candidate_port_5176_free=false
+          else
+            candidate_port_5176_free=true
+          fi
+          if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+            passwordless_sudo=true
+          else
+            passwordless_sudo=false
+          fi
+          printf 'staging_deploy_path_valid=true\n'
+          printf 'staging_env_file_valid=true\n'
+          printf 'runtime_origin_host=%s\n' "${runtime_host:-missing}"
+          printf 'runtime_origin_has_staging_marker=%s\n' "$runtime_marker"
+          printf 'database_target_has_staging_marker=%s\n' "$database_marker"
+          printf 'configured_container_port=%s\n' "$app_port"
+          printf 'candidate_host_port_5176_free=%s\n' "$candidate_port_5176_free"
+          printf 'docker_available=%s\n' "$(command -v docker >/dev/null 2>&1 && echo true || echo false)"
+          printf 'nginx_available=%s\n' "$(command -v nginx >/dev/null 2>&1 && echo true || echo false)"
+          printf 'certbot_available=%s\n' "$(command -v certbot >/dev/null 2>&1 && echo true || echo false)"
+          printf 'passwordless_sudo=%s\n' "$passwordless_sudo"
+          printf 'matching_containers:\n'
+          docker ps -a --format '{{.Names}} status={{.Status}} ports={{.Ports}}' 2>/dev/null | grep -E '(^|[-_])(aspb|autowebinar)([-_]|$)' || true
+          REMOTE
 
   deploy-staging:
     if: >-

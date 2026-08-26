@@ -86,6 +86,7 @@ requireText(
   'Recovered production environment from the running API container.',
   'one-time production environment recovery',
 );
+requireText(workflow, '--filter publish=5174', 'production API recovery port isolation');
 requireText(workflow, 'PRODUCTION origin/database isolation is not provisioned', 'production environment isolation');
 requireText(
   workflow,

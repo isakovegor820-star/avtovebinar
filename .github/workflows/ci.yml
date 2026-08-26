@@ -704,8 +704,11 @@ jobs:
           production_env_file=.env.production
           production_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$production_env_file" | tail -n 1)"
           if [[ "$production_public_origin" == https://*staging* ]]; then
-            production_api_container=aspb-autowebinar-api
-            if ! docker inspect "$production_api_container" >/dev/null 2>&1; then
+            production_api_container="$(docker ps \
+              --filter label=com.docker.compose.service=api \
+              --filter publish=5174 \
+              --format '{{.ID}}' | head -n 1)"
+            if [[ -z "$production_api_container" ]] || ! docker inspect "$production_api_container" >/dev/null 2>&1; then
               echo "Cannot recover production environment: running API container is unavailable" >&2
               exit 1
             fi

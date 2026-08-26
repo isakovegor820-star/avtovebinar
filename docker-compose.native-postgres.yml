@@ -12,7 +12,7 @@ services:
       dockerfile: Dockerfile
       args:
         BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}
-    container_name: aspb-autowebinar-api
+    container_name: ${ASPB_CONTAINER_PREFIX:-aspb-autowebinar}-api
     restart: unless-stopped
     env_file:
       - ${COMPOSE_ENV_FILE:-.env.production}
@@ -24,7 +24,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "127.0.0.1:5174:5174"
+      - "127.0.0.1:${ASPB_BIND_PORT:-5174}:5174"
     volumes:
       - aspb_media_native_data:/var/lib/aspb/media
       - aspb_media_work_native_data:/var/lib/aspb/media-work
@@ -44,7 +44,7 @@ services:
       dockerfile: Dockerfile
       args:
         BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}
-    container_name: aspb-autowebinar-worker
+    container_name: ${ASPB_CONTAINER_PREFIX:-aspb-autowebinar}-worker
     restart: unless-stopped
     env_file:
       - ${COMPOSE_ENV_FILE:-.env.production}

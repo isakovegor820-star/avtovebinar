@@ -83,6 +83,10 @@ requireText(
   'per-run production artifact path',
 );
 requireText(workflow, 'DEPLOY_LOCK_HELD=on', 'checkout covered by inherited deploy lock');
+const deployBackupCalls = workflow.match(/bash scripts\/create-deploy-backup\.sh/g)?.length ?? 0;
+if (deployBackupCalls !== 2) {
+  throw new Error(`CI/deploy contract requires fresh staging and production backups; found ${deployBackupCalls}`);
+}
 requireText(workflow, 'STAGING_NATIVE_POSTGRES_STORAGE_PATH', 'staging native PostgreSQL capacity path');
 requireText(workflow, 'Resolve and validate staging runtime origin', 'staging runtime origin preflight');
 requireText(workflow, 'Rejected staging PUBLIC_SITE_URL host:', 'actionable rejected staging host evidence');
@@ -152,6 +156,8 @@ for (const [name, compose] of [
   ['docker-compose.production.yml', productionCompose],
   ['docker-compose.native-postgres.yml', nativeCompose],
 ]) {
+  requireText(compose, 'ASPB_CONTAINER_PREFIX', `${name} environment-specific container names`);
+  requireText(compose, 'ASPB_BIND_PORT', `${name} environment-specific host port`);
   const count = compose.split('BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}').length - 1;
   if (count !== 2) throw new Error(`${name} must pass BUILD_COMMIT_SHA to exactly two application services`);
   const mediaWorkRootCount = compose.split('MEDIA_WORK_ROOT: /var/lib/aspb/media-work').length - 1;

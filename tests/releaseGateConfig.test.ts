@@ -55,6 +55,8 @@ describe('release gate configuration', () => {
     expect(provisioning).toContain('expected_public_host="staging.72-56-38-62.sslip.io"');
     expect(provisioning).toContain('expected_postgres_container="aspb-platform-staging-postgres"');
     expect(provisioning).toContain('staging_database="aspb_staging"');
+    expect(provisioning).toContain('staging_certificate_name="aspb-autowebinar-staging"');
+    expect(provisioning).toContain('--cert-name "$staging_certificate_name"');
     expect(provisioning).toContain('set_env_value EMAIL_MODE log');
     expect(provisioning).toContain('set_env_value TELEGRAM_NOTIFY_MODE log');
     expect(provisioning).not.toContain('aspb-partners-postgres');

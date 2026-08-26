@@ -15,6 +15,7 @@ expected_postgres_container="aspb-platform-staging-postgres"
 staging_database="aspb_staging"
 staging_role="aspb_staging_app"
 staging_postgres_port="5434"
+staging_certificate_name="aspb-autowebinar-staging"
 
 if [[ "$deploy_path" != /* || ! -d "$deploy_path" || -L "$deploy_path" ]]; then
   echo "STAGING deploy path must be an existing absolute non-symlink directory" >&2
@@ -263,6 +264,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 
 sudo certbot certonly --webroot -w "$acme_root" -d "$public_host" \
+  --cert-name "$staging_certificate_name" \
   --non-interactive --agree-tos --register-unsafely-without-email --keep-until-expiring
 
 final_nginx="$(mktemp)"
@@ -286,8 +288,8 @@ server {
     listen [::]:443 ssl http2;
     server_name $public_host;
 
-    ssl_certificate /etc/letsencrypt/live/$public_host/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$public_host/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/$staging_certificate_name/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$staging_certificate_name/privkey.pem;
     client_max_body_size 5g;
 
     location / {
@@ -309,7 +311,7 @@ rm -f -- "$final_nginx"
 sudo nginx -t
 sudo systemctl reload nginx
 
-certificate_subject="$(sudo openssl x509 -in "/etc/letsencrypt/live/$public_host/fullchain.pem" -noout -subject)"
+certificate_subject="$(sudo openssl x509 -in "/etc/letsencrypt/live/$staging_certificate_name/fullchain.pem" -noout -subject)"
 if [[ "$certificate_subject" != *"$public_host"* ]]; then
   echo "Issued certificate subject does not match the reviewed STAGING hostname" >&2
   exit 1

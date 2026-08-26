@@ -9,7 +9,7 @@ if [[ ! "$BACKUP_RETENTION_DAYS" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-for required_command in gzip flock; do
+for required_command in gzip; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Missing required command: $required_command" >&2
     exit 1
@@ -22,13 +22,26 @@ if [[ ! -d "$BACKUP_DIR" || -L "$BACKUP_DIR" ]]; then
   exit 1
 fi
 
-exec 9>"$BACKUP_DIR/.aspb-postgres-backup.lock"
-if ! flock -n 9; then
-  echo "Another PostgreSQL backup is already running" >&2
-  exit 75
+umask 077
+LOCK_MODE=""
+LOCK_DIR="$BACKUP_DIR/.aspb-postgres-backup.lock.d"
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$BACKUP_DIR/.aspb-postgres-backup.lock"
+  if ! flock -n 9; then
+    echo "Another PostgreSQL backup is already running" >&2
+    exit 75
+  fi
+  LOCK_MODE="flock"
+else
+  # macOS does not ship flock. Atomic mkdir keeps the same fail-closed
+  # single-writer guarantee for local recovery drills.
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "Another PostgreSQL backup is already running (lock: $LOCK_DIR)" >&2
+    exit 75
+  fi
+  LOCK_MODE="directory"
 fi
 
-umask 077
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUTPUT="$BACKUP_DIR/aspb-postgres-$TIMESTAMP.sql.gz"
 if [[ -e "$OUTPUT" ]]; then
@@ -40,6 +53,9 @@ TEMP_OUTPUT="$(mktemp "$BACKUP_DIR/.aspb-postgres-$TIMESTAMP.XXXXXX.sql.gz.part"
 cleanup() {
   if [[ -n "${TEMP_OUTPUT:-}" && -f "$TEMP_OUTPUT" ]]; then
     rm -f -- "$TEMP_OUTPUT"
+  fi
+  if [[ "${LOCK_MODE:-}" == "directory" && -d "${LOCK_DIR:-}" ]]; then
+    rmdir -- "$LOCK_DIR"
   fi
 }
 trap cleanup EXIT INT TERM
@@ -93,6 +109,7 @@ fi
 chmod 600 "$TEMP_OUTPUT"
 mv "$TEMP_OUTPUT" "$OUTPUT"
 TEMP_OUTPUT=""
+cleanup
 trap - EXIT INT TERM
 
 echo "Backup created and verified: $OUTPUT"

@@ -1,0 +1,137 @@
+<!doctype html>
+<html class="light" lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta name="description" content="Каталог проверенных юридических вебинаров АСПБ" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://aspb-partners.ru/crisis_premium/catalog.html" />
+    <title>Юридические вебинары | АСПБ</title>
+    <link rel="stylesheet" href="css/styles.css?v=catalog-2" />
+    <link rel="stylesheet" href="fonts.css?v=self-2" />
+    <link rel="stylesheet" href="platform-access.css?v=catalog-2" />
+    <link rel="stylesheet" href="catalog.css?v=catalog-3" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  </head>
+  <body class="min-h-screen bg-background text-on-surface" data-catalog-mode="loading">
+    <a class="platform-skip-link" href="#catalogMain">К основному содержанию</a>
+    <header class="catalog-header">
+      <div class="catalog-header-inner">
+        <a class="catalog-brand" href="index.html">
+          <span class="catalog-brand-mark">АСПБ</span>
+          <span class="catalog-brand-name">Антикризисная служба помощи бизнесу</span>
+        </a>
+        <nav class="catalog-nav" aria-label="Основная навигация">
+          <a aria-current="page" href="catalog.html">Каталог</a>
+          <a href="platform-access.html">Войти</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="catalogMain" class="catalog-main" tabindex="-1">
+      <section class="catalog-hero" aria-labelledby="catalogHeading">
+        <p class="catalog-eyebrow">Юридическая платформа АСПБ</p>
+        <h1 id="catalogHeading" tabindex="-1">Вебинары для практических правовых задач</h1>
+        <p>Ищите материалы проверенных авторов по отрасли, юрисдикции и формату. Актуальность каждого вебинара указана текстом.</p>
+      </section>
+
+      <section class="platform-panel catalog-filter-panel" aria-labelledby="catalogFilterHeading">
+        <h2 id="catalogFilterHeading">Поиск и фильтры</h2>
+        <form id="catalogFilterForm" class="catalog-filter-form" role="search" novalidate>
+          <div class="catalog-field catalog-search-field">
+            <label for="catalogQuery">Правовая тема или задача</label>
+            <input id="catalogQuery" class="platform-input" name="q" type="search" maxlength="160" autocomplete="off" placeholder="Например, договорные риски" />
+          </div>
+          <div class="catalog-field">
+            <label for="catalogPracticeArea">Отрасль</label>
+            <select id="catalogPracticeArea" class="platform-input" name="practiceArea"><option value="">Все отрасли</option></select>
+          </div>
+          <div class="catalog-field">
+            <label for="catalogSpecialization">Специализация</label>
+            <select id="catalogSpecialization" class="platform-input" name="specialization"><option value="">Все специализации</option></select>
+          </div>
+          <div class="catalog-field">
+            <label for="catalogJurisdiction">Юрисдикция</label>
+            <select id="catalogJurisdiction" class="platform-input" name="jurisdiction"><option value="">Все юрисдикции</option></select>
+          </div>
+          <div class="catalog-field">
+            <label for="catalogLevel">Уровень</label>
+            <select id="catalogLevel" class="platform-input" name="level">
+              <option value="">Любой уровень</option>
+              <option value="INTRODUCTORY">Начальный</option>
+              <option value="PRACTITIONER">Практикующий специалист</option>
+              <option value="ADVANCED">Продвинутый</option>
+              <option value="ALL_LEVELS">Все уровни</option>
+            </select>
+          </div>
+          <div class="catalog-field">
+            <label for="catalogFormat">Формат</label>
+            <select id="catalogFormat" class="platform-input" name="format">
+              <option value="">Любой формат</option>
+              <option value="RECORDED">Запись</option>
+              <option value="PREMIERE">Премьера</option>
+              <option value="ON_DEMAND">По запросу</option>
+            </select>
+          </div>
+          <div class="catalog-field">
+            <label for="catalogAvailability">Доступность</label>
+            <select id="catalogAvailability" class="platform-input" name="availability">
+              <option value="ALL">Все</option>
+              <option value="UPCOMING">Предстоящие</option>
+              <option value="RECORDING">Есть запись</option>
+            </select>
+          </div>
+          <div class="catalog-field">
+            <label for="catalogSort">Сортировка</label>
+            <select id="catalogSort" class="platform-input" name="sort">
+              <option value="UPCOMING">Ближайшие</option>
+              <option value="RELEVANCE">По релевантности</option>
+              <option value="NEWEST">Сначала новые</option>
+              <option value="UPDATED">Недавно обновлённые</option>
+            </select>
+          </div>
+          <details class="catalog-more-filters">
+            <summary>Фильтр по дате</summary>
+            <div class="catalog-date-fields">
+              <div class="catalog-field"><label for="catalogDateFrom">С даты</label><input id="catalogDateFrom" class="platform-input" name="dateFrom" type="date" /></div>
+              <div class="catalog-field"><label for="catalogDateTo">По дату</label><input id="catalogDateTo" class="platform-input" name="dateTo" type="date" /></div>
+            </div>
+          </details>
+          <div class="catalog-filter-actions">
+            <button id="catalogApplyButton" class="platform-primary-button" type="submit">Показать вебинары</button>
+            <a id="catalogClearLink" class="platform-secondary-button" href="catalog.html">Сбросить фильтры</a>
+          </div>
+        </form>
+      </section>
+
+      <section class="catalog-results" aria-labelledby="catalogResultsHeading">
+        <div class="catalog-results-heading">
+          <div>
+            <h2 id="catalogResultsHeading">Найденные вебинары</h2>
+            <p id="catalogResultsSummary" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+        <div id="catalogLoading" class="catalog-mode platform-panel catalog-state" aria-live="polite">
+          <div class="platform-spinner" aria-hidden="true"></div>
+          <p>Загружаем каталог…</p>
+        </div>
+        <div id="catalogError" class="catalog-mode platform-panel catalog-state" role="alert">
+          <h3>Каталог сейчас недоступен</h3>
+          <p id="catalogErrorText">Попробуйте повторить запрос.</p>
+          <button id="catalogRetryButton" class="platform-primary-button" type="button">Повторить</button>
+        </div>
+        <div id="catalogEmpty" class="catalog-mode platform-panel catalog-state">
+          <h3>По этим условиям вебинаров нет</h3>
+          <p>Измените запрос или сбросьте фильтры. Закрытые и неопубликованные материалы в результатах не показываются.</p>
+          <a class="platform-primary-button" href="catalog.html">Сбросить фильтры</a>
+        </div>
+        <div id="catalogContent" class="catalog-mode">
+          <ul id="catalogGrid" class="catalog-grid"></ul>
+          <nav id="catalogPagination" class="catalog-pagination" aria-label="Страницы каталога"></nav>
+        </div>
+      </section>
+    </main>
+    <noscript><div class="platform-noscript">Для фильтрации каталога включите JavaScript.</div></noscript>
+    <script type="module" src="js/catalog.js?v=catalog-2"></script>
+  </body>
+</html>

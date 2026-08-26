@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import crypto from 'node:crypto';
 import { prisma } from './prisma.js';
 import { buildFrontendUrl } from './roomLinks.js';
 import {
@@ -6,10 +6,16 @@ import {
   hasConsultantTelegramBot,
   isConsultantBotPollingEnabled,
   sendConsultantTelegramMessageToChat,
+  sendManagerTelegramMessageToChat,
   sendTelegramMessage,
 } from './telegram.js';
 import { env } from './env.js';
 import { createTelegramPoller, type TelegramPoller } from './telegramPoller.js';
+import { createCorrelationId } from './requestContext.js';
+import { classifyTelegramConsultantText, recordTelegramConsultantMessage } from './tenancy/telegramConsultant.js';
+import { createTelegramManagerCallback } from './tenancy/telegramBots.js';
+import { logger } from './logger.js';
+import { buildServerDedupKey, recordAnalyticsEvent, type AnalyticsEventName } from './analyticsEvents.js';
 
 type ConsultantTelegramUpdate = {
   update_id: number;
@@ -36,44 +42,65 @@ function getTelegramProfile(update: ConsultantTelegramUpdate) {
 }
 
 async function saveConsultantEvent(input: {
-  eventName: string;
+  eventName: Extract<AnalyticsEventName, 'telegram_consultant_start' | 'telegram_consultant_contact_request'>;
   chatId: string;
   update: ConsultantTelegramUpdate;
-  text?: string;
 }) {
-  const profile = getTelegramProfile(input.update);
-  await prisma.event.create({
-    data: {
+  const providerMessageId = input.update.message?.message_id ? String(input.update.message.message_id) : 'unknown';
+  const chatHash = crypto
+    .createHmac('sha256', env.IP_HASH_SECRET)
+    .update(`telegram-consultant-command:v1:${input.chatId}`)
+    .digest('hex');
+  const correlationId = createCorrelationId('telegram_consultant_command');
+  const operationKey = `consultant-command:${chatHash}:${providerMessageId}:${input.eventName}`;
+  await prisma.$transaction(async tx => {
+    await recordAnalyticsEvent(tx as unknown as typeof prisma, {
       eventName: input.eventName,
-      page: 'telegram_consultant_bot',
       source: 'telegram',
-      metadataJson: {
-        chatId: input.chatId,
-        text: input.text?.slice(0, 500),
-        telegramUserId: profile.telegramUserId,
-        telegramUsername: profile.telegramUsername,
-        telegramFirstName: profile.telegramFirstName,
-      } as Prisma.InputJsonValue,
-    },
+      dedupKey: buildServerDedupKey(input.eventName, operationKey),
+      correlationId,
+      scope: { kind: 'platform' },
+      page: '/telegram/consultant',
+      attributes: { commandEvent: true },
+    });
+    await tx.telegramBotEvent.upsert({
+      where: { dedupKey: operationKey },
+      update: {},
+      create: {
+        botIdentity: 'CONSULTANT',
+        direction: 'INBOUND',
+        eventType: input.eventName,
+        correlationId,
+        providerMessageId,
+        dedupKey: operationKey,
+        status: 'accepted',
+        metadataJson: { commandEvent: true },
+      },
+    });
   });
 }
 
-function buildContactRows(update: ConsultantTelegramUpdate, chatId: string, text: string) {
+function buildContactRows(
+  update: ConsultantTelegramUpdate,
+  text: string,
+  classification?: ReturnType<typeof classifyTelegramConsultantText>,
+) {
   const profile = getTelegramProfile(update);
   const username = profile.telegramUsername ? `@${profile.telegramUsername.replace(/^@/, '')}` : '—';
   return [
-    'Новое сообщение в Telegram-боте консультанта АСПБ',
+    'Новое сообщение в Telegram-помощнике АСПБ',
     '',
-    `Chat ID: ${chatId}`,
-    profile.telegramUserId ? `User ID: ${profile.telegramUserId}` : null,
     `Username: ${username}`,
     profile.telegramFirstName ? `Имя в Telegram: ${profile.telegramFirstName}` : null,
+    classification
+      ? `Тема: ${classification.topic}; намерение: ${classification.intent}; срочность: ${classification.urgency}`
+      : null,
     '',
     `Сообщение: ${text}`,
   ].filter(Boolean);
 }
 
-async function notifyAdminAboutMessage(chatId: string, text: string, update: ConsultantTelegramUpdate) {
+async function notifyPlatformAdminAboutMessage(text: string, update: ConsultantTelegramUpdate) {
   const profile = getTelegramProfile(update);
   const telegramUrl = profile.telegramUsername
     ? `https://t.me/${profile.telegramUsername.replace(/^@/, '')}`
@@ -90,8 +117,114 @@ async function notifyAdminAboutMessage(chatId: string, text: string, update: Con
         ].filter(Boolean),
       ].filter(row => row.length),
     },
-    text: buildContactRows(update, chatId, text).join('\n'),
+    text: buildContactRows(update, text).join('\n'),
   });
+}
+
+async function notifyTenantManagers(record: Awaited<ReturnType<typeof recordTelegramConsultantMessage>>) {
+  const scope = record.scope;
+  if (
+    !scope.organizationId ||
+    !scope.registrationId ||
+    !scope.crmContactId ||
+    !scope.webinarId ||
+    !scope.webinarSessionId
+  ) {
+    return 0;
+  }
+  const bindings = await prisma.telegramManagerChatBinding.findMany({
+    where: {
+      organizationId: scope.organizationId,
+      status: 'ACTIVE',
+      membership: {
+        status: 'ACTIVE',
+        role: { in: ['OWNER', 'CRM_MANAGER'] },
+        user: { kind: 'HUMAN', status: 'ACTIVE' },
+      },
+    },
+    include: { membership: true },
+    orderBy: [{ confirmedAt: 'asc' }, { id: 'asc' }],
+    take: 20,
+  });
+  let notified = 0;
+  for (const binding of bindings) {
+    if (!binding.chatId) continue;
+    const context = {
+      userId: binding.membership.userId,
+      organizationId: binding.organizationId,
+      membershipId: binding.membershipId,
+      role: binding.membership.role,
+      permissions: binding.membership.permissionsJson,
+      correlationId: record.correlationId,
+    };
+    const accept = await createTelegramManagerCallback(prisma, context, {
+      bindingId: binding.id,
+      registrationId: scope.registrationId,
+      crmContactId: scope.crmContactId,
+      action: 'ACCEPT_CONTACT',
+      idempotencyKey: `consultant:${record.message.id}:${binding.id}:accept`,
+    });
+    const hot = await createTelegramManagerCallback(prisma, context, {
+      bindingId: binding.id,
+      registrationId: scope.registrationId,
+      crmContactId: scope.crmContactId,
+      action: 'MARK_HOT',
+      payload: { reason: 'Приоритет по входящему сообщению Telegram-помощника' },
+      idempotencyKey: `consultant:${record.message.id}:${binding.id}:hot`,
+    });
+    const delivery = await sendManagerTelegramMessageToChat(
+      binding.chatId,
+      [
+        'Новое обращение из Telegram-помощника АСПБ',
+        '',
+        `Автоматическая классификация: ${record.classification.topic}; ${record.classification.intent}; ${record.classification.urgency}`,
+        'Классификацию можно исправить в tenant CRM.',
+        '',
+        record.message.text,
+      ].join('\n'),
+      {
+        replyMarkup: {
+          inline_keyboard: [
+            [
+              { text: 'Принять контакт', callback_data: accept.callbackData },
+              { text: 'Отметить hot', callback_data: hot.callbackData },
+            ],
+            [
+              {
+                text: 'Открыть CRM',
+                url: `${buildFrontendUrl('/crisis_premium/crm.html')}?contact=${encodeURIComponent(scope.crmContactId)}`,
+              },
+            ],
+          ],
+        },
+      },
+    );
+    await prisma.telegramBotEvent.create({
+      data: {
+        organizationId: scope.organizationId,
+        webinarId: scope.webinarId,
+        webinarSessionId: scope.webinarSessionId,
+        registrationId: scope.registrationId,
+        crmContactId: scope.crmContactId,
+        membershipId: binding.membershipId,
+        managerBindingId: binding.id,
+        botIdentity: 'MANAGER',
+        direction: 'OUTBOUND',
+        eventType: 'consultant_handoff_notified',
+        correlationId: record.correlationId,
+        providerMessageId: delivery.providerMessageId,
+        dedupKey: `consultant:${record.message.id}:${binding.id}:notified`,
+        status: delivery.sent ? 'sent' : 'logged',
+        metadataJson: {
+          topic: record.classification.topic,
+          intent: record.classification.intent,
+          urgency: record.classification.urgency,
+        },
+      },
+    });
+    notified += 1;
+  }
+  return notified;
 }
 
 async function handleStart(chatId: string, update: ConsultantTelegramUpdate) {
@@ -151,7 +284,7 @@ async function handlePartner(chatId: string) {
 
 async function handleContact(chatId: string, update: ConsultantTelegramUpdate) {
   await saveConsultantEvent({ eventName: 'telegram_consultant_contact_request', chatId, update });
-  await notifyAdminAboutMessage(chatId, '/contact', update);
+  await notifyPlatformAdminAboutMessage('/contact', update);
   await sendConsultantTelegramMessageToChat(
     chatId,
     'Передал запрос менеджеру АСПБ. Напишите одним сообщением, какой вопрос хотите обсудить: партнерство, клиент с долгами, вебинар или доступ.',
@@ -159,20 +292,43 @@ async function handleContact(chatId: string, update: ConsultantTelegramUpdate) {
 }
 
 async function handleFreeText(chatId: string, text: string, update: ConsultantTelegramUpdate) {
-  await saveConsultantEvent({ eventName: 'telegram_consultant_message', chatId, update, text });
-  await notifyAdminAboutMessage(chatId, text, update);
+  const record = await recordTelegramConsultantMessage(prisma, {
+    chatId,
+    providerMessageId: String(update.message?.message_id ?? ''),
+    text,
+    correlationId: createCorrelationId('telegram_consultant_message'),
+  });
+  if (!record.replayed) {
+    const notified = await notifyTenantManagers(record);
+    if (!record.scope.organizationId) {
+      await notifyPlatformAdminAboutMessage(record.message.text, update);
+    } else if (notified === 0) {
+      logger.warn(
+        { organizationId: record.scope.organizationId, consultantMessageId: record.message.id },
+        'Tenant consultant handoff has no active manager chat binding',
+      );
+    }
+  }
+  const legalQuestion = record.classification.intent === 'legal_question';
   await sendConsultantTelegramMessageToChat(
     chatId,
-    [
-      'Сообщение получил и передал менеджеру АСПБ.',
-      '',
-      'Пока менеджер смотрит запрос, можно открыть регистрацию на вебинар:',
-      buildFrontendUrl('/crisis_premium/register.html'),
-    ].join('\n'),
+    legalQuestion
+      ? [
+          'Я помощник по навигации, а не юридический консультант, поэтому не даю индивидуальных советов по вашей ситуации.',
+          '',
+          'Я передал вопрос человеку. Пока можно открыть вебинары и материалы АСПБ:',
+          buildFrontendUrl('/crisis_premium/catalog.html'),
+        ].join('\n')
+      : [
+          'Сообщение получил и передал человеку.',
+          '',
+          'Я могу помочь с навигацией по вебинарам, материалам и доступу, но не заменяю юридическую консультацию.',
+          buildFrontendUrl('/crisis_premium/catalog.html'),
+        ].join('\n'),
   );
 }
 
-async function handleUpdate(update: ConsultantTelegramUpdate) {
+export async function handleConsultantTelegramUpdate(update: ConsultantTelegramUpdate) {
   const message = update.message;
   const chatId = message?.chat?.id ? String(message.chat.id) : '';
   const text = message?.text?.trim() || '';
@@ -218,7 +374,7 @@ export function startConsultantTelegramBot() {
     apiUrl: consultantTelegramApiUrl,
     allowedUpdates: ['message'],
     isEnabled: isConsultantBotReady,
-    handleUpdate,
+    handleUpdate: handleConsultantTelegramUpdate,
     progressSubsystem: 'botConsultant',
   });
   poller.start();

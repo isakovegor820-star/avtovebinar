@@ -1,0 +1,36 @@
+.author-main { max-width: 72rem; }
+.author-mode { display: none; }
+body[data-author-mode='loading'] #authorLoading,
+body[data-author-mode='error'] #authorError,
+body[data-author-mode='content'] #authorContent { display: block; }
+.author-hero { max-width: 52rem; padding: clamp(2rem, 6vw, 5rem) 0 2rem; }
+.author-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem 1rem; }
+.author-title-row h1 { margin: 0; max-width: 18ch; text-wrap: balance; }
+.author-verification { border: 1px solid #176b4d; border-radius: 999px; padding: .4rem .7rem; color: #12513b; background: #eaf8f1; font-weight: 700; }
+.author-organization { color: var(--catalog-muted, #5b625f); font-weight: 650; }
+.author-bio { max-width: 68ch; font-size: clamp(1.05rem, 2vw, 1.25rem); line-height: 1.65; white-space: pre-line; }
+.author-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; margin-bottom: 1rem; }
+.author-tags, .author-webinar-list { list-style: none; margin: 0; padding: 0; }
+.author-tags { display: flex; flex-wrap: wrap; gap: .5rem; }
+.author-tags li { border: 1px solid currentColor; border-radius: 999px; padding: .4rem .7rem; }
+.author-facts { display: grid; gap: 1rem; margin: 0; }
+.author-facts div { display: grid; grid-template-columns: minmax(9rem, .75fr) minmax(0, 1fr); gap: 1rem; }
+.author-facts dt { color: var(--catalog-muted, #5b625f); }
+.author-facts dd { margin: 0; }
+.author-webinars { margin-bottom: 1rem; }
+.author-section-heading, .author-report { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.author-section-heading h2, .author-report h2 { margin-top: 0; }
+.author-webinar-list { display: grid; gap: .75rem; }
+.author-webinar-card { border-top: 1px solid rgba(21, 24, 23, .16); padding-top: 1rem; }
+.author-webinar-card h3 { margin: 0 0 .5rem; }
+.author-webinar-card p { max-width: 68ch; }
+.author-webinar-meta { color: var(--catalog-muted, #5b625f); }
+.author-report > div { max-width: 60ch; }
+.author-error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; }
+@media (max-width: 42rem) {
+  .author-grid { grid-template-columns: 1fr; }
+  .author-section-heading, .author-report { align-items: flex-start; flex-direction: column; }
+  .author-facts div { grid-template-columns: 1fr; gap: .2rem; }
+  .author-error-actions > * { width: 100%; }
+}
+@media (forced-colors: active) { .author-verification { border: 1px solid CanvasText; } }

@@ -22,6 +22,8 @@ vi.mock('../src/lib/prisma.js', () => {
     emailOutboxDeadLetter: { upsert: vi.fn() },
     registration: { findUnique: vi.fn(), update: vi.fn() },
     registrationToken: { create: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
+    webinar: { findFirst: vi.fn().mockResolvedValue({ visibility: 'UNLISTED' }) },
+    webinarAccessGrant: { findFirst: vi.fn() },
     $executeRaw: vi.fn(),
     $transaction: vi.fn(),
   };
@@ -92,6 +94,11 @@ function activeRegistration() {
       personalDataConsentRevokedAt: null,
     },
     webinarSession: {
+      organizationId: 'organization-1',
+      webinarId: 'webinar-1',
+      lifecycleStatus: 'SCHEDULED',
+      timezone: 'Europe/Amsterdam',
+      title: 'Тестовый вебинар',
       scheduledAt: new Date('2026-08-05T08:00:00.000Z'),
       durationMinutes: 65,
       videoDurationSeconds: 3860,
@@ -369,8 +376,10 @@ describe('email outbox anonymization races', () => {
     const sendParticipantLoginEmail = vi.fn().mockResolvedValue({ sent: true, mode: 'send' });
     const clockValues = [
       new Date('2026-08-04T09:00:00.000Z'),
+      new Date('2026-08-04T09:00:30.000Z'),
       new Date('2026-08-04T09:01:00.000Z'),
       new Date('2026-08-04T09:21:00.000Z'),
+      new Date('2026-08-04T09:21:30.000Z'),
       new Date('2026-08-04T09:22:00.000Z'),
     ];
     const clock = vi.fn(() => clockValues.shift()!);

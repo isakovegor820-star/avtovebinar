@@ -1,81 +1,66 @@
-# Telegram bots
+# Telegram-контур АСПБ
 
-Проект использует Telegram Bot API через long polling (`getUpdates`). Polling запускается только в worker-части runtime: `WORKER_ROLE=webinar` или `WORKER_ROLE=all`.
+Платформа использует общие bot identities АСПБ. Организация не получает и не загружает собственный bot token. Polling запускается только в worker runtime с `WORKER_ROLE=webinar` или `WORKER_ROLE=all`; локально и в тестах `TELEGRAM_NOTIFY_MODE=log` запрещает реальные отправки.
 
-## Общая схема
+## Границы безопасности
 
-- `src/lib/telegram.ts` - общий слой Telegram API: URL методов, отправка сообщений, health-check `getMe`, форматирование админских уведомлений.
-- `src/server.ts` - подключает фоновые задачи: reminders, admin bot, participant bot, consultant bot, news scheduler, broadcast worker.
-- `TELEGRAM_NOTIFY_MODE=log` переводит отправку в лог-режим. Это удобно для dev/test.
-- `TELEGRAM_NOTIFY_MODE=send` реально отправляет сообщения в Telegram.
-- Защищённый `/health/dependencies/details` делает `getMe` по каждому настроенному token и падает, если Telegram вернул username, отличный от env username. Публичный `/health/dependencies` возвращает только `ok/degraded`.
-
-## Бот менеджера
-
-Файл: `src/lib/telegramAdminBot.ts`
-
-Назначение:
-
-- получает callback-кнопки из админских Telegram-уведомлений;
-- меняет CRM-статус регистрации;
-- помечает лида горячим;
-- проверяет, что callback пришел из `TELEGRAM_ADMIN_CHAT_ID`.
-
-Env:
-
-- `TELEGRAM_ADMIN_BOT_TOKEN`
-- `TELEGRAM_ADMIN_BOT_USERNAME`
-- `TELEGRAM_ADMIN_CHAT_ID`
-- `TELEGRAM_ADMIN_BOT_POLLING=on`
+- Tenant определяется только по активной User session/membership или по уже проверенной participant registration; `organizationId`, Webinar ID, Session ID, contact ID и chat ID из callback не считаются доказательством доступа.
+- Новые tenant callbacks — opaque HMAC-signed records с exact Organization/Webinar/WebinarSession/action scope и expiry. Повторное действие идемпотентно.
+- Manager chat привязывается одноразовым hash-only token, затем отдельно подтверждается OWNER. Привязку можно отозвать; каждый callback повторно проверяет active HUMAN membership, роль, binding и exact chat.
+- Participant `/start` принимает только одноразовый token purpose `telegram_start`; повторная или пересланная ссылка не перепривязывает chat ID.
+- Signed room URL создаётся только непосредственно перед допустимой отправкой, не сохраняется в bot event, audit, обычном log или browser storage.
+- `telegram_bot_events` хранит server correlation ID, provider message ID, когда он существует, exact scope и безопасные metadata. Token, signed URL, email, телефон и raw chat ID туда не пишутся.
+- Operational alerts имеют отдельный `TELEGRAM_OPERATIONAL_CHAT_ID`, принимают только типизированные code/subsystem/severity/correlation ID и не могут содержать произвольный текст или ПДн.
 
 ## Бот участника
 
-Файл: `src/lib/telegramParticipantBot.ts`
+Реализация: `src/lib/telegramParticipantBot.ts`, напоминания: `src/lib/reminders.ts`.
 
-Назначение:
+Поддерживаются `/start`, `/webinars`, `/my`, `/room`, `/materials`, `/help`, `/unsubscribe`; legacy `/status` сохранён. Команды возвращают только активные registrations и доступные сейчас sessions. Cancelled session, истёкший replay, отозванный private grant и чужой/private Webinar не дают ссылку. `/unsubscribe` отзывает только marketing Telegram consent и не отключает service notifications или обработку ПДн.
 
-- принимает `/start <token>` после клика по Telegram-кнопке на success-странице;
-- принимает только token с purpose `telegram_start`;
-- атомарно удаляет `telegram_start` token при первой привязке, поэтому пересланная или повторно открытая deep-link ссылка не перепривязывает chatId;
-- привязывает `telegramChatId` к `Lead`;
-- отправляет персональную ссылку в вебинарную комнату;
-- поддерживает `/status`, `/room`, `/help`;
-- используется напоминаниями, новостями и ручной админской рассылкой.
+Reminder/live/follow-up delivery использует CAS lease и server-selected Registration/WebinarSession. Dedup key содержит registration, exact session, тип сообщения и schedule version. Перед room-link delivery повторно проверяются registration и private access; перед marketing follow-up — актуальное Telegram consent. Successful/log-mode delivery атомарно фиксирует sent marker и immutable bot event.
 
-Env:
+## Бот менеджера
 
-- `TELEGRAM_PARTICIPANT_BOT_TOKEN`
-- `TELEGRAM_PARTICIPANT_BOT_USERNAME`
-- `TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME` обязателен в production, фиксирует ожидаемый username этого deploy и должен совпадать с username фактического participant bot
-- `TELEGRAM_PARTICIPANT_BOT_POLLING=on`
+Реализация: `src/lib/telegramAdminBot.ts`, tenant policy: `src/lib/tenancy/telegramBots.ts`, API: `/api/v1/telegram/manager-bindings`.
 
-## Бот-консультант
+OWNER создаёт приглашение для active HUMAN OWNER или CRM_MANAGER. API единственный раз возвращает `startUrl`; в БД хранится только SHA-256 token. После `/start mgr_…` binding остаётся `PENDING_OWNER` и не получает tenant callbacks до явного OWNER confirm. Revoke немедленно блокирует следующие действия.
 
-Файл: `src/lib/telegramConsultantBot.ts`
+Signed callbacks поддерживают принять контакт, изменить этап, отметить hot и создать задачу. Callback имеет expiry/idempotency key и exact Organization/Webinar/WebinarSession/Registration/CRMContact scope. CRM stage, membership, binding и chat проверяются заново внутри транзакции. Кнопка «Открыть CRM» является только навигацией и не заменяет авторизацию web session.
 
-Назначение:
+## Бот-помощник
 
-- первичный бот для пользователей без обязательной регистрации;
-- команды `/start`, `/help`, `/webinar`, `/partner`, `/contact`;
-- свободный текст сохраняет событие `telegram_consultant_message`;
-- входящие запросы пересылаются в админский Telegram-чат через бота менеджера.
+Реализация: `src/lib/telegramConsultantBot.ts`, классификация: `src/lib/tenancy/telegramConsultant.ts`.
 
-Env:
+Бот отвечает только по навигации: вебинары, материалы, партнёрство и передача человеку. При персонализированном юридическом вопросе он не формирует совет и явно передаёт обращение человеку. Свободный текст нормализуется, получает topic/intent/urgency и provenance `local_policy/telegram-intent-v1`; исходный текст хранится только в dedicated retention contour. Analytics/CRM event содержит классификацию, но не текст и не raw chat ID. OWNER/CRM_MANAGER может исправить классификацию с причиной; original classification остаётся immutable.
 
-- `TELEGRAM_CONSULTANT_BOT_TOKEN`
-- `TELEGRAM_CONSULTANT_BOT_USERNAME`
-- `TELEGRAM_CONSULTANT_BOT_POLLING=on`
+## Tenant-рассылки
 
-## Новости и рассылки
+Реализация: `src/lib/tenancy/telegramBroadcast.ts`, worker: `src/lib/telegramBroadcastWorker.ts`, API: `/api/v1/telegram/broadcast-*`.
 
-- `src/lib/telegramNews.ts` - расписание полезных выпусков по `TELEGRAM_NEWS_TIMES`, выбор RSS/ fallback-темы, отправка всем лидам с `telegramChatId`. Scheduler использует in-process single-flight и уникальный `telegram_news_posts.slot_key`, поэтому повторный тик того же slot не делает дубль.
-- `src/lib/telegramBroadcastWorker.ts` - очередь ручных рассылок из админки, retry, dead letter.
+OWNER создаёт и публикует шаблон. Разрешены только `{{participant_name}}`, `{{webinar_title}}`, `{{session_datetime}}`, `{{room_link}}`; публикация без `room_link` блокируется. Published template immutable.
 
-## Как включить нового бота
+Flow состоит из отдельных preview и confirm. Preview вычисляет exact segment `registered_session`, максимум 2000 получателей, возвращает одноразовый raw token только в `private, no-store` response и хранит hash/snapshot/expiry. До `confirm=true` job и recipient rows не создаются. Confirm повторно вычисляет segment и отклоняет изменившийся snapshot. Worker поддерживает pause/resume/cancel, bounded retry/backoff, dead letter и progress. Consent, active binding, Registration, Session, private grant и requester tenant перепроверяются непосредственно перед каждым send.
 
-1. Создать бота в BotFather и получить token.
-2. Заполнить env-переменные нужного бота.
-3. Убедиться, что `WORKER_ROLE=webinar` или `WORKER_ROLE=all`.
-4. Поставить polling-флаг нужного бота в `on`.
-5. Проверить `/health/dependencies/details` с `Authorization: Bearer $METRICS_TOKEN`: Telegram health-check делает `getMe` для настроенных токенов и сверяет `result.username` с env username.
-6. Для participant bot зарегистрировать тестового участника, открыть Telegram deep-link один раз, затем повторить ту же ссылку и убедиться, что привязка не изменилась.
+Legacy global news/admin broadcast остаётся совместимым, но его recipient rows без Organization не используются как tenant evidence.
+
+## Env-контракт
+
+Секреты хранятся только в deployment secrets/env и не коммитятся:
+
+- `TELEGRAM_ADMIN_BOT_TOKEN`, `TELEGRAM_ADMIN_BOT_USERNAME`, `TELEGRAM_ADMIN_BOT_POLLING`;
+- `TELEGRAM_PARTICIPANT_BOT_TOKEN`, `TELEGRAM_PARTICIPANT_BOT_USERNAME`, `TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME`, `TELEGRAM_PARTICIPANT_BOT_POLLING`;
+- `TELEGRAM_CONSULTANT_BOT_TOKEN`, `TELEGRAM_CONSULTANT_BOT_USERNAME`, `TELEGRAM_CONSULTANT_BOT_POLLING`;
+- `TELEGRAM_ADMIN_CHAT_ID` для legacy platform-admin notifications;
+- `TELEGRAM_OPERATIONAL_CHAT_ID` для обезличенных infrastructure alerts; в production send mode он обязателен и должен отличаться от admin chat;
+- `TELEGRAM_CALLBACK_SECRET` для tenant callbacks;
+- `TENANT_TELEGRAM_BOTS_ENABLED=off|on`; production rollout начинается с `off`;
+- `TELEGRAM_NOTIFY_MODE=log|send`; `send` разрешается только после provider smoke test на staging.
+
+`/health/dependencies/details` с metrics Bearer token выполняет `getMe` и сверяет provider username с env. Публичный `/health/dependencies` возвращает только `ok/degraded`.
+
+## Acceptance и rollback
+
+На staging используются только тестовая организация и тестовые адресаты. Проверяются one-time binding/replay, owner confirm/revoke, cross-tenant callback, callback expiry/replay, participant commands, expired replay/revoked grant, consultant handoff/correction, template validation, preview-before-confirm, consent revoke before send, retry/dead-letter, pause/cancel/progress и отсутствие ПДн/token/signed URL в events/logs.
+
+Rollback приложения: вернуть `TENANT_TELEGRAM_BOTS_ENABLED=off` и остановить tenant polling/worker path. Additive tables и history не удаляются; production migration, token rotation и реальные рассылки требуют отдельного разрешения.

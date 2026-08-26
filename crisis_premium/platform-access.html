@@ -1,0 +1,289 @@
+<!doctype html>
+<html class="light" lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Вход в платформу | АСПБ</title>
+    <link rel="stylesheet" href="css/styles.css?v=platform-access-1" />
+    <link rel="stylesheet" href="fonts.css?v=self-2" />
+    <link rel="stylesheet" href="platform-access.css?v=platform-access-2" />
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  </head>
+  <body class="min-h-screen bg-background text-on-surface" data-platform-mode="loading">
+    <a class="platform-skip-link" href="#platformMain">К основному содержанию</a>
+    <noscript>
+      <section class="platform-noscript" aria-label="Для входа требуется JavaScript">
+        <strong>Для безопасного входа нужен JavaScript.</strong>
+        <span>Включите его и обновите страницу либо вернитесь на <a href="index.html">главную АСПБ</a>.</span>
+      </section>
+    </noscript>
+
+    <header class="border-b border-outline-variant/40 bg-background">
+      <div class="mx-auto flex w-full max-w-container-max-width items-center justify-between px-gutter py-4">
+        <a class="flex min-h-11 shrink-0 flex-col justify-center leading-tight" href="index.html">
+          <span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
+          <span class="hidden text-[11px] font-semibold leading-4 text-on-surface-variant sm:block"
+            >Антикризисная служба помощи бизнесу</span
+          >
+        </a>
+        <span class="text-label-md font-label-md text-on-surface-variant">Юридическая платформа</span>
+      </div>
+    </header>
+
+    <main id="platformMain" class="mx-auto w-full max-w-3xl px-gutter py-8 md:py-14" tabindex="-1">
+      <section id="platformLoading" class="platform-mode platform-panel p-7 text-center md:p-10" aria-live="polite">
+        <div class="platform-spinner mx-auto mb-5" aria-hidden="true"></div>
+        <h1 class="text-headline-md font-headline-md text-primary">Проверяем защищённый вход</h1>
+        <p class="mx-auto mt-3 max-w-xl text-body-md text-on-surface-variant">
+          Это займёт несколько секунд. Не закрывайте страницу.
+        </p>
+      </section>
+
+      <section id="platformLogin" class="platform-mode platform-panel p-7 md:p-10">
+        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Аккаунт платформы</p>
+        <h1 id="platformLoginTitle" class="text-headline-lg-mobile font-headline-lg-mobile text-primary md:text-headline-lg md:font-headline-lg">
+          Войти по одноразовой ссылке
+        </h1>
+        <p id="platformLoginDescription" class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">
+          Укажите рабочий email. Мы отправим одноразовую ссылку со сроком действия 20 минут.
+        </p>
+
+        <form id="platformLoginForm" class="mt-7 grid gap-4" novalidate>
+          <div class="grid gap-2">
+            <label class="text-label-md font-label-md text-primary" for="platformEmail">Email</label>
+            <input
+              id="platformEmail"
+              class="platform-input px-4 text-body-md"
+              name="email"
+              type="email"
+              inputmode="email"
+              autocomplete="email"
+              required
+              maxlength="320"
+              aria-describedby="platformEmailHint platformEmailError"
+            />
+            <p id="platformEmailHint" class="text-label-sm text-on-surface-variant">
+              На этот адрес придут ссылка для входа и приглашения в команду.
+            </p>
+            <p id="platformEmailError" class="platform-field-error text-label-sm" aria-live="polite"></p>
+          </div>
+          <button id="platformLoginButton" class="platform-primary-button" type="submit">Получить ссылку</button>
+          <button id="platformContinueInviteButton" class="platform-secondary-button" type="button" hidden>
+            Продолжить после входа
+          </button>
+          <p id="platformLoginStatus" class="min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section id="platformOnboarding" class="platform-mode platform-panel p-7 md:p-10">
+        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Первый вход</p>
+        <h1 class="text-headline-md font-headline-md text-primary">Создайте организацию или примите приглашение</h1>
+        <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">
+          Организация изолирует вебинары, команду и CRM. Вы станете её владельцем, но не получите права администратора платформы.
+        </p>
+        <div class="platform-onboarding-grid mt-8">
+          <form id="platformCreateOrganizationForm" class="platform-settings-panel grid gap-4" novalidate>
+            <div>
+              <h2 class="text-headline-sm font-headline-sm text-primary">Создать организацию</h2>
+              <p class="mt-2 text-body-md leading-relaxed text-on-surface-variant">Название и короткий адрес можно изменить позже через поддержку.</p>
+            </div>
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="platformOrganizationCreateName">Название</label>
+              <input id="platformOrganizationCreateName" class="platform-input px-4 text-body-md" name="name" autocomplete="organization" minlength="2" maxlength="160" required aria-describedby="platformOrganizationCreateNameError" />
+              <p id="platformOrganizationCreateNameError" class="platform-field-error text-label-sm"></p>
+            </div>
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="platformOrganizationSlug">Короткий адрес</label>
+              <input id="platformOrganizationSlug" class="platform-input px-4 text-body-md" name="slug" inputmode="url" minlength="2" maxlength="63" pattern="[A-Za-z0-9А-Яа-яЁё -]+" aria-describedby="platformOrganizationSlugHint platformOrganizationSlugError" />
+              <p id="platformOrganizationSlugHint" class="text-label-sm text-on-surface-variant">Например: <bdi>legal-team</bdi>. Если оставить пустым, адрес сформируется из названия.</p>
+              <p id="platformOrganizationSlugError" class="platform-field-error text-label-sm"></p>
+            </div>
+            <button id="platformCreateOrganizationButton" class="platform-primary-button" type="submit">Создать организацию</button>
+          </form>
+          <form id="platformAcceptInvitationForm" class="platform-settings-panel grid gap-4" novalidate>
+            <div>
+              <h2 class="text-headline-sm font-headline-sm text-primary">Принять приглашение</h2>
+              <p class="mt-2 text-body-md leading-relaxed text-on-surface-variant">Откройте ссылку из письма или вставьте одноразовый код.</p>
+            </div>
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="platformInvitationToken">Код приглашения</label>
+              <input id="platformInvitationToken" class="platform-input px-4 text-body-md" name="token" autocomplete="off" minlength="43" maxlength="43" pattern="[A-Za-z0-9_-]{43}" required aria-describedby="platformInvitationTokenError" />
+              <p id="platformInvitationTokenError" class="platform-field-error text-label-sm"></p>
+            </div>
+            <button id="platformAcceptInvitationButton" class="platform-secondary-button" type="submit">Принять приглашение</button>
+          </form>
+        </div>
+        <p id="platformOnboardingStatus" class="mt-5 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="platformSelect" class="platform-mode platform-panel p-7 md:p-10">
+        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Защищённый вход выполнен</p>
+        <h1 class="text-headline-md font-headline-md text-primary">Выберите организацию</h1>
+        <p class="mt-3 text-body-md text-on-surface-variant">
+          Вы увидите только организации, в которых у вас есть активное членство.
+        </p>
+        <form id="platformOrganizationForm" class="mt-7 grid gap-4">
+          <div class="grid gap-2">
+            <label class="text-label-md font-label-md text-primary" for="platformOrganization">Организация</label>
+            <select id="platformOrganization" class="platform-input px-4 text-body-md" name="organizationId" required></select>
+          </div>
+          <button id="platformOrganizationButton" class="platform-primary-button" type="submit">Продолжить</button>
+          <p id="platformOrganizationStatus" class="min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section id="platformMfa" class="platform-mode platform-panel p-7 md:p-10">
+        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Дополнительная защита</p>
+        <h1 class="text-headline-md font-headline-md text-primary">Подтвердите вход</h1>
+        <p class="mt-3 max-w-2xl text-body-md leading-relaxed text-on-surface-variant">
+          Введите шестизначный код из приложения-аутентификатора. До проверки коды и данные организации недоступны.
+        </p>
+        <form id="platformMfaForm" class="mt-7 grid gap-4" novalidate>
+          <div class="grid gap-2">
+            <label class="text-label-md font-label-md text-primary" for="platformMfaOtp">Одноразовый код</label>
+            <input
+              id="platformMfaOtp"
+              class="platform-input platform-otp-input px-4 text-body-md"
+              name="otp"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              pattern="[0-9]{6}"
+              minlength="6"
+              maxlength="6"
+              required
+              aria-describedby="platformMfaHint platformMfaError"
+            />
+            <p id="platformMfaHint" class="text-label-sm text-on-surface-variant">Код обновляется каждые 30 секунд.</p>
+            <p id="platformMfaError" class="platform-field-error text-label-sm" aria-live="polite"></p>
+          </div>
+          <button id="platformMfaButton" class="platform-primary-button" type="submit">Подтвердить вход</button>
+          <button id="platformMfaLogoutButton" class="platform-secondary-button" type="button">Войти другим адресом</button>
+          <p id="platformMfaStatus" class="min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section id="platformReady" class="platform-mode platform-panel p-7 md:p-10">
+        <div class="platform-ready-mark mb-5" aria-hidden="true">✓</div>
+        <p class="mb-2 text-label-sm font-label-sm text-on-surface-variant">Сессия защищена</p>
+        <h1 id="platformUserName" class="text-headline-md font-headline-md text-primary">Аккаунт АСПБ</h1>
+        <dl class="mt-6 grid gap-4 sm:grid-cols-2">
+          <div class="rounded-lg bg-surface-container-low p-4">
+            <dt class="text-label-sm text-on-surface-variant">Организация</dt>
+            <dd id="platformOrganizationName" class="mt-1 text-body-md font-bold text-primary">—</dd>
+          </div>
+          <div class="rounded-lg bg-surface-container-low p-4">
+            <dt class="text-label-sm text-on-surface-variant">Роль</dt>
+            <dd id="platformRole" class="mt-1 text-body-md font-bold text-primary">—</dd>
+          </div>
+        </dl>
+        <p class="mt-5 text-body-md leading-relaxed text-on-surface-variant">
+          Базовая учётная запись и контекст организации готовы. Рабочие разделы платформы будут появляться по мере включения
+          следующих модулей.
+        </p>
+        <section
+          id="platformWebinarAccess"
+          class="platform-settings-panel mt-7"
+          aria-labelledby="platformWebinarAccessTitle"
+          hidden
+        >
+          <h2 id="platformWebinarAccessTitle" class="text-headline-sm font-headline-sm text-primary">
+            Доступ к вебинару открыт
+          </h2>
+          <p id="platformWebinarAccessName" class="mt-2 text-body-md font-bold leading-relaxed text-primary"></p>
+          <p id="platformWebinarAccessExpiry" class="mt-2 text-body-md leading-relaxed text-on-surface-variant"></p>
+        </section>
+        <section id="platformMfaSettings" class="platform-settings mt-8" hidden>
+          <div>
+            <h2 class="text-headline-sm font-headline-sm text-primary">Двухфакторная защита</h2>
+            <p id="platformMfaSettingsDescription" class="mt-2 max-w-2xl text-body-md leading-relaxed text-on-surface-variant"></p>
+          </div>
+          <button id="platformMfaStartButton" class="platform-secondary-button" type="button">Настроить MFA</button>
+
+          <div id="platformMfaEnrollment" class="platform-settings-panel" hidden>
+            <p class="text-body-md font-bold text-primary">Добавьте ключ в приложение-аутентификатор</p>
+            <p class="mt-2 text-body-md leading-relaxed text-on-surface-variant">
+              Ключ показывается только во время настройки. Не отправляйте его в письмах или сообщениях.
+            </p>
+            <p class="platform-secret mt-4"><bdi><code id="platformMfaSecret"></code></bdi></p>
+            <form id="platformMfaEnrollmentForm" class="mt-5 grid gap-4" novalidate>
+              <div class="grid gap-2">
+                <label class="text-label-md font-label-md text-primary" for="platformMfaEnrollmentOtp"
+                  >Код из приложения</label
+                >
+                <input
+                  id="platformMfaEnrollmentOtp"
+                  class="platform-input platform-otp-input px-4 text-body-md"
+                  name="otp"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  minlength="6"
+                  maxlength="6"
+                  required
+                  aria-describedby="platformMfaEnrollmentError"
+                />
+                <p id="platformMfaEnrollmentError" class="platform-field-error text-label-sm" aria-live="polite"></p>
+              </div>
+              <button id="platformMfaEnrollmentButton" class="platform-primary-button" type="submit">Включить MFA</button>
+            </form>
+          </div>
+
+          <form id="platformMfaDisableForm" class="platform-settings-panel grid gap-4" novalidate hidden>
+            <div class="grid gap-2">
+              <label class="text-label-md font-label-md text-primary" for="platformMfaDisableOtp"
+                >Код для отключения MFA</label
+              >
+              <input
+                id="platformMfaDisableOtp"
+                class="platform-input platform-otp-input px-4 text-body-md"
+                name="otp"
+                type="text"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                pattern="[0-9]{6}"
+                minlength="6"
+                maxlength="6"
+                required
+                aria-describedby="platformMfaDisableError"
+              />
+              <p id="platformMfaDisableError" class="platform-field-error text-label-sm" aria-live="polite"></p>
+            </div>
+            <button id="platformMfaDisableButton" class="platform-secondary-button" type="submit">Отключить MFA</button>
+          </form>
+          <p id="platformMfaSettingsStatus" class="min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+        </section>
+        <div class="mt-7 flex flex-col gap-3 sm:flex-row">
+          <a id="platformAuthorProfileLink" class="platform-primary-button" href="author-profile.html" hidden
+            >Открыть профиль автора</a
+          >
+          <a id="platformCreatorWebinarsLink" class="platform-primary-button" href="creator-webinars.html" hidden
+            >Открыть вебинары</a
+          >
+          <a id="platformModerationLink" class="platform-primary-button" href="moderation.html" hidden
+            >Открыть модерацию чата</a
+          >
+          <a id="platformOrganizationSettingsLink" class="platform-primary-button" href="organization.html" hidden
+            >Открыть команду и настройки</a
+          >
+          <a class="platform-primary-button" href="index.html">На главную АСПБ</a>
+          <button id="platformLogoutButton" class="platform-secondary-button" type="button">Выйти на этом устройстве</button>
+        </div>
+        <p id="platformReadyStatus" class="mt-4 min-h-6 text-body-md text-on-surface-variant" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="platformError" class="platform-mode platform-panel p-7 text-center md:p-10" role="alert">
+        <div class="platform-error-mark mx-auto mb-5" aria-hidden="true">!</div>
+        <h1 id="platformErrorTitle" class="text-headline-md font-headline-md text-primary">Не удалось войти</h1>
+        <p id="platformErrorText" class="mx-auto mt-3 max-w-xl text-body-md leading-relaxed text-on-surface-variant">
+          Запросите новую ссылку и повторите попытку.
+        </p>
+        <button id="platformRetryButton" class="platform-primary-button mx-auto mt-7" type="button">Вернуться ко входу</button>
+      </section>
+    </main>
+
+    <script type="module" src="js/platform-access.js?v=platform-access-2"></script>
+  </body>
+</html>

@@ -3,8 +3,131 @@
  */
 
 import { clearAccessToken, getUrlToken } from './state.js';
-import { post, getJson, utm } from './utils.js?v=site-review-7';
-import { track } from './analytics.js?v=site-review-7';
+import { post, getJson, utm, withAttribution } from './utils.js?v=prelaunch-20260825-2';
+import { track } from './analytics.js?v=prelaunch-20260825-2';
+
+const registrationFieldMessages = {
+  name: 'Введите имя минимум из двух букв. Используйте только буквы, пробелы, дефис и апостроф.',
+  phone: 'Введите телефон: от 7 до 15 цифр, можно использовать пробелы, +, скобки и дефисы.',
+  email: 'Введите email в формате name@example.com.',
+  city: 'Сократите название города до 160 символов.',
+  professionalStatus: 'Выберите статус или укажите свой вариант.',
+  personalDataConsent: 'Подтвердите согласие на обработку персональных данных.',
+  termsAccepted: 'Примите пользовательское соглашение отдельным действием.',
+};
+
+function scrollRegistrationFieldIntoView(field) {
+  field?.scrollIntoView({
+    block: 'center',
+    behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+  });
+}
+
+function registrationField(form, name) {
+  return form.elements.namedItem(name) || null;
+}
+
+function clearRegistrationFieldError(field) {
+  if (!(field instanceof HTMLElement)) return;
+  field.removeAttribute('aria-invalid');
+  const errorId = field.dataset.registrationErrorId;
+  if (errorId) document.getElementById(errorId)?.remove();
+  const previousDescription = field.dataset.registrationPreviousDescribedby;
+  if (previousDescription) field.setAttribute('aria-describedby', previousDescription);
+  else field.removeAttribute('aria-describedby');
+  delete field.dataset.registrationErrorId;
+  delete field.dataset.registrationPreviousDescribedby;
+}
+
+function setRegistrationFieldError(field, message) {
+  if (!(field instanceof HTMLElement)) return;
+  clearRegistrationFieldError(field);
+  const fieldId = field.id || `registration-${String(field.getAttribute('name') || 'field')}`;
+  const errorId = `${fieldId}-error`;
+  const error = document.createElement('p');
+  error.id = errorId;
+  error.className = 'mt-1.5 text-label-sm text-error';
+  error.dataset.registrationFieldError = 'true';
+  error.textContent = message;
+  const describedBy = field.getAttribute('aria-describedby') || '';
+  field.dataset.registrationPreviousDescribedby = describedBy;
+  field.dataset.registrationErrorId = errorId;
+  field.setAttribute('aria-invalid', 'true');
+  field.setAttribute('aria-describedby', [describedBy, errorId].filter(Boolean).join(' '));
+  const label = field.closest('label');
+  const anchor = label && ['checkbox', 'radio'].includes(field.getAttribute('type') || '') ? label : field;
+  anchor.insertAdjacentElement('afterend', error);
+}
+
+function validateRegistrationFields(form) {
+  const errors = [];
+  const name = registrationField(form, 'name');
+  const phone = registrationField(form, 'phone');
+  const email = registrationField(form, 'email');
+  const city = registrationField(form, 'city');
+  const professionalStatus = registrationField(form, 'professionalStatus');
+  const professionalStatusOther = form.querySelector('#reg-status-other');
+  const personalDataConsent = registrationField(form, 'personalDataConsent');
+  const termsAccepted = registrationField(form, 'termsAccepted');
+  const nameValue = String(name?.value || '').trim();
+  const phoneValue = String(phone?.value || '').trim();
+  const emailValue = String(email?.value || '').trim();
+  const cityValue = String(city?.value || '').trim();
+  const professionalStatusValue = String(professionalStatus?.value || '').trim();
+  const professionalStatusOtherValue = String(professionalStatusOther?.value || '').trim();
+  if (name && 'value' in name) name.value = nameValue;
+  if (phone && 'value' in phone) phone.value = phoneValue;
+  if (email && 'value' in email) email.value = emailValue;
+  if (city && 'value' in city) city.value = cityValue;
+
+  const normalizedName = nameValue.normalize('NFKC').replace(/\s+/gu, ' ');
+  const nameHasAllowedCharacters = /^[\p{L}\p{M}][\p{L}\p{M}\s.'’ʼ-]*$/u.test(normalizedName);
+  if ((normalizedName.match(/\p{L}/gu) || []).length < 2 || !nameHasAllowedCharacters) {
+    errors.push([name, registrationFieldMessages.name, 'invalid_name']);
+  }
+  const phoneDigits = phoneValue.replace(/\D/g, '');
+  if (!/^[+\d\s().-]+$/.test(phoneValue) || phoneDigits.length < 7 || phoneDigits.length > 15) {
+    errors.push([phone, registrationFieldMessages.phone, 'invalid_phone']);
+  }
+  if (!emailValue || !email?.checkValidity()) {
+    errors.push([email, registrationFieldMessages.email, 'invalid_email']);
+  }
+  if (cityValue.length > 160) errors.push([city, registrationFieldMessages.city, 'invalid_city']);
+  if (!professionalStatusValue) {
+    errors.push([professionalStatus, registrationFieldMessages.professionalStatus, 'professional_status_required']);
+  } else if (professionalStatusValue === 'Другое' && !professionalStatusOtherValue) {
+    errors.push([
+      professionalStatusOther,
+      registrationFieldMessages.professionalStatus,
+      'professional_status_required',
+    ]);
+  }
+  if (personalDataConsent && !personalDataConsent.checked) {
+    errors.push([personalDataConsent, registrationFieldMessages.personalDataConsent, 'personal_data_consent_required']);
+  }
+  if (termsAccepted && !termsAccepted.checked) {
+    errors.push([termsAccepted, registrationFieldMessages.termsAccepted, 'terms_acceptance_required']);
+  }
+
+  for (const field of form.querySelectorAll('[data-registration-error-id]')) clearRegistrationFieldError(field);
+  for (const [field, message] of errors) setRegistrationFieldError(field, message);
+  return errors;
+}
+
+function renderServerRegistrationErrors(form, details) {
+  const fieldErrors = details?.fieldErrors;
+  if (!fieldErrors || typeof fieldErrors !== 'object') return false;
+  let firstField = null;
+  for (const name of Object.keys(fieldErrors)) {
+    const field = registrationField(form, name);
+    if (!(field instanceof HTMLElement)) continue;
+    setRegistrationFieldError(field, registrationFieldMessages[name] || 'Проверьте значение этого поля.');
+    firstField ||= field;
+  }
+  firstField?.focus();
+  scrollRegistrationFieldIntoView(firstField);
+  return Boolean(firstField);
+}
 
 export function registrationStatePath(view) {
   const query = view ? `?view=${encodeURIComponent(view)}` : '';
@@ -182,7 +305,6 @@ export async function handleRegistrationSubmit(event, formOverride) {
 
   const button = form.querySelector('button[type="submit"]');
   const originalText = button ? button.textContent : '';
-  const data = new FormData(form);
   const clients = form.querySelector('input[name="clients"]:checked');
   const personalDataConsent = form.querySelector('input[name="personalDataConsent"]');
   const termsAccepted = form.querySelector('input[name="termsAccepted"]');
@@ -206,7 +328,7 @@ export async function handleRegistrationSubmit(event, formOverride) {
     } else {
       form.appendChild(node);
     }
-    node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    scrollRegistrationFieldIntoView(node);
     node.focus({ preventScroll: true });
   }
 
@@ -237,27 +359,23 @@ export async function handleRegistrationSubmit(event, formOverride) {
     const submitButton = form.querySelector('button[type="submit"]');
     if (submitButton?.parentNode) submitButton.parentNode.insertBefore(node, submitButton);
     else form.appendChild(node);
-    node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    scrollRegistrationFieldIntoView(node);
     node.focus({ preventScroll: true });
   }
 
-  if (personalDataConsent && !personalDataConsent.checked) {
-    showFormError('Подтвердите согласие на обработку персональных данных.');
+  const clientErrors = validateRegistrationFields(form);
+  if (clientErrors.length) {
+    track('registration_form_error', { failureCode: clientErrors[0][2] });
+    clientErrors[0][0]?.focus();
+    scrollRegistrationFieldIntoView(clientErrors[0][0]);
     return false;
   }
-  if (termsAccepted && !termsAccepted.checked) {
-    showFormError('Подтвердите принятие пользовательского соглашения отдельным действием.');
-    return false;
-  }
+  const data = new FormData(form);
 
   // «Другое — напишу сам»: если выбран этот вариант, статус берём из текстового поля.
   let professionalStatus = data.get('professionalStatus');
   if (professionalStatus === 'Другое') {
     professionalStatus = (form.querySelector('#reg-status-other')?.value || '').trim();
-    if (!professionalStatus) {
-      showFormError('Укажите ваш статус или выберите вариант из списка.');
-      return false;
-    }
   }
 
   if (button) {
@@ -266,7 +384,6 @@ export async function handleRegistrationSubmit(event, formOverride) {
   }
 
   try {
-    track('registration_form_open');
     const result = await post('/register', {
       name: data.get('name'),
       phone: data.get('phone'),
@@ -306,7 +423,12 @@ export async function handleRegistrationSubmit(event, formOverride) {
     }
     window.location.href = result.successUrl || 'success.html';
   } catch (error) {
-    showFormError(error.message || 'Не удалось отправить регистрацию. Проверьте поля и попробуйте снова.');
+    track('registration_form_error', {
+      failureCode: Number(error?.status) > 0 ? `http_${Number(error.status)}` : 'network_error',
+    });
+    if (!renderServerRegistrationErrors(form, error?.payload?.details)) {
+      showFormError(error.message || 'Не удалось отправить регистрацию. Проверьте поля и попробуйте снова.');
+    }
     if (button) {
       button.textContent = originalText;
       button.disabled = false;
@@ -323,6 +445,17 @@ export function bindRegistrationForm() {
   if (!form || form.dataset.aspbBound === 'true') return;
 
   form.dataset.aspbBound = 'true';
+  form.noValidate = true;
+  let formStarted = false;
+  const trackFormStart = () => {
+    if (formStarted) return;
+    formStarted = true;
+    track('registration_form_open');
+  };
+  form.addEventListener('input', trackFormStart, { once: true });
+  form.addEventListener('change', trackFormStart, { once: true });
+  form.addEventListener('input', event => clearRegistrationFieldError(event.target));
+  form.addEventListener('change', event => clearRegistrationFieldError(event.target));
   form.addEventListener('submit', event => {
     handleRegistrationSubmit(event, form);
   });
@@ -355,6 +488,9 @@ export function bindTelegramTracking() {
 
 export function bindRegistrationClicks() {
   document.querySelectorAll('a[href*="register.html"]').forEach(link => {
-    link.addEventListener('click', () => track('registration_click'));
+    link.setAttribute('href', withAttribution(link.getAttribute('href') || 'register.html'));
+    link.addEventListener('click', () => {
+      if (link.dataset.participantCta !== 'true') track('registration_click');
+    });
   });
 }

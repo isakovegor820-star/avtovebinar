@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Очередь модерации | АСПБ</title>
+    <link rel="stylesheet" href="fonts.css?v=self-2" />
+    <link rel="stylesheet" href="platform-moderation.css?v=moderation-1" />
+  </head>
+  <body>
+    <a class="skip-link" href="#moderationMain">К очереди модерации</a>
+    <header class="page-header">
+      <a class="brand" href="admin.html">АСПБ · администрирование платформы</a>
+      <nav aria-label="Разделы администратора">
+        <a href="admin.html">Панель</a>
+        <a aria-current="page" href="platform-moderation.html">Модерация</a>
+      </nav>
+    </header>
+    <main id="moderationMain" tabindex="-1">
+      <section class="intro" aria-labelledby="pageTitle">
+        <p class="eyebrow">Администратор платформы · MFA</p>
+        <h1 id="pageTitle">Очередь публичных жалоб</h1>
+        <p>Каждое изменение требует причины и актуальной ревизии. Отклонённая операция не попадает в историю.</p>
+      </section>
+
+      <form id="reportFilters" class="panel filters" aria-labelledby="filtersTitle">
+        <h2 id="filtersTitle">Фильтр очереди</h2>
+        <label for="reportStatus">Статус
+          <select id="reportStatus" name="status">
+            <option value="">Все статусы</option>
+            <option value="NEW">Новая</option>
+            <option value="IN_REVIEW">На рассмотрении</option>
+            <option value="ACTION_REQUIRED">Нужно действие</option>
+            <option value="RESOLVED">Решена</option>
+            <option value="REJECTED">Отклонена</option>
+          </select>
+        </label>
+        <button type="submit">Применить</button>
+      </form>
+
+      <p id="queueStatus" class="live-status" role="status" aria-live="polite">Загружаем очередь…</p>
+      <section id="queueError" class="panel error" role="alert" hidden>
+        <h2>Очередь недоступна</h2>
+        <p id="queueErrorText"></p>
+        <button id="queueRetry" type="button">Повторить</button>
+      </section>
+      <section aria-labelledby="queueTitle">
+        <div class="section-heading">
+          <h2 id="queueTitle">Жалобы</h2>
+          <p id="queueCount"></p>
+        </div>
+        <p id="queueEmpty" class="panel" hidden>По выбранному фильтру жалоб нет.</p>
+        <ol id="reportList" class="report-list" aria-busy="true"></ol>
+      </section>
+    </main>
+    <script type="module" src="js/platform-moderation.js?v=moderation-1"></script>
+  </body>
+</html>

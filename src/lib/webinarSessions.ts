@@ -15,7 +15,17 @@ import {
   WEBINAR_VIDEO_DURATION_SECONDS,
 } from './webinarTimeline.js';
 import { getEffectiveVideoDurationMinutes } from './webinarLive.js';
-import { DEFAULT_ORGANIZATION_ID } from './tenancy/constants.js';
+import { DEFAULT_ORGANIZATION_ID, DEFAULT_WEBINAR_ID } from './tenancy/constants.js';
+import { AppError } from './http.js';
+
+function defaultWebinarUnavailable() {
+  return new AppError(
+    503,
+    'Вебинар временно недоступен. Попробуйте ещё раз через несколько минут.',
+    undefined,
+    'default_webinar_unavailable',
+  );
+}
 
 function pointsToRecordingAsset(value: string | null | undefined) {
   if (!value) return false;
@@ -49,12 +59,18 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
 
   const session = await prisma.webinarSession
     .upsert({
-      where: { scheduledAt },
+      where: {
+        webinarId_scheduledAt: {
+          webinarId: DEFAULT_WEBINAR_ID,
+          scheduledAt,
+        },
+      },
       update: {
         status,
       },
       create: {
         organizationId: DEFAULT_ORGANIZATION_ID,
+        webinarId: DEFAULT_WEBINAR_ID,
         title: WEBINAR_TITLE,
         scheduledAt,
         durationMinutes: WEBINAR_DURATION_MINUTES,
@@ -70,11 +86,21 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
     })
     .catch(async (error: unknown) => {
       // Гонка при первом обращении к новой дате эфира: два параллельных INSERT в upsert →
-      // P2002 (@@unique([scheduledAt])). Строку уже создал конкурент — читаем её, чтобы
+      // P2002 (@@unique([webinarId, scheduledAt])). Строку уже создал конкурент — читаем её, чтобы
       // регистрация не падала с 500 и лид не терялся.
       if ((error as { code?: string })?.code === 'P2002') {
-        const existing = await prisma.webinarSession.findUnique({ where: { scheduledAt } });
+        const existing = await prisma.webinarSession.findUnique({
+          where: {
+            webinarId_scheduledAt: {
+              webinarId: DEFAULT_WEBINAR_ID,
+              scheduledAt,
+            },
+          },
+        });
         if (existing) return existing;
+      }
+      if ((error as { code?: string })?.code === 'P2003') {
+        throw defaultWebinarUnavailable();
       }
       throw error;
     });
@@ -84,8 +110,13 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
     return session;
   }
 
-  return prisma.webinarSession.update({
-    where: { id: session.id },
-    data: repairData,
-  });
+  return prisma.webinarSession
+    .update({
+      where: { id: session.id },
+      data: repairData,
+    })
+    .catch((error: unknown) => {
+      if ((error as { code?: string })?.code === 'P2003') throw defaultWebinarUnavailable();
+      throw error;
+    });
 }

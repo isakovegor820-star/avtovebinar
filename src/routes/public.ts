@@ -7,6 +7,18 @@ import { partnersRouter } from './public/partners.js';
 import { mediaRouter } from './public/media.js';
 import { sendCsrfToken } from '../lib/csrf.js';
 import { getReadiness } from '../lib/health.js';
+import { platformAuthRouter } from './platformAuth.js';
+import { authorPlatformRouter } from './authorPlatform.js';
+import { creatorWebinarsRouter } from './creatorWebinars.js';
+import { catalogRouter } from './catalog.js';
+import { creatorMediaRouter } from './creatorMedia.js';
+import { creatorTranscriptsRouter } from './creatorTranscripts.js';
+import { viewerAccountRouter } from './viewerAccount.js';
+import { tenantCrmRouter } from './tenantCrm.js';
+import { tenantModerationRouter } from './tenantModeration.js';
+import { tenantTelegramRouter } from './tenantTelegram.js';
+import { tenantAnalyticsRouter } from './tenantAnalytics.js';
+import { publicReportsRouter } from './publicReports.js';
 
 export const publicRouter = Router();
 
@@ -31,6 +43,18 @@ publicRouter.get('/health/ready', async (_req, res, next) => {
 });
 
 publicRouter.get('/csrf', sendCsrfToken);
+publicRouter.use('/v1', platformAuthRouter);
+publicRouter.use('/v1', authorPlatformRouter);
+publicRouter.use('/v1', creatorWebinarsRouter);
+publicRouter.use('/v1', creatorMediaRouter);
+publicRouter.use('/v1', creatorTranscriptsRouter);
+publicRouter.use('/v1', catalogRouter);
+publicRouter.use('/v1', viewerAccountRouter);
+publicRouter.use('/v1', tenantCrmRouter);
+publicRouter.use('/v1', tenantModerationRouter);
+publicRouter.use('/v1', tenantTelegramRouter);
+publicRouter.use('/v1', tenantAnalyticsRouter);
+publicRouter.use('/v1', publicReportsRouter);
 
 // Sub-routers (all paths are defined inside each module)
 publicRouter.use(registrationRouter);

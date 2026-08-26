@@ -12,17 +12,23 @@ services:
       dockerfile: Dockerfile
       args:
         BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}
-    container_name: aspb-autowebinar-api
+    container_name: ${ASPB_CONTAINER_PREFIX:-aspb-autowebinar}-api
     restart: unless-stopped
     env_file:
       - ${COMPOSE_ENV_FILE:-.env.production}
     environment:
       WORKER_ROLE: api
       TRUST_PROXY: ${TRUST_PROXY:-1}
+      MEDIA_LOCAL_ROOT: /var/lib/aspb/media
+      MEDIA_WORK_ROOT: /var/lib/aspb/media-work
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "127.0.0.1:5174:5174"
+      - "127.0.0.1:${ASPB_BIND_PORT:-5174}:5174"
+    volumes:
+      - aspb_media_native_data:/var/lib/aspb/media
+      - aspb_media_work_native_data:/var/lib/aspb/media-work
+      - ${LEGACY_MEDIA_PATH:?LEGACY_MEDIA_PATH is required}:/app/crisis_premium/assets/media:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$${PORT:-5174}/health/ready || exit 1"]
       interval: 30s
@@ -38,16 +44,25 @@ services:
       dockerfile: Dockerfile
       args:
         BUILD_COMMIT_SHA: ${DEPLOY_COMMIT_SHA:-local}
-    container_name: aspb-autowebinar-worker
+    container_name: ${ASPB_CONTAINER_PREFIX:-aspb-autowebinar}-worker
     restart: unless-stopped
     env_file:
       - ${COMPOSE_ENV_FILE:-.env.production}
     environment:
       WORKER_ROLE: webinar
+      MEDIA_LOCAL_ROOT: /var/lib/aspb/media
+      MEDIA_WORK_ROOT: /var/lib/aspb/media-work
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       api:
         condition: service_healthy
     command: ["node", "scripts/run-worker-with-watchdog.mjs"]
+    volumes:
+      - aspb_media_native_data:/var/lib/aspb/media
+      - aspb_media_work_native_data:/var/lib/aspb/media-work
     logging: *default-logging
+
+volumes:
+  aspb_media_native_data:
+  aspb_media_work_native_data:

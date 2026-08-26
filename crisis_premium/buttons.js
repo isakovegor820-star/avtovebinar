@@ -1,5 +1,7 @@
 /* Premium Button Interactions: Magnetic & Spotlight effects */
 (function () {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+
   // Disable magnetic effects on touch-only devices
   const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 

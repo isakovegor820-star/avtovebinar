@@ -20,5 +20,11 @@ test "$(failed_release_cleanup_action "$image_a" "$image_a" false)" = keep
 test "$(failed_release_cleanup_action "$image_a" "$image_b" true)" = keep
 test "$(failed_release_cleanup_action "$image_a" "$image_b" false)" = remove
 grep -q 'aspb-autowebinar-build' scripts/cleanup-failed-release-images.sh
+grep -q 'No pending migrations to apply' scripts/deploy-production.sh
+grep -q 'npx prisma migrate status' scripts/deploy-production.sh
+grep -q 'releaseControlsAcceptance.js' scripts/deploy-production.sh
+for endpoint in /health/live /health/ready /health/dependencies /health/dependencies/details /metrics; do
+  grep -q "\"$endpoint\"" scripts/deploy-production.sh
+done
 
 echo "Deploy release safety regression checks passed."

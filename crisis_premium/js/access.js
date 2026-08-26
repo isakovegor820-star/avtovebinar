@@ -7,9 +7,9 @@ import {
   logoutParticipant,
   participantLoginStatusMessage,
   requestParticipantLogin,
-} from './registration.js?v=remediation-20260805-2';
-import { formatMoscowDateTime } from './utils.js?v=site-review-7';
-import { updateTelegramLinks } from './room.js?v=site-review-7';
+} from './registration.js?v=prelaunch-20260825-2';
+import { formatMoscowDateTime } from './utils.js?v=prelaunch-20260825-2';
+import { updateTelegramLinks } from './room.js?v=prelaunch-20260825-2';
 
 function statusLabel(data) {
   if (data.accessStatus === 'live') return 'Идет премьера записи';

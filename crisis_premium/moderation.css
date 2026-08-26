@@ -1,0 +1,190 @@
+.moderation-mode {
+  display: none;
+}
+
+#moderationContent,
+#moderationContent > .platform-panel,
+.moderation-session-controls,
+.moderation-session-controls > *,
+.moderation-section-heading,
+.moderation-message,
+.moderation-message-heading,
+.moderation-message-actions {
+  min-width: 0;
+}
+
+.moderation-question-controls,
+.moderation-suggestion {
+  min-width: 0;
+}
+
+#moderationContent .platform-input {
+  width: 100%;
+  max-width: 100%;
+}
+
+body[data-moderation-mode='loading'] #moderationLoading,
+body[data-moderation-mode='content'] #moderationContent,
+body[data-moderation-mode='error'] #moderationError {
+  display: grid;
+}
+
+.moderation-header-nav,
+.moderation-section-heading,
+.moderation-message-heading,
+.moderation-message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.moderation-session-controls {
+  display: grid;
+  gap: 1rem;
+}
+
+.moderation-session-controls .platform-secondary-button {
+  align-self: end;
+}
+
+.moderation-section-heading,
+.moderation-message-heading {
+  justify-content: space-between;
+}
+
+.moderation-filter-label {
+  display: grid;
+  min-width: min(100%, 13rem);
+  gap: 0.35rem;
+  color: var(--color-on-surface-variant, #44474c);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.moderation-message {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  background: var(--color-surface, #fff);
+}
+
+.moderation-message[data-hidden='true'] {
+  border-style: dashed;
+  background: var(--color-surface-container-low, #f5f6f7);
+}
+
+.moderation-message-type,
+.moderation-message-state {
+  display: inline-flex;
+  min-height: 1.75rem;
+  align-items: center;
+  border-radius: 999px;
+  padding-inline: 0.625rem;
+  background: var(--color-secondary-container, #d8e7e4);
+  color: var(--color-on-secondary-container, #173d38);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.moderation-message-state[data-state='hidden'],
+.moderation-registration-state[data-state='blocked'],
+.moderation-message-state[data-state='action_required'] {
+  color: var(--color-error, #9f2d24);
+}
+
+.moderation-message-state[data-state='priority'] {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: var(--color-primary, #0b6159);
+}
+
+.moderation-message-text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.moderation-reason-field {
+  display: grid;
+  min-width: min(100%, 18rem);
+  flex: 1 1 18rem;
+  gap: 0.35rem;
+}
+
+.moderation-message-actions {
+  align-items: end;
+}
+
+.moderation-question-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.moderation-question-controls .moderation-reason-field {
+  min-width: 0;
+}
+
+.moderation-suggestion {
+  border-inline-start: 0.25rem solid var(--color-primary, #0b6159);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  background: var(--color-surface-container-low, #f5f6f7);
+}
+
+.moderation-source-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  max-width: 100%;
+  align-items: center;
+  color: var(--color-primary, #0b6159);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.moderation-source-link:focus-visible {
+  outline: 3px solid var(--color-primary, #0b6159);
+  outline-offset: 2px;
+}
+
+.moderation-empty {
+  border: 1px dashed color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+@media (min-width: 48rem) {
+  .moderation-session-controls {
+    grid-template-columns: minmax(16rem, 1fr) auto;
+  }
+}
+
+@media (max-width: 30rem) {
+  .moderation-header-nav,
+  .moderation-section-heading,
+  .moderation-message-heading,
+  .moderation-message-actions,
+  .moderation-message-actions > *,
+  .moderation-question-controls,
+  .moderation-question-controls > *,
+  .moderation-session-controls .platform-secondary-button {
+    width: 100%;
+  }
+
+  .moderation-question-controls .platform-input {
+    font-size: 1rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .moderation-message,
+  .moderation-empty {
+    border: 1px solid CanvasText;
+  }
+}

@@ -1,5 +1,7 @@
 User-agent: *
 Allow: /
 
-Disallow: /admin
 Disallow: /api/
+
+Sitemap: https://aspb-partners.ru/sitemap.xml
+Sitemap: https://aspb-partners.ru/sitemap-static.xml

@@ -5,11 +5,11 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler, getClientIp } from '../../lib/http.js';
 import { env } from '../../lib/env.js';
 import { createAccessToken, hashIp, hashToken } from '../../lib/tokens.js';
-import { verifyUnsubscribeToken } from '../../lib/unsubscribe.js';
+import { consumeUnsubscribeToken, verifyUnsubscribeToken } from '../../lib/unsubscribe.js';
 import { getDailyBroadcastDate, getWebinarAccess, getWebinarRoomState } from '../../lib/time.js';
 import { getEffectiveVideoDurationMinutes, getWebinarLiveState } from '../../lib/webinarLive.js';
 import { enqueueParticipantLoginEmail, enqueueRegistrationEmail } from '../../lib/emailOutbox.js';
-import { buildTelegramStartUrl, notifyRegistration } from '../../lib/telegram.js';
+import { buildTelegramStartUrl } from '../../lib/telegram.js';
 import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import { createTelegramStartToken } from '../../lib/roomLinks.js';
 import {
@@ -24,7 +24,6 @@ import {
   getParticipantSessionExpiresAt,
   getRoomTokenExpiresAt,
   PARTICIPANT_LOGIN_TOKEN_PURPOSE,
-  notifySafely,
   ROOM_EXCHANGE_TOKEN_PURPOSE,
   ROOM_SESSION_TOKEN_PURPOSE,
   TELEGRAM_BINDING_VERSION,
@@ -45,9 +44,80 @@ import {
   isLeadIdentityActive,
   isParticipantRegistrationActive,
 } from '../../lib/leadSecurity.js';
+import { canAccessRegisteredWebinar } from '../../lib/tenancy/webinarAccess.js';
 import { getEmailDeliveryReadiness } from '../../lib/health.js';
+import { activateViewerUser, ensureViewerUser } from '../../lib/tenancy/viewerIdentity.js';
+import { getCatalogRegistrationTarget } from '../../lib/catalog.js';
+import { getPlatformFeatureFlags } from '../../lib/featureFlags.js';
+import { linkVerifiedRegistrationToCrm, recordCrmScoreSignalForRegistration } from '../../lib/tenancy/crm.js';
+import { enqueueManagerTelegramNotification } from '../../lib/managerTelegramOutbox.js';
 
 export const registrationRouter = Router();
+
+function normalizeHumanName(value: string) {
+  return value.normalize('NFKC').trim().replace(/\s+/gu, ' ');
+}
+
+function normalizePhone(value: string) {
+  const compact = value.normalize('NFKC').trim();
+  let digits = compact.replace(/\D/gu, '');
+  if (!compact.startsWith('+') && digits.startsWith('00')) {
+    digits = digits.slice(2);
+  } else if (!compact.startsWith('+') && digits.length === 10) {
+    digits = `7${digits}`;
+  } else if (!compact.startsWith('+') && digits.length === 11 && digits.startsWith('8')) {
+    digits = `7${digits.slice(1)}`;
+  }
+  return `+${digits}`;
+}
+
+const humanNameSchema = z
+  .string({ error: 'Укажите имя' })
+  .max(160, 'Имя не должно быть длиннее 120 символов')
+  .transform(normalizeHumanName)
+  .pipe(
+    z
+      .string()
+      .min(2, 'Имя должно содержать не менее двух букв')
+      .max(120, 'Имя не должно быть длиннее 120 символов')
+      .regex(/^[\p{L}\p{M}][\p{L}\p{M}\s.'’ʼ-]*$/u, 'Имя может содержать только буквы, пробелы, дефис и апостроф')
+      .refine(value => (value.match(/\p{L}/gu) ?? []).length >= 2, 'Имя должно содержать не менее двух букв'),
+  );
+
+const phoneSchema = z
+  .string({ error: 'Укажите телефон' })
+  .trim()
+  .min(7, 'Телефон слишком короткий')
+  .max(40, 'Телефон слишком длинный')
+  .regex(/^\+?[\d\s().-]+$/u, 'Телефон содержит недопустимые символы')
+  .transform(normalizePhone)
+  .pipe(z.string().regex(/^\+[1-9]\d{6,14}$/u, 'Укажите телефон в международном формате'));
+
+const clickIdSchema = z
+  .string()
+  .trim()
+  .max(256)
+  .regex(/^[A-Za-z0-9._-]*$/u, 'Идентификатор рекламного клика содержит недопустимые символы');
+
+function normalizeLandingUrl(value: string) {
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    // Query/hash can contain email, phone, bearer links or arbitrary PII. UTM
+    // and click IDs travel in their own bounded fields, so only page identity is retained.
+    return `${url.origin}${url.pathname}`.slice(0, 1000);
+  } catch {
+    return null;
+  }
+}
+
+const landingUrlSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine(value => normalizeLandingUrl(value) !== null, 'Некорректный адрес страницы входа')
+  .transform(value => normalizeLandingUrl(value) ?? '');
 
 const utmSchema = {
   source: z.string().trim().max(120).optional().or(z.literal('')),
@@ -56,7 +126,90 @@ const utmSchema = {
   utmCampaign: z.string().trim().max(120).optional().or(z.literal('')),
   utmContent: z.string().trim().max(120).optional().or(z.literal('')),
   utmTerm: z.string().trim().max(120).optional().or(z.literal('')),
+  gclid: clickIdSchema.optional().or(z.literal('')),
+  yclid: clickIdSchema.optional().or(z.literal('')),
+  landingUrl: landingUrlSchema.optional().or(z.literal('')),
+  firstSource: z.string().trim().max(120).optional().or(z.literal('')),
+  firstUtmSource: z.string().trim().max(120).optional().or(z.literal('')),
+  firstUtmMedium: z.string().trim().max(120).optional().or(z.literal('')),
+  firstUtmCampaign: z.string().trim().max(120).optional().or(z.literal('')),
+  firstUtmContent: z.string().trim().max(120).optional().or(z.literal('')),
+  firstUtmTerm: z.string().trim().max(120).optional().or(z.literal('')),
+  firstGclid: clickIdSchema.optional().or(z.literal('')),
+  firstYclid: clickIdSchema.optional().or(z.literal('')),
+  firstLandingUrl: landingUrlSchema.optional().or(z.literal('')),
 };
+
+type AttributionInput = {
+  source?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
+  utmTerm?: string;
+  gclid?: string;
+  yclid?: string;
+  landingUrl?: string;
+  firstSource?: string;
+  firstUtmSource?: string;
+  firstUtmMedium?: string;
+  firstUtmCampaign?: string;
+  firstUtmContent?: string;
+  firstUtmTerm?: string;
+  firstGclid?: string;
+  firstYclid?: string;
+  firstLandingUrl?: string;
+};
+
+function normalizedAttribution(data: AttributionInput) {
+  return {
+    source: clean(data.source),
+    utmSource: clean(data.utmSource),
+    utmMedium: clean(data.utmMedium),
+    utmCampaign: clean(data.utmCampaign),
+    utmContent: clean(data.utmContent),
+    utmTerm: clean(data.utmTerm),
+    gclid: clean(data.gclid),
+    yclid: clean(data.yclid),
+    landingUrl: clean(data.landingUrl),
+  };
+}
+
+function hasAttribution(data: ReturnType<typeof normalizedAttribution>) {
+  return Object.values(data).some(Boolean);
+}
+
+export function resolveRegistrationAttribution(data: AttributionInput) {
+  const last = normalizedAttribution(data);
+  const explicitFirst = {
+    source: clean(data.firstSource),
+    utmSource: clean(data.firstUtmSource),
+    utmMedium: clean(data.firstUtmMedium),
+    utmCampaign: clean(data.firstUtmCampaign),
+    utmContent: clean(data.firstUtmContent),
+    utmTerm: clean(data.firstUtmTerm),
+    gclid: clean(data.firstGclid),
+    yclid: clean(data.firstYclid),
+    landingUrl: clean(data.firstLandingUrl),
+  };
+  return { first: hasAttribution(explicitFirst) ? explicitFirst : last, last };
+}
+
+function lastTouchAttribution(data: ReturnType<typeof normalizedAttribution>, occurredAt: Date) {
+  if (!hasAttribution(data)) return {};
+  return {
+    lastSource: data.source,
+    lastUtmSource: data.utmSource,
+    lastUtmMedium: data.utmMedium,
+    lastUtmCampaign: data.utmCampaign,
+    lastUtmContent: data.utmContent,
+    lastUtmTerm: data.utmTerm,
+    lastGclid: data.gclid,
+    lastYclid: data.yclid,
+    lastLandingUrl: data.landingUrl,
+    lastTouchAt: occurredAt,
+  };
+}
 
 // `z.coerce.boolean()` использует JavaScript truthiness, поэтому строка `"false"`
 // превращается в `true`. Для юридически значимых согласий принимаем только явные
@@ -68,9 +221,14 @@ const explicitBooleanSchema = z.union([
 ]);
 
 export const registerSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  phone: z.string().trim().min(6).max(40),
-  email: z.string().trim().email().max(160),
+  name: humanNameSchema,
+  phone: phoneSchema,
+  email: z
+    .string({ error: 'Укажите email' })
+    .trim()
+    .email('Укажите корректный email')
+    .max(160, 'Email слишком длинный')
+    .transform(value => value.toLowerCase()),
   companyWebsite: z.string().trim().max(200).optional().or(z.literal('')),
   city: z.string().trim().max(120).optional().or(z.literal('')),
   professionalStatus: z.string().trim().max(120).optional().or(z.literal('')),
@@ -82,6 +240,40 @@ export const registerSchema = z.object({
   marketingTelegramConsent: explicitBooleanSchema.optional().default(false),
   ...utmSchema,
 });
+
+const catalogRegisterSchema = registerSchema
+  .pick({
+    name: true,
+    phone: true,
+    email: true,
+    companyWebsite: true,
+    city: true,
+    professionalStatus: true,
+    personalDataConsent: true,
+    termsAccepted: true,
+    marketingEmailConsent: true,
+    marketingTelegramConsent: true,
+    source: true,
+    utmSource: true,
+    utmMedium: true,
+    utmCampaign: true,
+    utmContent: true,
+    utmTerm: true,
+    gclid: true,
+    yclid: true,
+    landingUrl: true,
+    firstSource: true,
+    firstUtmSource: true,
+    firstUtmMedium: true,
+    firstUtmCampaign: true,
+    firstUtmContent: true,
+    firstUtmTerm: true,
+    firstGclid: true,
+    firstYclid: true,
+    firstLandingUrl: true,
+  })
+  .extend({ sessionId: z.string().trim().min(8).max(64) })
+  .strict();
 
 const exchangeBodySchema = z.object({
   token: z.string().min(20),
@@ -96,6 +288,10 @@ function isPrismaUniqueConstraintError(error: unknown) {
 }
 
 class LeadIdentityChangedError extends Error {}
+
+function shouldEnqueueEmailOutbox() {
+  return env.EMAIL_MODE === 'send' || (env.NODE_ENV === 'test' && env.E2E_EMAIL_OUTBOX_ENABLED === 'on');
+}
 
 type PublicEmailReadiness = Awaited<ReturnType<typeof getEmailDeliveryReadiness>>;
 
@@ -220,6 +416,12 @@ async function exchangeRegistrationToken(
     if (!isPendingRegistrationConfirmation && !isParticipantRegistrationActive(activeTokenRecord.registration)) {
       throw new AppError(404, 'Registration not found');
     }
+    if (activeTokenRecord.registration.webinarSession.lifecycleStatus === 'CANCELLED') {
+      throw new AppError(404, 'Registration not found');
+    }
+    if (!(await canAccessRegisteredWebinar(tx as unknown as typeof prisma, activeTokenRecord.registration, now))) {
+      throw new AppError(404, 'Registration not found');
+    }
 
     // ВАЖНО (защита от double-spend): это compare-and-swap. deleteMany с условием
     // по tokenHash атомарно «забирает» токен — две параллельные транзакции под
@@ -339,6 +541,12 @@ async function exchangeRegistrationToken(
           pendingMetadataJson: Prisma.DbNull,
         },
       });
+      await activateViewerUser(tx, {
+        userId: activeTokenRecord.registration.userId,
+        email: activeTokenRecord.registration.lead.email,
+        displayName: activeTokenRecord.registration.lead.name,
+        verifiedAt: now,
+      });
       // Resends and ambiguous SMTP outcomes can produce several one-time
       // confirmation hashes. Once one succeeds, revoke every sibling link.
       await tx.registrationToken.deleteMany({
@@ -367,6 +575,16 @@ async function exchangeRegistrationToken(
       await tx.registration.update({
         where: { id: activeTokenRecord.registrationId },
         data: { accessTokenHash: sessionTokenHash },
+      });
+    }
+
+    await linkVerifiedRegistrationToCrm(tx, activeTokenRecord.registrationId, now);
+
+    if (newlyVerified) {
+      await enqueueManagerTelegramNotification(tx, {
+        kind: 'registration',
+        registrationId: activeTokenRecord.registrationId,
+        dedupKey: `manager-telegram:registration:${activeTokenRecord.registrationId}`,
       });
     }
 
@@ -407,19 +625,8 @@ async function exchangeRegistrationToken(
       },
       'registration_verification',
     );
-    notifySafely(
-      notifyRegistration({
-        name: newlyVerified.name,
-        phone: newlyVerified.phone,
-        email: newlyVerified.email,
-        city: newlyVerified.city,
-        professionalStatus: newlyVerified.professionalStatus,
-        scheduledAt: newlyVerified.scheduledAt,
-        source: newlyVerified.source,
-        adminUrl: buildFrontendUrl('/admin'),
-      }),
-    );
   }
+  res.setHeader('Cache-Control', 'private, no-store');
   res.json({
     ok: true,
     purpose,
@@ -469,6 +676,7 @@ registrationRouter.post(
     const session = await findOrCreateWebinarSession(scheduledAt, now);
     const professionalStatus = clean(data.professionalStatus) ?? clean(data.status);
     const clientsProblem = clean(data.clientsProblem);
+    const attribution = resolveRegistrationAttribution(data);
 
     const issueImmediateParticipantSession = Boolean(
       existingLead && authenticatedRegistration?.leadId === existingLead.id,
@@ -504,12 +712,9 @@ registrationRouter.post(
           consentPolicyVersion: CONSENT_POLICY_VERSION,
           consentIpHash,
           personalDataConsentRevokedAt: null,
-          source: clean(data.source) ?? undefined,
-          utmSource: clean(data.utmSource) ?? undefined,
-          utmMedium: clean(data.utmMedium) ?? undefined,
-          utmCampaign: clean(data.utmCampaign) ?? undefined,
-          utmContent: clean(data.utmContent) ?? undefined,
-          utmTerm: clean(data.utmTerm) ?? undefined,
+          // Existing first-touch fields are immutable. A repeat authenticated
+          // registration records a separate atomic last-touch snapshot.
+          ...lastTouchAttribution(attribution.last, now),
         };
         const newLead = {
           name: data.name,
@@ -530,12 +735,8 @@ registrationRouter.post(
           marketingTelegramConsentAt: null,
           consentPolicyVersion: null,
           consentIpHash: null,
-          source: clean(data.source),
-          utmSource: clean(data.utmSource),
-          utmMedium: clean(data.utmMedium),
-          utmCampaign: clean(data.utmCampaign),
-          utmContent: clean(data.utmContent),
-          utmTerm: clean(data.utmTerm),
+          ...attribution.first,
+          ...lastTouchAttribution(attribution.last, firstSeenAt),
           firstSeenAt,
         };
         const lead = existingLead
@@ -555,6 +756,20 @@ registrationRouter.post(
             })()
           : await tx.lead.create({ data: newLead });
 
+        const participantUser = await ensureViewerUser(tx, {
+          email: lead.email,
+          displayName: lead.name,
+          verifiedAt: issueImmediateParticipantSession ? now : null,
+        });
+        if (issueImmediateParticipantSession) {
+          await activateViewerUser(tx, {
+            userId: participantUser.id,
+            email: lead.email,
+            displayName: lead.name,
+            verifiedAt: now,
+          });
+        }
+
         const registration = await tx.registration.upsert({
           where: {
             leadId_webinarSessionId: {
@@ -563,6 +778,10 @@ registrationRouter.post(
             },
           },
           update: {
+            organizationId: session.organizationId,
+            webinarId: session.webinarId,
+            userId: participantUser.id,
+            accessPolicy: 'LEGACY',
             status: registrationStatus,
             emailVerifiedAt: issueImmediateParticipantSession ? now : null,
             ...(issueImmediateParticipantSession ? { pendingMetadataJson: Prisma.DbNull } : {}),
@@ -571,6 +790,10 @@ registrationRouter.post(
           create: {
             leadId: lead.id,
             webinarSessionId: session.id,
+            organizationId: session.organizationId,
+            webinarId: session.webinarId,
+            userId: participantUser.id,
+            accessPolicy: 'LEGACY',
             // This required legacy column is not an authentication source. For
             // an unverified registration it receives an unreachable random hash;
             // the email worker later stores only a one-time token hash.
@@ -668,7 +891,7 @@ registrationRouter.post(
           });
         }
 
-        if (env.EMAIL_MODE === 'send') {
+        if (shouldEnqueueEmailOutbox()) {
           await enqueueRegistrationEmail(tx, {
             registrationId: registration.id,
             webinarSessionId: session.id,
@@ -678,7 +901,15 @@ registrationRouter.post(
           });
         }
 
-        return { lead, registration };
+        if (issueImmediateParticipantSession) {
+          await enqueueManagerTelegramNotification(tx, {
+            kind: 'registration',
+            registrationId: registration.id,
+            dedupKey: `manager-telegram:registration:${registration.id}`,
+          });
+        }
+
+        return { registration };
       });
 
     // Два одновременных запроса нового email могут оба пройти предварительную
@@ -708,7 +939,7 @@ registrationRouter.post(
     if (!transactionResult) {
       return;
     }
-    const { lead, registration } = transactionResult;
+    const { registration } = transactionResult;
 
     if (!issueImmediateParticipantSession) {
       await sendGenericEmailResponse(res, 'registration');
@@ -730,19 +961,6 @@ registrationRouter.post(
       'authenticated_registration',
     );
 
-    notifySafely(
-      notifyRegistration({
-        name: lead.name,
-        phone: lead.phone,
-        email: lead.email,
-        city: lead.city,
-        professionalStatus: lead.professionalStatus,
-        scheduledAt: session.scheduledAt,
-        source: clean(data.source),
-        adminUrl: buildFrontendUrl('/admin'),
-      }),
-    );
-
     setRoomTokenCookie(res, sessionToken, sessionExpiresAt);
     res.status(201).json({
       ok: true,
@@ -755,6 +973,279 @@ registrationRouter.post(
         id: registration.id,
         scheduledAt: session.scheduledAt.toISOString(),
         status: registration.status,
+      },
+    });
+  }),
+);
+
+registrationRouter.post(
+  '/v1/catalog/webinars/:slug/register',
+  asyncHandler(async (req, res) => {
+    if (!getPlatformFeatureFlags().publicCatalog) {
+      throw new AppError(404, 'Каталог ещё не включён', undefined, 'public_catalog_disabled');
+    }
+    const data = catalogRegisterSchema.parse(req.body);
+    if (clean(data.companyWebsite)) {
+      res.status(202).json({
+        ok: true,
+        message: 'Если адрес можно подтвердить, ссылка для входа будет отправлена на почту.',
+      });
+      return;
+    }
+
+    const target = await getCatalogRegistrationTarget(prisma, req.params, req.query, data.sessionId);
+    const authenticatedRegistration = await findRegistrationForRequest(req);
+    const email = data.email.toLowerCase();
+    const now = new Date();
+    const consentIpHash = hashIp(getClientIp(req));
+    const sessionToken = createAccessToken();
+    const sessionTokenHash = hashToken(sessionToken);
+    const sessionExpiresAt = getParticipantSessionExpiresAt(now);
+    const attribution = resolveRegistrationAttribution(data);
+
+    const result = await prisma.$transaction(async tx => {
+      // Serialize a first registration for the same normalized mailbox without
+      // relying on a client idempotency key or leaking whether the mailbox exists.
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(48192735, hashtext(${email}))`);
+      let lead = await tx.lead.findUnique({ where: { email } });
+      if (lead) {
+        await acquireLeadSecurityLock(tx, lead.id);
+        lead = await tx.lead.findUnique({ where: { id: lead.id } });
+        if (!lead || lead.email.toLowerCase() !== email || !isLeadIdentityActive(lead)) {
+          throw new AppError(404, 'Registration target not found', undefined, 'catalog_registration_not_found');
+        }
+        if (hasAttribution(attribution.last)) {
+          lead = await tx.lead.update({
+            where: { id: lead.id },
+            data: lastTouchAttribution(attribution.last, now),
+          });
+        }
+      } else {
+        lead = await tx.lead.create({
+          data: {
+            name: data.name,
+            phone: data.phone,
+            email,
+            city: clean(data.city),
+            professionalStatus: clean(data.professionalStatus),
+            consent: false,
+            marketingConsent: false,
+            marketingEmailConsent: false,
+            marketingTelegramConsent: false,
+            ...attribution.first,
+            source: attribution.first.source ?? 'public_catalog',
+            ...lastTouchAttribution(
+              { ...attribution.last, source: attribution.last.source ?? 'public_catalog' },
+              now,
+            ),
+            firstSeenAt: getFirstSeen(req, res),
+          },
+        });
+      }
+
+      const participantUser = await ensureViewerUser(tx, {
+        email: lead.email,
+        displayName: lead.name,
+        verifiedAt: null,
+      });
+      const authenticatedSameUser = Boolean(
+        authenticatedRegistration &&
+          (authenticatedRegistration.userId === participantUser.id ||
+            (!authenticatedRegistration.userId && authenticatedRegistration.leadId === lead.id)),
+      );
+      if (authenticatedSameUser) {
+        await activateViewerUser(tx, {
+          userId: participantUser.id,
+          email: lead.email,
+          displayName: data.name,
+          verifiedAt: now,
+        });
+      }
+
+      const existingRegistration = await tx.registration.findUnique({
+        where: { leadId_webinarSessionId: { leadId: lead.id, webinarSessionId: target.id } },
+        include: { lead: true },
+      });
+      if (
+        existingRegistration &&
+        ((existingRegistration.organizationId && existingRegistration.organizationId !== target.organizationId) ||
+          (existingRegistration.webinarId && existingRegistration.webinarId !== target.webinarId) ||
+          (existingRegistration.userId && existingRegistration.userId !== participantUser.id))
+      ) {
+        throw new AppError(404, 'Registration target not found', undefined, 'catalog_registration_not_found');
+      }
+
+      const alreadyActive = existingRegistration ? isParticipantRegistrationActive(existingRegistration) : false;
+      const issueParticipantSession = authenticatedSameUser;
+      const status = issueParticipantSession || alreadyActive ? 'registered' : 'pending_verification';
+      const emailVerifiedAt = issueParticipantSession ? now : (existingRegistration?.emailVerifiedAt ?? null);
+      const shouldWriteEvidence = !existingRegistration || (issueParticipantSession && !alreadyActive);
+
+      if (issueParticipantSession) {
+        lead = await tx.lead.update({
+          where: { id: lead.id },
+          data: {
+            name: data.name,
+            phone: data.phone,
+            city: clean(data.city) ?? lead.city,
+            professionalStatus: clean(data.professionalStatus) ?? lead.professionalStatus,
+            consent: true,
+            consentAt: now,
+            consentPolicyVersion: CONSENT_POLICY_VERSION,
+            consentIpHash,
+            personalDataConsentRevokedAt: null,
+            ...(data.marketingEmailConsent
+              ? {
+                  marketingConsent: true,
+                  marketingConsentAt: now,
+                  marketingEmailConsent: true,
+                  marketingEmailConsentAt: now,
+                }
+              : {}),
+            ...(data.marketingTelegramConsent
+              ? {
+                  marketingConsent: true,
+                  marketingConsentAt: now,
+                  marketingTelegramConsent: true,
+                  marketingTelegramConsentAt: now,
+                }
+              : {}),
+          },
+        });
+      }
+
+      const registration = existingRegistration
+        ? await tx.registration.update({
+            where: { id: existingRegistration.id },
+            data: {
+              organizationId: target.organizationId,
+              webinarId: target.webinarId,
+              userId: participantUser.id,
+              accessPolicy: 'PUBLIC_CATALOG',
+              status,
+              emailVerifiedAt,
+              ...(issueParticipantSession
+                ? { accessTokenHash: sessionTokenHash, pendingMetadataJson: Prisma.DbNull }
+                : {}),
+            },
+          })
+        : await tx.registration.create({
+            data: {
+              leadId: lead.id,
+              webinarSessionId: target.id,
+              organizationId: target.organizationId,
+              webinarId: target.webinarId,
+              userId: participantUser.id,
+              accessPolicy: 'PUBLIC_CATALOG',
+              accessTokenHash: issueParticipantSession ? sessionTokenHash : hashToken(createAccessToken()),
+              status,
+              emailVerifiedAt,
+            },
+          });
+
+      if (shouldWriteEvidence) {
+        const evidenceAction = issueParticipantSession ? 'grant' : 'pending_verification';
+        await tx.consentRecord.create({
+          data: {
+            ...consentEvidenceData(PERSONAL_DATA_CONSENT, {
+              leadId: lead.id,
+              registrationId: registration.id,
+              email,
+              kind: 'personal_data',
+              sourceForm: '/crisis_premium/catalog-webinar.html',
+              req,
+              occurredAt: now,
+            }),
+            action: evidenceAction,
+          },
+        });
+        await tx.legalAcceptance.create({
+          data: legalAcceptanceEvidenceData({
+            leadId: lead.id,
+            registrationId: registration.id,
+            email,
+            sourceForm: '/crisis_premium/catalog-webinar.html',
+            req,
+            acceptedAt: now,
+          }),
+        });
+        for (const consent of [
+          data.marketingEmailConsent ? MARKETING_EMAIL_CONSENT : null,
+          data.marketingTelegramConsent ? MARKETING_TELEGRAM_CONSENT : null,
+        ]) {
+          if (!consent) continue;
+          const kind = consent.id === MARKETING_EMAIL_CONSENT.id ? 'marketing_email' : 'marketing_telegram';
+          await tx.consentRecord.create({
+            data: {
+              ...consentEvidenceData(consent, {
+                leadId: lead.id,
+                registrationId: registration.id,
+                email,
+                kind,
+                sourceForm: '/crisis_premium/catalog-webinar.html',
+                req,
+                occurredAt: now,
+              }),
+              action: evidenceAction,
+            },
+          });
+        }
+      }
+
+      if (issueParticipantSession) {
+        await linkVerifiedRegistrationToCrm(tx, registration.id, now);
+        await tx.registrationToken.create({
+          data: {
+            registrationId: registration.id,
+            tokenHash: sessionTokenHash,
+            purpose: ROOM_SESSION_TOKEN_PURPOSE,
+            expiresAt: sessionExpiresAt,
+          },
+        });
+      }
+
+      if (shouldEnqueueEmailOutbox()) {
+        const enqueue =
+          alreadyActive && !issueParticipantSession ? enqueueParticipantLoginEmail : enqueueRegistrationEmail;
+        await enqueue(tx, {
+          registrationId: registration.id,
+          webinarSessionId: target.id,
+          toEmail: lead.email,
+          toName: lead.name,
+          scheduledAt: target.scheduledAt,
+        });
+      }
+
+      return { registration, lead, issueParticipantSession };
+    });
+
+    if (!result.issueParticipantSession) {
+      await sendGenericEmailResponse(res, 'registration');
+      return;
+    }
+
+    setRoomTokenCookie(res, sessionToken, sessionExpiresAt);
+    await saveEventSafely(
+      {
+        eventName: 'registration_submit',
+        req,
+        registration: result.registration,
+        page: '/crisis_premium/catalog-webinar.html',
+        source: clean(data.source) ?? 'public_catalog',
+        webinarSessionId: target.id,
+      },
+      'catalog_registration',
+    );
+    res.status(201).json({
+      ok: true,
+      verificationRequired: false,
+      accountUrl: buildFrontendUrl('/crisis_premium/account.html'),
+      roomUrl: buildFrontendUrl('/crisis_premium/webinar.html'),
+      registration: {
+        id: result.registration.id,
+        webinarId: target.webinarId,
+        webinarSessionId: target.id,
+        status: result.registration.status,
       },
     });
   }),
@@ -827,6 +1318,7 @@ async function findRestorableRegistrationByEmail(email: string) {
     include: {
       registrations: {
         where: {
+          webinarSession: { lifecycleStatus: { not: 'CANCELLED' } },
           OR: [
             { status: 'registered', emailVerifiedAt: { not: null } },
             { status: 'pending_verification', emailVerifiedAt: null },
@@ -859,7 +1351,7 @@ async function findRestorableRegistrationByEmail(email: string) {
 
 async function queueParticipantLoginForEmail(email: string, req: Request) {
   const registration = await findRestorableRegistrationByEmail(email);
-  if (!registration || env.EMAIL_MODE !== 'send') {
+  if (!registration || !shouldEnqueueEmailOutbox()) {
     return false;
   }
 
@@ -879,8 +1371,12 @@ async function queueParticipantLoginForEmail(email: string, req: Request) {
     if (
       !currentRegistration ||
       currentRegistration.leadId !== registration.leadId ||
-      currentRegistration.lead.email.toLowerCase() !== email
+      currentRegistration.lead.email.toLowerCase() !== email ||
+      currentRegistration.webinarSession.lifecycleStatus === 'CANCELLED'
     ) {
+      return null;
+    }
+    if (!(await canAccessRegisteredWebinar(tx as unknown as typeof prisma, currentRegistration, now))) {
       return null;
     }
 
@@ -986,21 +1482,18 @@ registrationRouter.post(
   }),
 );
 
-registrationRouter.post(
-  '/registration/exchange/:token',
-  asyncHandler(async (req, res) => {
-    // Legacy endpoint kept temporarily for old email/Telegram links and clients.
-    const token = z.string().min(20).parse(req.params.token);
-    await exchangeRegistrationToken(token, req, res);
-  }),
-);
-
 async function sendRegistrationState(req: Request, res: Response) {
   const view = z.enum(['success', 'room']).optional().parse(req.query.view);
   const registration = await findRegistrationForRequest(req);
 
   if (!registration) {
-    throw new AppError(404, 'Registration not found');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.status(200).json({
+      ok: false,
+      state: 'anonymous',
+      registerUrl: buildFrontendUrl('/crisis_premium/register.html'),
+    });
+    return;
   }
 
   const now = new Date();
@@ -1022,9 +1515,19 @@ async function sendRegistrationState(req: Request, res: Response) {
 
   if (view === 'room') {
     if (access.canViewRoom) {
-      await prisma.registration.updateMany({
-        where: { id: registration.id, status: 'registered' },
-        data: { roomEnteredAt: registration.roomEnteredAt ?? now },
+      await prisma.$transaction(async tx => {
+        await tx.registration.updateMany({
+          where: { id: registration.id, status: 'registered' },
+          data: { roomEnteredAt: registration.roomEnteredAt ?? now },
+        });
+        await recordCrmScoreSignalForRegistration(
+          tx,
+          registration.id,
+          'room_entered',
+          'registration',
+          registration.id,
+          registration.roomEnteredAt ?? now,
+        );
       });
       await saveEventSafely(
         {
@@ -1055,6 +1558,7 @@ async function sendRegistrationState(req: Request, res: Response) {
   const telegramBotUrl =
     view === 'success' && telegramStartToken ? buildTelegramStartUrl(telegramStartToken) : buildTelegramStartUrl();
 
+  res.setHeader('Cache-Control', 'private, no-store');
   res.json({
     ok: true,
     serverTime: now.toISOString(),
@@ -1096,6 +1600,7 @@ async function sendRegistrationState(req: Request, res: Response) {
     webinar: {
       id: access.webinarSession.id,
       title: access.webinarSession.title,
+      timezone: access.webinarSession.timezone,
       scheduledAt: access.webinarSession.scheduledAt.toISOString(),
       roomOpensAt: access.roomOpensAt.toISOString(),
       replayExpiresAt: access.replayExpiresAt.toISOString(),
@@ -1149,7 +1654,7 @@ registrationRouter.get(
           return telegramStartToken ? buildTelegramStartUrl(telegramStartToken) : buildTelegramStartUrl();
         })();
 
-    res.setHeader('Cache-Control', 'private, max-age=15');
+    res.setHeader('Cache-Control', 'private, no-store');
     res.json({
       ok: true,
       serverTime: now.toISOString(),
@@ -1183,6 +1688,7 @@ registrationRouter.get(
       webinar: {
         id: access.webinarSession.id,
         title: access.webinarSession.title,
+        timezone: access.webinarSession.timezone,
         scheduledAt: access.webinarSession.scheduledAt.toISOString(),
         roomOpensAt: access.roomOpensAt.toISOString(),
         replayExpiresAt: access.replayExpiresAt.toISOString(),
@@ -1242,102 +1748,135 @@ registrationRouter.get(
   }),
 );
 
-// #10 (152-ФЗ/38-ФЗ): отписка от маркетинговых рассылок по подписанному токену.
-// Двухшаговый GET: переход показывает подтверждение (устойчиво к префетчу писем),
-// отписка выполняется только при ?confirm=1. CSRF не нужен — меняет состояние только подтверждённый HMAC-токен.
+function setUnsubscribeResponseHeaders(res: Response) {
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+}
+
+type UnsubscribeResult = 'done' | 'stale';
+
+async function revokeMarketingEmailConsent(
+  req: Request,
+  token: string,
+  verified: NonNullable<Awaited<ReturnType<typeof verifyUnsubscribeToken>>>,
+): Promise<UnsubscribeResult | 'invalid'> {
+  return prisma.$transaction(async tx => {
+    await acquireLeadSecurityLock(tx, verified.leadId);
+    const consumed = await consumeUnsubscribeToken(tx, token, new Date());
+    if (!consumed || consumed.id !== verified.id || consumed.leadId !== verified.leadId) return 'invalid';
+    const currentLead = await tx.lead.findUnique({
+      where: { id: verified.leadId },
+      include: {
+        consentRecords: {
+          where: {
+            kind: 'marketing_email',
+            action: 'grant',
+            documentId: MARKETING_EMAIL_CONSENT.id,
+          },
+          orderBy: { occurredAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+    if (
+      !currentLead ||
+      currentLead.email.toLowerCase() !== verified.email.toLowerCase() ||
+      !isLeadIdentityActive(currentLead)
+    ) {
+      return 'done';
+    }
+
+    // An old email must not revoke a consent explicitly granted after that email was issued.
+    if (currentLead.marketingEmailConsentAt && currentLead.marketingEmailConsentAt > verified.issuedAt) {
+      return 'stale';
+    }
+    if (!currentLead.marketingEmailConsent) return 'done';
+
+    const revokedAt = new Date();
+    await tx.lead.update({
+      where: { id: currentLead.id },
+      data: {
+        marketingEmailConsent: false,
+        marketingEmailRevokedAt: revokedAt,
+        marketingEmailRevocationChannel: 'email_link',
+        marketingEmailRevocationReason: 'recipient_request',
+        marketingConsent: currentLead.marketingTelegramConsent,
+      },
+    });
+    await tx.consentRecord.create({
+      data: consentEvidenceData(MARKETING_EMAIL_CONSENT, {
+        leadId: currentLead.id,
+        email: verified.email,
+        kind: 'marketing_email',
+        action: 'revoke',
+        sourceForm: '/api/unsubscribe',
+        req,
+        occurredAt: revokedAt,
+        revocationChannel: 'email_link',
+        revocationReason: 'recipient_request',
+        revokedConsentId: currentLead.consentRecords[0]?.id,
+      }),
+    });
+    return 'done';
+  });
+}
+
+// GET is deliberately read-only: email scanners and link previews must never revoke consent.
 registrationRouter.get(
   '/unsubscribe',
   asyncHandler(async (req: Request, res: Response) => {
+    setUnsubscribeResponseHeaders(res);
     const token = typeof req.query.token === 'string' ? req.query.token : undefined;
-    const email = verifyUnsubscribeToken(token);
-    if (!email) {
+    if (!(await verifyUnsubscribeToken(token))) {
       res.status(400).type('html').send(renderUnsubscribePage('invalid'));
-      return;
-    }
-    if (req.query.confirm === '1') {
-      const lead = await prisma.lead.findUnique({
-        where: { email },
-        include: {
-          consentRecords: {
-            where: {
-              kind: 'marketing_email',
-              action: 'grant',
-              documentId: MARKETING_EMAIL_CONSENT.id,
-            },
-            orderBy: { occurredAt: 'desc' },
-            take: 1,
-          },
-        },
-      });
-      if (lead) {
-        const revokedAt = new Date();
-        await prisma.$transaction(async tx => {
-          await acquireLeadSecurityLock(tx, lead.id);
-          const currentLead = await tx.lead.findUnique({
-            where: { id: lead.id },
-            include: {
-              consentRecords: {
-                where: {
-                  kind: 'marketing_email',
-                  action: 'grant',
-                  documentId: MARKETING_EMAIL_CONSENT.id,
-                },
-                orderBy: { occurredAt: 'desc' },
-                take: 1,
-              },
-            },
-          });
-          if (
-            !currentLead ||
-            currentLead.email.toLowerCase() !== email.toLowerCase() ||
-            !isLeadIdentityActive(currentLead)
-          ) {
-            return;
-          }
-
-          await tx.lead.update({
-            where: { id: currentLead.id },
-            data: {
-              marketingEmailConsent: false,
-              marketingEmailRevokedAt: revokedAt,
-              marketingEmailRevocationChannel: 'email_link',
-              marketingEmailRevocationReason: 'recipient_request',
-              marketingConsent: currentLead.marketingTelegramConsent,
-            },
-          });
-          await tx.consentRecord.create({
-            data: consentEvidenceData(MARKETING_EMAIL_CONSENT, {
-              leadId: currentLead.id,
-              email,
-              kind: 'marketing_email',
-              action: 'revoke',
-              sourceForm: '/api/unsubscribe',
-              req,
-              occurredAt: revokedAt,
-              revocationChannel: 'email_link',
-              revocationReason: 'recipient_request',
-              revokedConsentId: currentLead.consentRecords[0]?.id,
-            }),
-          });
-        });
-      }
-      res.type('html').send(renderUnsubscribePage('done'));
       return;
     }
     res.type('html').send(renderUnsubscribePage('confirm', token));
   }),
 );
 
-function renderUnsubscribePage(state: 'invalid' | 'confirm' | 'done', token?: string) {
+registrationRouter.post(
+  '/unsubscribe',
+  asyncHandler(async (req: Request, res: Response) => {
+    setUnsubscribeResponseHeaders(res);
+    const token = typeof req.body?.token === 'string' ? req.body.token : undefined;
+    const verified = await verifyUnsubscribeToken(token);
+    if (!verified) {
+      res.status(400).type('html').send(renderUnsubscribePage('invalid'));
+      return;
+    }
+
+    const result = await revokeMarketingEmailConsent(req, token!, verified);
+    res.status(result === 'invalid' ? 400 : 200).type('html').send(renderUnsubscribePage(result));
+  }),
+);
+
+function escapeHtmlAttribute(value: string) {
+  return value.replace(/[&<>"']/gu, character => {
+    const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return entities[character] ?? character;
+  });
+}
+
+function renderUnsubscribePage(state: 'invalid' | 'confirm' | 'done' | 'stale', token?: string) {
   const title =
-    state === 'done' ? 'Вы отписаны' : state === 'invalid' ? 'Ссылка недействительна' : 'Отписка от рассылок АСПБ';
+    state === 'done'
+      ? 'Вы отписаны'
+      : state === 'invalid' || state === 'stale'
+        ? 'Ссылка недействительна'
+        : 'Отписка от рассылок АСПБ';
   const body =
     state === 'done'
       ? '<p>Вы отписаны от маркетинговых рассылок АСПБ. Организационные письма о вашем вебинаре это не затрагивает.</p>'
-      : state === 'invalid'
+      : state === 'invalid' || state === 'stale'
         ? '<p>Ссылка недействительна или устарела. Чтобы отписаться, напишите на <a href="mailto:partners@aspb.ru">partners@aspb.ru</a>.</p>'
         : `<p>Нажмите кнопку, чтобы отписаться от маркетинговых рассылок АСПБ.</p>
-           <p><a class="btn" href="/api/unsubscribe?token=${encodeURIComponent(token ?? '')}&amp;confirm=1">Отписаться</a></p>`;
+           <form method="post" action="/api/unsubscribe">
+             <input type="hidden" name="token" value="${escapeHtmlAttribute(token ?? '')}"/>
+             <button class="btn" type="submit">Отписаться</button>
+           </form>`;
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${title} | АСПБ</title>
@@ -1345,6 +1884,6 @@ function renderUnsubscribePage(state: 'invalid' | 'confirm' | 'done', token?: st
 main{max-width:520px;margin:0 auto;padding:64px 24px}
 .card{background:#fff;border:1px solid #dbe2ea;border-radius:18px;padding:32px}
 h1{font-size:24px;margin-top:0}a{color:#041627}
-.btn{display:inline-block;background:#041627;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700}
+.btn{display:inline-block;border:0;background:#041627;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font:inherit;font-weight:700;cursor:pointer}
 </style></head><body><main><div class="card"><h1>${title}</h1>${body}</div></main></body></html>`;
 }

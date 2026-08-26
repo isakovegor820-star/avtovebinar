@@ -7,9 +7,12 @@ process.env.NODE_ENV = 'test';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendTelegramMessageToChat } = vi.hoisted(() => ({ sendTelegramMessageToChat: vi.fn() }));
+const { sendTelegramMessageToChat, sendOperationalTelegramAlert } = vi.hoisted(() => ({
+  sendTelegramMessageToChat: vi.fn(),
+  sendOperationalTelegramAlert: vi.fn(),
+}));
 
-vi.mock('../src/lib/telegram.js', () => ({ sendTelegramMessageToChat }));
+vi.mock('../src/lib/telegram.js', () => ({ sendTelegramMessageToChat, sendOperationalTelegramAlert }));
 
 vi.mock('../src/lib/prisma.js', () => {
   const prisma = {
@@ -26,8 +29,9 @@ vi.mock('../src/lib/prisma.js', () => {
       count: vi.fn(),
     },
     telegramNewsPost: { findMany: vi.fn(), updateMany: vi.fn() },
-    event: { create: vi.fn() },
+    event: { findFirst: vi.fn() },
     $executeRaw: vi.fn(),
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
   prisma.$transaction.mockImplementation(async (callback: any) => {
@@ -60,7 +64,7 @@ const recipientStore = prisma.telegramBroadcastRecipient as unknown as {
 };
 const deadLetterStore = prisma.telegramBroadcastDeadLetter as unknown as { upsert: MockFn };
 const newsPostStore = prisma.telegramNewsPost as unknown as { findMany: MockFn; updateMany: MockFn };
-const eventStore = prisma.event as unknown as { create: MockFn };
+const queryRaw = prisma.$queryRaw as unknown as MockFn;
 const executeRaw = prisma.$executeRaw as unknown as MockFn;
 const transaction = prisma.$transaction as unknown as MockFn;
 
@@ -138,7 +142,7 @@ beforeEach(() => {
   recipientStore.count.mockResolvedValue(1);
   newsPostStore.findMany.mockResolvedValue([]);
   newsPostStore.updateMany.mockResolvedValue({ count: 1 });
-  eventStore.create.mockResolvedValue({});
+  queryRaw.mockResolvedValue([{ occurredAt: new Date(), correlationId: 'telegram-analytics-correlation' }]);
   jobStore.updateMany.mockImplementation(async input => {
     if (input.data?.status === 'sending' && typeof input.data?.claimToken === 'string') {
       activeClaimToken = input.data.claimToken;
@@ -212,7 +216,7 @@ describe('runTelegramBroadcastJobOnce — durable per-recipient delivery', () =>
     newsPostStore.updateMany
       .mockRejectedValueOnce(new Error('temporary news status write failure'))
       .mockResolvedValueOnce({ count: 1 });
-    eventStore.create.mockRejectedValueOnce(new Error('analytics unavailable'));
+    queryRaw.mockRejectedValueOnce(new Error('analytics unavailable'));
     queueDeliveries(eligibleRecipient('111'));
     sendTelegramMessageToChat.mockResolvedValue({ sent: true, mode: 'send' as const });
 
@@ -221,7 +225,7 @@ describe('runTelegramBroadcastJobOnce — durable per-recipient delivery', () =>
 
     expect(first).toEqual({ checked: 1, sent: 1, failed: 0, deadLettered: 0 });
     expect(second).toEqual({ checked: 0, sent: 0, failed: 0, deadLettered: 0 });
-    expect(eventStore.create).toHaveBeenCalledTimes(1);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
     expect(newsPostStore.updateMany).toHaveBeenCalledTimes(2);
     expect(newsPostStore.updateMany).toHaveBeenLastCalledWith({
       where: { id: 'job-1' },

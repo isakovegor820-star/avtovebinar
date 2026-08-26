@@ -12,6 +12,7 @@
 <link href="fonts.css?v=self-2" rel="stylesheet"/>
 </head>
 <body class="recordings-page">
+<a class="platform-skip-link" href="#recordingsMain">К основному содержанию</a>
 <header class="sticky top-0 w-full z-50 bg-background/90 backdrop-blur-md shadow-sm">
 <div class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
 <a class="flex flex-col leading-tight shrink-0" href="index.html">
@@ -22,7 +23,7 @@
 </div>
 </header>
 <div data-current="recordings" data-flow-tabs></div>
-<main class="recordings-shell">
+<main id="recordingsMain" class="recordings-shell" tabindex="-1">
 <section class="recordings-header" aria-labelledby="recordingsPageTitle">
 <div>
 <h1 id="recordingsPageTitle">Записи вебинаров</h1>
@@ -30,7 +31,7 @@
 </div>
 </section>
 <section id="recordingsRequestError" class="recordings-request-error" role="alert" aria-live="assertive" hidden>
-<span class="material-symbols-outlined" aria-hidden="true">wifi_off</span>
+<span class="material-symbols-outlined" aria-hidden="true">error</span>
 <h2>Не удалось загрузить записи</h2>
 <p id="recordingsRequestErrorText">Это временная ошибка соединения. Доступ не удалён.</p>
 <button id="recordingsRequestRetry" type="button">Повторить</button>
@@ -42,22 +43,22 @@
 <video id="recordingVideo" preload="metadata" playsinline></video>
 <div class="recording-badge">Запись</div>
 <button id="recordingOverlayButton" class="recording-overlay-button" type="button" aria-label="Смотреть запись">
-<span class="material-symbols-outlined">play_arrow</span>
+<span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>
 </button>
 <div id="recordingVideoFallback" class="recording-video-fallback hidden" role="alert" aria-live="assertive">
 <div>
-<span class="material-symbols-outlined text-5xl mb-3">error</span>
+<span class="material-symbols-outlined text-5xl mb-3" aria-hidden="true">error</span>
 <p id="recordingVideoFallbackText">Не удалось загрузить запись. Проверьте соединение и попробуйте ещё раз.</p>
 <button id="recordingVideoRetry" type="button">Повторить загрузку видео</button>
 </div>
 </div>
 </div>
 <div class="recording-controls" aria-label="Управление записью">
-<button id="recordingPlayButton" type="button" aria-label="Воспроизвести или поставить на паузу"><span class="material-symbols-outlined">play_arrow</span></button>
+<button id="recordingPlayButton" type="button" aria-label="Воспроизвести или поставить на паузу"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span></button>
 <input id="recordingSeek" type="range" min="0" max="100" value="0" step="0.1" aria-label="Перемотка записи">
 <span class="recording-time"><span id="recordingCurrentTime">00:00</span> / <span id="recordingDuration">00:00</span></span>
-<button id="recordingMuteButton" type="button" aria-label="Включить или выключить звук"><span class="material-symbols-outlined">volume_up</span></button>
-<button id="recordingFullscreenButton" type="button" aria-label="Полноэкранный режим"><span class="material-symbols-outlined">fullscreen</span></button>
+<button id="recordingMuteButton" type="button" aria-label="Включить или выключить звук"><span class="material-symbols-outlined" aria-hidden="true">volume_up</span></button>
+<button id="recordingFullscreenButton" type="button" aria-label="Полноэкранный режим"><span class="material-symbols-outlined" aria-hidden="true">fullscreen</span></button>
 </div>
 </section>
 <section class="recording-info" aria-label="О записи">
@@ -68,8 +69,8 @@
 </div>
 <p class="recording-description" id="recordingDescription"></p>
 <div class="recording-actions">
-<button type="button" class="recording-action" id="recordingFullscreenAction"><span class="material-symbols-outlined">fullscreen</span> На весь экран</button>
-<button type="button" class="recording-action" id="recordingShareAction"><span class="material-symbols-outlined">link</span> <span id="recordingShareLabel">Скопировать ссылку</span></button>
+<button type="button" class="recording-action" id="recordingFullscreenAction"><span class="material-symbols-outlined" aria-hidden="true">fullscreen</span> На весь экран</button>
+<button type="button" class="recording-action" id="recordingShareAction"><span class="material-symbols-outlined" aria-hidden="true">link</span> <span id="recordingShareLabel">Скопировать ссылку</span></button>
 </div>
 </section>
 </div>
@@ -80,7 +81,7 @@
 <span class="playlist-heading__count" id="recordingsCount">0 записей</span>
 </div>
 <label class="recordings-search" id="recordingsSearchWrap" hidden>
-<span class="material-symbols-outlined">search</span>
+<span class="material-symbols-outlined" aria-hidden="true">search</span>
 <input id="recordingsSearch" type="search" placeholder="Поиск по записям" aria-label="Поиск по записям" autocomplete="off">
 </label>
 </div>
@@ -88,7 +89,7 @@
 </aside>
 </div>
 </main>
-<script type="module" src="js/main.js?v=remediation-20260804-3"></script>
+<script type="module" src="js/main.js?v=prelaunch-20260825-2"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
-<script src="cookie-consent.js"></script>
+<script src="cookie-consent.js?v=prelaunch-20260825-2"></script>
 </body></html>

@@ -20,6 +20,24 @@
   // и без бирюзового #0f766e — он зарезервирован за модераторами.
   var COLORS = ['#1e40af', '#0369a1', '#b45309', '#be123c', '#15803d', '#475569'];
 
+  function setChatContentState(state, text) {
+    chatContainer.dataset.state = state;
+    var existing = document.getElementById('chatListState');
+    if (!text) {
+      if (existing) existing.remove();
+      return;
+    }
+    var status = existing || document.createElement('p');
+    status.id = 'chatListState';
+    status.className = 'text-body-sm text-on-surface-variant leading-relaxed p-2';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    status.textContent = text;
+    if (!existing) chatContainer.appendChild(status);
+  }
+
+  setChatContentState('loading', 'Загружаем сообщения комнаты…');
+
   // --- Полноэкранный чат-оверлей (YouTube-style), синхронный с основным чатом ---
   var recentMsgs = [];            // буфер последних отрендеренных сообщений (для seed при входе в fullscreen)
   var RECENT_CAP = 40;
@@ -71,11 +89,47 @@
 
   function authorLabel(msg) {
     // Имя модератора уже содержит роль (напр. «Юлия, модератор АСПБ») — не дублируем authorRole.
-    if (msg.kind === 'ai_manager' || msg.kind === 'moderator') return msg.authorName;
+    if (msg.kind === 'ai_moderator' || msg.kind === 'moderator' || msg.kind === 'system') return msg.authorName;
     if (msg.kind === 'prepared_question' || msg.kind === 'agent_question') {
       return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
     }
     return msg.authorRole ? msg.authorName + ', ' + msg.authorRole : msg.authorName;
+  }
+
+  function syntheticDisclosure(msg) {
+    if (msg.isSynthetic !== true) return '';
+    return msg.kind === 'ai_moderator' ? 'AI-модератор' : 'Подготовленный вопрос';
+  }
+
+  function buildGroundingControl(msg) {
+    var grounding = msg && msg.grounding;
+    if (!grounding || (grounding.type !== 'transcript' && grounding.type !== 'source')) return null;
+    if (grounding.type === 'transcript') {
+      var seconds = Number(grounding.timestampSeconds);
+      if (!Number.isFinite(seconds) || seconds < 0) return null;
+      var seek = document.createElement('button');
+      seek.type = 'button';
+      seek.className = 'chat-grounding-link';
+      seek.textContent = 'Фрагмент ' + String(grounding.label || '');
+      seek.setAttribute('aria-label', 'Перейти к основанию ответа на таймкоде ' + String(grounding.label || ''));
+      seek.addEventListener('click', function() {
+        document.dispatchEvent(
+          new CustomEvent('aspb:room-seek-request', {
+            detail: { seconds: Math.floor(seconds), source: 'chat_grounding' },
+          }),
+        );
+      });
+      return seek;
+    }
+    if (typeof grounding.url !== 'string' || !grounding.url.startsWith('https://')) return null;
+    var source = document.createElement('a');
+    source.className = 'chat-grounding-link';
+    source.href = grounding.url;
+    source.target = '_blank';
+    source.rel = 'noopener noreferrer';
+    source.textContent = 'Открыть источник';
+    source.setAttribute('aria-label', 'Открыть основание ответа: ' + String(grounding.title || 'источник'));
+    return source;
   }
 
   function ensureFsOverlay() {
@@ -114,6 +168,8 @@
     var text = document.createElement('span');
     text.className = 'fs-chat-text';
     text.textContent = msg.message;
+    var disclosure = syntheticDisclosure(msg);
+    if (disclosure) row.setAttribute('aria-label', disclosure + '. ' + msg.message);
     body.append(author, document.createTextNode(' '), text);
 
     row.append(avatar, body);
@@ -162,17 +218,27 @@
     document.getElementById('liveChatMessages')?.removeAttribute('aria-hidden');
   }
 
+  function messageRenderKey(msg) {
+    return msg && (msg.questionId ? 'question:' + msg.questionId : msg.id);
+  }
+
   function addMessage(msg) {
     if (!msg) return;
-    var renderKey = msg.questionId ? 'question:' + msg.questionId : msg.id;
+    var renderKey = messageRenderKey(msg);
     if (!renderKey || renderedMessages.has(renderKey)) return;
     renderedMessages.add(renderKey);
+    setChatContentState('content', '');
 
     var isModerator = msg.kind === 'moderator';
 
     var item = document.createElement('div');
     item.className = 'flex gap-2.5 chat-msg-enter';
     item.style.animation = 'chatMsgIn 0.3s ease forwards';
+    item.dataset.chatRenderKey = renderKey;
+    item.dataset.chatSynthetic = msg.isSynthetic === true ? 'true' : 'false';
+    if (Number.isFinite(Number(msg.offsetSeconds))) {
+      item.dataset.chatOffsetSeconds = String(Number(msg.offsetSeconds));
+    }
     if (isModerator) {
       // Особый вид — ТОЛЬКО у модераторов: бирюзовая подложка с левым акцентом.
       // Участники и наши агенты идут единым нейтральным форматом (без подложки).
@@ -184,6 +250,8 @@
       item.style.paddingBottom = '6px';
       item.style.borderRadius = '6px';
     }
+    var disclosure = syntheticDisclosure(msg);
+    if (disclosure) item.setAttribute('aria-label', disclosure + '. ' + msg.message);
 
     var avatarColor = isModerator ? '#0f766e' : getColor(msg.authorName);
     var avatar = document.createElement('div');
@@ -219,7 +287,16 @@
     text.style.fontWeight = isModerator ? '500' : 'normal';
     text.textContent = msg.message;
 
-    body.append(author, text);
+    body.append(author);
+    if (disclosure) {
+      var badge = document.createElement('span');
+      badge.className = 'chat-synthetic-label';
+      badge.textContent = disclosure;
+      body.append(badge);
+    }
+    body.append(text);
+    var groundingControl = buildGroundingControl(msg);
+    if (groundingControl) body.append(groundingControl);
     item.append(avatar, body);
     chatContainer.appendChild(item);
     chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -228,6 +305,30 @@
     recentMsgs.push(msg);
     if (recentMsgs.length > RECENT_CAP) recentMsgs.shift();
     if (fsActive) renderFsMessage(msg, true);
+  }
+
+  function reconcileTimelineMessages(positionSeconds) {
+    var position = Number(positionSeconds);
+    if (!Number.isFinite(position)) return;
+    var cutoff = Math.max(0, position) + 2;
+    var removedKeys = new Set();
+
+    chatContainer.querySelectorAll('[data-chat-synthetic="true"][data-chat-offset-seconds]').forEach(function(item) {
+      var offsetSeconds = Number(item.dataset.chatOffsetSeconds);
+      if (!Number.isFinite(offsetSeconds) || offsetSeconds <= cutoff) return;
+      var renderKey = item.dataset.chatRenderKey;
+      if (renderKey) {
+        renderedMessages.delete(renderKey);
+        removedKeys.add(renderKey);
+      }
+      item.remove();
+    });
+
+    if (removedKeys.size === 0) return;
+    recentMsgs = recentMsgs.filter(function(msg) {
+      return !removedKeys.has(messageRenderKey(msg));
+    });
+    if (fsActive) seedFsOverlay();
   }
 
   function renderChatState(data) {
@@ -261,6 +362,7 @@
       setInputState(true, 'Вопросы откроются в момент старта премьеры');
       setActivity('Подготовленное обсуждение и форма вопросов откроются в момент старта премьеры');
       setOnlineLabel('ожидание');
+      setChatContentState('unavailable', 'Сообщения откроются вместе с премьерой записи.');
       return;
     }
 
@@ -284,26 +386,32 @@
       renderChatState(data);
       if (Array.isArray(data.messages)) {
         var videoPos = window.__aspbVideoPosition || 0;
-        var isTestMode = data.testMode === true;
+        reconcileTimelineMessages(videoPos);
         data.messages.forEach(function(msg) {
-          // Гейт по позиции видео зрителя (не показываем сообщения «из будущего»).
-          // Раньше зависел от msg.isSynthetic — поле больше не отдаётся сервером,
-          // поэтому гейтим по offsetSeconds (есть и у сценарных, и у реальных сообщений).
-          if ((isTestMode || data.accessStatus === 'replay') && typeof msg.offsetSeconds === 'number') {
+          // Scripted messages follow the viewer position in live DVR, test and
+          // replay. Real participant messages remain visible after a rewind.
+          if (msg.isSynthetic === true && typeof msg.offsetSeconds === 'number') {
             if (msg.offsetSeconds > videoPos + 2) return;
           }
           addMessage(msg);
         });
       }
+      if (renderedMessages.size === 0 && data.liveState?.chatStatus !== 'locked') {
+        setChatContentState('empty', 'Сообщений пока нет. Вы можете первым задать вопрос команде АСПБ.');
+      }
       return true;
     } catch {
-      setActivity('Подключаем чат к вашей комнате...');
+      setActivity('Не удалось обновить чат. Повторяем подключение автоматически…');
+      if (renderedMessages.size === 0) {
+        setChatContentState('error', 'Не удалось загрузить сообщения. Проверяем соединение и повторим автоматически.');
+      }
       return false;
     }
   }
 
   window.__liveChatRefresh = refreshChat;
   window.__liveChatAddMessage = addMessage;
+  window.__liveChatSetState = setChatContentState;
 
   // --- smart polling: backoff on errors, pause when tab hidden ---
   var chatTimer = null;
@@ -352,13 +460,26 @@
   });
   document.addEventListener('aspb:chat-refresh-request', requestImmediateChatRefresh);
 
+  var webinarVideo = document.getElementById('webinarVideo');
+  if (webinarVideo) {
+    webinarVideo.addEventListener('seeking', function() {
+      window.__aspbVideoPosition = webinarVideo.currentTime;
+      reconcileTimelineMessages(webinarVideo.currentTime);
+    });
+    webinarVideo.addEventListener('seeked', function() {
+      window.__aspbVideoPosition = webinarVideo.currentTime;
+      reconcileTimelineMessages(webinarVideo.currentTime);
+      if (roomReady) requestImmediateChatRefresh();
+    });
+  }
+
   document.addEventListener('aspb:chat-question-submitted', function(event) {
     var detail = event.detail || {};
     if (!detail.text) return;
     addMessage({
       id: detail.chatMessageId || ('local_' + Date.now()),
       questionId: detail.questionId,
-      kind: 'user',
+      kind: 'participant',
       authorName: currentLead && currentLead.name ? currentLead.name : 'Вы',
       authorRole: currentLead && currentLead.professionalStatus ? currentLead.professionalStatus : '',
       message: detail.text,

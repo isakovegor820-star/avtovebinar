@@ -31,9 +31,13 @@ LABEL com.aspb.image.scope="autowebinar" \
 
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --omit=dev --ignore-scripts \
+RUN apk add --no-cache ffmpeg \
+  && npm ci --omit=dev --ignore-scripts \
   && npx prisma generate \
-  && npm cache clean --force
+  && npm cache clean --force \
+  && mkdir -p /var/lib/aspb/media /var/lib/aspb/media-work \
+  && chown node:node /var/lib/aspb/media /var/lib/aspb/media-work \
+  && chmod 700 /var/lib/aspb/media /var/lib/aspb/media-work
 
 COPY --chown=node:node --from=build /app/dist ./dist
 COPY --chown=node:node --from=build /app/crisis_premium ./crisis_premium

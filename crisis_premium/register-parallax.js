@@ -1,4 +1,7 @@
+const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+
 window.addEventListener('scroll', () => {
+  if (prefersReducedMotion) return;
   const logo = document.querySelector('.text-headline-md');
   if (!logo) return;
 

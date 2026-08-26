@@ -1,5 +1,6 @@
 (function(){
   document.documentElement.classList.add('js-reveal');
+  var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   if (!('IntersectionObserver' in window)) {
     document.querySelectorAll('.card-reveal').forEach(function(el){
@@ -19,6 +20,7 @@
 
   // 3D Tilt effect for bento cards
   document.querySelectorAll('.bento-card-tilt').forEach(function(card){
+    if (prefersReducedMotion) return;
     card.addEventListener('mousemove', function(e){
       var rect = card.getBoundingClientRect();
       var x = (e.clientX - rect.left) / rect.width - 0.5;
@@ -32,23 +34,46 @@
 
   // Segmented tabs switching
   document.querySelectorAll('.seg-tabs').forEach(function(tablist) {
-    var tabs = tablist.querySelectorAll('.seg-tab');
-    var panel = tablist.parentElement.querySelector('.seg-panel-text');
+    var tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+    var panel = tablist.parentElement.querySelector('[role="tabpanel"]');
+    var panelText = panel && panel.querySelector('.seg-panel-text');
+
+    function activateTab(tab, moveFocus) {
+      tabs.forEach(function(candidate) {
+        var selected = candidate === tab;
+        candidate.classList.toggle('seg-tab--active', selected);
+        candidate.setAttribute('aria-selected', selected ? 'true' : 'false');
+        candidate.setAttribute('tabindex', selected ? '0' : '-1');
+      });
+
+      if (panel) panel.setAttribute('aria-labelledby', tab.id);
+      if (panelText) {
+        var key = 'data-text-' + tab.getAttribute('data-tab');
+        var newText = panelText.getAttribute(key);
+        if (newText && panelText.textContent !== newText) {
+          panelText.style.animation = 'none';
+          panelText.offsetHeight;
+          panelText.style.animation = '';
+          panelText.textContent = newText;
+        }
+      }
+      if (moveFocus) tab.focus();
+    }
+
     tabs.forEach(function(tab) {
       tab.addEventListener('click', function() {
-        tabs.forEach(function(t) { t.classList.remove('seg-tab--active'); t.setAttribute('aria-selected','false'); });
-        tab.classList.add('seg-tab--active');
-        tab.setAttribute('aria-selected','true');
-        if (panel) {
-          var key = 'data-text-' + tab.getAttribute('data-tab');
-          var newText = panel.getAttribute(key);
-          if (newText) {
-            panel.style.animation = 'none';
-            panel.offsetHeight;
-            panel.style.animation = '';
-            panel.textContent = newText;
-          }
-        }
+        activateTab(tab, false);
+      });
+      tab.addEventListener('keydown', function(event) {
+        var currentIndex = tabs.indexOf(tab);
+        var nextIndex = null;
+        if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+        if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+        if (event.key === 'Home') nextIndex = 0;
+        if (event.key === 'End') nextIndex = tabs.length - 1;
+        if (nextIndex === null) return;
+        event.preventDefault();
+        activateTab(tabs[nextIndex], true);
       });
     });
   });
@@ -64,6 +89,13 @@
       var suffix = el.getAttribute('data-countup-suffix') || '';
       var duration = 1800;
       var start = performance.now();
+
+      if (prefersReducedMotion) {
+        el.textContent = display
+          ? display.replace('.', ',') + suffix
+          : target.toLocaleString('ru-RU') + suffix;
+        return;
+      }
 
       function step(now) {
         var progress = Math.min((now - start) / duration, 1);

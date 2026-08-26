@@ -77,6 +77,7 @@ requireText(workflow, 'ASPB_CONTAINER_PREFIX=aspb-platform-staging', 'isolated s
 requireText(workflow, 'ASPB_BIND_PORT=5176', 'isolated staging bind port');
 requireText(workflow, 'STAGING public origin isolation is not provisioned', 'isolated staging public origin');
 requireText(workflow, 'STAGING database isolation is not provisioned', 'isolated staging database');
+requireText(workflow, 'ALLOW_DEGRADED_DEPENDENCIES=on', 'isolated staging degraded integrations');
 requireText(workflow, 'PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH', 'production native PostgreSQL capacity path');
 requireText(
   workflow,

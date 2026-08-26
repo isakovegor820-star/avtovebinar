@@ -475,8 +475,19 @@ jobs:
             exit 75
           fi
           cd "$deploy_path"
-          staging_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' .env.production | tail -n 1)"
-          staging_database_url="$(sed -n 's/^DATABASE_URL=//p' .env.production | tail -n 1)"
+          staging_env_file=.env.staging
+          if [[ ! -f "$staging_env_file" ]]; then
+            candidate_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' .env.production | tail -n 1)"
+            candidate_database_url="$(sed -n 's/^DATABASE_URL=//p' .env.production | tail -n 1)"
+            if [[ "$candidate_public_origin" != https://*staging* || "$candidate_database_url" != *"/aspb_staging?"* ]]; then
+              echo "Cannot initialize .env.staging from a non-staging configuration" >&2
+              exit 1
+            fi
+            cp -p -- .env.production "$staging_env_file"
+            chmod 600 "$staging_env_file"
+          fi
+          staging_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$staging_env_file" | tail -n 1)"
+          staging_database_url="$(sed -n 's/^DATABASE_URL=//p' "$staging_env_file" | tail -n 1)"
           if [[ "$staging_public_origin" != https://*staging* ]]; then
             echo "STAGING public origin isolation is not provisioned" >&2
             exit 1
@@ -500,15 +511,15 @@ jobs:
           git checkout --detach "$deploy_sha"
           test "$(git rev-parse HEAD)" = "$deploy_sha"
           bash scripts/assert-clean-deploy-worktree.sh
-          COMPOSE_ENV_FILE=.env.production BACKUP_DIR=backups \
+          COMPOSE_ENV_FILE="$staging_env_file" BACKUP_DIR=backups/staging \
             bash scripts/create-deploy-backup.sh
-          verified_backup_file="$(find backups -maxdepth 1 -type f -name 'aspb-postgres-*.sql.gz' -print | sort | tail -n 1)"
+          verified_backup_file="$(find backups/staging -maxdepth 1 -type f -name 'aspb-postgres-*.sql.gz' -print | sort | tail -n 1)"
           if [ -z "$verified_backup_file" ]; then
-            echo "No pre-deploy PostgreSQL backup found in $deploy_path/backups" >&2
+            echo "No pre-deploy PostgreSQL backup found in $deploy_path/backups/staging" >&2
             exit 1
           fi
           COMPOSE_FILE=docker-compose.native-postgres.yml \
-          COMPOSE_ENV_FILE=.env.production \
+          COMPOSE_ENV_FILE="$staging_env_file" \
           COMPOSE_PROJECT_NAME=aspb-platform-staging \
           ASPB_CONTAINER_PREFIX=aspb-platform-staging \
           ASPB_BIND_PORT=5176 \
@@ -690,6 +701,40 @@ jobs:
             exit 75
           fi
           cd "$deploy_path"
+          production_env_file=.env.production
+          production_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$production_env_file" | tail -n 1)"
+          if [[ "$production_public_origin" == https://*staging* ]]; then
+            production_api_container=aspb-autowebinar-api
+            if ! docker inspect "$production_api_container" >/dev/null 2>&1; then
+              echo "Cannot recover production environment: running API container is unavailable" >&2
+              exit 1
+            fi
+            recovered_env_file="$artifact_dir/recovered-production.env"
+            docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$production_api_container" | \
+              awk -F= '
+                /^[A-Za-z_][A-Za-z0-9_]*=/ {
+                  key=$1
+                  if (key != "PATH" && key != "HOSTNAME" && key != "HOME" && key != "TERM" &&
+                      key != "NODE_VERSION" && key != "YARN_VERSION" && key != "WORKER_ROLE" &&
+                      key != "COMPOSE_PROJECT_NAME" && key != "ASPB_CONTAINER_PREFIX" && key != "ASPB_BIND_PORT") print
+                }
+              ' >"$recovered_env_file"
+            recovered_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$recovered_env_file" | tail -n 1)"
+            recovered_database_url="$(sed -n 's/^DATABASE_URL=//p' "$recovered_env_file" | tail -n 1)"
+            if [[ "$recovered_public_origin" != https://aspb-partners.ru* || "$recovered_database_url" != *"/aspb_autowebinar?"* ]]; then
+              echo "Running API container does not contain the expected production environment" >&2
+              exit 1
+            fi
+            chmod 600 "$recovered_env_file"
+            mv -- "$recovered_env_file" "$production_env_file"
+            echo "Recovered production environment from the running API container."
+          fi
+          production_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' "$production_env_file" | tail -n 1)"
+          production_database_url="$(sed -n 's/^DATABASE_URL=//p' "$production_env_file" | tail -n 1)"
+          if [[ "$production_public_origin" != https://aspb-partners.ru* || "$production_database_url" != *"/aspb_autowebinar?"* ]]; then
+            echo "PRODUCTION origin/database isolation is not provisioned" >&2
+            exit 1
+          fi
           dirty_worktree="$(git status --porcelain=v1 --untracked-files=all -- . \
             ':(exclude)backups/**' \
             ':(exclude)test-results/**' \
@@ -705,7 +750,7 @@ jobs:
           git checkout --detach "$deploy_sha"
           test "$(git rev-parse HEAD)" = "$deploy_sha"
           bash scripts/assert-clean-deploy-worktree.sh
-          COMPOSE_ENV_FILE=.env.production BACKUP_DIR=backups \
+          COMPOSE_ENV_FILE="$production_env_file" BACKUP_DIR=backups \
             bash scripts/create-deploy-backup.sh
           verified_backup_file="$(find backups -maxdepth 1 -type f -name 'aspb-postgres-*.sql.gz' -print | sort | tail -n 1)"
           if [ -z "$verified_backup_file" ]; then
@@ -713,7 +758,7 @@ jobs:
             exit 1
           fi
           COMPOSE_FILE=docker-compose.native-postgres.yml \
-          COMPOSE_ENV_FILE=.env.production \
+          COMPOSE_ENV_FILE="$production_env_file" \
           DEPLOY_COMMIT_SHA="$deploy_sha" \
           DEPLOY_VERIFIED_CI_SHA="$deploy_sha" \
           DEPLOY_VERIFIED_CI_RUN_URL="$ci_run_url" \

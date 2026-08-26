@@ -187,7 +187,7 @@ docker exec "$postgres_container" psql -v ON_ERROR_STOP=1 -U "$postgres_owner" -
 public_origin="https://$public_host"
 postgres_scheme=postgresql
 database_url="${postgres_scheme}://$staging_role:$staging_password@host.docker.internal:$staging_postgres_port/$staging_database?schema=public&connection_limit=10&pool_timeout=20"
-backup_database_url="${postgres_scheme}://$staging_role:$staging_password@$postgres_host:$staging_postgres_port/$staging_database"
+backup_database_url="${postgres_scheme}://$staging_role:$staging_password@$postgres_host:$staging_postgres_port/$staging_database?schema=public"
 
 set_env_value NODE_ENV production
 set_env_value PORT 5174

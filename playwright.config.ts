@@ -30,6 +30,11 @@ export default defineConfig({
   expect: {
     timeout: 10_000,
   },
+  reporter: [
+    ['list'],
+    ['junit', { outputFile: 'test-results/playwright-junit.xml' }],
+    ['html', { open: 'never', outputFolder: 'playwright-report' }],
+  ],
   use: {
     baseURL: 'http://127.0.0.1:5175',
     trace: 'on-first-retry',
@@ -38,10 +43,13 @@ export default defineConfig({
   },
   webServer: {
     command:
-      'PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=log E2E_EMAIL_OUTBOX_ENABLED=on TELEGRAM_NOTIFY_MODE=log PLATFORM_ACCOUNTS_ENABLED=on CREATOR_DASHBOARD_ENABLED=on PUBLIC_CATALOG_ENABLED=on TENANT_CRM_ENABLED=on MEDIA_STORAGE_PROVIDER=test_fake STT_PROVIDER=test_fake AI_ENRICHMENT_PROVIDER=test_fake WEBINAR_VIDEO_PROVIDER=local WEBINAR_VIDEO_HLS_URL= WEBINAR_VIDEO_URL=http://127.0.0.1:5175/crisis_premium/assets/webinar.mp4 WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on WORKER_ROLE=api npx tsx src/server.ts',
-    url: 'http://127.0.0.1:5175/crisis_premium/index.html',
+      'PORT=5175 PUBLIC_SITE_URL=http://127.0.0.1:5175 NODE_ENV=test EMAIL_MODE=log E2E_EMAIL_OUTBOX_ENABLED=on TELEGRAM_NOTIFY_MODE=log PLATFORM_ACCOUNTS_ENABLED=on CREATOR_DASHBOARD_ENABLED=on PUBLIC_CATALOG_ENABLED=on TENANT_CRM_ENABLED=on MEDIA_STORAGE_PROVIDER=test_fake STT_PROVIDER=test_fake AI_ENRICHMENT_PROVIDER=test_fake WEBINAR_VIDEO_PROVIDER=local WEBINAR_VIDEO_HLS_URL= WEBINAR_VIDEO_URL=http://127.0.0.1:5175/crisis_premium/assets/webinar.mp4 WEBINAR_TEST_ROOM_MODE=off WEBINAR_PREVIEW_MODE=on WORKER_ROLE=api node --import tsx src/server.ts',
+    url: 'http://127.0.0.1:5175/health/ready',
     reuseExistingServer: false,
-    timeout: 30_000,
+    // A cold import includes the full tenant/media backend. The measured local
+    // cold start can exceed one minute, so the release command must wait for
+    // the actual HTTP probe instead of failing before the application is up.
+    timeout: 120_000,
   },
   projects: [
     {

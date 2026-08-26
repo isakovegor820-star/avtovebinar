@@ -14,6 +14,11 @@ import {
   WEBINAR_ACCESS_EMAIL_DUE_PENDING_SLA_MS,
   WEBINAR_ACCESS_EMAIL_STALE_SENDING_MS,
 } from './tenancy/webinarAccessInvitationEmailOutbox.js';
+import { DEFAULT_ORGANIZATION_ID, DEFAULT_WEBINAR_ID } from './tenancy/constants.js';
+import {
+  MANAGER_TELEGRAM_NOTIFICATION_DUE_SLA_MS,
+  MANAGER_TELEGRAM_NOTIFICATION_STALE_MS,
+} from './managerTelegramOutbox.js';
 
 type HealthCheck = {
   ok: boolean;
@@ -59,6 +64,22 @@ export async function checkMediaStorage(): Promise<HealthCheck> {
     return { ok: Boolean(storage.checkReady && (await storage.checkReady())), required: true };
   } catch {
     return { ok: false };
+  }
+}
+
+export async function checkDefaultWebinar(): Promise<HealthCheck> {
+  try {
+    const webinar = await withTimeout(
+      prisma.webinar.findFirst({
+        where: { id: DEFAULT_WEBINAR_ID, organizationId: DEFAULT_ORGANIZATION_ID },
+        select: { id: true },
+      }),
+      2500,
+      'default webinar invariant',
+    );
+    return webinar ? { ok: true } : { ok: false, error: 'default_webinar_missing' };
+  } catch (error) {
+    return { ok: false, error: normalizeError(error) };
   }
 }
 
@@ -140,6 +161,51 @@ export async function checkEmailOutbox(now = new Date()): Promise<HealthCheck> {
       oldestDuePendingAt,
       oldestDuePendingAgeMs,
       duePendingSlaMs: EMAIL_OUTBOX_DUE_PENDING_SLA_MS,
+    };
+  } catch (error) {
+    return { ok: false, error: normalizeError(error) };
+  }
+}
+
+export async function checkManagerTelegramOutbox(now = new Date()): Promise<HealthCheck> {
+  try {
+    const staleBefore = new Date(now.getTime() - MANAGER_TELEGRAM_NOTIFICATION_STALE_MS);
+    const [pending, failed, deadLetter, sending, staleSending, oldestDue] = await withTimeout(
+      Promise.all([
+        prisma.managerTelegramNotificationJob.count({ where: { status: 'pending', sentAt: null } }),
+        prisma.managerTelegramNotificationJob.count({ where: { status: 'failed', sentAt: null } }),
+        prisma.managerTelegramNotificationJob.count({ where: { status: 'dead_letter', sentAt: null } }),
+        prisma.managerTelegramNotificationJob.count({ where: { status: 'sending', sentAt: null } }),
+        prisma.managerTelegramNotificationJob.count({
+          where: { status: 'sending', sentAt: null, updatedAt: { lt: staleBefore } },
+        }),
+        prisma.managerTelegramNotificationJob.findFirst({
+          where: {
+            status: { in: ['pending', 'failed'] },
+            sentAt: null,
+            OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+          },
+          orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          select: { nextAttemptAt: true, createdAt: true },
+        }),
+      ]),
+      DEPENDENCY_DATA_TIMEOUT_MS,
+      'manager telegram outbox health',
+    );
+    const oldestDuePendingAt = oldestDue?.nextAttemptAt ?? oldestDue?.createdAt ?? null;
+    const oldestDuePendingAgeMs = oldestDuePendingAt ? Math.max(0, now.getTime() - oldestDuePendingAt.getTime()) : null;
+    const duePendingOverSla =
+      oldestDuePendingAgeMs !== null && oldestDuePendingAgeMs > MANAGER_TELEGRAM_NOTIFICATION_DUE_SLA_MS;
+    return {
+      ok: failed === 0 && deadLetter === 0 && staleSending === 0 && !duePendingOverSla,
+      pending,
+      failed,
+      deadLetter,
+      sending,
+      staleSending,
+      oldestDuePendingAt,
+      oldestDuePendingAgeMs,
+      duePendingSlaMs: MANAGER_TELEGRAM_NOTIFICATION_DUE_SLA_MS,
     };
   } catch (error) {
     return { ok: false, error: normalizeError(error) };
@@ -332,8 +398,12 @@ function workerSubsystemsAreHealthy(check: WorkerSubsystemHealthCheck, subsystem
 }
 
 export async function getReadiness() {
-  const [database, mediaStorage] = await Promise.all([checkDatabase(), checkMediaStorage()]);
-  const checks = { database, mediaStorage };
+  const [database, mediaStorage, defaultWebinar] = await Promise.all([
+    checkDatabase(),
+    checkMediaStorage(),
+    checkDefaultWebinar(),
+  ]);
+  const checks = { database, mediaStorage, defaultWebinar };
   return {
     ok: Object.values(checks).every(check => check.ok),
     checks,
@@ -348,6 +418,7 @@ export async function getDependencyStatus() {
     userAuthEmailOutboxQueue,
     organizationInvitationEmailOutboxQueue,
     webinarAccessInvitationEmailOutboxQueue,
+    managerTelegramOutboxQueue,
     workerSubsystems,
     speechToText,
   ] = await Promise.all([
@@ -357,13 +428,17 @@ export async function getDependencyStatus() {
     checkUserAuthEmailOutbox(),
     checkOrganizationInvitationEmailOutbox(),
     checkWebinarAccessInvitationEmailOutbox(),
+    checkManagerTelegramOutbox(),
     checkWorkerSubsystems(),
     checkSpeechToTextConfiguration(),
   ]);
   const expectedTelegramSubsystems = (workerSubsystems.expected ?? []).filter(subsystem => subsystem !== 'reminders');
   const telegram = {
     ...telegramProvider,
-    ok: telegramProvider.ok && workerSubsystemsAreHealthy(workerSubsystems, expectedTelegramSubsystems),
+    ok:
+      telegramProvider.ok &&
+      managerTelegramOutboxQueue.ok &&
+      workerSubsystemsAreHealthy(workerSubsystems, [...expectedTelegramSubsystems, 'reminders']),
   };
   const emailOutbox = {
     ...emailOutboxQueue,
@@ -388,6 +463,7 @@ export async function getDependencyStatus() {
     userAuthEmailOutbox,
     organizationInvitationEmailOutbox,
     webinarAccessInvitationEmailOutbox,
+    managerTelegramOutbox: managerTelegramOutboxQueue,
     workerSubsystems,
     speechToText,
   };

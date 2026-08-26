@@ -3,9 +3,10 @@
  */
 
 import { state } from './state.js';
-import { getJson, formatTimelineTime } from './utils.js?v=site-review-7';
-import { timelinePath } from './registration.js?v=remediation-20260804-1';
-import { setChatActivity } from './questions.js?v=remediation-20260804-3';
+import { getJson, formatTimelineTime } from './utils.js?v=prelaunch-20260825-2';
+import { timelinePath } from './registration.js?v=prelaunch-20260825-2';
+import { setChatActivity } from './questions.js?v=prelaunch-20260825-2';
+import { track } from './analytics.js?v=prelaunch-20260825-2';
 
 /* --- cleanup tracking: prevents interval/listener leaks on re-init --- */
 let _liveControlsInterval = null;
@@ -19,6 +20,98 @@ let _endedMediaState = false;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function playbackStorageScope(webinarConfig) {
+  const sessionIdentity = webinarConfig?.id || webinarConfig?.scheduledAt || window.location.pathname;
+  return encodeURIComponent(String(sessionIdentity));
+}
+
+function playbackEndedStorageKey(webinarConfig) {
+  return `aspb-video-ended-v1:${playbackStorageScope(webinarConfig)}`;
+}
+
+function readPlaybackEndedState(webinarConfig) {
+  try {
+    return window.sessionStorage.getItem(playbackEndedStorageKey(webinarConfig)) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function persistPlaybackEndedState(webinarConfig) {
+  try {
+    window.sessionStorage.setItem(playbackEndedStorageKey(webinarConfig), 'true');
+  } catch {
+    // The end screen still works when storage is unavailable (private mode/policy).
+  }
+}
+
+function createPlaybackAnalytics(webinarConfig) {
+  const storageKey = `aspb-video-events-v1:${playbackStorageScope(webinarConfig)}`;
+  let emitted = new Set();
+
+  try {
+    const persisted = JSON.parse(window.sessionStorage.getItem(storageKey) || '[]');
+    if (Array.isArray(persisted)) emitted = new Set(persisted.filter(value => typeof value === 'string'));
+  } catch {
+    emitted = new Set();
+  }
+
+  function emitOnce(key, eventName, metadata) {
+    if (emitted.has(key)) return;
+    emitted.add(key);
+    try {
+      window.sessionStorage.setItem(storageKey, JSON.stringify([...emitted]));
+    } catch {
+      // In-memory deduplication remains active when sessionStorage is unavailable.
+    }
+    track(eventName, metadata);
+  }
+
+  function recordStart() {
+    emitOnce('video_start', 'video_start');
+  }
+
+  function recordSound(video) {
+    if (!video.paused && !video.muted && video.volume > 0) {
+      emitOnce('sound_on', 'sound_on');
+    }
+  }
+
+  function recordProgress(positionSeconds, durationSeconds) {
+    if (!Number.isFinite(positionSeconds) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) return;
+    const progress = positionSeconds / durationSeconds;
+    if (progress >= 0.25) emitOnce('video_progress_25', 'video_progress_25');
+    if (progress >= 0.5) emitOnce('video_progress_50', 'video_progress_50');
+    if (progress >= 0.75) emitOnce('video_progress_75', 'video_progress_75');
+  }
+
+  function recordFinish() {
+    emitOnce('video_finish', 'video_finish');
+  }
+
+  function timelineEventKey(event) {
+    return `${Number(event?.offsetSeconds) || 0}:${String(event?.ctaUrl || '')}`;
+  }
+
+  function recordCtaAppear(event) {
+    const key = timelineEventKey(event);
+    emitOnce('cta_appear:' + key, 'cta_appear', {
+      ctaKey: key,
+      positionSeconds: Number(event?.offsetSeconds) || 0,
+    });
+  }
+
+  function recordCtaClick(event) {
+    const key = timelineEventKey(event);
+    emitOnce('cta_click:' + key, 'cta_click', {
+      ctaKey: key,
+      positionSeconds: Number(event?.offsetSeconds) || 0,
+    });
+  }
+
+  return { recordStart, recordSound, recordProgress, recordFinish, recordCtaAppear, recordCtaClick };
 }
 
 function toSafeHref(value) {
@@ -50,6 +143,11 @@ function showVideoFallback(fallback, message, mediaGeneration = null) {
   document.getElementById('videoProcessing')?.classList.add('hidden');
   document.getElementById('videoProcessing')?.classList.remove('flex');
   setPlayerState('');
+  const retry = fallback.querySelector('[data-video-fallback-retry]');
+  if (retry) {
+    retry.disabled = false;
+    retry.textContent = 'Повторить подключение';
+  }
   fallback.classList.remove('hidden');
   fallback.classList.add('flex');
 }
@@ -242,7 +340,7 @@ async function initializeVideoSource(video, videoData, fallback, mediaSession) {
   );
 }
 
-function activateTimelineEvent(seconds, events) {
+function activateTimelineEvent(seconds, events, playbackAnalytics = null) {
   if (window.__ASPB_HIDE_TIMELINE_ACTIONS__) {
     const panel = document.getElementById('timelineActive');
     if (panel) panel.classList.add('hidden');
@@ -258,7 +356,6 @@ function activateTimelineEvent(seconds, events) {
 
   const shouldShow =
     activeEvent &&
-    activeEvent.type !== 'final' &&
     (activeEvent.type === 'cta' || (activeEvent.ctaLabel && activeEvent.ctaUrl));
 
   if (!shouldShow) {
@@ -291,11 +388,13 @@ function activateTimelineEvent(seconds, events) {
 
   const safeCtaUrl = toSafeHref(activeEvent.ctaUrl);
   if (activeEvent.ctaLabel && safeCtaUrl) {
+    playbackAnalytics?.recordCtaAppear(activeEvent);
     const link = document.createElement('a');
-    link.className = 'bg-primary text-on-primary rounded-xl px-6 py-3.5 font-label-md hover:bg-opacity-90 transition-[background-color,transform] text-center whitespace-nowrap scale-95 hover:scale-100 duration-300';
+    link.className = 'bg-primary text-on-primary rounded-xl px-6 py-3.5 font-label-md hover:bg-opacity-90 transition-[background-color,transform] text-center whitespace-nowrap motion-safe:scale-95 motion-safe:hover:scale-100 motion-safe:duration-300';
     link.href = safeCtaUrl;
     link.rel = 'noopener noreferrer';
     link.textContent = activeEvent.ctaLabel;
+    link.addEventListener('click', () => playbackAnalytics?.recordCtaClick(activeEvent));
     panel.appendChild(link);
   }
 }
@@ -310,6 +409,9 @@ export async function hydrateTimeline() {
   const standbyBackdrop = document.getElementById('webinarStandbyBackdrop');
   const pauseOverlay = document.getElementById('videoPauseOverlay');
   const processing = document.getElementById('videoProcessing');
+  const fallbackRetry = fallback?.querySelector('[data-video-fallback-retry]');
+
+  if (playOverlay) playOverlay.onclick = null;
 
   const customControls = document.getElementById('customPlayerControls');
   const playPauseBtn = document.getElementById('customPlayPauseBtn');
@@ -344,6 +446,19 @@ export async function hydrateTimeline() {
   if (_fullscreenHandler) { document.removeEventListener('fullscreenchange', _fullscreenHandler); _fullscreenHandler = null; }
   const mediaSession = beginVideoMediaSession();
   setPlayerState('Загружаем состояние видео…');
+
+  fallbackRetry?.addEventListener(
+    'click',
+    () => {
+      fallbackRetry.disabled = true;
+      fallbackRetry.textContent = 'Подключаемся…';
+      fallback.classList.add('hidden');
+      fallback.classList.remove('flex');
+      setPlayerState('Повторно подключаем видео…');
+      void hydrateTimeline();
+    },
+    { signal: mediaSession.signal },
+  );
 
   // Загрузка состояния эфира с ретраями: один сетевой сбой/429/5xx больше не оставляет
   // «пустой» плеер без объяснения — повторяем, а при окончательной неудаче показываем фолбэк.
@@ -399,15 +514,46 @@ export async function hydrateTimeline() {
 
   processing?.classList.add('hidden');
   processing?.classList.remove('flex');
+  let stalledFallbackTimer = null;
+  const clearStalledFallbackTimer = () => {
+    if (stalledFallbackTimer !== null) {
+      window.clearTimeout(stalledFallbackTimer);
+      stalledFallbackTimer = null;
+    }
+  };
   const announceLoading = () => setPlayerState('Загружаем видео…');
-  const announceBuffering = () => setPlayerState('Видео загружается…');
-  const announceReady = () => setPlayerState('');
+  const announceBuffering = () => {
+    setPlayerState('Видео загружается…');
+    if (stalledFallbackTimer !== null) return;
+    stalledFallbackTimer = window.setTimeout(() => {
+      stalledFallbackTimer = null;
+      video.pause();
+      showVideoFallback(
+        fallback,
+        'Видео не отвечает. Проверьте соединение и повторите подключение.',
+        mediaSession.generation,
+      );
+    }, 12_000);
+  };
+  const announceReady = () => {
+    clearStalledFallbackTimer();
+    setPlayerState('');
+  };
+  const announceMediaError = () => {
+    clearStalledFallbackTimer();
+    showVideoFallback(
+      fallback,
+      'Не удалось загрузить видео. Проверьте соединение и повторите подключение.',
+      mediaSession.generation,
+    );
+  };
+  mediaSession.signal.addEventListener('abort', clearStalledFallbackTimer, { once: true });
   video.addEventListener('loadstart', announceLoading, { signal: mediaSession.signal });
   video.addEventListener('waiting', announceBuffering, { signal: mediaSession.signal });
   video.addEventListener('stalled', announceBuffering, { signal: mediaSession.signal });
   video.addEventListener('canplay', announceReady, { signal: mediaSession.signal });
   video.addEventListener('playing', announceReady, { signal: mediaSession.signal });
-  video.addEventListener('error', announceReady, { signal: mediaSession.signal });
+  video.addEventListener('error', announceMediaError, { signal: mediaSession.signal });
 
   const webinarConfig = state.webinarConfig;
   const serverLiveState = data.liveState || webinarConfig?.liveState || null;
@@ -428,6 +574,8 @@ export async function hydrateTimeline() {
   const isTestMode = webinarConfig && webinarConfig.status === 'test';
   const isLiveVisual = isLive || isTestMode;
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+  const allowAutoplay = !prefersReducedMotion;
+  const playbackAnalytics = createPlaybackAnalytics(webinarConfig);
   const nowServerMs = Date.now() + state.serverTimeOffset;
   const scheduledAtMs = Number(webinarConfig?.scheduledAt);
   const endedByClock = Boolean(
@@ -446,11 +594,14 @@ export async function hydrateTimeline() {
     // отсчёт. Replay прошедших вебинаров не задеваем: у них scheduledAt в прошлом.
     (nowServerMs < webinarConfig.scheduledAt && !isLive && !isTestMode && !isReplay)
   );
-  const isEnded =
+  const endedByServerState =
     webinarConfig &&
     !isTestMode &&
     !isReplay &&
     (webinarConfig.status === 'finished' || serverLiveState?.isEnded || endedByClock);
+  const hasPersistedPlaybackEnd = readPlaybackEndedState(webinarConfig);
+  const isEnded = Boolean(endedByServerState || hasPersistedPlaybackEnd);
+  const shouldShowCompletedEndState = isEnded;
 
   if (isPreLive || isEnded) {
     stopVideoMedia(video, { ended: Boolean(isEnded) });
@@ -458,29 +609,34 @@ export async function hydrateTimeline() {
       fallback.classList.add('hidden');
       fallback.classList.remove('flex');
     }
-  } else if (prefersReducedMotion) {
-    video.pause();
-    if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
-    if (playOverlay) {
-      playOverlay.classList.remove('hidden', 'opacity-0', 'webinar-prelive-overlay');
-      playOverlay.innerHTML = `
-        <span class="w-14 h-14 bg-white/12 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-white/25 shadow-lg">
-          <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
-        </span>
-        <span class="block text-headline-sm text-white font-bold tracking-wide uppercase">Начать просмотр премьеры</span>
-        <span class="block text-body-md text-white/75 mt-1 max-w-md">Автовоспроизведение отключено по настройкам движения устройства</span>
-      `;
-    }
   } else {
     await initializeVideoSource(video, data.video || {}, fallback, mediaSession);
+    if (prefersReducedMotion) {
+      video.pause();
+      if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
+      if (playOverlay) {
+        playOverlay.classList.remove('hidden', 'opacity-0', 'webinar-prelive-overlay');
+        playOverlay.innerHTML = `
+          <span class="w-14 h-14 bg-white/12 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-white/25 shadow-lg">
+            <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
+          </span>
+          <span class="block text-headline-sm text-white font-bold tracking-wide uppercase">Начать просмотр премьеры</span>
+          <span class="block text-body-md text-white/75 mt-1 max-w-md">Автовоспроизведение отключено по настройкам движения устройства</span>
+        `;
+      }
+    }
   }
 
   if (playOverlay) {
     playOverlay.disabled = Boolean(isPreLive);
-    playOverlay.dataset.action = isEnded ? 'recordings' : 'play';
+    playOverlay.dataset.action = shouldShowCompletedEndState ? 'recordings' : 'play';
     playOverlay.setAttribute(
       'aria-label',
-      isPreLive ? 'Премьера ещё не началась' : isEnded ? 'Открыть записи вебинаров' : 'Начать просмотр видео',
+      isPreLive
+        ? 'Премьера ещё не началась'
+        : shouldShowCompletedEndState
+          ? 'Открыть записи вебинаров'
+          : 'Начать просмотр видео',
     );
   }
 
@@ -506,11 +662,13 @@ export async function hydrateTimeline() {
   let broadcastStarted = false;
   let manualBehindLive = false;
   let pausedFromLive = false;
+  let userPaused = false;
+  let wasPlayingBeforeHidden = false;
   let isScrubbing = false;
   let endedScreenVisible = false;
   const liveToleranceSeconds = 2.5;
 
-  if (customControls && !isEnded) {
+  if (customControls && !shouldShowCompletedEndState) {
     customControls.removeAttribute('inert');
     customControls.removeAttribute('aria-hidden');
   }
@@ -572,6 +730,9 @@ export async function hydrateTimeline() {
       updateCountdown();
       countdownInterval = window.setInterval(updateCountdown, 1000);
     }
+  } else if (shouldShowCompletedEndState) {
+    if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
+    showEndedScreen();
   } else if (isReplay) {
     video.pause();
     video.currentTime = 0;
@@ -588,9 +749,6 @@ export async function hydrateTimeline() {
         <span class="block text-body-md text-white/75 mt-1 max-w-md">Премьера завершена. Постоянная запись доступна в разделе «Записи».</span>
       `;
     }
-  } else if (isEnded) {
-    if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
-    showEndedScreen();
   } else if (isTestMode) {
     video.pause();
     if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
@@ -599,20 +757,22 @@ export async function hydrateTimeline() {
     if (standbyBackdrop) standbyBackdrop.classList.add('hidden');
     if (playOverlay) playOverlay.classList.add('hidden');
     if (playOverlay) playOverlay.classList.remove('webinar-prelive-overlay');
-    video.play().catch(err => {
-      if (_endedMediaState) return;
-      console.log('Muted autoplay was prevented by browser, waiting for user click.', err);
-      if (playOverlay) {
-        playOverlay.classList.remove('hidden', 'opacity-0');
-        playOverlay.innerHTML = `
-          <span class="w-14 h-14 bg-white/12 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-white/25 hover:scale-105 transition-transform shadow-lg">
-            <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
-          </span>
-          <span class="block text-headline-sm text-white font-bold tracking-wide uppercase">Начать просмотр премьеры</span>
-          <span class="block text-body-md text-white/75 mt-1 max-w-md">Нажмите, чтобы включить запись с текущего момента</span>
-        `;
-      }
-    });
+    if (allowAutoplay) {
+      video.play().catch(err => {
+        if (_endedMediaState) return;
+        console.log('Muted autoplay was prevented by browser, waiting for user click.', err);
+        if (playOverlay) {
+          playOverlay.classList.remove('hidden', 'opacity-0');
+          playOverlay.innerHTML = `
+            <span class="w-14 h-14 bg-white/12 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-white/25 hover:scale-105 transition-transform shadow-lg">
+              <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
+            </span>
+            <span class="block text-headline-sm text-white font-bold tracking-wide uppercase">Начать просмотр премьеры</span>
+            <span class="block text-body-md text-white/75 mt-1 max-w-md">Нажмите, чтобы включить запись с текущего момента</span>
+          `;
+        }
+      });
+    }
   }
 
   if (isLiveVisual) {
@@ -662,7 +822,7 @@ export async function hydrateTimeline() {
   }
 
   const initialPos = getLivePosition();
-  if (isLive) {
+  if (isLive && !shouldShowCompletedEndState) {
     if (initialPos < videoDuration) {
       video.currentTime = initialPos;
     } else {
@@ -670,7 +830,7 @@ export async function hydrateTimeline() {
     }
   }
 
-  function showEndedScreen({ userTriggered = false } = {}) {
+  function showEndedScreen({ userTriggered = false, completedPlayback = false } = {}) {
     const activeElement = document.activeElement;
     const focusNeedsRecovery = Boolean(
       activeElement &&
@@ -679,8 +839,17 @@ export async function hydrateTimeline() {
     );
     const firstTransition = !endedScreenVisible;
     endedScreenVisible = true;
+    if (completedPlayback) {
+      persistPlaybackEndedState(webinarConfig);
+      playbackAnalytics.recordProgress(videoDuration, videoDuration);
+      playbackAnalytics.recordFinish();
+    }
     if (firstTransition && !_endedMediaState) stopVideoMedia(video, { ended: true });
     else video.pause();
+    if (_liveControlsInterval) {
+      window.clearInterval(_liveControlsInterval);
+      _liveControlsInterval = null;
+    }
     if (customControls) {
       customControls.classList.add('hidden');
       customControls.setAttribute('inert', '');
@@ -694,6 +863,12 @@ export async function hydrateTimeline() {
       playOverlay.disabled = false;
       playOverlay.dataset.action = 'recordings';
       playOverlay.setAttribute('aria-label', 'Открыть записи вебинаров');
+      // Media cleanup aborts the session signal, so the terminal action must
+      // remain available independently of the regular player listeners.
+      playOverlay.onclick = event => {
+        event.stopPropagation();
+        window.location.assign('recordings.html');
+      };
       if (firstTransition) {
         playOverlay.innerHTML = `
           <span class="w-20 h-20 bg-green-600/90 rounded-full flex items-center justify-center mb-4 border border-white/20">
@@ -711,6 +886,7 @@ export async function hydrateTimeline() {
     if (firstTransition && playerStatus) {
       playerStatus.textContent = 'Премьера завершена. Откройте доступные записи вебинаров.';
     }
+    activateTimelineEvent(videoDuration, data.timeline || [], playbackAnalytics);
     const input = document.getElementById('questionInput');
     const submit = document.getElementById('questionSubmit');
     const activity = document.getElementById('chatActivity');
@@ -736,7 +912,10 @@ export async function hydrateTimeline() {
     if (!isLiveVisual) return false;
     const livePosition = getLivePosition();
     if (!isTestMode && livePosition >= videoDuration) {
-      showEndedScreen({ userTriggered });
+      showEndedScreen({
+        userTriggered,
+        completedPlayback: broadcastStarted && !manualBehindLive && !userPaused,
+      });
       return false;
     }
     video.currentTime = livePosition;
@@ -750,7 +929,7 @@ export async function hydrateTimeline() {
     if (!isLiveVisual) return;
     const livePosition = getLivePosition();
     if (!isTestMode && livePosition >= videoDuration) {
-      showEndedScreen();
+      showEndedScreen({ completedPlayback: broadcastStarted && !manualBehindLive && !userPaused });
       return;
     }
 
@@ -802,7 +981,8 @@ export async function hydrateTimeline() {
     () => {
       const current = video.currentTime;
       window.__aspbVideoPosition = current;
-      activateTimelineEvent(current, data.timeline || []);
+      activateTimelineEvent(current, data.timeline || [], playbackAnalytics);
+      playbackAnalytics.recordProgress(current, videoDuration);
 
       if (isLiveVisual) {
         updateLiveControls();
@@ -827,7 +1007,13 @@ export async function hydrateTimeline() {
     { signal: mediaSession.signal },
   );
 
-  activateTimelineEvent(video.currentTime, data.timeline || []);
+  activateTimelineEvent(video.currentTime, data.timeline || [], playbackAnalytics);
+
+  video.addEventListener(
+    'ended',
+    () => showEndedScreen({ completedPlayback: true }),
+    { signal: mediaSession.signal },
+  );
 
   document.addEventListener(
     'aspb:room-seek-request',
@@ -849,9 +1035,11 @@ export async function hydrateTimeline() {
     },
     { signal: mediaSession.signal },
   );
+  document.dispatchEvent(new CustomEvent('aspb:video-controls-ready'));
 
   function startBroadcastFromClick() {
-    if (isPreLive || isEnded) return;
+    if (isPreLive || isEnded || _endedMediaState) return;
+    userPaused = false;
 
     if (isLiveVisual && (!manualBehindLive || pausedFromLive)) {
       const currentPos = getLivePosition();
@@ -912,6 +1100,7 @@ export async function hydrateTimeline() {
   if (pauseOverlay) {
     pauseOverlay.addEventListener('click', event => {
       event.stopPropagation();
+      userPaused = false;
       if (isLiveVisual && (!manualBehindLive || pausedFromLive)) {
         if (!seekToLive({ userTriggered: true })) return;
       }
@@ -948,6 +1137,7 @@ export async function hydrateTimeline() {
 
   function togglePlayState() {
     if (video.paused) {
+      userPaused = false;
       if (isLiveVisual && (!manualBehindLive || pausedFromLive)) {
         if (!seekToLive({ userTriggered: true })) return;
       }
@@ -955,6 +1145,7 @@ export async function hydrateTimeline() {
       if (pauseOverlay) pauseOverlay.classList.add('hidden');
       updatePlayAccessibility();
     } else {
+      userPaused = true;
       if (isLiveVisual) {
         pausedFromLive = isNearLive() && !manualBehindLive;
       }
@@ -983,12 +1174,15 @@ export async function hydrateTimeline() {
   }
 
   _visibilityHandler = () => {
-    if (document.visibilityState === 'visible' && isLiveVisual) {
-      if (!manualBehindLive) {
-        if (!seekToLive()) return;
-        video.play().catch(err => console.log('Visibility change auto-play failed:', err));
-      }
+    if (document.visibilityState === 'hidden') {
+      wasPlayingBeforeHidden = !video.paused && !userPaused;
+      return;
     }
+    if (!isLiveVisual || _endedMediaState) return;
+    if (userPaused || !wasPlayingBeforeHidden) return;
+    wasPlayingBeforeHidden = false;
+    if (!manualBehindLive && !seekToLive()) return;
+    video.play().catch(err => console.log('Visibility change auto-play failed:', err));
   };
   document.addEventListener('visibilitychange', _visibilityHandler);
 
@@ -1002,6 +1196,7 @@ export async function hydrateTimeline() {
 
   if (returnToLiveBtn) {
     returnToLiveBtn.addEventListener('click', () => {
+      userPaused = false;
       if (!seekToLive({ userTriggered: true })) return;
       if (video.paused) {
         video.play().catch(err => console.log('Return to live play failed:', err));
@@ -1012,6 +1207,9 @@ export async function hydrateTimeline() {
   video.addEventListener(
     'play',
     () => {
+      broadcastStarted = true;
+      playbackAnalytics.recordStart();
+      playbackAnalytics.recordSound(video);
       updatePlayAccessibility();
       if (pauseOverlay) pauseOverlay.classList.add('hidden');
     },
@@ -1019,6 +1217,11 @@ export async function hydrateTimeline() {
   );
 
   video.addEventListener('pause', updatePlayAccessibility, { signal: mediaSession.signal });
+  video.addEventListener(
+    'volumechange',
+    () => playbackAnalytics.recordSound(video),
+    { signal: mediaSession.signal },
+  );
 
   video.addEventListener(
     'seeking',

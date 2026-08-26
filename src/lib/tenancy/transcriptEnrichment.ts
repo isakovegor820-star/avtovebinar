@@ -504,16 +504,9 @@ export async function reviewAiSuggestion(
         const value = content as z.infer<typeof chapterContentSchema>;
         const chapterTranscript = await tx.transcript.findFirst({
           where: { id: transcriptId, webinarId, organizationId: context.organizationId },
-          select: { status: true, mediaAsset: { select: { durationSeconds: true } } },
+          select: { mediaAsset: { select: { durationSeconds: true } } },
         });
-        if (!chapterTranscript || chapterTranscript.status === 'PUBLISHED') {
-          throw new AppError(
-            409,
-            'Опубликованная расшифровка неизменяема. Создайте новую версию расшифровки.',
-            undefined,
-            'chapter_published_immutable',
-          );
-        }
+        if (!chapterTranscript) unavailable('Transcript');
         if (
           !chapterTranscript.mediaAsset.durationSeconds ||
           value.startMs >= chapterTranscript.mediaAsset.durationSeconds * 1_000

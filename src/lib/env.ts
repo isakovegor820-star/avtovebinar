@@ -281,6 +281,9 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
   if (config.EMAIL_MODE === 'send' && (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS)) {
     errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required when EMAIL_MODE="send" in production');
   }
+  if (config.EMAIL_MODE !== 'send') {
+    errors.push('EMAIL_MODE must be "send" in production because participant access is delivered by email');
+  }
   if (config.E2E_EMAIL_OUTBOX_ENABLED === 'on') {
     errors.push('E2E_EMAIL_OUTBOX_ENABLED must be "off" in production');
   }

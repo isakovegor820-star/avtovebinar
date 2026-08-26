@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   const card = document.querySelector('.glass-card');
   if (!card) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
 
   card.style.opacity = '0';
   card.style.transform = 'translateY(20px)';

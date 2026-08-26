@@ -2,17 +2,27 @@
  * analytics.js — трекинг событий и данные для инсайтов.
  */
 
-import { post, utm } from './utils.js?v=site-review-7';
+import { API } from './state.js';
+import { csrfHeaders, utm } from './utils.js?v=prelaunch-20260825-2';
 
 const ANALYTICS_SCHEMA_VERSION = 1;
+const ANALYTICS_QUEUE_KEY = 'aspb_analytics_queue_v1';
+const MAX_QUEUE_ITEMS = 100;
+const MAX_RETRY_DELAY_MS = 60_000;
 let operationSequence = 0;
 const pageOperationId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const pending = new Map();
+let flushPromise = null;
+let flushTimer = 0;
+let exitTracked = false;
 
 function sourceForEvent(eventName, metadata = {}) {
   if (eventName === 'viewer_heartbeat' && metadata.playbackMode === 'replay') return 'replay';
   if (eventName.startsWith('recording') || eventName === 'recordings_open') return 'replay';
   if (
     eventName.startsWith('video_') ||
+    eventName.startsWith('cta_') ||
+    eventName === 'sound_on' ||
     eventName.startsWith('question_') ||
     eventName.startsWith('partner_') ||
     eventName === 'viewer_heartbeat'
@@ -62,6 +72,24 @@ function attributesForEvent(eventName, metadata = {}) {
       ...(typeof metadata.preferredFormat === 'string' ? { preferredFormat: metadata.preferredFormat.slice(0, 160) } : {}),
     };
   }
+  if (eventName === 'registration_form_error') {
+    return {
+      failureCode:
+        typeof metadata.failureCode === 'string'
+          ? metadata.failureCode.replace(/[^A-Za-z0-9._:-]/g, '-').slice(0, 80)
+          : 'client_validation_failed',
+    };
+  }
+  if (eventName === 'cta_appear' || eventName === 'cta_click') {
+    return {
+      ...(typeof metadata.ctaKey === 'string'
+        ? { ctaKey: metadata.ctaKey.replace(/[^A-Za-z0-9._:-]/g, '-').slice(0, 80) }
+        : {}),
+      ...(Number.isFinite(metadata.positionSeconds)
+        ? { positionSeconds: Math.max(0, Number(metadata.positionSeconds)) }
+        : {}),
+    };
+  }
   return {};
 }
 
@@ -71,7 +99,91 @@ function createDedupKey(eventName) {
   return `web:${eventName}:${logicalOperation}`.slice(0, 128);
 }
 
-export function track(eventName, metadata) {
+function readPersistedQueue() {
+  try {
+    const rows = JSON.parse(window.sessionStorage.getItem(ANALYTICS_QUEUE_KEY) || '[]');
+    if (!Array.isArray(rows)) return;
+    for (const row of rows.slice(-MAX_QUEUE_ITEMS)) {
+      if (row?.payload?.schemaVersion !== ANALYTICS_SCHEMA_VERSION || typeof row.payload.dedupKey !== 'string') continue;
+      pending.set(row.payload.dedupKey, {
+        payload: row.payload,
+        attempts: Math.max(0, Math.min(5, Number(row.attempts) || 0)),
+        nextAttemptAt: Math.max(0, Number(row.nextAttemptAt) || 0),
+      });
+    }
+  } catch {
+    // Browser storage is optional; the in-memory queue still handles the page.
+  }
+}
+
+function persistQueue() {
+  try {
+    window.sessionStorage.setItem(ANALYTICS_QUEUE_KEY, JSON.stringify([...pending.values()].slice(-MAX_QUEUE_ITEMS)));
+  } catch {
+    // Analytics must not break the user flow when storage is unavailable.
+  }
+}
+
+function retryDelay(response, attempts) {
+  const retryAfter = response?.headers?.get?.('retry-after');
+  const retrySeconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0;
+  if (retrySeconds > 0) return Math.min(MAX_RETRY_DELAY_MS, retrySeconds * 1000);
+  return Math.min(MAX_RETRY_DELAY_MS, 1000 * 2 ** Math.min(5, attempts));
+}
+
+async function deliver(item, keepalive) {
+  let response;
+  try {
+    response = await fetch(`${API}/events`, {
+      method: 'POST',
+      credentials: 'include',
+      keepalive,
+      headers: { 'Content-Type': 'application/json', ...(await csrfHeaders()) },
+      body: JSON.stringify(item.payload),
+    });
+  } catch {
+    return { retry: true, delay: retryDelay(null, item.attempts) };
+  }
+  if (response.ok || response.status === 409) return { delivered: true };
+  if (response.status === 429 || response.status >= 500) {
+    return { retry: true, delay: retryDelay(response, item.attempts) };
+  }
+  return { discard: true };
+}
+
+function scheduleFlush(delay = 0) {
+  window.clearTimeout(flushTimer);
+  flushTimer = window.setTimeout(() => void flushAnalytics(), Math.max(0, delay));
+}
+
+export function flushAnalytics({ keepalive = false } = {}) {
+  if (flushPromise) return flushPromise;
+  flushPromise = (async () => {
+    let nextDelay = MAX_RETRY_DELAY_MS;
+    const now = Date.now();
+    for (const [key, item] of pending) {
+      if (item.nextAttemptAt > now) {
+        nextDelay = Math.min(nextDelay, item.nextAttemptAt - now);
+        continue;
+      }
+      const result = await deliver(item, keepalive);
+      if (result.delivered || result.discard) {
+        pending.delete(key);
+        continue;
+      }
+      item.attempts = Math.min(5, item.attempts + 1);
+      item.nextAttemptAt = Date.now() + result.delay;
+      nextDelay = Math.min(nextDelay, result.delay);
+    }
+    persistQueue();
+    if (pending.size && !keepalive) scheduleFlush(nextDelay);
+  })().finally(() => {
+    flushPromise = null;
+  });
+  return flushPromise;
+}
+
+export function track(eventName, metadata = {}) {
   const campaign = utm();
   const payload = {
     schemaVersion: ANALYTICS_SCHEMA_VERSION,
@@ -85,13 +197,22 @@ export function track(eventName, metadata) {
     ...(campaign.utmMedium ? { utmMedium: campaign.utmMedium } : {}),
     ...(campaign.utmCampaign ? { utmCampaign: campaign.utmCampaign } : {}),
   };
-  // One retry represents the same logical delivery and deliberately reuses the
-  // same dedup key. Nothing is persisted in browser storage.
-  post('/events', payload).catch(error => {
-    if (!error?.status) return post('/events', payload).catch(() => {});
-    return undefined;
-  });
+  pending.set(payload.dedupKey, { payload, attempts: 0, nextAttemptAt: 0 });
+  while (pending.size > MAX_QUEUE_ITEMS) pending.delete(pending.keys().next().value);
+  persistQueue();
+  scheduleFlush();
+  return payload.dedupKey;
 }
+
+readPersistedQueue();
+scheduleFlush();
+window.addEventListener('online', () => scheduleFlush());
+window.addEventListener('pagehide', event => {
+  if (event.persisted || exitTracked) return;
+  exitTracked = true;
+  track('user_exit');
+  void flushAnalytics({ keepalive: true });
+});
 
 export const WEBINAR_INSIGHTS = [
   {

@@ -70,6 +70,16 @@ describe('frontend player safety regressions', () => {
     expect(recordingsJs).toContain('setRecordingPlaybackFailureState(false)');
   });
 
+  it('gives an unavailable webinar video an accessible bounded retry path', () => {
+    expect(webinarHtml).toContain('data-video-fallback-retry');
+    expect(webinarHtml).toContain('Повторить подключение');
+    expect(videoJs).toContain("fallback.querySelector('[data-video-fallback-retry]')");
+    expect(videoJs).toContain("video.addEventListener('error', announceMediaError");
+    expect(videoJs).toContain("video.addEventListener('stalled', announceBuffering");
+    expect(videoJs).toContain('}, 12_000);');
+    expect(videoJs).toContain('void hydrateTimeline()');
+  });
+
   it('uses action labels for media actions and pressed state only for captions', () => {
     const actionSources = [videoJs, recordingsJs, recordingsHtml].join('\n');
     expect(actionSources).not.toContain('aria-pressed');
@@ -84,7 +94,9 @@ describe('frontend player safety regressions', () => {
     expect(webinarHtml).toContain(
       'id="webinarPlayerStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"',
     );
-    expect(videoJs).toContain('function showEndedScreen({ userTriggered = false } = {})');
+    expect(videoJs).toContain(
+      'function showEndedScreen({ userTriggered = false, completedPlayback = false } = {})',
+    );
     expect(videoJs).toContain('const focusNeedsRecovery = Boolean(');
     expect(videoJs).toContain('if ((userTriggered || focusNeedsRecovery)');
     expect(videoJs).toContain("playerStatus.textContent = 'Премьера завершена. Откройте доступные записи вебинаров.'");
@@ -268,7 +280,7 @@ describe('frontend player safety regressions', () => {
     expect(platformModerationCss).toContain(':focus-visible');
     expect(correctionsJs).not.toContain('innerHTML');
     expect(correctionsJs).toContain('baseContentVersion: request.baselineContentVersion');
-    expect(correctionsHtml).toContain('не попадёт зрителям, пока её не одобрит platform admin');
+    expect(correctionsHtml).toContain('не попадёт зрителям, пока её не одобрит администратор платформы');
     expect(publicReportJs).not.toContain('innerHTML');
     expect(publicReportJs).not.toContain('localStorage');
     expect(publicReportJs).toContain("post('/v1/reports'");

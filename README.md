@@ -6,13 +6,18 @@
 
 Доступ в вебинарную комнату cookie-only:
 
-- одноразовый `exchange-token` поддерживается только для первичного обмена через `POST /api/registration/exchange` с body `{ "token": "..." }`; legacy `POST /api/registration/exchange/:token` временно поддерживается;
+- одноразовый `exchange-token` поддерживается только для первичного обмена через `POST /api/registration/exchange` с body `{ "token": "..." }`; bearer-токены в URL path не поддерживаются;
 - письма, reminder и Telegram-ссылки используют одноразовый `webinar.html#token=...`; legacy `?token=...` остается рабочим для старых ссылок;
 - backend удаляет exchange-token, выпускает session-token и ставит `HttpOnly` cookie `aspb_room_token`;
 - URL очищается от `token`;
 - дальнейшие запросы комнаты используют только cookie и endpoints `session/current`.
 
 Постоянные endpoints с token в path отключены. Frontend не хранит room token в `localStorage` и не отправляет token в analytics, questions или partner application.
+
+Отписка от маркетинговой почты использует случайный одноразовый capability:
+письмо получает raw token, БД хранит только SHA-256 hash, purpose, expiry и
+`usedAt`/`revokedAt`. `GET /api/unsubscribe` только показывает подтверждение;
+согласие меняет только `POST`, а replay использованного токена отклоняется.
 
 Комната получает главы, материалы и только опубликованный транскрипт одним
 `private, no-store` snapshot. WebVTT captions запрашиваются отдельным
@@ -370,9 +375,9 @@ SMTP worker создаёт raw link только в памяти, а в БД с�
 `cancelled`: письмо не считается доставленным, а персональные ссылки маскируются
 в логе.
 
-Production может временно работать в честном degraded-режиме `EMAIL_MODE=log`:
-письмо и доступ не обещаются, API возвращает `deliveryStatus=retrying`.
-`EMAIL_MODE=send` включается только после SMTP verify.
+`EMAIL_MODE=log` предназначен только для development/test и не считается
+доставкой. Production запускается только с `EMAIL_MODE=send`; до promotion
+обязателен успешный SMTP verify, иначе публичную регистрацию нужно закрыть.
 
 ## Вебинарная комната
 
@@ -409,7 +414,6 @@ GET  /api/webinar/timeline/session/current
 GET  /api/webinar/chat/session/current
 POST /api/register
 POST /api/registration/exchange
-POST /api/registration/exchange/:token (legacy)
 GET  /api/registration/session/current
 POST /api/events
 POST /api/questions
@@ -468,6 +472,17 @@ POST /api/v1/creator/webinars/:webinarId/submit
 POST /api/v1/creator/webinars/:webinarId/publish
 POST /api/v1/creator/webinars/:webinarId/archive
 ```
+
+`POST /api/partner-application` требует `Idempotency-Key` (16–128 безопасных
+символов). Повтор того же payload возвращает исходную заявку, а использование
+ключа с другим payload даёт `409`.
+
+Регистрация принимает current/last campaign поля `source`, `utmSource`,
+`utmMedium`, `utmCampaign`, `utmContent`, `utmTerm`, `gclid`, `yclid`,
+`landingUrl` и явный first-touch snapshot с префиксом `first` (`firstSource`,
+`firstUtmSource` … `firstLandingUrl`). Landing URL сохраняется только как
+`origin + pathname`, без query/hash; first-touch не перезаписывается повторной
+подтверждённой регистрацией.
 
 `POST /api/events` принимает текущий аналитический контракт `schemaVersion: 1`.
 Тип события берётся из централизованной таксономии, `source` — только из
@@ -610,7 +625,7 @@ ADMIN_PASSWORD=...
 ADMIN_COOKIE_SECRET=...
 IP_HASH_SECRET=...
 METRICS_TOKEN=...
-EMAIL_MODE=log # degraded до SMTP verify; затем переключить на send
+EMAIL_MODE=send # обязательно в production; до promotion выполнить SMTP verify
 SMTP_HOST=...
 SMTP_PORT=587
 SMTP_USER=...
@@ -633,7 +648,7 @@ WEBINAR_VIDEO_DURATION_SECONDS=3860
 WEBINAR_TEST_ROOM_MODE=off
 ```
 
-Production guard запрещает дефолтные admin-секреты, пустой `METRICS_TOKEN`, HTTP `PUBLIC_SITE_URL`, wildcard CORS, test-room mode и localhost video URLs. `EMAIL_MODE=log` разрешён как явно degraded-режим без обещания доставки; при `send` обязательны SMTP-реквизиты и предварительный verify. Telegram send mode требует отдельный `TELEGRAM_OPERATIONAL_CHAT_ID`, отличный от legacy admin chat; tenant bot flow дополнительно требует accounts/CRM flags, platform bot identities и `TELEGRAM_CALLBACK_SECRET`. Организациям bot token не выдаётся. Видео выдаётся только через cookie-защищённые `/api/media/*`: внешний private CDN/origin требует Bearer token, а same-origin файл может читаться приложением из read-only mount без сетевого origin. `DATABASE_URL` должен включать pooling параметры, например `connection_limit=10&pool_timeout=20`. `TRUST_PROXY` включайте только за доверенным reverse proxy. `/health/dependencies` без токена показывает только `checks.smtp`, `checks.telegram` и `checks.emailOutbox` со значениями `ok/degraded` — без ошибок провайдера, username, адресов, heartbeat timestamps и размеров очереди. Полные детали, включая SLA очереди и per-subsystem worker deadlines, доступны по `/health/dependencies/details` с metrics token.
+Production guard запрещает дефолтные admin-секреты, пустой `METRICS_TOKEN`, HTTP `PUBLIC_SITE_URL`, wildcard CORS, `EMAIL_MODE=log`, test-room mode и localhost video URLs. Для `EMAIL_MODE=send` обязательны SMTP-реквизиты и предварительный verify. Telegram send mode требует отдельный `TELEGRAM_OPERATIONAL_CHAT_ID`, отличный от legacy admin chat; manager alerts создаются транзакционно в durable outbox и обрабатываются reminder worker с retry/dead-letter. Tenant bot flow дополнительно требует accounts/CRM flags, platform bot identities и `TELEGRAM_CALLBACK_SECRET`. Организациям bot token не выдаётся. Видео выдаётся только через cookie-защищённые `/api/media/*`: внешний private CDN/origin требует Bearer token, а same-origin файл может читаться приложением из read-only mount без сетевого origin. `DATABASE_URL` должен включать pooling параметры, например `connection_limit=10&pool_timeout=20`. `TRUST_PROXY` включайте только за доверенным reverse proxy. `/health/dependencies` без токена показывает только агрегированное состояние без ошибок провайдера, username, адресов, heartbeat timestamps и размеров очереди. Полные детали, включая SLA очередей и per-subsystem worker deadlines, доступны по `/health/dependencies/details` с metrics token.
 
 Docker production:
 

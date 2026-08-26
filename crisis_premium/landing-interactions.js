@@ -44,6 +44,11 @@ function formatIncome(value) {
 }
 function animateIncomeCounter(node, target) {
   if (!node) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    node.textContent = formatIncome(target);
+    incomeCounters.set(node, target);
+    return;
+  }
   const previous = incomeCounters.get(node) || target * 0.72;
   const startedAt = performance.now();
   const duration = 620;
@@ -74,12 +79,14 @@ if (defaultIncomeCard) {
 }
 
 incomeCards.forEach(card => {
-  card.addEventListener('click', () => {
+  function activateIncomeCard({ moveFocus = false } = {}) {
     incomeCards.forEach(item => {
-      item.setAttribute('aria-selected', 'false');
+      const selected = item === card;
+      item.setAttribute('aria-selected', String(selected));
+      item.setAttribute('tabindex', selected ? '0' : '-1');
     });
 
-    card.setAttribute('aria-selected', 'true');
+    incomeDetail.setAttribute('aria-labelledby', card.id);
 
     incomeDetailTitle.textContent = card.dataset.incomeTitle;
     incomeDetailAmount.textContent = card.dataset.incomeAmount;
@@ -97,6 +104,26 @@ incomeCards.forEach(card => {
     incomeDetail.classList.remove('income-detail-pop');
     void incomeDetail.offsetWidth;
     incomeDetail.classList.add('income-detail-pop');
+    if (moveFocus) card.focus();
+  }
+
+  card.addEventListener('click', () => {
+    activateIncomeCard();
+  });
+
+  card.addEventListener('keydown', event => {
+    const cards = Array.from(incomeCards);
+    const currentIndex = cards.indexOf(card);
+    let nextIndex = null;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % cards.length;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + cards.length) % cards.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = cards.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextCard = cards[nextIndex];
+    nextCard.click();
+    nextCard.focus();
   });
 });
 
@@ -171,24 +198,6 @@ faqCards.forEach(card => {
   });
 });
 
-(function () {
-  const scaleTabs = document.querySelectorAll('#regScaleTab1, #regScaleTab2');
-  const scaleText = document.getElementById('regScaleText');
-  const scaleContents = {
-    regScaleTab1:
-      'Банкротство — не "поражение", а инструмент защиты бизнеса и активов, если к нему подходят заранее и профессионально.',
-    regScaleTab2:
-      'За вашей рекомендацией стоит команда АУ и 17 000+ завершённых процедур по внутренним данным АСПБ. Это сильнее, чем вести сложный кейс в одиночку.',
-  };
-  scaleTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      scaleTabs.forEach(t => t.setAttribute('aria-selected', 'false'));
-      tab.setAttribute('aria-selected', 'true');
-      scaleText.textContent = scaleContents[tab.id] || '';
-    });
-  });
-})();
-
 function initSiteClickRipple() {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     return;
@@ -250,6 +259,9 @@ function initMobileDetails() {
         target.scrollIntoView({
           behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
         });
+        if (link.classList.contains('platform-skip-link')) {
+          target.focus({ preventScroll: true });
+        }
       });
     });
   });

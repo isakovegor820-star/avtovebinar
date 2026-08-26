@@ -50,7 +50,6 @@ function shouldProtectRequest(req: Request) {
     req.path === '/api/participant/login/consume' ||
     req.path === '/api/participant/logout' ||
     req.path === '/api/registration/exchange' ||
-    req.path.startsWith('/api/registration/exchange/') ||
     req.path === '/api/register' ||
     req.path === '/api/questions' ||
     req.path === '/api/partner-application'

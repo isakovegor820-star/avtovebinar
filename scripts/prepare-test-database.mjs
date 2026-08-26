@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PrismaClient } from '@prisma/client';
 import { assertSafeTestDatabaseUrl } from './assert-test-database.mjs';
 
 const TEST_VIDEO_BASE64 =
@@ -27,7 +28,15 @@ if (!existsSync(testVideoPath)) {
   console.log('Created deterministic test-only webinar media fixture.');
 }
 
-const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const prismaCliPath = fileURLToPath(new URL('../node_modules/prisma/build/index.js', import.meta.url));
+if (!existsSync(prismaCliPath)) {
+  console.error('Local Prisma CLI is missing. Run npm ci before preparing the test database.');
+  process.exit(1);
+}
+
+// Execute the pinned workspace CLI directly. Going through npx adds a network-
+// aware resolution step and made the release gate depend on a slow cold cache.
+const command = process.execPath;
 const resetSetting = process.env.ASPB_ALLOW_TEST_SCHEMA_RESET;
 if (resetSetting && resetSetting !== 'on' && resetSetting !== 'off') {
   console.error('ASPB_ALLOW_TEST_SCHEMA_RESET must be either on or off when provided');
@@ -36,8 +45,8 @@ if (resetSetting && resetSetting !== 'on' && resetSetting !== 'off') {
 
 const prismaArgs =
   resetSetting === 'on'
-    ? ['--no-install', 'prisma', 'migrate', 'reset', '--force', '--skip-seed']
-    : ['--no-install', 'prisma', 'migrate', 'deploy'];
+    ? [prismaCliPath, 'migrate', 'reset', '--force', '--skip-seed']
+    : [prismaCliPath, 'migrate', 'deploy'];
 
 if (resetSetting === 'on') {
   console.warn('Explicit test-only schema reset authorized by ASPB_ALLOW_TEST_SCHEMA_RESET=on.');
@@ -56,4 +65,93 @@ if (result.error) {
   process.exit(1);
 }
 
-process.exit(result.status ?? 1);
+if (result.status !== 0) process.exit(result.status ?? 1);
+
+// Playwright waits on /health/ready before it can run spec-level resetDb(). A
+// previous interrupted test may have truncated these control-plane rows, so
+// restore the test-only invariant here, before the server starts.
+const prisma = new PrismaClient();
+try {
+  await prisma.$transaction(async tx => {
+    await tx.organization.upsert({
+      where: { id: 'org_aspb' },
+      update: { status: 'ACTIVE' },
+      create: {
+        id: 'org_aspb',
+        name: 'АСПБ',
+        slug: 'aspb',
+        status: 'ACTIVE',
+        settingsJson: { compatibilityMode: 'legacy', scopeVersion: 1 },
+      },
+    });
+    await tx.user.upsert({
+      where: { id: 'user_aspb_system_owner' },
+      update: { status: 'ACTIVE' },
+      create: {
+        id: 'user_aspb_system_owner',
+        emailNormalized: 'legacy-owner@system.invalid',
+        displayName: 'Системный владелец АСПБ',
+        kind: 'SYSTEM',
+        status: 'ACTIVE',
+      },
+    });
+    await tx.organizationMembership.upsert({
+      where: { id: 'membership_aspb_system_owner' },
+      update: { role: 'OWNER', status: 'ACTIVE' },
+      create: {
+        id: 'membership_aspb_system_owner',
+        organizationId: 'org_aspb',
+        userId: 'user_aspb_system_owner',
+        role: 'OWNER',
+        status: 'ACTIVE',
+        permissionsJson: { systemBootstrap: true },
+      },
+    });
+    await tx.webinar.upsert({
+      where: { id: 'webinar_aspb_legacy' },
+      update: { organizationId: 'org_aspb', legacyCompatibility: true },
+      create: {
+        id: 'webinar_aspb_legacy',
+        organizationId: 'org_aspb',
+        slug: 'legacy-webinar',
+        title: 'Ежедневный вебинар АСПБ',
+        contentStatus: 'PUBLISHED',
+        visibility: 'UNLISTED',
+        legacyCompatibility: true,
+        mediaStatus: 'READY',
+        scenarioStatus: 'PUBLISHED',
+      },
+    });
+    await tx.tenantRolloutPolicy.createMany({
+      data: [
+        'PLATFORM_ACCOUNTS_ONBOARDING',
+        'CREATOR_DASHBOARD',
+        'PUBLIC_CATALOG',
+        'TENANT_CRM',
+        'TENANT_TELEGRAM',
+        'PROVIDER_JOBS',
+        'ANALYTICS_MODERATION',
+      ].map(feature => ({ feature, mode: 'ENABLED' })),
+      skipDuplicates: true,
+    });
+    await tx.tenantRolloutPolicy.updateMany({
+      data: { mode: 'ENABLED', updatedByAdminUserId: null },
+    });
+    await tx.platformFeatureFlag.createMany({
+      data: [
+        { key: 'analytics_dashboard', enabled: true, description: 'Tenant analytics test flag.' },
+        { key: 'public_reporting', enabled: false, description: 'Public reporting test flag.' },
+        { key: 'moderation_actions', enabled: true, description: 'Moderation actions test flag.' },
+        { key: 'provider_jobs', enabled: true, description: 'Provider jobs test flag.' },
+      ],
+      skipDuplicates: true,
+    });
+    await tx.platformFeatureFlag.updateMany({
+      where: { key: { in: ['analytics_dashboard', 'moderation_actions', 'provider_jobs'] } },
+      data: { enabled: true, updatedByAdminUserId: null },
+    });
+  });
+  console.log('Restored deterministic test control-plane invariants.');
+} finally {
+  await prisma.$disconnect();
+}

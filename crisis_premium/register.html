@@ -29,6 +29,7 @@
 <link href="fonts.css?v=self-2" rel="stylesheet"/>
 </head>
 <body class="bg-background text-on-surface selection:bg-primary-fixed">
+<a class="platform-skip-link" href="#registerMain">К форме регистрации</a>
 <noscript><div style="padding:1.5rem;text-align:center;background:#fef3c7;color:#92400e;font-family:Manrope,Arial,sans-serif;font-size:15px">Для регистрации необходим включённый JavaScript. Пожалуйста, включите его в настройках браузера.</div></noscript>
 <!-- Top Navigation Anchor -->
 <header class="register-header docked full-width top-0 sticky bg-background/90 backdrop-blur-md shadow-sm z-50">
@@ -55,13 +56,13 @@
 </div>
 </header>
 <div data-current="register" data-flow-tabs data-extra-class="register-flow-tabs"></div>
-<main class="register-main min-h-[calc(100vh-80px)] flex items-center justify-center py-12 px-gutter">
+<main id="registerMain" class="register-main min-h-[calc(100vh-80px)] flex items-center justify-center py-12 px-gutter" tabindex="-1">
 <div class="register-layout max-w-[1100px] w-full grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
 <!-- Left Side: Content -->
 <div class="register-intro space-y-8">
 <div>
 <span class="inline-flex items-center px-4 py-1.5 rounded-full bg-secondary-container text-on-secondary-container text-label-md font-label-md mb-6">
-<span class="material-symbols-outlined mr-2 text-[18px]">event</span>
+<span class="material-symbols-outlined mr-2 text-[18px]" aria-hidden="true">event</span>
                         <span data-webinar-relative-label data-webinar-label-prefix="Вебинар">Вебинар сегодня</span>
                     </span>
 <h1 class="text-headline-lg sm:text-headline-xl font-headline-xl text-primary mb-6 leading-tight">
@@ -73,11 +74,11 @@
 </div>
 <div class="space-y-4">
 <div class="flex items-start gap-4 p-4 rounded-lg bg-surface-container-low border border-outline-variant/30">
-<span class="material-symbols-outlined text-primary" data-icon="verified">verified</span>
+<span class="material-symbols-outlined text-primary" data-icon="verified" aria-hidden="true">verified</span>
 <p class="text-body-md font-body-md">Почему кризис — это не только споры и долги, но и поток клиентов для подготовленного юриста</p>
 </div>
 <div class="flex items-start gap-4 p-4 rounded-lg bg-surface-container-low border border-outline-variant/30">
-<span class="material-symbols-outlined text-primary" data-icon="trending_up">trending_up</span>
+<span class="material-symbols-outlined text-primary" data-icon="trending_up" aria-hidden="true">trending_up</span>
 <p class="text-body-md font-body-md">Как не отпускать клиента после консультации и передавать сложную часть в АСПБ с возможным вознаграждением по договору</p>
 </div>
 </div>
@@ -128,8 +129,8 @@
 </select>
 <input id="reg-status-other" type="text" maxlength="120" autocomplete="off" aria-label="Ваш статус" placeholder="Укажите ваш статус" class="hidden w-full mt-2 px-4 py-3 rounded-lg border border-outline-variant bg-white form-input-focus transition-[border-color,box-shadow,background-color] text-body-md outline-none"/>
 </div>
-<div class="space-y-4">
-<label class="text-label-md font-label-md text-on-surface-variant block">Есть ли сейчас клиенты с долгами или банкротными рисками, которых вы не берете в работу полностью?</label>
+<fieldset class="space-y-4">
+<legend class="text-label-md font-label-md text-on-surface-variant block">Есть ли сейчас клиенты с долгами или банкротными рисками, которых вы не берете в работу полностью?</legend>
 <div class="flex flex-wrap gap-6">
 <label class="flex items-center cursor-pointer group">
 <input class="w-5 h-5 border-outline-variant text-primary focus:ring-primary mr-3" name="clients" type="radio" value="Да, много"/>
@@ -144,7 +145,7 @@
 <span class="text-body-md group-hover:text-primary transition-colors">Пока нет</span>
 </label>
 </div>
-</div>
+</fieldset>
 <label class="flex items-start gap-3 rounded-lg bg-surface-container-low border border-outline-variant/30 p-4 cursor-pointer">
 <input class="mt-1 w-5 h-5 border-outline-variant text-primary focus:ring-primary" name="personalDataConsent" required="" type="checkbox" value="true"/>
 <span class="text-label-sm font-label-sm text-on-surface-variant leading-relaxed">
@@ -183,7 +184,7 @@
 <button class="w-full py-4 bg-primary text-on-primary rounded-lg font-headline-md text-lg sm:text-headline-md shadow-lg shadow-primary/10 hover:shadow-xl hover:bg-primary/95 transition-[background-color,box-shadow,transform] transform active:scale-[0.98]" type="button" data-enable-submit>
                             Зарегистрироваться на вебинар
                         </button>
-<p class="mt-4 text-center text-label-sm font-label-sm text-outline leading-relaxed px-4">
+<p class="mt-4 text-center text-label-sm font-label-sm text-on-surface-variant leading-relaxed px-4">
                             Завершите регистрацию по одноразовой ссылке из письма. Если письмо не пришло, запросите новую ссылку в разделе «Мой доступ».
                         </p>
 <p class="mt-3 text-center text-label-sm font-label-sm text-on-surface-variant leading-relaxed px-4">
@@ -212,8 +213,8 @@
             </div>
 </div>
 </footer>
-<script src="register-parallax.js"></script>
-<script type="module" src="js/main.js?v=remediation-20260804-1"></script>
+<script src="register-parallax.js?v=prelaunch-20260825-2"></script>
+<script type="module" src="js/main.js?v=prelaunch-20260825-2"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
-<script src="cookie-consent.js"></script>
+<script src="cookie-consent.js?v=prelaunch-20260825-2"></script>
 </body></html>

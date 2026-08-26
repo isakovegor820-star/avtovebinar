@@ -67,12 +67,15 @@
   <img id="webinarSlide" class="absolute inset-0 w-full h-full object-contain bg-white z-[5]" alt="Слайд презентации"/>
 
   <!-- Fallback Screen when video cannot load -->
-  <div id="videoFallback" class="hidden absolute inset-0 flex-col items-center justify-center text-center p-8 bg-primary-container z-50" role="alert" aria-live="assertive">
-    <div class="w-20 h-20 bg-surface-container-lowest/10 backdrop-blur-md rounded-full flex items-center justify-center mb-6 border border-white/20">
-      <span class="material-symbols-outlined text-white text-4xl">movie</span>
+  <div id="videoFallback" class="hidden absolute inset-0 flex-col items-center justify-center overflow-y-auto text-center p-4 sm:p-8 bg-primary-container z-50" role="alert" aria-live="assertive">
+    <div class="hidden sm:flex w-20 h-20 bg-surface-container-lowest/10 backdrop-blur-md rounded-full items-center justify-center mb-6 border border-white/20">
+      <span class="material-symbols-outlined text-white text-4xl" aria-hidden="true">movie</span>
     </div>
-    <h2 class="text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h2>
-    <p data-video-fallback-text class="text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Поток вебинара временно недоступен. Обновите страницу или попробуйте открыть персональную ссылку позже.</p>
+    <h2 class="text-headline-md sm:text-headline-xl text-white mb-2 font-headline-xl">Запись вебинара ожидается</h2>
+    <p data-video-fallback-text class="text-body-md sm:text-body-lg text-primary-fixed-dim font-body-lg max-w-md">Поток вебинара временно недоступен. Обновите страницу или попробуйте открыть персональную ссылку позже.</p>
+    <button data-video-fallback-retry type="button" class="mt-4 sm:mt-6 min-h-[44px] rounded-full bg-white px-6 py-3 font-label-md text-primary shadow-sm transition-[background-color,transform] hover:bg-primary-fixed active:scale-[0.96]">
+      Повторить подключение
+    </button>
   </div>
 
   <div id="videoProcessing" class="hidden absolute inset-0 flex-col items-center justify-center text-center p-8 bg-primary-container z-40" role="status" aria-live="polite" aria-atomic="true">
@@ -84,7 +87,7 @@
   <!-- Countdown Overlay — shown before broadcast starts -->
   <button id="videoPlayOverlay" type="button" disabled aria-label="Премьера ещё не началась" class="webinar-prelive-overlay absolute inset-0 z-20 w-full border-0 flex flex-col items-center justify-center text-center p-6 cursor-pointer transition-[background-color,opacity] duration-300">
     <span class="w-16 h-16 bg-primary/90 rounded-full flex items-center justify-center mb-5 border border-white/20 shadow-lg">
-      <span class="material-symbols-outlined text-white text-4xl">schedule</span>
+      <span class="material-symbols-outlined text-white text-4xl" aria-hidden="true">schedule</span>
     </span>
     <span id="broadcastCountdownTitle" class="block text-headline-sm text-white font-bold tracking-wide uppercase mb-3">Проверяем доступ к премьере записи</span>
     <span id="broadcastCountdown" class="flex gap-3 mb-4">
@@ -109,7 +112,7 @@
   <!-- Pause Overlay (only shown in Live mode when paused) -->
   <button id="videoPauseOverlay" type="button" aria-label="Продолжить просмотр" class="hidden absolute inset-0 z-20 w-full border-0 flex flex-col items-center justify-center bg-black/60 text-center p-6 cursor-pointer hover:bg-black/50 transition-colors duration-300">
     <span class="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4 border border-white/10 hover:scale-110 transition-transform">
-      <span class="material-symbols-outlined text-white text-3xl font-bold">play_arrow</span>
+      <span class="material-symbols-outlined text-white text-3xl font-bold" aria-hidden="true">play_arrow</span>
     </span>
     <span data-pause-title class="block text-headline-sm text-white font-bold tracking-wide uppercase">Просмотр приостановлен</span>
     <span data-pause-note class="block text-body-lg text-white/80 mt-1">Нажмите для возврата к текущему моменту премьеры</span>
@@ -145,7 +148,7 @@
       <div class="flex items-center gap-4">
         <!-- Play/Pause Button -->
         <button id="customPlayPauseBtn" type="button" aria-label="Воспроизвести видео" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
-          <span class="material-symbols-outlined text-[28px]">play_arrow</span>
+          <span class="material-symbols-outlined text-[28px]" aria-hidden="true">play_arrow</span>
         </button>
         <div id="customTimeDisplay" class="text-white/85 text-xs tabular-nums whitespace-nowrap" aria-hidden="true">
           <span id="currentTimeText">00:00</span>
@@ -161,7 +164,7 @@
 
         <!-- Neutral live sync badge; keep hidden unless backend supplies a real metric later. -->
         <div id="customViewerCount" class="hidden flex items-center gap-1.5 text-white/80 text-xs bg-white/10 px-2.5 py-1 rounded-full">
-          <span class="material-symbols-outlined text-[16px] text-white/60">sync</span>
+          <span class="material-symbols-outlined text-[16px] text-white/60" aria-hidden="true">sync</span>
           <span id="viewerCountValue" class="font-semibold">синхронно</span>
         </div>
       </div>
@@ -170,18 +173,18 @@
         <!-- Volume / Mute Control -->
         <div class="flex items-center gap-2 group/volume">
           <button id="customMuteBtn" type="button" aria-label="Выключить звук" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
-            <span class="material-symbols-outlined text-[24px]">volume_up</span>
+            <span class="material-symbols-outlined text-[24px]" aria-hidden="true">volume_up</span>
           </button>
           <input id="customVolumeSlider" type="range" min="0" max="1" step="0.05" value="1" aria-label="Громкость видео" class="w-16 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-red-600 hover:accent-red-500 transition-[accent-color]"/>
         </div>
 
         <button id="customCaptionsBtn" type="button" aria-label="Включить субтитры" aria-pressed="false" disabled class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center disabled:opacity-45 disabled:cursor-not-allowed">
-          <span class="material-symbols-outlined text-[24px]" aria-hidden="true">closed_caption</span>
+          <span class="material-symbols-outlined text-[24px]" aria-hidden="true">description</span>
         </button>
 
         <!-- Fullscreen Button -->
         <button id="customFullscreenBtn" type="button" aria-label="Открыть видео на весь экран" class="w-11 h-11 rounded-lg bg-white/10 text-white hover:text-red-500 hover:bg-white/[0.12] transition-colors flex items-center justify-center">
-          <span class="material-symbols-outlined text-[24px]">fullscreen</span>
+          <span class="material-symbols-outlined text-[24px]" aria-hidden="true">fullscreen</span>
         </button>
       </div>
     </div>
@@ -204,7 +207,7 @@
         <p class="room-content-eyebrow">Навигация по записи</p>
         <h2 id="roomChaptersTitle" class="room-content-title">Главы</h2>
       </div>
-      <span class="material-symbols-outlined text-primary" aria-hidden="true">list_alt</span>
+      <span class="material-symbols-outlined text-primary" aria-hidden="true">format_list_bulleted</span>
     </div>
     <p class="room-block-state" data-room-block-state role="status" aria-live="polite">Загружаем главы…</p>
     <ol id="roomChaptersList" class="hidden room-chapter-list"></ol>
@@ -258,7 +261,7 @@
 <span>Показать вопрос другим зарегистрированным участникам. Без отметки вопрос увидит только команда АСПБ.</span>
 </label>
 <label class="text-[11px] text-on-surface-variant" for="questionDisplayMode">Как показать автора</label>
-<select id="questionDisplayMode" class="w-full min-h-[40px] rounded-lg border border-outline-variant/30 bg-white text-[13px]" disabled>
+<select id="questionDisplayMode" class="w-full min-h-[40px] rounded-lg border border-outline-variant/30 bg-white text-[16px]" disabled>
 <option value="pseudonym" selected>Под псевдонимом «Участник»</option>
 <option value="name_and_status">С моим именем и профессиональным статусом</option>
 </select>
@@ -267,7 +270,7 @@
 <label class="sr-only" for="questionInput">Текст вопроса команде АСПБ</label>
 <input id="questionInput" aria-describedby="questionPrivacyNotice questionSubmitStatus" aria-invalid="false" class="w-full min-h-[44px] bg-surface-container-lowest border border-outline-variant/30 rounded-xl py-3 pl-4 pr-14 focus:ring-primary focus:border-primary text-[16px]" placeholder="Задайте вопрос команде АСПБ" type="text"/>
 <button id="questionSubmit" aria-label="Отправить вопрос" class="absolute right-1 top-1/2 -translate-y-1/2 w-11 h-11 rounded-lg text-primary hover:scale-105 transition-transform flex items-center justify-center" type="button">
-<span class="material-symbols-outlined text-[20px]">send</span>
+<span class="material-symbols-outlined text-[20px]" aria-hidden="true">send</span>
 </button>
 </div>
 <p id="questionSubmitStatus" class="min-h-5 text-label-sm text-on-surface-variant mt-1 px-1" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -281,7 +284,7 @@
       <p class="room-content-eyebrow">К вебинару</p>
       <h2 id="roomMaterialsTitle" class="room-content-title">Материалы и источники</h2>
     </div>
-    <span class="material-symbols-outlined text-primary" aria-hidden="true">library_books</span>
+    <span class="material-symbols-outlined text-primary" aria-hidden="true">video_library</span>
   </div>
   <p class="room-block-state" data-room-block-state role="status" aria-live="polite">Загружаем материалы и источники…</p>
   <ul id="roomMaterialsList" class="hidden room-material-list"></ul>
@@ -314,13 +317,13 @@
       <p class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant">Условия сотрудничества</p>
       <h2 class="text-headline-md font-headline-md text-primary">О партнерской программе АСПБ</h2>
     </div>
-    <span class="material-symbols-outlined text-primary text-3xl">handshake</span>
+    <span class="material-symbols-outlined text-primary text-3xl" aria-hidden="true">handshake</span>
   </div>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-4">
     <div class="space-y-2 card-reveal">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
-        <span class="material-symbols-outlined text-secondary">description</span>
+        <span class="material-symbols-outlined text-secondary" aria-hidden="true">description</span>
         <span>Официальный договор</span>
       </div>
       <p class="text-body-md text-on-surface-variant leading-relaxed">
@@ -330,7 +333,7 @@
 
     <div class="space-y-2 card-reveal" style="animation-delay:0.1s">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
-        <span class="material-symbols-outlined text-secondary">forward_to_inbox</span>
+        <span class="material-symbols-outlined text-secondary" aria-hidden="true">forward_to_inbox</span>
         <span>Простой процесс передачи</span>
       </div>
       <p class="text-body-md text-on-surface-variant leading-relaxed">
@@ -340,7 +343,7 @@
 
     <div class="space-y-2 card-reveal" style="animation-delay:0.2s">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
-        <span class="material-symbols-outlined text-secondary">verified_user</span>
+        <span class="material-symbols-outlined text-secondary" aria-hidden="true">verified_user</span>
         <span>Сохранение лояльности</span>
       </div>
       <p class="text-body-md text-on-surface-variant leading-relaxed">
@@ -350,7 +353,7 @@
 
     <div class="space-y-2 card-reveal" style="animation-delay:0.3s">
       <div class="flex items-center gap-2 text-primary font-bold text-body-md">
-        <span class="material-symbols-outlined text-secondary">travel_explore</span>
+        <span class="material-symbols-outlined text-secondary" aria-hidden="true">travel_explore</span>
         <span>Работа по всей РФ</span>
       </div>
       <p class="text-body-md text-on-surface-variant leading-relaxed">
@@ -400,7 +403,7 @@
 <div class="bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 shadow-sm">
 <div class="flex items-center gap-4 mb-8">
 <div class="w-12 h-12 bg-primary rounded-xl flex items-center justify-center program-icon-pulse">
-<span class="material-symbols-outlined text-white">format_list_bulleted</span>
+<span class="material-symbols-outlined text-white" aria-hidden="true">format_list_bulleted</span>
 </div>
 <!-- FIX 8: переработан из дублирующего таймлайна в навигатор для опоздавших -->
 <div>
@@ -443,7 +446,7 @@
 <div class="bg-primary rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 card-reveal" style="animation-delay:0.55s">
 <div class="flex items-center gap-3">
 <div class="w-10 h-10 bg-white/15 rounded-full flex items-center justify-center text-white shrink-0 notify-icon-pulse">
-<span class="material-symbols-outlined">send</span>
+<span class="material-symbols-outlined" aria-hidden="true">send</span>
 </div>
 <div>
 <span class="font-label-md text-white block">Уведомления АСПБ</span>
@@ -451,7 +454,7 @@
 </div>
 </div>
 <a class="shrink-0 bg-white text-primary py-3 px-6 rounded-xl font-label-md hover:bg-white/90 active:scale-95 transition-[background-color,box-shadow,transform] flex items-center justify-center gap-2 notify-btn opacity-70 pointer-events-none" data-telegram-link="group" target="_blank" rel="noreferrer" aria-disabled="true">
-<span class="material-symbols-outlined text-[18px]">send</span>
+<span class="material-symbols-outlined text-[18px]" aria-hidden="true">send</span>
 Подключить
 </a>
 </div>
@@ -473,10 +476,10 @@
 </div>
 </footer>
 
-<script type="module" src="js/main.js?v=room-content-20260821-1"></script>
+<script type="module" src="js/main.js?v=prelaunch-20260825-2"></script>
 <script type="module" src="js/slides.js?v=sync-20260814-1"></script>
-<script src="live-chat.js?v=prepared-questions-1"></script>
+<script src="live-chat.js?v=prelaunch-20260825-2"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="card-reveal.js"></script>
-<script src="cookie-consent.js"></script>
+<script src="cookie-consent.js?v=prelaunch-20260825-2"></script>
 </body></html>

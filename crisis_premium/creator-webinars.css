@@ -369,11 +369,11 @@ body[data-creator-mode='error'] #creatorError {
 
   .creator-wizard-controls {
     position: static;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .creator-wizard-controls p {
-    grid-column: 1 / -1;
+    grid-column: 1;
     grid-row: 1;
     text-align: start;
   }

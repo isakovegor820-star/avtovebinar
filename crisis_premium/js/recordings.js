@@ -2,8 +2,8 @@
  * recordings.js — cabinet media library and recording playback.
  */
 
-import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=site-review-7';
-import { track } from './analytics.js?v=ana-006-1';
+import { getJson, formatMoscowDateTime, formatTimelineTime } from './utils.js?v=prelaunch-20260825-2';
+import { track } from './analytics.js?v=prelaunch-20260825-2';
 
 let hlsInstance = null;
 let hlsScriptPromise = null;

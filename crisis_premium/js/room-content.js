@@ -3,8 +3,8 @@
  * One response is rendered as an atomic transcript/version snapshot.
  */
 
-import { getJson, formatTimelineTime } from './utils.js?v=site-review-7';
-import { track } from './analytics.js?v=ana-analytics-1';
+import { getJson, formatTimelineTime } from './utils.js?v=prelaunch-20260825-2';
+import { track } from './analytics.js?v=prelaunch-20260825-2';
 
 const CONTENT_PATH = '/webinar/content/session/current';
 const REFRESH_INTERVAL_MS = 60_000;

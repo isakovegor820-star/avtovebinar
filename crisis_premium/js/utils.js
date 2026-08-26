@@ -251,13 +251,177 @@ export function formatUtcIcsDate(value) {
 }
 
 export function utm() {
+  const firstTouchStorageKey = 'aspb_first_touch_attribution_v1';
+  const lastTouchStorageKey = 'aspb_last_touch_attribution_v1';
   const params = new URLSearchParams(window.location.search);
-  return {
-    source: params.get('source') || document.referrer || 'direct',
-    utmSource: params.get('utm_source') || '',
-    utmMedium: params.get('utm_medium') || '',
-    utmCampaign: params.get('utm_campaign') || '',
-    utmContent: params.get('utm_content') || '',
-    utmTerm: params.get('utm_term') || ''
+  const cleanValue = (value, max = 160) =>
+    typeof value === 'string' &&
+    !/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(value) &&
+    !/[?&](?:token|signature|key)=/i.test(value) &&
+    !/\bBearer\s+/i.test(value)
+      ? [...value]
+          .filter(character => {
+            const code = character.charCodeAt(0);
+            return code >= 32 && code !== 127;
+          })
+          .join('')
+          .trim()
+          .slice(0, max)
+      : '';
+  const cleanClickId = value => {
+    const cleaned = cleanValue(value, 256);
+    return /^[A-Za-z0-9._-]*$/.test(cleaned) ? cleaned : '';
   };
+  const cleanLandingUrl = value => {
+    try {
+      const url = new URL(value || `${window.location.origin}${window.location.pathname}`);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+      return `${url.origin}${url.pathname}`.slice(0, 1000);
+    } catch {
+      return '';
+    }
+  };
+  const externalReferrer = (() => {
+    if (!document.referrer) return '';
+    try {
+      const referrer = new URL(document.referrer);
+      return referrer.origin === window.location.origin ? '' : referrer.origin;
+    } catch {
+      return '';
+    }
+  })();
+  const current = {
+    source: cleanValue(params.get('source'), 240) || externalReferrer,
+    utmSource: cleanValue(params.get('utm_source')),
+    utmMedium: cleanValue(params.get('utm_medium')),
+    utmCampaign: cleanValue(params.get('utm_campaign')),
+    utmContent: cleanValue(params.get('utm_content')),
+    utmTerm: cleanValue(params.get('utm_term')),
+    gclid: cleanClickId(params.get('gclid')),
+    yclid: cleanClickId(params.get('yclid')),
+    landingUrl: cleanLandingUrl(params.get('landing_url')),
+  };
+  const hasAttributionSignal = Boolean(
+    current.source ||
+      current.utmSource ||
+      current.utmMedium ||
+      current.utmCampaign ||
+      current.utmContent ||
+      current.utmTerm ||
+      current.gclid ||
+      current.yclid ||
+      params.get('landing_url'),
+  );
+  const cookieConsent = readCookie('aspb_cookie_consent');
+  const persistentAttributionAllowed = cookieConsent === 'accepted';
+  const sessionStore = (() => {
+    try {
+      return window.sessionStorage;
+    } catch {
+      return null;
+    }
+  })();
+  const persistentStore = (() => {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  })();
+  if (cookieConsent === 'declined') {
+    try {
+      persistentStore?.removeItem(firstTouchStorageKey);
+    } catch {
+      // localStorage is optional.
+    }
+  }
+  const readStoredTouch = (storage, key) => {
+    if (!storage) return null;
+    try {
+      const parsed = JSON.parse(storage.getItem(key) || 'null');
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+  const writeStoredTouch = (storage, key, value) => {
+    if (!storage) return;
+    try {
+      storage.setItem(key, JSON.stringify(value));
+    } catch {
+      // URL decoration below keeps attribution when storage is unavailable.
+    }
+  };
+  const sessionFirstTouch = readStoredTouch(sessionStore, firstTouchStorageKey);
+  const persistentFirstTouch = persistentAttributionAllowed
+    ? readStoredTouch(persistentStore, firstTouchStorageKey)
+    : null;
+  const storedFirstTouch = sessionFirstTouch || persistentFirstTouch;
+  const storedLastTouch = readStoredTouch(sessionStore, lastTouchStorageKey);
+  const normalizedCurrent = {
+    source: current.source || 'direct',
+    utmSource: current.utmSource,
+    utmMedium: current.utmMedium,
+    utmCampaign: current.utmCampaign,
+    utmContent: current.utmContent,
+    utmTerm: current.utmTerm,
+    gclid: current.gclid,
+    yclid: current.yclid,
+    landingUrl: current.landingUrl,
+  };
+
+  if (!sessionFirstTouch) {
+    writeStoredTouch(sessionStore, firstTouchStorageKey, storedFirstTouch || normalizedCurrent);
+  }
+  if (persistentAttributionAllowed) {
+    writeStoredTouch(persistentStore, firstTouchStorageKey, storedFirstTouch || normalizedCurrent);
+  }
+  if (hasAttributionSignal || !storedLastTouch) {
+    writeStoredTouch(sessionStore, lastTouchStorageKey, normalizedCurrent);
+  }
+
+  const firstTouch = storedFirstTouch || normalizedCurrent;
+  const lastTouch = hasAttributionSignal ? normalizedCurrent : storedLastTouch || normalizedCurrent;
+  return {
+    source: cleanValue(lastTouch.source, 120) || 'direct',
+    utmSource: cleanValue(lastTouch.utmSource, 120),
+    utmMedium: cleanValue(lastTouch.utmMedium, 120),
+    utmCampaign: cleanValue(lastTouch.utmCampaign, 120),
+    utmContent: cleanValue(lastTouch.utmContent, 120),
+    utmTerm: cleanValue(lastTouch.utmTerm, 120),
+    gclid: cleanClickId(lastTouch.gclid),
+    yclid: cleanClickId(lastTouch.yclid),
+    landingUrl: cleanLandingUrl(lastTouch.landingUrl),
+    firstSource: cleanValue(firstTouch.source, 120) || 'direct',
+    firstUtmSource: cleanValue(firstTouch.utmSource, 120),
+    firstUtmMedium: cleanValue(firstTouch.utmMedium, 120),
+    firstUtmCampaign: cleanValue(firstTouch.utmCampaign, 120),
+    firstUtmContent: cleanValue(firstTouch.utmContent, 120),
+    firstUtmTerm: cleanValue(firstTouch.utmTerm, 120),
+    firstGclid: cleanClickId(firstTouch.gclid),
+    firstYclid: cleanClickId(firstTouch.yclid),
+    firstLandingUrl: cleanLandingUrl(firstTouch.landingUrl),
+  };
+}
+
+export function withAttribution(href) {
+  const target = new URL(href, window.location.href);
+  const campaign = utm();
+  const values = {
+    source: campaign.source === 'direct' ? '' : campaign.source,
+    utm_source: campaign.utmSource,
+    utm_medium: campaign.utmMedium,
+    utm_campaign: campaign.utmCampaign,
+    utm_content: campaign.utmContent,
+    utm_term: campaign.utmTerm,
+    gclid: campaign.gclid,
+    yclid: campaign.yclid,
+    landing_url: campaign.landingUrl,
+  };
+  for (const [key, value] of Object.entries(values)) {
+    if (value && !target.searchParams.has(key)) target.searchParams.set(key, value);
+  }
+  return target.origin === window.location.origin
+    ? `${target.pathname}${target.search}${target.hash}`
+    : target.href;
 }

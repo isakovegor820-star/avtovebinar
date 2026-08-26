@@ -43,7 +43,7 @@
         </header>
 
         <section class="platform-panel crm-queue-panel" aria-labelledby="crmQueuesHeading">
-          <div class="crm-section-heading"><div><h2 id="crmQueuesHeading">Рабочие очереди</h2><p id="crmQueueTimezone">Сроки считаются по timezone организации.</p></div><p id="crmQueueStatus" class="crm-live-status" aria-live="polite"></p></div>
+          <div class="crm-section-heading"><div><h2 id="crmQueuesHeading">Рабочие очереди</h2><p id="crmQueueTimezone">Сроки считаются по часовому поясу организации.</p></div><p id="crmQueueStatus" class="crm-live-status" aria-live="polite"></p></div>
           <div class="crm-queue-actions" role="group" aria-label="Фильтр контактов по очереди">
             <button id="crmQueueToday" class="crm-queue-button" type="button" data-queue="today" aria-pressed="false"><span>Сегодня</span><strong>0</strong></button>
             <button id="crmQueueOverdue" class="crm-queue-button" type="button" data-queue="overdue" aria-pressed="false"><span>Просрочено</span><strong>0</strong></button>
@@ -123,7 +123,7 @@
               <header class="crm-detail-header"><div><p class="catalog-eyebrow">Карточка контакта</p><h2 id="crmContactName"></h2><p id="crmContactIdentity" class="crm-contact-identity"></p></div><span id="crmContactStage" class="crm-stage-badge"></span></header>
               <dl class="crm-contact-meta"><div><dt>Менеджер</dt><dd id="crmContactManager"></dd></div><div><dt id="crmNextContactLabel">Следующий контакт</dt><dd id="crmNextContact"></dd></div><div><dt>Источник</dt><dd id="crmContactSource"></dd></div></dl>
               <section class="crm-score-section" aria-labelledby="crmScoreHeading">
-                <div class="crm-section-heading"><div><h3 id="crmScoreHeading">Lead scoring</h3><p>Балл складывается только из перечисленных событий по активной версии правил.</p></div><output id="crmScoreValue" class="crm-score-value" aria-live="polite">0 баллов</output></div>
+                <div class="crm-section-heading"><div><h3 id="crmScoreHeading">Оценка приоритета</h3><p>Балл складывается только из перечисленных событий по активной версии правил.</p></div><output id="crmScoreValue" class="crm-score-value" aria-live="polite">0 баллов</output></div>
                 <dl class="crm-score-summary"><div><dt>Статус</dt><dd id="crmHotStatus">Не вычислен</dd></div><div><dt>Модель</dt><dd id="crmScoreModel">Не назначена</dd></div></dl>
                 <ul id="crmScoreFactors" class="crm-score-factors"></ul>
                 <form id="crmManualHotForm" class="crm-manual-hot-form">
@@ -153,7 +153,7 @@
                 </form>
               </section>
               <section class="crm-task-section" aria-labelledby="crmTasksHeading">
-                <div class="crm-section-heading"><div><h3 id="crmTasksHeading">Задачи</h3><p id="crmTaskTimezone">Срок и напоминание показываются в timezone организации.</p></div></div>
+                <div class="crm-section-heading"><div><h3 id="crmTasksHeading">Задачи</h3><p id="crmTaskTimezone">Срок и напоминание показываются в часовом поясе организации.</p></div></div>
                 <ul id="crmTaskList" class="crm-task-list"></ul>
                 <div id="crmTasksEmpty" class="crm-empty"><p>Открытых и завершённых задач пока нет.</p></div>
                 <form id="crmTaskForm" class="crm-task-form">

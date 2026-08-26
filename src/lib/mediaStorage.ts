@@ -143,6 +143,10 @@ class TestFakeMediaStorage implements PrivateMediaStorageAdapter {
       throw new AppError(503, 'Test media adapter is unavailable', undefined, 'media_storage_unconfigured');
     }
   }
+  async checkReady() {
+    this.assertTest();
+    return true;
+  }
   async createMultipartUpload(input: {
     applicationUploadId: string;
     storageKey: string;

@@ -29,9 +29,13 @@ try {
   } else {
     const target = requireNetworkGuard(argValue('--url'));
     const checks = [];
-    for (const pathname of ['/health', '/ready']) {
+    for (const pathname of ['/health', '/health/ready']) {
       const response = await fetchWithTimeout(new URL(pathname, target), { headers: { accept: 'application/json' } });
-      checks.push({ name: pathname.slice(1), status: response.ok ? 'passed' : 'failed', httpStatus: response.status });
+      checks.push({
+        name: pathname === '/health' ? 'health' : 'health_ready',
+        status: response.ok ? 'passed' : 'failed',
+        httpStatus: response.status,
+      });
     }
     const failed = checks.some(check => check.status === 'failed');
     writeReport('smoke', {

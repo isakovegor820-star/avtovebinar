@@ -668,8 +668,8 @@ describe('security configuration', () => {
     expect(validateProductionSecurity(secureProductionConfig()).NODE_ENV).toBe('production');
   });
 
-  it('allows an explicit degraded email mode without pretending SMTP is available', () => {
-    expect(
+  it('rejects a degraded production email mode because participant access depends on delivery', () => {
+    expect(() =>
       validateProductionSecurity(
         secureProductionConfig({
           EMAIL_MODE: 'log',
@@ -677,8 +677,8 @@ describe('security configuration', () => {
           SMTP_USER: '',
           SMTP_PASS: '',
         }),
-      ).EMAIL_MODE,
-    ).toBe('log');
+      ),
+    ).toThrow(/EMAIL_MODE must be "send"/);
   });
 
   it('allows same-origin media mounted behind the authenticated media endpoint without an origin token', () => {

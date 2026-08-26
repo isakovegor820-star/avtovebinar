@@ -1644,6 +1644,8 @@ function bindCreate() {
 let metadataAutosaveTimer = 0;
 let metadataSaveInFlight = false;
 let metadataSaveQueued = false;
+let metadataQueuedExplicit = false;
+let metadataQueuedSubmitter = null;
 
 function metadataFormIsValid(form) {
   return [...form.elements].every(control => typeof control.checkValidity !== 'function' || control.checkValidity());
@@ -1673,6 +1675,10 @@ async function saveMetadata({ explicit = false, submitter = null } = {}) {
   }
   if (metadataSaveInFlight) {
     metadataSaveQueued = true;
+    if (explicit) {
+      metadataQueuedExplicit = true;
+      metadataQueuedSubmitter = submitter;
+    }
     return;
   }
 
@@ -1703,7 +1709,14 @@ async function saveMetadata({ explicit = false, submitter = null } = {}) {
     if (button) processing(button, false, buttonLabel, 'Сохраняем…');
     if (metadataSaveQueued) {
       metadataSaveQueued = false;
-      window.setTimeout(() => void saveMetadata(), 0);
+      const queuedExplicit = metadataQueuedExplicit;
+      const queuedSubmitter = metadataQueuedSubmitter;
+      metadataQueuedExplicit = false;
+      metadataQueuedSubmitter = null;
+      window.setTimeout(
+        () => void saveMetadata({ explicit: queuedExplicit, submitter: queuedSubmitter }),
+        0,
+      );
     }
   }
 }

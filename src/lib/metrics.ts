@@ -123,6 +123,9 @@ export async function renderPrometheusMetrics() {
     webinarAccessEmailPending,
     webinarAccessEmailFailed,
     webinarAccessEmailDeadLetters,
+    managerTelegramPending,
+    managerTelegramFailed,
+    managerTelegramDeadLetters,
     broadcastPending,
     broadcastDeadLetters,
     crmDeliveryPending,
@@ -149,6 +152,11 @@ export async function renderPrometheusMetrics() {
     prisma.webinarAccessInvitationEmailJob.count({ where: { status: { in: ['PENDING', 'FAILED', 'SENDING'] } } }),
     prisma.webinarAccessInvitationEmailJob.count({ where: { status: 'FAILED' } }),
     prisma.webinarAccessInvitationEmailJob.count({ where: { status: 'DEAD_LETTER' } }),
+    prisma.managerTelegramNotificationJob.count({
+      where: { status: { in: ['pending', 'failed', 'sending'] }, sentAt: null },
+    }),
+    prisma.managerTelegramNotificationJob.count({ where: { status: 'failed', sentAt: null } }),
+    prisma.managerTelegramNotificationJob.count({ where: { status: 'dead_letter', sentAt: null } }),
     prisma.telegramBroadcastJob.count({
       where: { status: { in: ['pending', 'failed', 'sending'] }, completedAt: null },
     }),
@@ -185,6 +193,11 @@ export async function renderPrometheusMetrics() {
   lines.push(
     metricLine('aspb_queue_depth', { queue: 'webinar_access_email_outbox_dead_letter' }, webinarAccessEmailDeadLetters),
   );
+  lines.push(metricLine('aspb_queue_depth', { queue: 'manager_telegram_outbox' }, managerTelegramPending));
+  lines.push(metricLine('aspb_queue_depth', { queue: 'manager_telegram_outbox_failed' }, managerTelegramFailed));
+  lines.push(
+    metricLine('aspb_queue_depth', { queue: 'manager_telegram_outbox_dead_letter' }, managerTelegramDeadLetters),
+  );
   lines.push(metricLine('aspb_queue_depth', { queue: 'telegram_broadcast' }, broadcastPending));
   lines.push(metricLine('aspb_queue_depth', { queue: 'telegram_broadcast_dead_letter' }, broadcastDeadLetters));
   lines.push(metricLine('aspb_queue_depth', { queue: 'crm_delivery' }, crmDeliveryPending));
@@ -220,6 +233,13 @@ export async function renderPrometheusMetrics() {
       'aspb_alert_state',
       { alert: 'webinar_access_email_failed_or_dead_letter_jobs' },
       webinarAccessEmailFailed > 0 || webinarAccessEmailDeadLetters > 0 ? 1 : 0,
+    ),
+  );
+  lines.push(
+    metricLine(
+      'aspb_alert_state',
+      { alert: 'manager_telegram_failed_or_dead_letter_jobs' },
+      managerTelegramFailed > 0 || managerTelegramDeadLetters > 0 ? 1 : 0,
     ),
   );
   lines.push(

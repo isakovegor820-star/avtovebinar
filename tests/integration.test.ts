@@ -83,7 +83,6 @@ import { linkVerifiedRegistrationToCrm, recordCrmScoreSignalForRegistration } fr
 import { runCrmDeliveryJobsOnce } from '../src/lib/tenancy/crmDelivery.js';
 import { runFreshnessReviewJobOnce } from '../src/lib/tenancy/freshnessReview.js';
 import { buildTenantRetentionPlan } from '../src/lib/tenancy/retentionPlanning.js';
-import { TENANT_ROLLOUT_FEATURES } from '../src/lib/tenancy/rolloutPolicy.js';
 
 type TestAgent = ReturnType<typeof request.agent>;
 
@@ -308,7 +307,7 @@ beforeAll(async () => {
     env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
     stdio: 'ignore',
   });
-}, 30_000);
+}, 120_000);
 
 beforeEach(async () => {
   Object.assign(env, {
@@ -343,30 +342,37 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(
     'TRUNCATE TABLE legal_holds, tenant_rollout_entries, author_service_notifications, author_review_tasks, webinar_material_uploads, webinar_materials, telegram_broadcast_previews, telegram_broadcast_templates, telegram_consultant_messages, telegram_bot_events, telegram_manager_callbacks, telegram_manager_chat_binding_tokens, telegram_manager_chat_bindings, crm_deliveries, crm_bulk_actions, crm_contact_tags, crm_tags, crm_score_factors, crm_scoring_rules, crm_scoring_rule_sets, crm_tasks, crm_contact_events, crm_stage_transitions, crm_contacts, crm_stages, crm_pipelines, viewer_notification_preferences, viewer_webinar_notes, viewer_webinar_progress, viewer_webinar_favorites, leads, registrations, registration_tokens, email_outbox_jobs, email_outbox_dead_letters, author_verification_evidence, author_verifications, author_profiles, organization_invitations, organization_invitation_tokens, organization_invitation_email_jobs, webinar_access_invitation_email_jobs, webinar_access_grant_tokens, webinar_access_grants, chat_scenario_messages, chat_scenarios, telegram_broadcast_jobs, telegram_broadcast_recipients, telegram_broadcast_dead_letters, telegram_news_posts, webinar_commands, webinar_slug_aliases, webinar_sources, webinar_practice_areas, webinar_schedules, webinars, webinar_sessions, questions, events, partner_applications, admin_users, audit_logs, webinar_timeline_events, webinar_chat_messages, consent_records, legal_acceptances, retention_runs, worker_subsystem_health CASCADE;',
   );
+  // TRUNCATE ... CASCADE removes control-plane defaults referenced by the
+  // deleted admin rows. Recreate deterministic test-only defaults instead of
+  // depending on migration data left behind by another test file.
+  await prisma.platformFeatureFlag.createMany({
+    data: [
+      { key: 'analytics_dashboard', enabled: true, description: 'Tenant analytics test flag.' },
+      { key: 'public_reporting', enabled: false, description: 'Public reporting test flag.' },
+      { key: 'moderation_actions', enabled: true, description: 'Moderation actions test flag.' },
+      { key: 'provider_jobs', enabled: true, description: 'Provider jobs test flag.' },
+    ],
+    skipDuplicates: true,
+  });
+  await prisma.tenantRolloutPolicy.createMany({
+    data: [
+      { feature: 'PLATFORM_ACCOUNTS_ONBOARDING', mode: 'ENABLED' },
+      { feature: 'CREATOR_DASHBOARD', mode: 'ENABLED' },
+      { feature: 'PUBLIC_CATALOG', mode: 'ENABLED' },
+      { feature: 'TENANT_CRM', mode: 'ENABLED' },
+      { feature: 'TENANT_TELEGRAM', mode: 'ENABLED' },
+      { feature: 'PROVIDER_JOBS', mode: 'ENABLED' },
+      { feature: 'ANALYTICS_MODERATION', mode: 'ENABLED' },
+    ],
+    skipDuplicates: true,
+  });
+  await prisma.platformFeatureFlag.updateMany({ where: { key: 'provider_jobs' }, data: { enabled: true } });
+  await prisma.tenantRolloutPolicy.updateMany({ data: { mode: 'ENABLED', revision: 1, updatedByAdminUserId: null } });
   await prisma.organizationMembership.deleteMany({
     where: { userId: { not: DEFAULT_SYSTEM_OWNER_USER_ID } },
   });
   await prisma.organization.deleteMany({ where: { id: { not: DEFAULT_ORGANIZATION_ID } } });
   await prisma.user.deleteMany({ where: { id: { not: DEFAULT_SYSTEM_OWNER_USER_ID } } });
-  // TRUNCATE admin_users ... CASCADE removes managed flags and rollout
-  // policies because both keep an optional admin audit reference. Recreate
-  // explicit test-only gates after the reset; production migration defaults
-  // remain fail-closed.
-  await prisma.platformFeatureFlag.createMany({
-    data: [
-      { key: 'analytics_dashboard', enabled: true, description: 'Integration-test analytics gate' },
-      { key: 'public_reporting', enabled: true, description: 'Integration-test public reporting gate' },
-      { key: 'moderation_actions', enabled: true, description: 'Integration-test moderation gate' },
-      { key: 'provider_jobs', enabled: true, description: 'Integration-test provider adapter gate' },
-    ],
-  });
-  await prisma.tenantRolloutPolicy.createMany({
-    data: TENANT_ROLLOUT_FEATURES.map(feature => ({ feature, mode: 'ENABLED', revision: 1 })),
-    skipDuplicates: true,
-  });
-  await prisma.tenantRolloutPolicy.updateMany({
-    data: { mode: 'ENABLED', revision: 1, updatedByAdminUserId: null },
-  });
   await prisma.webinar.create({
     data: {
       id: DEFAULT_WEBINAR_ID,
@@ -3889,14 +3895,18 @@ describe('critical path integration scenarios', () => {
     ).resolves.toBe(1);
 
     // 5. PARTNER APPLICATION (POST /api/partner-application)
-    const appResponse = await userAgent.post('/api/partner-application').set('x-csrf-token', userCsrfToken).send({
-      sphere: 'Финансы',
-      city: 'Москва',
-      clientFlow: '10-20 человек в месяц',
-      experience: 'Более 5 лет',
-      preferredFormat: 'Удаленный',
-      comment: 'Хочу заключить договор партнерства',
-    });
+    const appResponse = await userAgent
+      .post('/api/partner-application')
+      .set('x-csrf-token', userCsrfToken)
+      .set('Idempotency-Key', 'integration-partner-application-0001')
+      .send({
+        sphere: 'Финансы',
+        city: 'Москва',
+        clientFlow: '10-20 человек в месяц',
+        experience: 'Более 5 лет',
+        preferredFormat: 'Удаленный',
+        comment: 'Хочу заключить договор партнерства',
+      });
 
     expect(appResponse.status).toBe(201);
     expect(appResponse.body.ok).toBe(true);
@@ -3946,13 +3956,11 @@ describe('critical path integration scenarios', () => {
     expect(exchangedSessionResponse.body.lead.email).toBe('alex.test@aspb.ru');
 
     const legacyExchangeAgent = request.agent(app);
-    const legacyExchangeCsrfToken = await getCsrfToken(legacyExchangeAgent);
     const legacyExchangeResponse = await legacyExchangeAgent
       .post(`/api/registration/exchange/${legacyExchangeToken}`)
-      .set('x-csrf-token', legacyExchangeCsrfToken)
       .send({});
-    expect(legacyExchangeResponse.status).toBe(200);
-    expect(legacyExchangeResponse.headers['set-cookie']).toEqual(
+    expect(legacyExchangeResponse.status).toBe(404);
+    expect(legacyExchangeResponse.headers['set-cookie'] ?? []).not.toEqual(
       expect.arrayContaining([expect.stringContaining('aspb_room_token=')]),
     );
 
@@ -5257,9 +5265,21 @@ describe('critical path integration scenarios', () => {
       });
     }
 
-    const token = buildUnsubscribeToken(lead.email);
-    const unsubscribeResponse = await request(app).get(`/api/unsubscribe?token=${token}&confirm=1`);
+    const token = await buildUnsubscribeToken(lead.email);
+    expect(token).toBeTruthy();
+    const confirmationResponse = await request(app).get(`/api/unsubscribe?token=${encodeURIComponent(token!)}`);
+    expect(confirmationResponse.status).toBe(200);
+    await expect(prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).resolves.toMatchObject({
+      marketingEmailConsent: true,
+    });
+
+    const unsubscribeResponse = await request(app).post('/api/unsubscribe').type('form').send({ token });
     expect(unsubscribeResponse.status).toBe(200);
+    const replayedUnsubscribeResponse = await request(app).post('/api/unsubscribe').type('form').send({ token });
+    expect(replayedUnsubscribeResponse.status).toBe(400);
+    await expect(
+      prisma.unsubscribeToken.findFirst({ where: { leadId: lead.id, usedAt: { not: null } } }),
+    ).resolves.toBeTruthy();
 
     const updatedLead = await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } });
     expect(updatedLead).toMatchObject({
@@ -6309,6 +6329,11 @@ describe('critical path integration scenarios', () => {
     expect(readyResponse.body.checks.database.ok).toBe(true);
     expect(readyResponse.body.checks.smtp).toBeUndefined();
 
+    const anonymousRegistrationSession = await request(app).get('/api/registration/session/current?view=room');
+    expect(anonymousRegistrationSession.status).toBe(200);
+    expect(anonymousRegistrationSession.headers['cache-control']).toContain('no-store');
+    expect(anonymousRegistrationSession.body).toMatchObject({ ok: false, state: 'anonymous' });
+
     const dependencyResponse = await request(app).get('/health/dependencies');
     expect(dependencyResponse.status).toBe(503);
     expect(dependencyResponse.body).toEqual({
@@ -6333,8 +6358,7 @@ describe('critical path integration scenarios', () => {
     const legacyExchangeCsrfResponse = await request(app)
       .post('/api/registration/exchange/not-a-real-token-12345678901234567890')
       .send({});
-    expect(legacyExchangeCsrfResponse.status).toBe(403);
-    expect(legacyExchangeCsrfResponse.body).toMatchObject({ ok: false, code: 'csrf_invalid' });
+    expect(legacyExchangeCsrfResponse.status).toBe(404);
 
     const metricsResponse = await request(app).get('/metrics');
     expect(metricsResponse.status).toBe(200);
@@ -6582,7 +6606,7 @@ describe('critical path integration scenarios', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
-    expect(response.headers['cache-control']).toContain('max-age=4');
+    expect(response.headers['cache-control']).toContain('no-store');
     expect(response.body.messages.length).toBeGreaterThan(0);
     expect(response.body.messages.some((message: any) => message.kind === 'prepared_question')).toBe(true);
     expect(response.body.messages.every((message: any) => message.offsetSeconds <= 3860)).toBe(true);
@@ -7365,7 +7389,7 @@ describe('critical path integration scenarios', () => {
 
   it('keeps platform auth disabled by default, rejects client tenant injection, and does not treat AdminUser as User', async () => {
     const adminEmail = 'separate-platform-admin@example.test';
-    await prisma.adminUser.create({
+    const adminUser = await prisma.adminUser.create({
       data: {
         name: 'Separate admin',
         email: adminEmail,
@@ -7397,10 +7421,11 @@ describe('critical path integration scenarios', () => {
       .set('x-csrf-token', csrfToken)
       .send({ email: adminEmail });
     expect(adminOnlyResponse.status).toBe(202);
-    const separateUser = await prisma.user.findUniqueOrThrow({ where: { emailNormalized: adminEmail } });
-    expect(separateUser).toMatchObject({ kind: 'HUMAN', status: 'PENDING' });
-    await expect(prisma.userAuthEmailJob.count({ where: { userId: separateUser.id } })).resolves.toBe(1);
-    await expect(prisma.organizationMembership.count({ where: { userId: separateUser.id } })).resolves.toBe(0);
+    const platformUser = await prisma.user.findUniqueOrThrow({ where: { emailNormalized: adminEmail } });
+    expect(platformUser).toMatchObject({ kind: 'HUMAN', status: 'PENDING' });
+    expect(platformUser.id).not.toBe(adminUser.id);
+    await expect(prisma.userAuthEmailJob.count({ where: { userId: platformUser.id } })).resolves.toBe(1);
+    await expect(prisma.organizationMembership.count({ where: { userId: platformUser.id } })).resolves.toBe(0);
     await expect(prisma.adminUser.count({ where: { email: adminEmail } })).resolves.toBe(1);
   });
 
@@ -7867,7 +7892,7 @@ describe('critical path integration scenarios', () => {
       .set('x-evidence-kind', 'LICENSE')
       .set('x-evidence-filename', encodeURIComponent('../лицензия.pdf'))
       .send(pdfContent);
-    expect(upload.status).toBe(201);
+    expect(upload.status, JSON.stringify(upload.body)).toBe(201);
     expect(upload.body.evidence).toMatchObject({
       kind: 'LICENSE',
       originalName: 'лицензия.pdf',
@@ -11494,7 +11519,7 @@ describe('critical path integration scenarios', () => {
         .patch(`/api/v1/creator/webinars/${webinar.id}/ai-suggestions/${suggestion.id}`)
         .set('x-csrf-token', sessionA.csrfToken)
         .send(body);
-      expect(reviewedSuggestion.status).toBe(200);
+      expect(reviewedSuggestion.status, JSON.stringify(reviewedSuggestion.body)).toBe(200);
       expect(reviewedSuggestion.body.suggestion.status).toBe(action === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED');
     }
     const crossSuggestionWrite = await sessionB.agent

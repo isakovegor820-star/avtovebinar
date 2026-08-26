@@ -9,10 +9,10 @@ import {
   formatMoscowWebinarTime,
   formatUtcIcsDate,
   getJson,
-} from './utils.js?v=site-review-7';
-import { getRegistrationState } from './registration.js?v=remediation-20260804-1';
-import { updateTelegramLinks } from './room.js?v=site-review-7';
-import { track } from './analytics.js?v=ana-006-1';
+} from './utils.js?v=prelaunch-20260825-2';
+import { getRegistrationState } from './registration.js?v=prelaunch-20260825-2';
+import { updateTelegramLinks } from './room.js?v=prelaunch-20260825-2';
+import { track } from './analytics.js?v=prelaunch-20260825-2';
 
 function clearLocalAccessHint() {
   try {
@@ -57,7 +57,7 @@ function renderSuccessTemporaryError(error) {
   gate.innerHTML = `
     <div class="success-access-panel" role="alert" aria-live="assertive">
       <div class="success-access-icon" aria-hidden="true">
-        <span class="material-symbols-outlined">wifi_off</span>
+        <span class="material-symbols-outlined" aria-hidden="true">error</span>
       </div>
       <h1>Не удалось проверить регистрацию</h1>
       <p id="successTemporaryErrorText"></p>

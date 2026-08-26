@@ -16,6 +16,16 @@ import {
 } from './webinarTimeline.js';
 import { getEffectiveVideoDurationMinutes } from './webinarLive.js';
 import { DEFAULT_ORGANIZATION_ID, DEFAULT_WEBINAR_ID } from './tenancy/constants.js';
+import { AppError } from './http.js';
+
+function defaultWebinarUnavailable() {
+  return new AppError(
+    503,
+    'Вебинар временно недоступен. Попробуйте ещё раз через несколько минут.',
+    undefined,
+    'default_webinar_unavailable',
+  );
+}
 
 function pointsToRecordingAsset(value: string | null | undefined) {
   if (!value) return false;
@@ -89,6 +99,9 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
         });
         if (existing) return existing;
       }
+      if ((error as { code?: string })?.code === 'P2003') {
+        throw defaultWebinarUnavailable();
+      }
       throw error;
     });
 
@@ -97,8 +110,13 @@ export async function findOrCreateWebinarSession(scheduledAt: Date, now = new Da
     return session;
   }
 
-  return prisma.webinarSession.update({
-    where: { id: session.id },
-    data: repairData,
-  });
+  return prisma.webinarSession
+    .update({
+      where: { id: session.id },
+      data: repairData,
+    })
+    .catch((error: unknown) => {
+      if ((error as { code?: string })?.code === 'P2003') throw defaultWebinarUnavailable();
+      throw error;
+    });
 }

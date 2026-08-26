@@ -1,16 +1,14 @@
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { AppError, asyncHandler } from '../../lib/http.js';
-import { notifyPartnerApplication, notifyQuestion } from '../../lib/telegram.js';
 import { getWebinarLiveState } from '../../lib/webinarLive.js';
 import {
   buildDailyRoomAccessPayload,
   buildAccessPayload,
-  buildFrontendUrl,
   clean,
   findRegistrationForRequest,
-  notifySafely,
   roomAccessError,
   saveEventSafely,
 } from './helpers.js';
@@ -18,6 +16,7 @@ import { CHAT_PUBLICATION_CONSENT, consentEvidenceData } from '../../lib/consent
 import { acquireLeadSecurityLock, isParticipantRegistrationActive } from '../../lib/leadSecurity.js';
 import { recordCrmScoreSignalForRegistration } from '../../lib/tenancy/crm.js';
 import { chatSpamKey, questionTextFingerprint, sanitizeParticipantQuestion } from '../../lib/chatPolicy.js';
+import { enqueueManagerTelegramNotification } from '../../lib/managerTelegramOutbox.js';
 
 export const partnersRouter = Router();
 
@@ -38,19 +37,44 @@ const questionSchema = z
     }
   });
 
-const partnerApplicationSchema = z.object({
-  sphere: z.string().trim().max(160).optional().or(z.literal('')),
-  city: z.string().trim().max(120).optional().or(z.literal('')),
+export const partnerApplicationSchema = z.object({
+  sphere: z.string().trim().min(2, 'Укажите сферу практики').max(160),
+  city: z.string().trim().min(2, 'Укажите город').max(120),
   clientFlow: z.string().trim().max(160).optional().or(z.literal('')),
   experience: z.string().trim().max(500).optional().or(z.literal('')),
   preferredFormat: z.string().trim().max(160).optional().or(z.literal('')),
   comment: z.string().trim().max(2000).optional().or(z.literal('')),
-});
+}).strict();
+
+export const partnerApplicationIdempotencyKeySchema = z
+  .string({ error: 'Idempotency-Key is required' })
+  .trim()
+  .min(16, 'Idempotency-Key is too short')
+  .max(128, 'Idempotency-Key is too long')
+  .regex(/^[A-Za-z0-9._:-]+$/u, 'Idempotency-Key contains unsupported characters');
+
+function partnerApplicationFingerprint(data: z.infer<typeof partnerApplicationSchema>) {
+  return crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify({
+        sphere: data.sphere,
+        city: data.city,
+        clientFlow: clean(data.clientFlow),
+        experience: clean(data.experience),
+        preferredFormat: clean(data.preferredFormat),
+        comment: clean(data.comment),
+      }),
+    )
+    .digest('hex');
+}
 
 partnersRouter.post(
   '/partner-application',
   asyncHandler(async (req, res) => {
     const data = partnerApplicationSchema.parse(req.body);
+    const idempotencyKey = partnerApplicationIdempotencyKeySchema.parse(req.get('Idempotency-Key'));
+    const requestFingerprint = partnerApplicationFingerprint(data);
     const registration = await findRegistrationForRequest(req);
 
     if (!registration) {
@@ -61,7 +85,7 @@ partnersRouter.post(
       throw roomAccessError(access.accessStatus);
     }
 
-    const { application, activeRegistration } = await prisma.$transaction(async tx => {
+    const { application, activeRegistration, replayed } = await prisma.$transaction(async tx => {
       await acquireLeadSecurityLock(tx, registration.leadId);
       const activeRegistration = await tx.registration.findUnique({
         where: { id: registration.id },
@@ -75,6 +99,21 @@ partnersRouter.post(
         throw new AppError(401, 'Invalid webinar token');
       }
 
+      const existingApplication = await tx.partnerApplication.findFirst({
+        where: { registrationId: activeRegistration.id, idempotencyKey },
+      });
+      if (existingApplication) {
+        if (existingApplication.requestFingerprint !== requestFingerprint) {
+          throw new AppError(
+            409,
+            'Idempotency-Key уже использован для другой заявки',
+            undefined,
+            'partner_application_idempotency_conflict',
+          );
+        }
+        return { application: existingApplication, activeRegistration, replayed: true };
+      }
+
       const application = await tx.partnerApplication.create({
         data: {
           leadId: activeRegistration.leadId,
@@ -86,6 +125,8 @@ partnersRouter.post(
           experience: clean(data.experience),
           preferredFormat: clean(data.preferredFormat),
           comment: clean(data.comment),
+          idempotencyKey,
+          requestFingerprint,
           status: 'new',
         },
       });
@@ -102,36 +143,30 @@ partnersRouter.post(
         where: { id: activeRegistration.id },
         data: { crmStatus: 'contract_pending' },
       });
-      return { application, activeRegistration };
+      await enqueueManagerTelegramNotification(tx, {
+        kind: 'partner_application',
+        registrationId: activeRegistration.id,
+        partnerApplicationId: application.id,
+        dedupKey: `manager-telegram:partner-application:${application.id}`,
+      });
+      return { application, activeRegistration, replayed: false };
     });
 
-    await saveEventSafely(
-      {
-        eventName: 'partner_application_submit',
-        req,
-        registration: activeRegistration,
-        page: '/crisis_premium/webinar.html',
-        webinarSessionId: access.webinarSession.id,
-        metadata: { partnerApplicationId: application.id },
-      },
-      'partner_application',
-    );
+    if (!replayed) {
+      await saveEventSafely(
+        {
+          eventName: 'partner_application_submit',
+          req,
+          registration: activeRegistration,
+          page: '/crisis_premium/webinar.html',
+          webinarSessionId: access.webinarSession.id,
+          metadata: { partnerApplicationId: application.id },
+        },
+        'partner_application',
+      );
+    }
 
-    notifySafely(
-      notifyPartnerApplication({
-        name: activeRegistration.lead.name,
-        phone: activeRegistration.lead.phone,
-        email: activeRegistration.lead.email,
-        sphere: application.sphere,
-        city: application.city,
-        clientFlow: application.clientFlow,
-        preferredFormat: application.preferredFormat,
-        comment: application.comment,
-        adminUrl: buildFrontendUrl('/admin'),
-      }),
-    );
-
-    res.status(201).json({ ok: true, applicationId: application.id });
+    res.status(replayed ? 200 : 201).json({ ok: true, applicationId: application.id, replayed });
   }),
 );
 
@@ -225,6 +260,12 @@ partnersRouter.post(
         question.id,
         question.createdAt,
       );
+      await enqueueManagerTelegramNotification(tx, {
+        kind: 'question',
+        registrationId: activeRegistration.id,
+        questionId: question.id,
+        dedupKey: `manager-telegram:question:${question.id}`,
+      });
 
       if (!data.showToParticipants) {
         return { question, chatMessage: null, activeRegistration };
@@ -281,16 +322,6 @@ partnersRouter.post(
         metadata: { questionId: question.id, showToParticipants: data.showToParticipants },
       },
       'question_submit',
-    );
-
-    notifySafely(
-      notifyQuestion({
-        name: activeRegistration.lead.name,
-        phone: activeRegistration.lead.phone,
-        email: activeRegistration.lead.email,
-        text: data.text,
-        adminUrl: buildFrontendUrl('/admin'),
-      }),
     );
 
     res.status(201).json({ ok: true, questionId: question.id, chatMessageId: chatMessage?.id ?? null });

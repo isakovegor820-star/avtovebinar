@@ -35,6 +35,16 @@ const recordingAttributes = z
   .strict();
 const failureAttributes = z.object({ failureCode: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/) }).strict();
 const registrationAttributes = z.object({ verificationKind: z.enum(['registration', 'login']).optional() }).strict();
+const ctaAttributes = z
+  .object({
+    ctaKey: z
+      .string()
+      .regex(/^[A-Za-z0-9._:-]{1,80}$/)
+      .optional(),
+    positionSeconds: z.number().min(0).max(86_400).optional(),
+  })
+  .strict();
+const exitAttributes = z.object({ playbackPosition: z.number().min(0).max(86_400).optional() }).strict();
 const questionAttemptAttributes = z.object({ textLength: z.number().int().min(0).max(4_000) }).strict();
 const questionCreatedAttributes = z
   .object({ questionId: idSchema, showToParticipants: z.boolean().optional() })
@@ -123,6 +133,7 @@ export const ANALYTICS_EVENT_REGISTRY = {
   page_view: define('platform_or_tenant', ['web']),
   registration_click: define('platform_or_tenant', ['web', 'registration']),
   registration_form_open: define('platform_or_tenant', ['web', 'registration']),
+  registration_form_error: define('platform_or_tenant', ['registration'], failureAttributes),
   registration_submit: define('platform_or_tenant', ['web', 'registration'], registrationAttributes),
   registration_success: define('tenant', ['registration']),
   telegram_click: define('platform_or_tenant', ['web', 'registration']),
@@ -130,11 +141,15 @@ export const ANALYTICS_EVENT_REGISTRY = {
   webinar_room_open: define('tenant', ['room']),
   webinar_room_waiting: define('tenant', ['room']),
   viewer_heartbeat: define('tenant', ['room', 'replay'], heartbeatAttributes),
+  sound_on: define('tenant', ['room']),
   video_start: define('tenant', ['room']),
   video_progress_25: define('tenant', ['room']),
   video_progress_50: define('tenant', ['room']),
   video_progress_75: define('tenant', ['room']),
   video_finish: define('tenant', ['room']),
+  cta_appear: define('tenant', ['room'], ctaAttributes),
+  cta_click: define('tenant', ['room'], ctaAttributes),
+  user_exit: define('platform_or_tenant', ['web', 'registration', 'room', 'replay'], exitAttributes),
   recordings_open: define('tenant', ['replay']),
   recording_open: define('tenant', ['replay'], recordingAttributes),
   recording_play: define('tenant', ['replay'], recordingAttributes),
@@ -426,8 +441,23 @@ export function adaptLegacyAnalyticsAttributes(
   metadata: Record<string, unknown> | undefined,
 ) {
   if (!metadata) return {};
-  if (eventName === 'question_submit_error' || eventName === 'partner_application_error') {
+  if (
+    eventName === 'question_submit_error' ||
+    eventName === 'partner_application_error' ||
+    eventName === 'registration_form_error'
+  ) {
     return { failureCode: 'legacy_client_error' };
+  }
+  if (eventName === 'cta_appear' || eventName === 'cta_click') {
+    return {
+      ctaKey: typeof metadata.ctaKey === 'string' ? metadata.ctaKey : undefined,
+      positionSeconds: typeof metadata.positionSeconds === 'number' ? metadata.positionSeconds : undefined,
+    };
+  }
+  if (eventName === 'user_exit') {
+    return {
+      playbackPosition: typeof metadata.playbackPosition === 'number' ? metadata.playbackPosition : undefined,
+    };
   }
   if (eventName === 'recording_cta_click') {
     return {

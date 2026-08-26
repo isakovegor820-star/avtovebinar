@@ -88,6 +88,22 @@ async function resetDb() {
       permissionsJson: { systemBootstrap: true },
     },
   });
+  await prisma.tenantRolloutPolicy.createMany({
+    data: TENANT_ROLLOUT_FEATURES.map(feature => ({ feature, mode: 'ENABLED' })),
+    skipDuplicates: true,
+  });
+  await prisma.tenantRolloutPolicy.updateMany({
+    data: { mode: 'ENABLED', revision: 1, updatedByAdminUserId: null },
+  });
+  await prisma.platformFeatureFlag.createMany({
+    data: [
+      { key: 'analytics_dashboard', enabled: true, description: 'Tenant analytics test flag.' },
+      { key: 'public_reporting', enabled: false, description: 'Public reporting test flag.' },
+      { key: 'moderation_actions', enabled: true, description: 'Moderation actions test flag.' },
+      { key: 'provider_jobs', enabled: true, description: 'Provider jobs test flag.' },
+    ],
+    skipDuplicates: true,
+  });
   await prisma.webinar.create({
     data: {
       id: DEFAULT_WEBINAR_ID,
@@ -1145,6 +1161,7 @@ test('creator builds a private Webinar scenario and previews it without particip
   await page.locator('#creatorAudienceLevel').selectOption('PRACTITIONER');
   await page.locator('#creatorPrimaryArea').selectOption(rootArea.id);
   await page.locator('#creatorSpecialization').selectOption(specialization.id);
+  await page.locator('#creatorVisibility').selectOption('PRIVATE');
   await page.locator('#creatorFreshness').selectOption('CURRENT');
   await page.locator('#creatorCurrentAsOf').fill('2026-08-21');
   await page
@@ -1166,6 +1183,7 @@ test('creator builds a private Webinar scenario and previews it without particip
   await page.locator('#creatorTermButton').click();
   await expect(page.locator('#creatorTermsList')).toContainText('АПК РФ');
 
+  await wizardSteps.nth(2).click();
   const uploadedPartNumbers: number[] = [];
   let interruptSecondPart = true;
   await page.route('https://private-storage.invalid/**', route => {
@@ -1255,6 +1273,10 @@ test('creator builds a private Webinar scenario and previews it without particip
   await expect(page.locator('#creatorScenarioStatus')).toContainText('сохранён как черновик');
   await page.locator('#creatorScenarioPublishButton').click();
   await expect(page.locator('#creatorScenarioStatus')).toContainText('Сценарий опубликован');
+
+  await wizardSteps.nth(1).click();
+  await page.locator('#creatorSaveButton').click();
+  await expect(page.locator('#creatorMetadataStatus')).toContainText('Сведения сохранены');
 
   await wizardSteps.nth(6).click();
   await page.locator('#creatorRecurrence').selectOption('ONCE');
@@ -2209,10 +2231,11 @@ test('registration without optional marketing consent activates after email veri
   });
   await expect(emailMarketing).not.toBeChecked();
   await expect(telegramMarketing).not.toBeChecked();
-  await page.locator('input[name="name"]').fill('Алексей E2E');
+  await page.locator('input[name="name"]').fill('Алексей Тестовый');
   await page.locator('input[name="phone"]').fill('+79998887766');
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="city"]').fill('Москва');
+  await page.locator('select[name="professionalStatus"]').selectOption('Юрист частной практики');
   await page.locator('input[name="personalDataConsent"]').check();
   await page.locator('input[name="termsAccepted"]').check();
   await page.getByRole('button', { name: /Зарегистрироваться/ }).click();
@@ -2267,13 +2290,14 @@ test('email unsubscribe preserves Telegram and personal-data consent', async ({ 
       telegramBindingVersion: TELEGRAM_BINDING_VERSION,
     },
   });
-  const token = buildUnsubscribeToken(email);
+  const token = await buildUnsubscribeToken(email);
+  expect(token).toBeTruthy();
 
-  await page.goto(`/api/unsubscribe?token=${encodeURIComponent(token)}`, {
+  await page.goto(`/api/unsubscribe?token=${encodeURIComponent(token!)}`, {
     waitUntil: 'domcontentloaded',
   });
   await expect(page.getByRole('heading', { name: 'Отписка от рассылок АСПБ' })).toBeVisible();
-  await page.getByRole('link', { name: 'Отписаться' }).click();
+  await page.getByRole('button', { name: 'Отписаться' }).click();
   await expect(page.getByRole('heading', { name: 'Вы отписаны' })).toBeVisible();
   await expect(page.locator('main')).toContainText('Организационные письма о вашем вебинаре это не затрагивает');
 
@@ -2571,6 +2595,7 @@ test('published room content, captions and player controls stay consistent and k
   await expect(page.locator('#roomChaptersList .room-chapter-item')).toHaveCount(2);
   await expect(page.locator('#roomMaterialsPanel')).toContainText('Официальный источник E2E');
   await expect(page.locator('#roomMaterialsPanel')).toContainText('Официальный источник');
+  await expect(page.locator('#customSeekBarContainer')).toHaveAttribute('role', 'slider');
   await page.locator('#webinarVideo').dispatchEvent('waiting');
   await expect(page.locator('#playerStateIndicator')).toHaveText('Видео загружается…');
   await page.locator('#webinarVideo').dispatchEvent('canplay');
@@ -2649,7 +2674,9 @@ test('published room content, captions and player controls stay consistent and k
 test('player renders safe processing, error and unavailable states', async ({ page }) => {
   const { exchangeToken } = await createExchangeRegistration(`media-states-${Date.now()}@aspb.ru`);
   let mediaState: 'processing' | 'error' | 'unavailable' = 'processing';
+  let timelineRequests = 0;
   await page.route('**/api/webinar/timeline/session/current', async route => {
+    timelineRequests += 1;
     const upstream = await route.fetch();
     const payload = await upstream.json();
     await route.fulfill({
@@ -2675,11 +2702,21 @@ test('player renders safe processing, error and unavailable states', async ({ pa
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#videoFallback')).toBeVisible();
   await expect(page.locator('#videoFallback')).toContainText('Не удалось подготовить запись');
+  const requestsBeforeRetry = timelineRequests;
+  const retryButton = page.getByRole('button', { name: 'Повторить подключение' });
+  await retryButton.focus();
+  await expect(retryButton).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => timelineRequests).toBeGreaterThan(requestsBeforeRetry);
+  await expect(page.locator('#videoFallback')).toBeVisible();
 
   mediaState = 'unavailable';
+  await page.setViewportSize({ width: 320, height: 760 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#videoFallback')).toBeVisible();
   await expect(page.locator('#videoFallback')).toContainText('Запись для этой сессии пока недоступна');
+  await expect(page.getByRole('button', { name: 'Повторить подключение' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test('registered participant does not see registration CTA in landing header', async ({ page }) => {

@@ -182,7 +182,7 @@ function renderSession(session) {
 
   if (!session.activeOrganizationId && session.memberships.length === 0) {
     setText('platformOnboardingStatus', '');
-    showMode('onboarding', 'platformOrganizationNameInput');
+    showMode('onboarding', 'platformOrganizationCreateName');
     return;
   }
 
@@ -345,10 +345,10 @@ function clearOrganizationCreateIdempotencyKey() {
 }
 
 function clearOnboardingErrors() {
-  for (const id of ['platformOrganizationNameInput', 'platformOrganizationSlug', 'platformInvitationToken']) {
+  for (const id of ['platformOrganizationCreateName', 'platformOrganizationSlug', 'platformInvitationToken']) {
     node(id).removeAttribute('aria-invalid');
   }
-  setText('platformOrganizationNameError', '');
+  setText('platformOrganizationCreateNameError', '');
   setText('platformOrganizationSlugError', '');
   setText('platformInvitationTokenError', '');
   setText('platformOnboardingStatus', '');
@@ -359,11 +359,11 @@ function bindOnboardingForms() {
     event.preventDefault();
     clearOnboardingErrors();
     const form = event.currentTarget;
-    const name = node('platformOrganizationNameInput');
+    const name = node('platformOrganizationCreateName');
     const slug = node('platformOrganizationSlug');
     if (!name.checkValidity()) {
       name.setAttribute('aria-invalid', 'true');
-      setText('platformOrganizationNameError', 'Введите название от 2 до 160 знаков.');
+      setText('platformOrganizationCreateNameError', 'Введите название от 2 до 160 знаков.');
       name.focus();
       return;
     }

@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { Prisma } from '@prisma/client';
 import { app } from '../src/app.js';
+import { env } from '../src/lib/env.js';
 import { prisma } from '../src/lib/prisma.js';
 import {
   ANALYTICS_ACTIVE_WINDOW_SECONDS,
@@ -50,6 +51,12 @@ const analyticsPeriod = {
 };
 
 async function reset() {
+  Object.assign(env, {
+    PLATFORM_ACCOUNTS_ENABLED: 'on',
+    CREATOR_DASHBOARD_ENABLED: 'on',
+    PUBLIC_CATALOG_ENABLED: 'on',
+    TENANT_CRM_ENABLED: 'on',
+  });
   await prisma.$executeRawUnsafe(
     'TRUNCATE TABLE users, organizations, admin_users, legal_practice_areas, jurisdictions, platform_feature_flags, platform_config_changes CASCADE',
   );

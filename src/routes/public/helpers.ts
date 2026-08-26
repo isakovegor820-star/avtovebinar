@@ -28,6 +28,7 @@ import { findOrCreateWebinarSession } from '../../lib/webinarSessions.js';
 import { getVisitorId, hasAnalyticsConsent } from '../../lib/visitor.js';
 import { acquireLeadSecurityLock, isParticipantRegistrationActive } from '../../lib/leadSecurity.js';
 import { canAccessRegisteredWebinar } from '../../lib/tenancy/webinarAccess.js';
+import { DEFAULT_WEBINAR_ID } from '../../lib/tenancy/constants.js';
 import {
   ANALYTICS_EVENT_REGISTRY,
   buildServerDedupKey,
@@ -253,6 +254,20 @@ export function buildAccessPayload(
   };
 }
 
+export function canUseLegacyDailyRollover(registration: {
+  accessPolicy: string;
+  webinarId?: string | null;
+  webinarSession: { webinarId: string };
+}) {
+  return (
+    registration.accessPolicy === 'LEGACY' &&
+    registration.webinarSession.webinarId === DEFAULT_WEBINAR_ID &&
+    (registration.webinarId === null ||
+      registration.webinarId === undefined ||
+      registration.webinarId === DEFAULT_WEBINAR_ID)
+  );
+}
+
 export async function buildDailyRoomAccessPayload(
   registration: NonNullable<Awaited<ReturnType<typeof findRegistrationByToken>>>,
   now: Date,
@@ -262,18 +277,19 @@ export async function buildDailyRoomAccessPayload(
     return registeredAccess;
   }
 
+  // Only the original single-webinar funnel rolls a closed registration into
+  // today's slot. Catalog/private registrations are immutable grants to their
+  // exact Webinar/WebinarSession and must never inherit legacy content or CTA.
+  if (!canUseLegacyDailyRollover(registration)) {
+    return registeredAccess;
+  }
+
   const scheduledAt = getDailyBroadcastDate(now);
   if (scheduledAt.getTime() === registration.webinarSession.scheduledAt.getTime()) {
     return registeredAccess;
   }
   const webinarSession = await findOrCreateWebinarSession(scheduledAt, now);
   return buildAccessPayload(registration, now, { webinarSession });
-}
-
-export function notifySafely(task: Promise<unknown>) {
-  task.catch(error => {
-    logger.error({ err: error }, '[ASPБ telegram notify]');
-  });
 }
 
 export type SaveEventInput = {

@@ -10,6 +10,7 @@ const compliancePrune = readFileSync('scripts/prune-server-storage.sh', 'utf8');
 const dockerfile = readFileSync('Dockerfile', 'utf8');
 const productionCompose = readFileSync('docker-compose.production.yml', 'utf8');
 const nativeCompose = readFileSync('docker-compose.native-postgres.yml', 'utf8');
+const stagingSmoke = readFileSync('scripts/staging/smoke.mjs', 'utf8');
 
 function requireText(source, expected, label) {
   if (!source.includes(expected)) throw new Error(`CI/deploy contract missing ${label}`);
@@ -64,13 +65,13 @@ requireText(
   "inputs.deploy_target == 'staging' || inputs.deploy_target == 'production'",
   'staging-before-production',
 );
-requireText(workflow, 'container-build, deploy-staging]', 'production dependency on successful staging');
 requireText(workflow, 'dependency-audit, iac-validate, container-build]', 'staging dependency on IaC validation');
 requireText(
   workflow,
-  'dependency-audit, iac-validate, container-build, deploy-staging]',
-  'production dependency on IaC validation',
+  'dependency-audit, iac-validate, container-build, deploy-staging, staging-smoke]',
+  'production dependency on IaC validation and successful staging smoke',
 );
+requireText(stagingSmoke, "for (const pathname of ['/health', '/health/ready'])", 'dependency-aware staging smoke');
 requireText(workflow, 'Staging deploy configuration is incomplete', 'fail-closed staging configuration');
 requireText(workflow, '/tmp/aspb-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-staging', 'per-run staging artifact path');
 requireText(

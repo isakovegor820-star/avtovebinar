@@ -105,6 +105,51 @@ function eventPayload(overrides: Record<string, unknown> = {}) {
 }
 
 describe('ANA-006 versioned analytics integration', () => {
+  it('persists every canonical funnel event added by the pre-launch browser contract', async () => {
+    const fixture = await createParticipantFixture('canonical-funnel');
+    const cases = [
+      {
+        eventName: 'registration_form_error',
+        source: 'registration',
+        attributes: { failureCode: 'invalid_email' },
+        cookie: undefined,
+      },
+      { eventName: 'user_exit', source: 'web', attributes: {}, cookie: undefined },
+      { eventName: 'sound_on', source: 'room', attributes: {}, cookie: fixture.cookie },
+      {
+        eventName: 'cta_appear',
+        source: 'room',
+        attributes: { ctaKey: 'partner-final', positionSeconds: 3859 },
+        cookie: fixture.cookie,
+      },
+      {
+        eventName: 'cta_click',
+        source: 'room',
+        attributes: { ctaKey: 'partner-final', positionSeconds: 3861 },
+        cookie: fixture.cookie,
+      },
+    ] as const;
+
+    const dedupKeys: string[] = [];
+    for (const event of cases) {
+      const dedupKey = `web:${event.eventName}:${crypto.randomUUID()}`;
+      dedupKeys.push(dedupKey);
+      const pending = request(app).post('/api/events').send(
+        eventPayload({
+          eventName: event.eventName,
+          source: event.source,
+          dedupKey,
+          attributes: event.attributes,
+        }),
+      );
+      if (event.cookie) pending.set('Cookie', event.cookie);
+      const response = await pending;
+      expect(response.status, `${event.eventName}: ${JSON.stringify(response.body)}`).toBe(201);
+    }
+
+    expect(await prisma.event.count({ where: { dedupKey: { in: dedupKeys } } })).toBe(cases.length);
+  });
+
   it('stores trusted tenant scope, safe correlation/source and server-authoritative time', async () => {
     const fixture = await createParticipantFixture('valid');
     const clientOccurredAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();

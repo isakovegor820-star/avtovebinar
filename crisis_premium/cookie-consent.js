@@ -39,6 +39,12 @@
     setCookie(CONSENT_COOKIE, value, 365);
     if (value === 'accepted') {
       loadOptionalServices();
+    } else {
+      try {
+        window.localStorage.removeItem('aspb_first_touch_attribution_v1');
+      } catch (error) {
+        // Persistent browser storage may be disabled by policy/private mode.
+      }
     }
   }
 

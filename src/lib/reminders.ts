@@ -33,6 +33,7 @@ import { cleanupExpiredMediaUploads, runMediaJobOnce } from './tenancy/mediaPipe
 import { runContentJobOnce } from './tenancy/transcripts.js';
 import { runCrmDeliveryJobsOnce } from './tenancy/crmDelivery.js';
 import { runAuthorServiceNotificationJobOnce, runFreshnessReviewJobOnce } from './tenancy/freshnessReview.js';
+import { runManagerTelegramNotificationJobsOnce } from './managerTelegramOutbox.js';
 
 type ReminderCandidate = {
   id: string;
@@ -970,6 +971,11 @@ async function runReminderCycle() {
     results.push(await runStep('[ASPБ email outbox]', () => runEmailOutboxJobOnce(new Date(), {}, reportProgress)));
     results.push(
       await runStep('[ASPБ tenant CRM delivery]', () => runCrmDeliveryJobsOnce(new Date(), {}, reportProgress)),
+    );
+    results.push(
+      await runStep('[ASPБ manager Telegram outbox]', () =>
+        runManagerTelegramNotificationJobsOnce(new Date(), { onProgress: reportProgress }),
+      ),
     );
     results.push(
       await runStep('[ASPБ user auth email outbox]', () =>

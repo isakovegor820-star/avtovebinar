@@ -91,13 +91,6 @@ webinarRouter.get(
     getFirstSeen(req, res);
     const serverTime = new Date();
     const scheduledAt = getDailyBroadcastDate(serverTime);
-    const cacheKey = `webinar-current:${scheduledAt.toISOString()}`;
-    const cached = getCache<Record<string, unknown>>(cacheKey);
-    if (cached) {
-      res.setHeader('Cache-Control', 'private, max-age=30');
-      res.json(cached);
-      return;
-    }
 
     const session = await findOrCreateWebinarSession(scheduledAt, serverTime);
 
@@ -105,11 +98,13 @@ webinarRouter.get(
       ok: true,
       serverTime: serverTime.toISOString(),
       scheduledAt: session.scheduledAt.toISOString(),
+      timezone: session.timezone,
       status: getSessionStatus(serverTime, session.scheduledAt, getEffectiveVideoDurationMinutes(session)),
       countdown: getCountdown(serverTime, session.scheduledAt),
       webinar: {
         id: session.id,
         title: session.title,
+        timezone: session.timezone,
         durationMinutes: session.durationMinutes,
         videoDurationSeconds: session.videoDurationSeconds,
         roomOpenBeforeMinutes: session.roomOpenBeforeMinutes,
@@ -119,8 +114,9 @@ webinarRouter.get(
       telegramBotUrl: buildTelegramStartUrl(),
     };
 
-    setCache(cacheKey, payload, 30_000);
-    res.setHeader('Cache-Control', 'private, max-age=30');
+    // The clock, countdown and state form one snapshot and must not be cached
+    // across a waiting/live/replay boundary.
+    res.setHeader('Cache-Control', 'private, no-store');
     res.json(payload);
   }),
 );
@@ -161,6 +157,7 @@ async function sendTimeline(req: Request, res: Response) {
     accessStatus: access.accessStatus,
     webinarStatus: access.webinarStatus,
     testMode: access.testMode,
+    timezone: access.webinarSession.timezone,
     roomState: getWebinarRoomState(access),
     countdown: access.countdown,
     liveState: {
@@ -177,7 +174,7 @@ async function sendTimeline(req: Request, res: Response) {
     roomOpensAt: access.roomOpensAt.toISOString(),
   };
 
-  res.setHeader('Cache-Control', 'private, max-age=30');
+  res.setHeader('Cache-Control', 'private, no-store');
   if (!access.canEnterRoom) {
     res.json(basePayload);
     return;
@@ -564,13 +561,14 @@ async function sendChat(req: Request, res: Response) {
       visibleAt: message.visibleAt.toISOString(),
     }));
 
-  res.setHeader('Cache-Control', 'private, max-age=4');
+  res.setHeader('Cache-Control', 'private, no-store');
   res.json({
     ok: true,
     serverTime: now.toISOString(),
     accessStatus: access.accessStatus,
     webinarStatus: access.webinarStatus,
     testMode: access.testMode,
+    timezone: access.webinarSession.timezone,
     roomState: getWebinarRoomState(access),
     liveState: {
       scheduledAt: liveState.scheduledAt.toISOString(),

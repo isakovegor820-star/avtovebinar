@@ -27,6 +27,11 @@ describe('ANA-006 analytics schema registry', () => {
     expect(CURRENT_ANALYTICS_SCHEMA_VERSION).toBe(1);
     expect(ANALYTICS_EVENT_NAMES).toContain('viewer_heartbeat');
     expect(ANALYTICS_EVENT_REGISTRY.registration_success.scope).toBe('tenant');
+    expect(ANALYTICS_EVENT_REGISTRY.registration_form_error.sources).toEqual(['registration']);
+    expect(ANALYTICS_EVENT_REGISTRY.sound_on.sources).toEqual(['room']);
+    expect(ANALYTICS_EVENT_REGISTRY.cta_appear.sources).toEqual(['room']);
+    expect(ANALYTICS_EVENT_REGISTRY.cta_click.sources).toEqual(['room']);
+    expect(ANALYTICS_EVENT_REGISTRY.user_exit.sources).toEqual(['web', 'registration', 'room', 'replay']);
     expect(ANALYTICS_SOURCES).toEqual(
       expect.arrayContaining(['web', 'room', 'replay', 'registration', 'crm', 'email', 'telegram', 'worker', 'system']),
     );
@@ -106,6 +111,22 @@ describe('ANA-006 analytics schema registry', () => {
     ]) {
       expect(() => validateAnalyticsAttributes('transcript_search', { query })).toThrow(/analytics attribute/i);
     }
+  });
+
+  it('accepts bounded conversion attributes and rejects PII in canonical funnel events', () => {
+    expect(validateAnalyticsAttributes('registration_form_error', { failureCode: 'invalid_phone' })).toEqual({
+      failureCode: 'invalid_phone',
+    });
+    expect(validateAnalyticsAttributes('cta_appear', { ctaKey: 'partner-final', positionSeconds: 3859 })).toEqual({
+      ctaKey: 'partner-final',
+      positionSeconds: 3859,
+    });
+    expect(validateAnalyticsAttributes('user_exit', { playbackPosition: 125.5 })).toEqual({
+      playbackPosition: 125.5,
+    });
+    expect(() =>
+      validateAnalyticsAttributes('cta_click', { ctaKey: 'partner', email: 'private@example.test' }),
+    ).toThrow(/analytics attribute/i);
   });
 
   it('keeps the legacy adapter strict and drops raw client error details', () => {

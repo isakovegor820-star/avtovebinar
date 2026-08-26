@@ -218,9 +218,13 @@
     document.getElementById('liveChatMessages')?.removeAttribute('aria-hidden');
   }
 
+  function messageRenderKey(msg) {
+    return msg && (msg.questionId ? 'question:' + msg.questionId : msg.id);
+  }
+
   function addMessage(msg) {
     if (!msg) return;
-    var renderKey = msg.questionId ? 'question:' + msg.questionId : msg.id;
+    var renderKey = messageRenderKey(msg);
     if (!renderKey || renderedMessages.has(renderKey)) return;
     renderedMessages.add(renderKey);
     setChatContentState('content', '');
@@ -230,6 +234,11 @@
     var item = document.createElement('div');
     item.className = 'flex gap-2.5 chat-msg-enter';
     item.style.animation = 'chatMsgIn 0.3s ease forwards';
+    item.dataset.chatRenderKey = renderKey;
+    item.dataset.chatSynthetic = msg.isSynthetic === true ? 'true' : 'false';
+    if (Number.isFinite(Number(msg.offsetSeconds))) {
+      item.dataset.chatOffsetSeconds = String(Number(msg.offsetSeconds));
+    }
     if (isModerator) {
       // Особый вид — ТОЛЬКО у модераторов: бирюзовая подложка с левым акцентом.
       // Участники и наши агенты идут единым нейтральным форматом (без подложки).
@@ -298,6 +307,30 @@
     if (fsActive) renderFsMessage(msg, true);
   }
 
+  function reconcileTimelineMessages(positionSeconds) {
+    var position = Number(positionSeconds);
+    if (!Number.isFinite(position)) return;
+    var cutoff = Math.max(0, position) + 2;
+    var removedKeys = new Set();
+
+    chatContainer.querySelectorAll('[data-chat-synthetic="true"][data-chat-offset-seconds]').forEach(function(item) {
+      var offsetSeconds = Number(item.dataset.chatOffsetSeconds);
+      if (!Number.isFinite(offsetSeconds) || offsetSeconds <= cutoff) return;
+      var renderKey = item.dataset.chatRenderKey;
+      if (renderKey) {
+        renderedMessages.delete(renderKey);
+        removedKeys.add(renderKey);
+      }
+      item.remove();
+    });
+
+    if (removedKeys.size === 0) return;
+    recentMsgs = recentMsgs.filter(function(msg) {
+      return !removedKeys.has(messageRenderKey(msg));
+    });
+    if (fsActive) seedFsOverlay();
+  }
+
   function renderChatState(data) {
     var chatStatus = data.liveState && data.liveState.chatStatus;
     var demoLive = data.testMode === true;
@@ -353,12 +386,11 @@
       renderChatState(data);
       if (Array.isArray(data.messages)) {
         var videoPos = window.__aspbVideoPosition || 0;
-        var isTestMode = data.testMode === true;
+        reconcileTimelineMessages(videoPos);
         data.messages.forEach(function(msg) {
-          // Гейт по позиции видео зрителя (не показываем сообщения «из будущего»).
-          // Раньше зависел от msg.isSynthetic — поле больше не отдаётся сервером,
-          // поэтому гейтим по offsetSeconds (есть и у сценарных, и у реальных сообщений).
-          if ((isTestMode || data.accessStatus === 'replay') && typeof msg.offsetSeconds === 'number') {
+          // Scripted messages follow the viewer position in live DVR, test and
+          // replay. Real participant messages remain visible after a rewind.
+          if (msg.isSynthetic === true && typeof msg.offsetSeconds === 'number') {
             if (msg.offsetSeconds > videoPos + 2) return;
           }
           addMessage(msg);
@@ -427,6 +459,19 @@
     requestImmediateChatRefresh();
   });
   document.addEventListener('aspb:chat-refresh-request', requestImmediateChatRefresh);
+
+  var webinarVideo = document.getElementById('webinarVideo');
+  if (webinarVideo) {
+    webinarVideo.addEventListener('seeking', function() {
+      window.__aspbVideoPosition = webinarVideo.currentTime;
+      reconcileTimelineMessages(webinarVideo.currentTime);
+    });
+    webinarVideo.addEventListener('seeked', function() {
+      window.__aspbVideoPosition = webinarVideo.currentTime;
+      reconcileTimelineMessages(webinarVideo.currentTime);
+      if (roomReady) requestImmediateChatRefresh();
+    });
+  }
 
   document.addEventListener('aspb:chat-question-submitted', function(event) {
     var detail = event.detail || {};

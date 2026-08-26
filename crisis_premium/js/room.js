@@ -9,12 +9,12 @@ import {
   formatMoscowDateTime,
   formatMoscowWebinarDay,
   formatMoscowWebinarTime,
-} from './utils.js?v=site-review-7';
+} from './utils.js?v=prelaunch-20260825-2';
 import {
   getRegistrationState,
   participantLoginStatusMessage,
   requestParticipantLogin,
-} from './registration.js?v=remediation-20260805-2';
+} from './registration.js?v=prelaunch-20260825-2';
 
 let countdownInterval = null;
 let countdownRetries = 0;
@@ -327,7 +327,7 @@ function renderRoomUnavailable(message) {
     'room-access-overlay--error',
     `
     <section class="room-access-panel room-access-panel--status" aria-labelledby="roomUnavailableTitle" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1">
-      <span class="room-access-icon material-symbols-outlined" aria-hidden="true">wifi_off</span>
+      <span class="room-access-icon material-symbols-outlined" aria-hidden="true">error</span>
       <p class="room-access-eyebrow">Техническая ошибка</p>
       <h2 id="roomUnavailableTitle" class="room-access-title">Не удалось подключиться к комнате</h2>
       <p class="room-access-text">${safeMessage}</p>
@@ -535,6 +535,7 @@ export async function hydrateWebinarRoom(onSuccess) {
       closeOverlay();
 
       state.webinarConfig = {
+        id: data.webinar.id,
         scheduledAt: new Date(data.webinar.scheduledAt).getTime(),
         status: data.roomState || (data.testMode ? 'test' : data.liveState?.status || data.webinar.status),
         accessStatus: data.accessStatus,

@@ -2,13 +2,13 @@
  * main.js — точка входа. Только инициализация.
  */
 
-import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=remediation-20260804-3';
-import { hydrateTimeline } from './video.js?v=remediation-20260804-3';
-import { hydrateRoomContent } from './room-content.js?v=room-content-20260821-1';
-import { hydrateViewerRoom } from './viewer-room.js?v=viewer-account-1';
-import { hydrateSuccessPage } from './success.js?v=remediation-20260804-1';
-import { hydrateAccessPage } from './access.js?v=remediation-20260804-1';
-import { hydrateRecordingsPage } from './recordings.js?v=remediation-20260804-3';
+import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=prelaunch-20260825-2';
+import { hydrateTimeline } from './video.js?v=prelaunch-20260825-2';
+import { hydrateRoomContent } from './room-content.js?v=prelaunch-20260825-2';
+import { hydrateViewerRoom } from './viewer-room.js?v=prelaunch-20260825-2';
+import { hydrateSuccessPage } from './success.js?v=prelaunch-20260825-2';
+import { hydrateAccessPage } from './access.js?v=prelaunch-20260825-2';
+import { hydrateRecordingsPage } from './recordings.js?v=prelaunch-20260825-2';
 import {
   bindRegistrationForm,
   bindRegistrationClicks,
@@ -16,10 +16,10 @@ import {
   exchangeUrlTokenIfPresent,
   hydrateParticipantCtas,
   redirectRegisteredUserFromRegisterPage
-} from './registration.js?v=remediation-20260804-1';
-import { bindQuestionForm } from './questions.js?v=remediation-20260804-3';
-import { bindPartnerApplicationForm } from './partner.js?v=remediation-20260804-1';
-import { track } from './analytics.js?v=ana-006-1';
+} from './registration.js?v=prelaunch-20260825-2';
+import { bindQuestionForm } from './questions.js?v=prelaunch-20260825-2';
+import { bindPartnerApplicationForm } from './partner.js?v=prelaunch-20260825-2';
+import { track } from './analytics.js?v=prelaunch-20260825-2';
 
 async function exchangeCurrentUrlToken() {
   const exchangedRoomToken = await exchangeUrlTokenIfPresent().catch(() => false);

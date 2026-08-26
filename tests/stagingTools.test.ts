@@ -33,4 +33,10 @@ describe('staging acceptance tool safety', () => {
     expect(media).toContain('Buffer.alloc(PART_BYTES');
     expect(media).not.toMatch(/writeFile|createWriteStream/);
   });
+
+  it('smokes the real dependency-aware readiness endpoint', () => {
+    const smoke = readFileSync(new URL('smoke.mjs', root), 'utf8');
+    expect(smoke).toContain("['/health', '/health/ready']");
+    expect(smoke).not.toContain("['/health', '/ready']");
+  });
 });

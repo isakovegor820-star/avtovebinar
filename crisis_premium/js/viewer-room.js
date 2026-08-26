@@ -1,5 +1,5 @@
-import { deleteJson, formatTimelineTime, getJson, post, putJson } from './utils.js?v=viewer-account-1';
-import { track } from './analytics.js?v=ana-analytics-1';
+import { deleteJson, formatTimelineTime, getJson, post, putJson } from './utils.js?v=prelaunch-20260825-2';
+import { track } from './analytics.js?v=prelaunch-20260825-2';
 
 const WRITE_INTERVAL_MS = 15_000;
 let activeController = null;
@@ -88,6 +88,7 @@ function restoreProgress(progress) {
   if (!video) return;
   const restore = () => {
     if (video.currentTime > 2) return;
+    if (video.readyState < 1) return;
     const duration = Number(video.duration);
     const target = Number(progress.positionSeconds);
     if (!Number.isFinite(target) || target <= 0) return;
@@ -96,8 +97,15 @@ function restoreProgress(progress) {
     const status = node('webinarPlayerStatus');
     if (status) status.textContent = `Возвращаемся к ${formatTimelineTime(target)}.`;
   };
-  if (video.readyState >= 1) restore();
-  else video.addEventListener('loadedmetadata', restore, { once: true, signal: activeController?.signal });
+  // Timeline and viewer-account data load in parallel. Listen before the first
+  // attempt so a fast progress response cannot dispatch its seek before the
+  // player has installed the shared room-seek handler.
+  document.addEventListener('aspb:video-controls-ready', restore, {
+    once: true,
+    signal: activeController?.signal,
+  });
+  video.addEventListener('loadedmetadata', restore, { once: true, signal: activeController?.signal });
+  restore();
 }
 
 async function writeProgress(options = {}) {

@@ -44,9 +44,19 @@ import { buildTenantRetentionPlan, rejectRetentionApply } from '../lib/tenancy/r
 
 export const platformAuthRouter = Router();
 
+function isPlatformAuthPath(pathname: string) {
+  return /^\/(?:auth|organizations?|webinar-invitations)(?:\/|$)/.test(pathname);
+}
+
 platformAuthRouter.use(
-  ['/auth', '/organizations', '/organization', '/webinar-invitations'],
-  asyncHandler(async (_req, _res, next) => {
+  asyncHandler(async (req, _res, next) => {
+    // This router is mounted before the other /v1 routers. A global gate here
+    // must not intercept creator, catalog, viewer, CRM or analytics routes
+    // that are owned by their own routers and rollout policies.
+    if (!isPlatformAuthPath(req.path)) {
+      next();
+      return;
+    }
     requirePlatformAccounts();
     await requireTenantRolloutBootstrap(prisma, 'PLATFORM_ACCOUNTS_ONBOARDING');
     next();

@@ -2,8 +2,8 @@
  * questions.js — форма вопроса, рендер инсайтов.
  */
 
-import { post, formatTimelineTime } from './utils.js?v=site-review-7';
-import { track, WEBINAR_INSIGHTS } from './analytics.js?v=ana-006-1';
+import { post, formatTimelineTime } from './utils.js?v=prelaunch-20260825-2';
+import { track, WEBINAR_INSIGHTS } from './analytics.js?v=prelaunch-20260825-2';
 
 let renderedInsightTimes = new Set();
 

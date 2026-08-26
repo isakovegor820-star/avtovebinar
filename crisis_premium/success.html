@@ -151,6 +151,7 @@
 <link href="fonts.css?v=self-2" rel="stylesheet"/>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center overflow-x-hidden asymmetric-bg">
+<a class="platform-skip-link" href="#successPrimary">К основному содержанию</a>
 <header class="fixed top-0 left-0 w-full z-50 bg-background/90 backdrop-blur-md shadow-sm">
 <div class="flex justify-between items-center w-full px-gutter py-4 max-w-container-max-width mx-auto">
 <a class="flex flex-col leading-tight shrink-0" href="index.html">
@@ -177,10 +178,11 @@
 </div>
 </header>
 <div data-current="success" data-flow-tabs style="margin-top: 72px;"></div>
+<div id="successPrimary" class="w-full flex flex-col items-center" tabindex="-1">
 <section id="successAccessGate" class="success-access-gate" aria-live="polite">
 <div class="success-access-panel">
 <div class="success-access-icon" aria-hidden="true">
-<span class="material-symbols-outlined">hourglass_top</span>
+<span class="material-symbols-outlined" aria-hidden="true">hourglass_top</span>
 </div>
 <h1>Проверяем доступ</h1>
 <p>Сверяем регистрацию на этом устройстве. Если доступ уже открыт, кабинет появится автоматически.</p>
@@ -192,7 +194,7 @@
 <div class="absolute -bottom-8 -right-8 w-32 h-32 bg-primary-fixed/40 rounded-full blur-3xl"></div>
 <section class="glass-card rounded-lg p-8 md:p-16 flex flex-col items-center text-center shadow-lg relative z-10">
 <div class="w-20 h-20 bg-primary text-on-primary rounded-full flex items-center justify-center mb-8 transition-transform duration-1000">
-<span class="material-symbols-outlined text-4xl" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="material-symbols-outlined text-4xl" data-weight="fill" style="font-variation-settings: 'FILL' 1;" aria-hidden="true">check_circle</span>
 </div>
 <h1 class="font-headline-xl text-headline-xl md:font-headline-xl md:text-headline-xl text-primary mb-6">
                     Ваш доступ открыт
@@ -203,15 +205,15 @@
 <div class="w-full flex flex-col gap-4 max-w-2xl">
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 <a id="successRoomLink" class="flex items-center justify-center gap-2 bg-primary text-on-primary hover:bg-primary/95 py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95 shadow-md" href="webinar.html">
-<span class="material-symbols-outlined text-xl">meeting_room</span>
+<span class="material-symbols-outlined text-xl" aria-hidden="true">meeting_room</span>
                             Вебинарная комната
                         </a>
 <a id="successRecordingsLink" class="flex items-center justify-center gap-2 border border-outline/30 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95 shadow-md" href="recordings.html">
-<span class="material-symbols-outlined text-xl">video_library</span>
+<span class="material-symbols-outlined text-xl" aria-hidden="true">video_library</span>
                             Смотреть записи
                         </a>
 <a id="successTelegramLink" data-telegram-link="bot" class="flex items-center justify-center gap-2 bg-[#0088cc] hover:bg-[#0077b5] text-white py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95 shadow-md opacity-70 pointer-events-none" target="_blank" rel="noreferrer" aria-disabled="true">
-<span class="material-symbols-outlined text-xl">send</span>
+<span class="material-symbols-outlined text-xl" aria-hidden="true">send</span>
                             Telegram-бот
                         </a>
 </div>
@@ -225,7 +227,7 @@
 </div>
 <div class="grid grid-cols-1 gap-4 mt-2">
 	<button id="successCalendarButton" class="flex items-center justify-center gap-2 border border-outline/30 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface py-4 px-6 rounded-xl font-label-md text-label-md transition-all active:scale-95">
-<span class="material-symbols-outlined text-xl">calendar_add_on</span>
+<span class="material-symbols-outlined text-xl" aria-hidden="true">calendar_add_on</span>
                             Добавить в календарь
                         </button>
 </div>
@@ -240,7 +242,7 @@
 <span class="text-on-surface-variant font-label-sm text-label-sm">Длительность</span>
 </div>
 <div class="flex flex-col items-center">
-<span class="text-primary font-headline-md text-headline-md mb-1">Online</span>
+<span class="text-primary font-headline-md text-headline-md mb-1">Онлайн</span>
 <span class="text-on-surface-variant font-label-sm text-label-sm">Формат встречи</span>
 </div>
 </div>
@@ -250,29 +252,30 @@
 <div class="bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 hover:shadow-md transition-all">
 <div class="flex items-center gap-4 mb-4">
 <div class="p-3 bg-secondary-container rounded-xl">
-<span class="material-symbols-outlined text-on-secondary-container">help_outline</span>
+<span class="material-symbols-outlined text-on-secondary-container" aria-hidden="true">help_outline</span>
 </div>
 <h3 class="font-headline-md text-headline-md text-primary">Нужна помощь?</h3>
 </div>
 <p class="font-body-md text-body-md text-on-surface-variant mb-6">Если у вас возникли трудности с регистрацией или входом, наша служба поддержки готова помочь вам в любое время.</p>
 <button id="successSupportBtn" class="text-primary font-label-md text-label-md flex items-center gap-1 hover:gap-2 transition-all">
-                    Написать в чат <span class="material-symbols-outlined">chevron_right</span>
+                    Написать в чат <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
 </button>
 </div>
 <div class="bg-surface-container-lowest p-8 rounded-lg border border-outline-variant/20 hover:shadow-md transition-all">
 <div class="flex items-center gap-4 mb-4">
 <div class="p-3 bg-primary-fixed rounded-xl">
-<span class="material-symbols-outlined text-on-primary-fixed">share</span>
+<span class="material-symbols-outlined text-on-primary-fixed" aria-hidden="true">share</span>
 </div>
 <h3 class="font-headline-md text-headline-md text-primary">Поделитесь событием</h3>
 </div>
 <p class="font-body-md text-body-md text-on-surface-variant mb-6">Вашим коллегам-юристам тоже может быть интересно. Особенно тем, кто регулярно видит долговые риски клиентов, но не хочет вести всю процедуру внутри своей практики.</p>
 <button id="successCopyLinkBtn" class="text-primary font-label-md text-label-md flex items-center gap-1 hover:gap-2 transition-all">
-                    Скопировать ссылку <span class="material-symbols-outlined">content_copy</span>
+                    Скопировать ссылку <span class="material-symbols-outlined" aria-hidden="true">content_copy</span>
 </button>
 </div>
 </section>
 </main>
+</div>
 <footer class="w-full py-12 px-gutter max-w-container-max-width mx-auto flex flex-col md:flex-row justify-between items-center gap-8 bg-surface-container rounded-t-xl mt-auto">
 <div class="flex flex-col gap-2">
 <div class="text-headline-sm font-headline-sm font-bold text-primary">АСПБ</div>
@@ -285,8 +288,8 @@
 <a class="font-label-sm text-label-sm text-on-surface-variant hover:underline transition-all" href="mailto:partners@aspb.ru">Контакты</a>
 </div>
 </footer>
-<script src="success-animation.js"></script>
-<script type="module" src="js/main.js?v=remediation-20260804-1"></script>
+<script src="success-animation.js?v=prelaunch-20260825-2"></script>
+<script type="module" src="js/main.js?v=prelaunch-20260825-2"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
-<script src="cookie-consent.js"></script>
+<script src="cookie-consent.js?v=prelaunch-20260825-2"></script>
 </body></html>

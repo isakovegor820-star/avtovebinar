@@ -179,7 +179,6 @@ function buildEmailText(input: BaseEmailInput, intro: string) {
     input.partnerUrl ? `Заявка на партнерский договор: ${input.partnerUrl}` : '',
     '',
     'АСПБ — Антикризисная служба помощи бизнесу',
-    `Отписаться от рассылок: ${buildUnsubscribeUrl(input.to)}`,
   ]
     .filter(Boolean)
     .join('\n');
@@ -212,6 +211,10 @@ async function deliverEmail(input: {
     return { sent: false, mode: 'log' as const };
   }
 
+  const unsubscribeUrl = input.includeUnsubscribe === false ? null : await buildUnsubscribeUrl(input.to);
+  const unsubscribeMailto = `mailto:${env.EMAIL_REPLY_TO ?? env.EMAIL_FROM}?subject=unsubscribe`;
+  const messageText = unsubscribeUrl ? `${input.text}\n\nОтписаться от рассылок: ${unsubscribeUrl}` : input.text;
+
   await withCircuitBreaker(
     'smtp',
     () =>
@@ -228,15 +231,15 @@ async function deliverEmail(input: {
               replyTo: env.EMAIL_REPLY_TO,
               to: input.to,
               subject: input.subject,
-              text: input.text,
+              text: messageText,
               headers:
                 input.includeUnsubscribe === false
                   ? undefined
                   : {
                       // 152-ФЗ/38-ФЗ: возможность отписки в каждом маркетинговом письме.
-                      'List-Unsubscribe': `<${buildUnsubscribeUrl(input.to)}>, <mailto:${
-                        env.EMAIL_REPLY_TO ?? env.EMAIL_FROM
-                      }?subject=unsubscribe>`,
+                      'List-Unsubscribe': unsubscribeUrl
+                        ? `<${unsubscribeUrl}>, <${unsubscribeMailto}>`
+                        : `<${unsubscribeMailto}>`,
                     },
             }),
           );

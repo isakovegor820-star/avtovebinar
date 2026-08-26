@@ -40,6 +40,16 @@ requireText(
   'pinned GitHub build-provenance attestation',
 );
 requireText(workflow, 'artifact-metadata: write', 'attestation permissions');
+requireText(workflow, 'attestations: read', 'offline attestation bundle read permission');
+requireText(workflow, 'gh attestation download "$archive"', 'offline attestation bundle download');
+requireText(workflow, 'DEPLOY_ATTESTATION_BUNDLE="$attestation_bundle"', 'offline bundle propagation');
+requireText(workflow, 'gh_2.98.0_linux_amd64.tar.gz', 'pinned remote attestation verifier');
+requireText(
+  workflow,
+  '3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de',
+  'pinned remote attestation verifier checksum',
+);
+requireText(workflow, 'DEPLOY_GH_BIN="$attestation_cli"', 'per-run attestation verifier propagation');
 requireText(workflow, 'secretlint@13.0.4', 'pinned secret scanner CLI');
 requireText(workflow, 'dotenv-linter@0.2.0', 'pinned dotenv scanner CLI');
 requireText(
@@ -80,7 +90,10 @@ requireText(
 requireText(deploy, 'bash scripts/install-deploy-image.sh', 'verified image installation');
 requireText(deploy, 'ALLOW_REMOTE_REBUILD is no longer supported', 'fail-closed remote rebuild gate');
 requireText(deploy, 'ALLOW_DEPLOY_WITHOUT_CI_ATTESTATION is no longer supported', 'removed unsigned deploy bypass');
-requireText(installImage, 'gh attestation verify "$archive"', 'cryptographic artifact verification');
+requireText(installImage, '"$attestation_cli" attestation verify "$archive"', 'cryptographic artifact verification');
+requireText(installImage, 'DEPLOY_GH_BIN', 'scoped remote attestation verifier');
+requireText(installImage, 'DEPLOY_ATTESTATION_BUNDLE', 'offline remote attestation bundle');
+requireText(installImage, '--bundle "$attestation_bundle"', 'offline bundle verification');
 requireText(installImage, '--source-digest "$release_sha"', 'attested exact source commit');
 requireText(installImage, '--signer-workflow "$github_repository/.github/workflows/ci.yml"', 'trusted signer workflow');
 requireText(installImage, '--deny-self-hosted-runners', 'GitHub-hosted attestation builder');

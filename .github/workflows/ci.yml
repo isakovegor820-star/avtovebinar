@@ -475,6 +475,16 @@ jobs:
             exit 75
           fi
           cd "$deploy_path"
+          staging_public_origin="$(sed -n 's/^PUBLIC_SITE_URL=//p' .env.production | tail -n 1)"
+          staging_database_url="$(sed -n 's/^DATABASE_URL=//p' .env.production | tail -n 1)"
+          if [[ "$staging_public_origin" != https://*staging* ]]; then
+            echo "STAGING public origin isolation is not provisioned" >&2
+            exit 1
+          fi
+          if [[ "$staging_database_url" != *"/aspb_staging?"* || "$staging_database_url" == *"aspb_autowebinar"* ]]; then
+            echo "STAGING database isolation is not provisioned" >&2
+            exit 1
+          fi
           dirty_worktree="$(git status --porcelain=v1 --untracked-files=all -- . \
             ':(exclude)backups/**' \
             ':(exclude)test-results/**' \

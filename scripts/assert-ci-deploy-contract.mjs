@@ -75,6 +75,8 @@ requireText(workflow, 'STAGING_NATIVE_POSTGRES_STORAGE_PATH', 'staging native Po
 requireText(workflow, 'COMPOSE_PROJECT_NAME=aspb-platform-staging', 'isolated staging Compose project');
 requireText(workflow, 'ASPB_CONTAINER_PREFIX=aspb-platform-staging', 'isolated staging container namespace');
 requireText(workflow, 'ASPB_BIND_PORT=5176', 'isolated staging bind port');
+requireText(workflow, 'STAGING public origin isolation is not provisioned', 'isolated staging public origin');
+requireText(workflow, 'STAGING database isolation is not provisioned', 'isolated staging database');
 requireText(workflow, 'PRODUCTION_NATIVE_POSTGRES_STORAGE_PATH', 'production native PostgreSQL capacity path');
 requireText(
   workflow,

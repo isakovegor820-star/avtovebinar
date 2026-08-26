@@ -109,6 +109,17 @@ function isLocalhostUrl(value: string) {
   }
 }
 
+function isIsolatedStagingOrigin(value: string) {
+  try {
+    return new URL(value).hostname
+      .toLowerCase()
+      .split('.')
+      .some(label => label === 'staging' || label.startsWith('staging-') || label.endsWith('-staging'));
+  } catch {
+    return false;
+  }
+}
+
 function isLocalMountedMediaUrl(value: string | undefined, publicSiteUrl: string) {
   if (!value) return false;
   try {
@@ -126,6 +137,7 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
   }
 
   const errors: string[] = [];
+  const isIsolatedStaging = isIsolatedStagingOrigin(config.PUBLIC_SITE_URL);
   if (config.ADMIN_LOGIN === 'admin') {
     errors.push('ADMIN_LOGIN must not use the default "admin" in production');
   }
@@ -162,8 +174,11 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
   if (config.EMAIL_MODE === 'send' && (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS)) {
     errors.push('SMTP_HOST, SMTP_USER and SMTP_PASS are required when EMAIL_MODE="send" in production');
   }
-  if (config.EMAIL_MODE !== 'send') {
+  if (!isIsolatedStaging && config.EMAIL_MODE !== 'send') {
     errors.push('EMAIL_MODE must be "send" in production because participant access is delivered by email');
+  }
+  if (isIsolatedStaging && config.EMAIL_MODE !== 'log') {
+    errors.push('EMAIL_MODE must be "log" for an isolated staging origin');
   }
   const needsTelegramAdmin =
     config.TELEGRAM_NOTIFY_MODE === 'send' ||
@@ -180,8 +195,9 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
     );
   }
   if (
-    !(config.TELEGRAM_PARTICIPANT_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
-    !(config.TELEGRAM_PARTICIPANT_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME)
+    !isIsolatedStaging &&
+    (!(config.TELEGRAM_PARTICIPANT_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN) ||
+      !(config.TELEGRAM_PARTICIPANT_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME))
   ) {
     errors.push(
       'TELEGRAM_PARTICIPANT_BOT_TOKEN or TELEGRAM_BOT_TOKEN and participant bot username are required for participant access in production',
@@ -189,14 +205,26 @@ export function validateProductionSecurity<T extends ProductionSecurityConfig>(c
   }
   const participantBotUsername = config.TELEGRAM_PARTICIPANT_BOT_USERNAME || config.TELEGRAM_BOT_USERNAME;
   const expectedParticipantBotUsername = config.TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME;
-  if (!expectedParticipantBotUsername) {
+  if (!isIsolatedStaging && !expectedParticipantBotUsername) {
     errors.push('TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME is required for participant Telegram in production');
   }
   if (
+    !isIsolatedStaging &&
     expectedParticipantBotUsername &&
     participantBotUsername?.toLowerCase() !== expectedParticipantBotUsername.toLowerCase()
   ) {
     errors.push(`TELEGRAM_PARTICIPANT_BOT_USERNAME must be ${expectedParticipantBotUsername} for this deployment`);
+  }
+  if (
+    isIsolatedStaging &&
+    (config.TELEGRAM_NOTIFY_MODE !== 'log' ||
+      config.TELEGRAM_ADMIN_BOT_POLLING !== 'off' ||
+      config.TELEGRAM_BOT_POLLING !== 'off' ||
+      config.TELEGRAM_PARTICIPANT_BOT_POLLING !== 'off' ||
+      config.TELEGRAM_CONSULTANT_BOT_POLLING !== 'off' ||
+      config.TELEGRAM_NEWS_BROADCAST !== 'off')
+  ) {
+    errors.push('All Telegram delivery, polling, and broadcasts must be disabled for an isolated staging origin');
   }
   if (config.WEBINAR_TEST_ROOM_MODE === 'on') {
     errors.push('WEBINAR_TEST_ROOM_MODE must be "off" in production');

@@ -476,6 +476,49 @@ describe('security configuration', () => {
     ).toThrow(/EMAIL_MODE must be "send"/);
   });
 
+  it('allows only non-delivering email and Telegram modes on an isolated staging origin', () => {
+    const staging = validateProductionSecurity(
+      secureProductionConfig({
+        PUBLIC_SITE_URL: 'https://staging.72-56-38-62.sslip.io',
+        CORS_ORIGIN: 'https://staging.72-56-38-62.sslip.io',
+        EMAIL_MODE: 'log',
+        SMTP_HOST: '',
+        SMTP_USER: '',
+        SMTP_PASS: '',
+        TELEGRAM_NOTIFY_MODE: 'log',
+        TELEGRAM_ADMIN_BOT_TOKEN: '',
+        TELEGRAM_ADMIN_BOT_USERNAME: '',
+        TELEGRAM_ADMIN_CHAT_ID: '',
+        TELEGRAM_PARTICIPANT_BOT_TOKEN: '',
+        TELEGRAM_PARTICIPANT_BOT_USERNAME: '',
+        TELEGRAM_EXPECTED_PARTICIPANT_BOT_USERNAME: undefined,
+      }),
+    );
+    expect(staging.EMAIL_MODE).toBe('log');
+    expect(staging.TELEGRAM_NOTIFY_MODE).toBe('log');
+
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          PUBLIC_SITE_URL: 'https://staging.72-56-38-62.sslip.io',
+          CORS_ORIGIN: 'https://staging.72-56-38-62.sslip.io',
+          EMAIL_MODE: 'send',
+        }),
+      ),
+    ).toThrow(/EMAIL_MODE must be "log"/);
+
+    expect(() =>
+      validateProductionSecurity(
+        secureProductionConfig({
+          PUBLIC_SITE_URL: 'https://staging.72-56-38-62.sslip.io',
+          CORS_ORIGIN: 'https://staging.72-56-38-62.sslip.io',
+          EMAIL_MODE: 'log',
+          TELEGRAM_ADMIN_BOT_POLLING: 'on',
+        }),
+      ),
+    ).toThrow(/All Telegram delivery, polling, and broadcasts must be disabled/);
+  });
+
   it('allows same-origin media mounted behind the authenticated media endpoint without an origin token', () => {
     const config = validateProductionSecurity(
       secureProductionConfig({

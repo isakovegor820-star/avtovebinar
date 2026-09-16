@@ -536,6 +536,7 @@ jobs:
           DEPLOY_ATTESTATION_BUNDLE="$attestation_bundle" \
           DEPLOY_GH_BIN="$attestation_cli" \
           NATIVE_POSTGRES_STORAGE_PATH="$native_postgres_storage_path" \
+          MIN_DEPLOY_FREE_PERCENT=12 \
           VERIFIED_BACKUP_FILE="$verified_backup_file" \
           ALLOW_DEGRADED_DEPENDENCIES=on \
           ALLOW_DEPLOY_WITHOUT_ROLLBACK="$allow_first_deploy" \
@@ -828,6 +829,7 @@ jobs:
           DEPLOY_ATTESTATION_BUNDLE="$attestation_bundle" \
           DEPLOY_GH_BIN="$attestation_cli" \
           NATIVE_POSTGRES_STORAGE_PATH="$native_postgres_storage_path" \
+          MIN_DEPLOY_FREE_PERCENT=12 \
           VERIFIED_BACKUP_FILE="$verified_backup_file" \
           ALLOW_DEPLOY_WITHOUT_ROLLBACK="$allow_first_deploy" \
             bash scripts/deploy-production.sh

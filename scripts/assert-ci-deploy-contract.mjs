@@ -94,6 +94,10 @@ requireText(
   'NATIVE_POSTGRES_STORAGE_PATH="$native_postgres_storage_path"',
   'remote native PostgreSQL capacity path propagation',
 );
+const calibratedCapacityCount = workflow.split('MIN_DEPLOY_FREE_PERCENT=12').length - 1;
+if (calibratedCapacityCount !== 2) {
+  throw new Error('staging and production must use the reviewed shared-host free-space percentage');
+}
 requireText(workflow, 'allow_first_deploy:', 'explicit first-deploy workflow input');
 requireText(
   workflow,

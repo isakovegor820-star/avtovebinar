@@ -673,6 +673,7 @@ test('recordings library removes stale selection when the participant has no rec
   const { exchangeToken } = await createExchangeRegistration(`empty-library-${Date.now()}@aspb.ru`);
 
   await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/webinar\.html$/);
   await page.goto('/crisis_premium/recordings.html?id=removed-recording&q=legacy&filter=watched', {
     waitUntil: 'domcontentloaded',
   });
@@ -709,6 +710,7 @@ test('large recordings library exposes working search and filters', async ({ pag
   });
 
   await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`, { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/webinar\.html$/);
   await page.goto('/crisis_premium/recordings.html', { waitUntil: 'domcontentloaded' });
 
   await expect(page.locator('#recordingsApp')).toHaveAttribute('data-library-size', 'library');

@@ -234,6 +234,16 @@ jobs:
               fi
             done
             if [[ -z "$live_api_pid" ]]; then
+              echo "Relevant reverse-proxy routes:" >&2
+              if command -v nginx >/dev/null 2>&1; then
+                nginx -T 2>/dev/null | grep -nE 'aspb-partners\.ru|proxy_pass|5174|5175|5176' >&2 || true
+              fi
+              echo "Listening application ports:" >&2
+              ss -ltnp 2>/dev/null | grep -E ':(5174|5175|5176|3000|8080)[[:space:]]' >&2 || true
+              echo "Node application processes:" >&2
+              ps -eo pid,user,args | grep -E '[n]ode|[n]pm' >&2 || true
+              echo "ASPB systemd units:" >&2
+              systemctl list-units --type=service --all --no-pager 2>/dev/null | grep -iE 'aspb|webinar' >&2 || true
               echo "Could not locate the running aspb-partners.ru API process." >&2
               exit 1
             fi

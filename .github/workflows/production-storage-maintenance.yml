@@ -226,12 +226,13 @@ jobs:
               echo "Production DATABASE_URL is missing or unsupported." >&2
               exit 1
             fi
+            psql_url="${database_url%%\?schema=*}"
             if ! command -v psql >/dev/null 2>&1; then
               echo "psql is required for the guarded recording deletion." >&2
               exit 1
             fi
 
-            psql "$database_url" -v ON_ERROR_STOP=1 <<'SQL'
+            psql "$psql_url" -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             matched_count integer;
@@ -254,7 +255,7 @@ jobs:
           $$;
           SQL
 
-            remaining_count="$(psql "$database_url" -v ON_ERROR_STOP=1 -Atqc \
+            remaining_count="$(psql "$psql_url" -v ON_ERROR_STOP=1 -Atqc \
               "SELECT count(*) FROM \"webinar_recordings\" WHERE \"duration_seconds\" = 568 AND \"category\" = 'webinar' AND \"title\" = 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности';")"
             if [[ "$remaining_count" != "0" ]]; then
               echo "Recording deletion verification failed: $remaining_count matching row(s) remain." >&2

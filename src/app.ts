@@ -174,6 +174,7 @@ const participantLoginEmailLimiter = rateLimit({
 const tokenReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 90,
+  skip: () => env.NODE_ENV === 'test',
   standardHeaders: true,
   legacyHeaders: false,
 });

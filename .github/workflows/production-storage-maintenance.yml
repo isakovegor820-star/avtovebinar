@@ -232,9 +232,8 @@ jobs:
 
           const prisma = new PrismaClient();
           const where = {
-            durationSeconds: 568,
-            category: 'webinar',
             title: 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности',
+            visible: true,
           };
 
           try {

@@ -221,47 +221,24 @@ jobs:
 
           if [[ "$mode" == "delete-short-recording" ]]; then
             section "Deleting the approved 9:28 production recording"
-            live_api_pid=""
-            for env_file in /proc/[0-9]*/environ; do
-              [[ -r "$env_file" ]] || continue
-              process_environment="$(tr '\0' '\n' < "$env_file" 2>/dev/null || true)"
-              public_site_url="$(printf '%s\n' "$process_environment" | sed -n 's/^PUBLIC_SITE_URL=//p' | tail -n 1)"
-              worker_role="$(printf '%s\n' "$process_environment" | sed -n 's/^WORKER_ROLE=//p' | tail -n 1)"
-              if [[ "$public_site_url" == "https://aspb-partners.ru" && "$worker_role" == "api" ]]; then
-                live_api_pid="${env_file#/proc/}"
-                live_api_pid="${live_api_pid%/environ}"
-                break
-              fi
-            done
-            if [[ -z "$live_api_pid" ]]; then
-              echo "Relevant reverse-proxy routes:" >&2
-              if command -v nginx >/dev/null 2>&1; then
-                nginx -T 2>/dev/null | grep -nE 'aspb-partners\.ru|proxy_pass|5174|5175|5176' >&2 || true
-              fi
-              echo "Listening application ports:" >&2
-              ss -ltnp 2>/dev/null | grep -E ':(5174|5175|5176|3000|8080)[[:space:]]' >&2 || true
-              echo "Node application processes:" >&2
-              ps -eo pid,user,args | grep -E '[n]ode|[n]pm' >&2 || true
-              echo "ASPB systemd units:" >&2
-              systemctl list-units --type=service --all --no-pager 2>/dev/null | grep -iE 'aspb|webinar' >&2 || true
-              echo "Could not locate the running aspb-partners.ru API process." >&2
+            live_health="$(curl --fail --silent --show-error http://127.0.0.1:3010/health/ready)"
+            if [[ "$live_health" != *'"service":"aspb-autowebinar"'* || "$live_health" != *'"ok":true'* ]]; then
+              echo "Port 3010 does not expose a healthy aspb-autowebinar API." >&2
+              exit 1
+            fi
+            mapfile -t live_api_containers < <(docker ps --filter publish=3010 --format '{{.Names}}')
+            if (( ${#live_api_containers[@]} != 1 )); then
+              echo "Expected exactly one container publishing production port 3010; found ${#live_api_containers[@]}." >&2
+              exit 1
+            fi
+            live_api_container="${live_api_containers[0]}"
+            container_public_url="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$live_api_container" | sed -n 's/^PUBLIC_SITE_URL=//p' | tail -n 1)"
+            if [[ "$container_public_url" != "https://aspb-partners.ru" ]]; then
+              echo "The port 3010 container is not configured for aspb-partners.ru." >&2
               exit 1
             fi
 
-            live_database_url="$(tr '\0' '\n' < "/proc/$live_api_pid/environ" | sed -n 's/^DATABASE_URL=//p' | tail -n 1)"
-            live_cwd="$(readlink -e "/proc/$live_api_pid/cwd")"
-            live_node="$(readlink -e "/proc/$live_api_pid/exe")"
-            if [[ "$live_database_url" != postgresql://* && "$live_database_url" != postgres://* ]]; then
-              echo "The live API process has no supported DATABASE_URL." >&2
-              exit 1
-            fi
-            if [[ ! -d "$live_cwd/node_modules/@prisma/client" || ! -x "$live_node" ]]; then
-              echo "The live API runtime cannot execute the guarded Prisma deletion." >&2
-              exit 1
-            fi
-
-            cd "$live_cwd"
-            DATABASE_URL="$live_database_url" "$live_node" - <<'NODE'
+            docker exec -i "$live_api_container" node - <<'NODE'
           const { PrismaClient } = require('@prisma/client');
 
           const prisma = new PrismaClient();

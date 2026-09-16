@@ -662,6 +662,73 @@ test('published recording stays available before the daily broadcast', async ({ 
 
   await expect(page.locator('#recordingsPlaylist')).toContainText('Постоянная запись E2E');
   await expect(page.locator('#recordingsCount')).toContainText('запис');
+  await expect(page.locator('#recordingsApp')).toHaveAttribute('data-library-size', 'single');
+  await expect(page.locator('.recordings-playlist-panel')).toBeHidden();
+  await expect(page.locator('#recordingsCounter')).toContainText('1 запись');
   await expect(page.locator('#recordingVideo')).toHaveAttribute('src', /\/api\/media\/recording\/.+\/video/);
   await expect(page.locator('#recordingVideoFallback')).toBeHidden();
+});
+
+test('recordings library removes stale selection when the participant has no recordings', async ({ page }) => {
+  const { exchangeToken } = await createExchangeRegistration(`empty-library-${Date.now()}@aspb.ru`);
+
+  await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`, { waitUntil: 'domcontentloaded' });
+  await page.goto('/crisis_premium/recordings.html?id=removed-recording&q=legacy&filter=watched', {
+    waitUntil: 'domcontentloaded',
+  });
+
+  await expect(page.locator('#recordingsApp')).toHaveAttribute('data-library-size', 'empty');
+  await expect(page.getByRole('heading', { name: 'Сейчас доступных записей нет' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Вернуться в «Мой доступ»' })).toBeVisible();
+  await expect(page).toHaveURL(/recordings\.html$/);
+});
+
+test('large recordings library exposes working search and filters', async ({ page }) => {
+  const { exchangeToken, registration } = await createExchangeRegistration(`recordings-library-${Date.now()}@aspb.ru`);
+  const titles = [
+    'Экономика кризиса: практический разбор',
+    'Защита бизнеса при кассовом разрыве',
+    'Переговоры с кредиторами без ошибок',
+    'Субсидиарная ответственность руководителя',
+    'Антикризисный аудит компании',
+    'Работа юриста с проблемной задолженностью',
+  ];
+
+  await prisma.webinarRecording.createMany({
+    data: titles.map((title, index) => ({
+      webinarSessionId: registration.webinarSessionId,
+      title,
+      description: 'Практическая запись вебинара АСПБ.',
+      videoUrl: '/crisis_premium/assets/webinar.mp4',
+      posterUrl: '/crisis_premium/assets/webinar-poster.jpg',
+      durationSeconds: 3000 + index * 240,
+      publishedAt: new Date(Date.now() - index * 10 * 24 * 60 * 60 * 1000),
+      visible: true,
+      orderIndex: index,
+    })),
+  });
+
+  await page.goto(`/crisis_premium/webinar.html?token=${exchangeToken}`, { waitUntil: 'domcontentloaded' });
+  await page.goto('/crisis_premium/recordings.html', { waitUntil: 'domcontentloaded' });
+
+  await expect(page.locator('#recordingsApp')).toHaveAttribute('data-library-size', 'library');
+  await expect(page.locator('#recordingsSearch')).toBeVisible();
+  await expect(page.locator('#recordingsFilterWrap')).toBeVisible();
+  await expect(page.locator('.recording-item')).toHaveCount(6);
+
+  await page.locator('#recordingsSearch').fill('кредиторами');
+  await expect(page.locator('.recording-item')).toHaveCount(1);
+  await expect(page.locator('.recording-item')).toContainText('Переговоры с кредиторами без ошибок');
+  await expect(page).toHaveURL(/q=/);
+
+  await page.locator('#recordingsSearch').fill('');
+  await page.getByRole('button', { name: 'Новые', exact: true }).click();
+  await expect(page.locator('.recording-item')).toHaveCount(1);
+  await expect(page).toHaveURL(/filter=new/);
+
+  await page.getByRole('button', { name: 'Просмотренные', exact: true }).click();
+  await expect(page.getByText('В этом фильтре пока нет записей.')).toBeVisible();
+  await page.getByRole('button', { name: 'Показать все записи' }).click();
+  await expect(page.locator('.recording-item')).toHaveCount(6);
+  await expect(page).not.toHaveURL(/filter=|q=/);
 });

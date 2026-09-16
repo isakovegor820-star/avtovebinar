@@ -2,13 +2,14 @@
 <html class="light" lang="ru"><head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta name="theme-color" content="#f3f8fc"/>
 <meta name="robots" content="noindex, nofollow"/>
 <title>Записи вебинаров | АСПБ</title>
 <link rel="stylesheet" href="css/styles.css?v=team-4col-20260613"/>
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg"/>
 <link rel="stylesheet" href="cookie-consent.css?v=compact-1"/>
 <link href="flow-tabs.css?v=nav-tabs-7" rel="stylesheet"/>
-<link rel="stylesheet" href="recordings.css?v=remediation-20260804-1"/>
+<link rel="stylesheet" href="recordings.css?v=adaptive-library-1"/>
 <link href="fonts.css?v=self-2" rel="stylesheet"/>
 </head>
 <body class="recordings-page">
@@ -18,7 +19,7 @@
 <span class="text-headline-md font-headline-md font-bold text-primary">АСПБ</span>
 <span class="hidden sm:block text-[11px] leading-4 font-semibold text-on-surface-variant">Антикризисная служба помощи бизнесу</span>
 </a>
-<a class="bg-primary text-on-primary px-6 py-2.5 min-h-[44px] inline-flex items-center justify-center rounded-full text-label-md font-label-md hover:opacity-90 active:scale-95 transition-all" href="access.html">Мой доступ</a>
+<a class="bg-primary text-on-primary px-6 py-2.5 min-h-[44px] inline-flex items-center justify-center rounded-full text-label-md font-label-md hover:opacity-90 active:scale-95 transition-colors" href="access.html">Мой доступ</a>
 </div>
 </header>
 <div data-current="recordings" data-flow-tabs></div>
@@ -26,7 +27,11 @@
 <section class="recordings-header" aria-labelledby="recordingsPageTitle">
 <div>
 <h1 id="recordingsPageTitle">Записи вебинаров</h1>
-<p>Постоянная библиотека прошедших вебинаров АСПБ. Выберите запись слева, а справа — переключайтесь между всеми доступными материалами.</p>
+<p id="recordingsPageDescription">Здесь собраны опубликованные вебинары и материалы, доступные вашему аккаунту.</p>
+</div>
+<div class="recordings-counter" id="recordingsCounter" aria-live="polite" hidden>
+<strong id="recordingsTotal">0 записей</strong>
+<span id="recordingPosition"></span>
 </div>
 </section>
 <section id="recordingsRequestError" class="recordings-request-error" role="alert" aria-live="assertive" hidden>
@@ -35,29 +40,29 @@
 <p id="recordingsRequestErrorText">Это временная ошибка соединения. Доступ не удалён.</p>
 <button id="recordingsRequestRetry" type="button">Повторить</button>
 </section>
-<div id="recordingsApp" class="recordings-layout">
+<div id="recordingsApp" class="recordings-layout" data-library-size="loading" aria-busy="true">
 <div class="recording-main">
 <section class="recording-player-panel">
 <div id="recordingPlayerShell" class="recording-player-shell">
 <video id="recordingVideo" preload="metadata" playsinline></video>
 <div class="recording-badge">Запись</div>
 <button id="recordingOverlayButton" class="recording-overlay-button" type="button" aria-label="Смотреть запись">
-<span class="material-symbols-outlined">play_arrow</span>
+<span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>
 </button>
 <div id="recordingVideoFallback" class="recording-video-fallback hidden" role="alert" aria-live="assertive">
 <div>
-<span class="material-symbols-outlined text-5xl mb-3">error</span>
+<span class="material-symbols-outlined text-5xl mb-3" aria-hidden="true">error</span>
 <p id="recordingVideoFallbackText">Не удалось загрузить запись. Проверьте соединение и попробуйте ещё раз.</p>
 <button id="recordingVideoRetry" type="button">Повторить загрузку видео</button>
 </div>
 </div>
 </div>
-<div class="recording-controls" aria-label="Управление записью">
-<button id="recordingPlayButton" type="button" aria-label="Воспроизвести или поставить на паузу"><span class="material-symbols-outlined">play_arrow</span></button>
+<div class="recording-controls" role="group" aria-label="Управление записью">
+<button id="recordingPlayButton" type="button" aria-label="Воспроизвести или поставить на паузу"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span></button>
 <input id="recordingSeek" type="range" min="0" max="100" value="0" step="0.1" aria-label="Перемотка записи">
 <span class="recording-time"><span id="recordingCurrentTime">00:00</span> / <span id="recordingDuration">00:00</span></span>
-<button id="recordingMuteButton" type="button" aria-label="Включить или выключить звук"><span class="material-symbols-outlined">volume_up</span></button>
-<button id="recordingFullscreenButton" type="button" aria-label="Полноэкранный режим"><span class="material-symbols-outlined">fullscreen</span></button>
+<button id="recordingMuteButton" type="button" aria-label="Включить или выключить звук"><span class="material-symbols-outlined" aria-hidden="true">volume_up</span></button>
+<button id="recordingFullscreenButton" type="button" aria-label="Полноэкранный режим"><span class="material-symbols-outlined" aria-hidden="true">fullscreen</span></button>
 </div>
 </section>
 <section class="recording-info" aria-label="О записи">
@@ -68,8 +73,8 @@
 </div>
 <p class="recording-description" id="recordingDescription"></p>
 <div class="recording-actions">
-<button type="button" class="recording-action" id="recordingFullscreenAction"><span class="material-symbols-outlined">fullscreen</span> На весь экран</button>
-<button type="button" class="recording-action" id="recordingShareAction"><span class="material-symbols-outlined">link</span> <span id="recordingShareLabel">Скопировать ссылку</span></button>
+<button type="button" class="recording-action" id="recordingFullscreenAction"><span class="material-symbols-outlined" aria-hidden="true">fullscreen</span> На весь экран</button>
+<button type="button" class="recording-action" id="recordingShareAction"><span class="material-symbols-outlined" aria-hidden="true">link</span> <span id="recordingShareLabel" aria-live="polite">Скопировать ссылку</span></button>
 </div>
 </section>
 </div>
@@ -80,15 +85,21 @@
 <span class="playlist-heading__count" id="recordingsCount">0 записей</span>
 </div>
 <label class="recordings-search" id="recordingsSearchWrap" hidden>
-<span class="material-symbols-outlined">search</span>
-<input id="recordingsSearch" type="search" placeholder="Поиск по записям" aria-label="Поиск по записям" autocomplete="off">
+<span class="material-symbols-outlined" aria-hidden="true">search</span>
+<input id="recordingsSearch" name="recordings-search" type="search" placeholder="Найти запись…" aria-label="Поиск по записям" autocomplete="off" spellcheck="false">
 </label>
+<div class="recordings-filters" id="recordingsFilterWrap" role="group" aria-label="Фильтр записей" hidden>
+<button type="button" class="recordings-filter is-active" data-recording-filter="all" aria-pressed="true">Все</button>
+<button type="button" class="recordings-filter" data-recording-filter="new" aria-pressed="false">Новые</button>
+<button type="button" class="recordings-filter" data-recording-filter="watched" aria-pressed="false">Просмотренные</button>
 </div>
+</div>
+<p id="recordingsResultsStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
 <div id="recordingsPlaylist" class="recordings-playlist"></div>
 </aside>
 </div>
 </main>
-<script type="module" src="js/main.js?v=remediation-20260804-3"></script>
+<script type="module" src="js/main.js?v=adaptive-library-1"></script>
 <script src="flow-tabs.js?v=nav-tabs-5"></script>
 <script src="cookie-consent.js"></script>
 </body></html>

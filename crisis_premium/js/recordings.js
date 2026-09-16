@@ -16,6 +16,7 @@ const progressMarks = new Set();
 let currentPlaylist = [];
 let currentServerTime = null;
 let searchQuery = '';
+let activeFilter = 'all';
 let actionsBound = false;
 
 const WATCHED_STORAGE_KEY = 'aspb:watchedRecordings';
@@ -136,17 +137,86 @@ function statusLabel(recording, serverTime) {
   return publishedAt && now - publishedAt < 7 * 24 * 60 * 60 * 1000 ? 'Новое' : 'Доступно';
 }
 
+function setPageDescription(value) {
+  setText('recordingsPageDescription', value);
+}
+
+function replaceLibraryUrl(update) {
+  const url = new URL(window.location.href);
+  update(url.searchParams);
+  url.searchParams.delete('token');
+  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+}
+
+function clearLibrarySelection() {
+  replaceLibraryUrl(params => {
+    params.delete('id');
+    params.delete('q');
+    params.delete('filter');
+  });
+}
+
+function syncDiscoveryUrl() {
+  replaceLibraryUrl(params => {
+    if (searchQuery.trim()) params.set('q', searchQuery.trim());
+    else params.delete('q');
+    if (activeFilter !== 'all') params.set('filter', activeFilter);
+    else params.delete('filter');
+  });
+}
+
+function setLibraryMode(total) {
+  const root = document.getElementById('recordingsApp');
+  const playlistPanel = document.querySelector('.recordings-playlist-panel');
+  const counter = document.getElementById('recordingsCounter');
+  if (!root) return;
+
+  root.dataset.librarySize = total === 1 ? 'single' : total >= 6 ? 'library' : 'collection';
+  root.setAttribute('aria-busy', 'false');
+  if (playlistPanel) playlistPanel.hidden = total < 2;
+  if (counter) counter.hidden = total < 1;
+
+  if (total < 6) {
+    searchQuery = '';
+    activeFilter = 'all';
+    const search = document.getElementById('recordingsSearch');
+    if (search) search.value = '';
+    syncDiscoveryUrl();
+  }
+
+  setText('recordingsTotal', `${total} ${pluralRecordings(total)}`);
+  setPageDescription(
+    total === 1
+      ? 'Смотрите доступную запись и возвращайтесь к ней в любое удобное время.'
+      : total >= 6
+        ? 'Находите нужные материалы через поиск и фильтры, не покидая страницу просмотра.'
+        : 'Выберите запись в списке справа — плеер и описание обновятся без перезагрузки страницы.',
+  );
+}
+
 function showEmpty() {
   clearTemporaryError();
   const root = document.getElementById('recordingsApp');
   if (!root) return;
   document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
+  root.dataset.librarySize = 'empty';
+  root.setAttribute('aria-busy', 'false');
+  clearLibrarySelection();
+  setPageDescription('Материалы появятся здесь автоматически после публикации — повторная регистрация не потребуется.');
   root.innerHTML = `
-    <section class="recordings-empty">
-      <span class="material-symbols-outlined">video_library</span>
-      <h1>Записи пока готовятся</h1>
-      <p>Как только материал будет опубликован, он появится здесь без повторной регистрации.</p>
-      <a href="webinar.html" class="recordings-primary-link">Открыть вебинар</a>
+    <section class="recordings-empty" aria-labelledby="recordingsEmptyTitle">
+      <div class="recordings-empty__icon" aria-hidden="true">
+        <span class="material-symbols-outlined">video_library</span>
+      </div>
+      <div class="recordings-empty__copy">
+        <span class="recordings-empty__count">0 доступных записей</span>
+        <h2 id="recordingsEmptyTitle">Сейчас доступных записей нет</h2>
+        <p>Когда АСПБ опубликует новый материал, он появится в вашей библиотеке автоматически.</p>
+      </div>
+      <div class="recordings-empty__actions">
+        <a href="access.html" class="recordings-primary-link">Вернуться в «Мой доступ»</a>
+        <a href="index.html" class="recordings-secondary-link">На главную</a>
+      </div>
     </section>
   `;
 }
@@ -156,19 +226,30 @@ function showLocked(payload) {
   const root = document.getElementById('recordingsApp');
   if (!root) return;
   document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
+  root.dataset.librarySize = 'locked';
+  root.setAttribute('aria-busy', 'false');
+  setPageDescription('Запись станет доступна автоматически после премьеры. Здесь указано актуальное состояние доступа.');
   const scheduledAt = payload.webinar?.scheduledAt ? formatMoscowDateTime(payload.webinar.scheduledAt) : '19:30';
   const availableAt = payload.webinar?.recordingAvailableAt ? formatMoscowDateTime(payload.webinar.recordingAvailableAt) : '';
   const isLive = payload.accessStatus === 'live';
   root.innerHTML = `
-    <section class="recordings-empty">
-      <span class="material-symbols-outlined">${isLive ? 'live_tv' : 'lock_clock'}</span>
-      <h1>${isLive ? 'Сейчас идет премьера записи' : 'Запись откроется после премьеры'}</h1>
-      <p>${
-        isLive
-          ? 'Не открываем постоянную запись во время премьеры, чтобы сохранить последовательность программы. Подключайтесь к комнате и смотрите по таймлайну.'
-          : `До старта в ${escapeHtml(scheduledAt)} МСК постоянная запись закрыта. После премьеры${availableAt ? `, ориентировочно ${escapeHtml(availableAt)} МСК,` : ''} она появится здесь.`
-      }</p>
-      <a href="${escapeHtml(payload.roomUrl || 'webinar.html')}" class="recordings-primary-link">${isLive ? 'Подключиться к премьере' : 'Открыть окно ожидания'}</a>
+    <section class="recordings-empty recordings-empty--locked" aria-labelledby="recordingsLockedTitle">
+      <div class="recordings-empty__icon" aria-hidden="true">
+        <span class="material-symbols-outlined">${isLive ? 'live_tv' : 'lock_clock'}</span>
+      </div>
+      <div class="recordings-empty__copy">
+        <span class="recordings-empty__count">${isLive ? 'Премьера идёт сейчас' : 'Доступ по расписанию'}</span>
+        <h2 id="recordingsLockedTitle">${isLive ? 'Сейчас идёт премьера записи' : 'Запись откроется после премьеры'}</h2>
+        <p>${
+          isLive
+            ? 'Подключайтесь к комнате и смотрите программу по общему таймлайну. Постоянная запись появится после завершения.'
+            : `До старта в ${escapeHtml(scheduledAt)} МСК запись закрыта. После премьеры${availableAt ? `, ориентировочно ${escapeHtml(availableAt)} МСК,` : ''} она появится здесь автоматически.`
+        }</p>
+      </div>
+      <div class="recordings-empty__actions">
+        <a href="${escapeHtml(payload.roomUrl || 'webinar.html')}" class="recordings-primary-link">${isLive ? 'Подключиться к премьере' : 'Открыть комнату ожидания'}</a>
+        <a href="access.html" class="recordings-secondary-link">Вернуться в «Мой доступ»</a>
+      </div>
     </section>
   `;
 }
@@ -181,6 +262,10 @@ function showAccessGate() {
   clearTemporaryError();
   const root = document.getElementById('recordingsApp');
   if (!root) return;
+  document.getElementById('recordingsCounter')?.setAttribute('hidden', '');
+  root.dataset.librarySize = 'access';
+  root.setAttribute('aria-busy', 'false');
+  setPageDescription('Войдите по email, указанному при регистрации, чтобы открыть личную библиотеку материалов.');
   root.innerHTML = `
     <section class="recordings-access-gate">
       <div class="recordings-access-panel">
@@ -190,7 +275,7 @@ function showAccessGate() {
         </div>
         <div class="recordings-access-copy">
           <p class="recordings-access-kicker">Библиотека участника</p>
-          <h1>Войдите в “Мой доступ”, чтобы смотреть записи</h1>
+          <h2>Войдите в «Мой доступ», чтобы смотреть записи</h2>
           <p>Записи — часть личной библиотеки участника. Если вы уже регистрировались, не заполняйте форму повторно: войдите по email и откройте материалы без пароля.</p>
           <div class="recordings-access-actions">
             <a href="access.html" class="recordings-primary-link">Я уже зарегистрирован — войти</a>
@@ -232,7 +317,7 @@ function showTemporaryError(error, retry) {
   button.disabled = false;
   button.onclick = async () => {
     button.disabled = true;
-    button.textContent = 'Повторяем...';
+    button.textContent = 'Повторяем…';
     clearTemporaryError();
     try {
       await retry();
@@ -265,6 +350,31 @@ function recordingMatchesQuery(recording, query) {
   return haystack.includes(query);
 }
 
+function recordingMatchesFilter(recording, filter, watched) {
+  if (filter === 'watched') return watched.has(recording.id);
+  if (filter === 'new') return statusLabel(recording, currentServerTime) === 'Новое';
+  return true;
+}
+
+function updateFilterButtons() {
+  document.querySelectorAll('[data-recording-filter]').forEach(button => {
+    const isActive = button.dataset.recordingFilter === activeFilter;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+}
+
+function resetDiscovery() {
+  searchQuery = '';
+  activeFilter = 'all';
+  const search = document.getElementById('recordingsSearch');
+  if (search) search.value = '';
+  updateFilterButtons();
+  syncDiscoveryUrl();
+  renderPlaylist(currentRecordingId);
+  search?.focus({ preventScroll: true });
+}
+
 function renderPlaylist(activeId) {
   const list = document.getElementById('recordingsPlaylist');
   if (!list) return;
@@ -272,12 +382,28 @@ function renderPlaylist(activeId) {
 
   const watched = getWatchedIds();
   const query = searchQuery.trim().toLowerCase();
-  const visible = currentPlaylist.filter(recording => recordingMatchesQuery(recording, query));
+  const visible = currentPlaylist.filter(
+    recording => recordingMatchesQuery(recording, query) && recordingMatchesFilter(recording, activeFilter, watched),
+  );
+
+  setText(
+    'recordingsCount',
+    visible.length === currentPlaylist.length
+      ? `${currentPlaylist.length} ${pluralRecordings(currentPlaylist.length)}`
+      : `${visible.length} из ${currentPlaylist.length}`,
+  );
+  setText('recordingsResultsStatus', `Показано ${visible.length} из ${currentPlaylist.length} записей.`);
 
   if (!visible.length) {
-    const empty = document.createElement('p');
+    const empty = document.createElement('div');
     empty.className = 'playlist-empty';
-    empty.textContent = query ? 'Ничего не найдено по запросу.' : 'Записей пока нет.';
+    const message = document.createElement('p');
+    message.textContent = query ? 'По вашему запросу ничего не найдено.' : 'В этом фильтре пока нет записей.';
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = 'Показать все записи';
+    reset.addEventListener('click', resetDiscovery);
+    empty.append(message, reset);
     list.appendChild(empty);
     return;
   }
@@ -304,9 +430,9 @@ function renderPlaylist(activeId) {
     if (isActive) item.setAttribute('aria-current', 'true');
     item.innerHTML = `
       <span class="recording-item__thumb">
-        <img src="${escapeHtml(recording.posterUrl || 'assets/webinar-poster.jpg')}" alt="" class="recording-item__poster" loading="lazy">
+        <img src="${escapeHtml(recording.posterUrl || 'assets/webinar-poster.jpg')}" alt="" width="296" height="185" class="recording-item__poster" loading="lazy">
         <span class="recording-item__duration">${formatTimelineTime(recording.durationSeconds || 0)}</span>
-        <span class="recording-item__nowplaying"><span class="material-symbols-outlined">graphic_eq</span>Идёт просмотр</span>
+        <span class="recording-item__nowplaying"><span class="material-symbols-outlined" aria-hidden="true">graphic_eq</span>Идёт просмотр</span>
       </span>
       <span class="recording-item__body">
         <span class="recording-item__topline"><span>${escapeHtml(formatAirDate(recording.webinar.scheduledAt))}</span></span>
@@ -322,11 +448,12 @@ function renderPlaylist(activeId) {
   });
 }
 
-function toggleSearchVisibility(total) {
+function toggleDiscoveryControls(total) {
   const wrap = document.getElementById('recordingsSearchWrap');
-  if (!wrap) return;
-  if (total > 4) wrap.removeAttribute('hidden');
-  else wrap.setAttribute('hidden', '');
+  const filters = document.getElementById('recordingsFilterWrap');
+  const visible = total >= 6;
+  if (wrap) wrap.hidden = !visible;
+  if (filters) filters.hidden = !visible;
 }
 
 function bindStaticActions() {
@@ -336,7 +463,17 @@ function bindStaticActions() {
   const search = document.getElementById('recordingsSearch');
   search?.addEventListener('input', () => {
     searchQuery = search.value || '';
+    syncDiscoveryUrl();
     renderPlaylist(currentRecordingId);
+  });
+
+  document.querySelectorAll('[data-recording-filter]').forEach(button => {
+    button.addEventListener('click', () => {
+      activeFilter = button.dataset.recordingFilter || 'all';
+      updateFilterButtons();
+      syncDiscoveryUrl();
+      renderPlaylist(currentRecordingId);
+    });
   });
 
   document.getElementById('recordingFullscreenAction')?.addEventListener('click', () => {
@@ -555,7 +692,7 @@ function showRecordingVideoFailure(video, recording, message) {
     retry.disabled = false;
     retry.onclick = async () => {
       retry.disabled = true;
-      retry.textContent = 'Загружаем...';
+      retry.textContent = 'Загружаем…';
       try {
         await setVideoSource(video, recording);
       } finally {
@@ -671,14 +808,16 @@ function applyRecording(recording, playlist, serverTime) {
 
   currentPlaylist = playlist;
   currentServerTime = serverTime;
+  setLibraryMode(playlist.length);
   resetProgressTracking(recording.id);
   bindStaticActions();
   setText('recordingEyebrow', 'Запись');
   setText('recordingTitle', recording.title);
   setText('recordingDescription', recording.description || 'Запись вебинара доступна в вашем кабинете.');
   setText('recordingMeta', `${formatAirDate(recording.webinar.scheduledAt)} · ${formatTimelineTime(recording.durationSeconds || 0)}`);
-  setText('recordingsCount', `${playlist.length} ${pluralRecordings(playlist.length)}`);
-  toggleSearchVisibility(playlist.length);
+  setText('recordingPosition', `${Math.max(playlist.findIndex(item => item.id === recording.id), 0) + 1} из ${playlist.length}`);
+  toggleDiscoveryControls(playlist.length);
+  updateFilterButtons();
   renderPlaylist(recording.id);
   setVideoSource(video, recording).catch(() => {
     showRecordingVideoFailure(
@@ -727,7 +866,12 @@ export async function hydrateRecordingsPage() {
       return;
     }
 
-    const requestedId = new URLSearchParams(window.location.search).get('id');
+    const params = new URLSearchParams(window.location.search);
+    const requestedId = params.get('id');
+    searchQuery = params.get('q') || '';
+    activeFilter = ['all', 'new', 'watched'].includes(params.get('filter')) ? params.get('filter') : 'all';
+    const search = document.getElementById('recordingsSearch');
+    if (search) search.value = searchQuery;
     const initial = payload.recordings.find(recording => recording.id === requestedId) || payload.recordings[0];
     await loadRecording(initial.id);
   } catch (error) {

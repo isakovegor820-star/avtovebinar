@@ -17,8 +17,10 @@ describe('frontend player safety regressions', () => {
   const registrationJs = readProjectFile('crisis_premium/js/registration.js');
   const questionsJs = readProjectFile('crisis_premium/js/questions.js');
   const landingMainJs = readProjectFile('crisis_premium/main.js');
+  const appMainJs = readProjectFile('crisis_premium/js/main.js');
   const webinarHtml = readProjectFile('crisis_premium/webinar.html');
   const recordingsHtml = readProjectFile('crisis_premium/recordings.html');
+  const recordingsCss = readProjectFile('crisis_premium/recordings.css');
 
   it('stops media before rendering an ended webinar and never initializes an ended source', () => {
     const endedBranch = videoJs.indexOf('if (isPreLive || isEnded)');
@@ -57,10 +59,32 @@ describe('frontend player safety regressions', () => {
   });
 
   it('uses action labels without contradictory aria-pressed toggle state', () => {
-    const toggleSources = [videoJs, recordingsJs, webinarHtml, recordingsHtml].join('\n');
-    expect(toggleSources).not.toContain('aria-pressed');
+    const playbackSources = [videoJs, webinarHtml].join('\n');
+    expect(playbackSources).not.toContain('aria-pressed');
+    ['recordingPlayButton', 'recordingMuteButton', 'recordingFullscreenButton'].forEach(id => {
+      const button = recordingsHtml.match(new RegExp(`<button[^>]+id="${id}"[^>]*>`))?.[0] ?? '';
+      expect(button).not.toContain('aria-pressed');
+    });
+    expect(recordingsHtml).toContain('data-recording-filter="all" aria-pressed="true"');
+    expect(recordingsJs).toContain("button.setAttribute('aria-pressed', String(isActive))");
     expect(videoJs).toContain("video.paused ? 'Воспроизвести видео' : 'Поставить видео на паузу'");
     expect(recordingsJs).toContain("video.muted ? 'Включить звук' : 'Выключить звук'");
+  });
+
+  it('adapts the recordings library to empty, single, collection, and searchable states', () => {
+    expect(recordingsHtml).toContain('data-library-size="loading"');
+    expect(recordingsJs).toContain(
+      "root.dataset.librarySize = total === 1 ? 'single' : total >= 6 ? 'library' : 'collection'",
+    );
+    expect(recordingsJs).toContain("root.dataset.librarySize = 'empty'");
+    expect(recordingsJs).toContain("params.delete('id')");
+    expect(recordingsJs).toContain('const visible = total >= 6');
+    expect(recordingsJs).toContain("activeFilter = ['all', 'new', 'watched'].includes");
+    expect(recordingsCss).toContain('.recordings-layout[data-library-size="single"]');
+    expect(recordingsCss).toContain('grid-template-columns: auto minmax(0, 1fr) auto');
+    expect(recordingsHtml).toContain('id="recordingsResultsStatus"');
+    expect(recordingsHtml).toContain('placeholder="Найти запись…"');
+    expect(appMainJs).toContain('./recordings.js?v=adaptive-library-1');
   });
 
   it('announces automatic completion and only recovers focus when appropriate', () => {

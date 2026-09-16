@@ -6,7 +6,7 @@ import { hydrateCurrentWebinar, hydrateWebinarRoom } from './room.js?v=remediati
 import { hydrateTimeline } from './video.js?v=player-retry-20260825-1';
 import { hydrateSuccessPage } from './success.js?v=remediation-20260804-1';
 import { hydrateAccessPage } from './access.js?v=remediation-20260804-1';
-import { hydrateRecordingsPage } from './recordings.js?v=remediation-20260804-3';
+import { hydrateRecordingsPage } from './recordings.js?v=adaptive-library-1';
 import {
   bindRegistrationForm,
   bindRegistrationClicks,

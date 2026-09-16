@@ -181,9 +181,11 @@ jobs:
             section "Removing approved stale ASPB image 7d9111b"
             target_id=sha256:5b50f8f0a4601f79d4f91347836a382a6eb75001e29299c0b4374d80f46268d3
             target_revision=7d9111b51f1c6ef663a4a6a444395edaf2f38ab2
+            api_tag="aspb-autowebinar-api:$target_revision"
+            worker_tag="aspb-autowebinar-worker:$target_revision"
             expected_tags="$(printf '%s\n' \
-              "aspb-autowebinar-api:$target_revision" \
-              "aspb-autowebinar-worker:$target_revision")"
+              "$api_tag" \
+              "$worker_tag")"
 
             if ! docker image inspect "$target_id" >/dev/null 2>&1; then
               echo "Approved stale image is already absent; nothing to remove."
@@ -207,7 +209,7 @@ jobs:
                 exit 1
               fi
 
-              docker image rm "$target_id"
+              docker image rm "$api_tag" "$worker_tag"
               if docker image inspect "$target_id" >/dev/null 2>&1; then
                 echo "Approved stale image still exists after removal." >&2
                 exit 1

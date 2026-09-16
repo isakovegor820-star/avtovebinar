@@ -18,6 +18,7 @@ on:
           - inventory
           - apply
           - remove-stale-7d9111b
+          - delete-short-recording
       install_retention:
         description: Install a 15-minute retention cron for the production deploy user
         required: true
@@ -74,7 +75,7 @@ jobs:
               install_retention=off
             fi
           fi
-          if [[ "$mode" != "inventory" && "$mode" != "apply" && "$mode" != "remove-stale-7d9111b" ]]; then
+          if [[ "$mode" != "inventory" && "$mode" != "apply" && "$mode" != "remove-stale-7d9111b" && "$mode" != "delete-short-recording" ]]; then
             echo "Unsupported maintenance mode: $mode" >&2
             exit 1
           fi
@@ -103,7 +104,7 @@ jobs:
             echo "Production deploy path is invalid or missing." >&2
             exit 1
           fi
-          if [[ "$mode" != "inventory" && "$mode" != "apply" && "$mode" != "remove-stale-7d9111b" ]]; then
+          if [[ "$mode" != "inventory" && "$mode" != "apply" && "$mode" != "remove-stale-7d9111b" && "$mode" != "delete-short-recording" ]]; then
             echo "Unsupported maintenance mode: $mode" >&2
             exit 1
           fi
@@ -216,6 +217,50 @@ jobs:
               fi
               echo "Removed only the approved unused image $target_id ($target_revision)."
             fi
+          fi
+
+          if [[ "$mode" == "delete-short-recording" ]]; then
+            section "Deleting the approved 9:28 production recording"
+            database_url="$(sed -n 's/^DATABASE_URL=//p' .env.production | tail -n 1)"
+            if [[ "$database_url" != postgresql://* && "$database_url" != postgres://* ]]; then
+              echo "Production DATABASE_URL is missing or unsupported." >&2
+              exit 1
+            fi
+            if ! command -v psql >/dev/null 2>&1; then
+              echo "psql is required for the guarded recording deletion." >&2
+              exit 1
+            fi
+
+            psql "$database_url" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            matched_count integer;
+          BEGIN
+            SELECT count(*) INTO matched_count
+            FROM "webinar_recordings"
+            WHERE "duration_seconds" = 568
+              AND "category" = 'webinar'
+              AND "title" = 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности';
+
+            IF matched_count > 1 THEN
+              RAISE EXCEPTION 'Refusing guarded deletion: matched % recordings', matched_count;
+            END IF;
+
+            DELETE FROM "webinar_recordings"
+            WHERE "duration_seconds" = 568
+              AND "category" = 'webinar'
+              AND "title" = 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности';
+          END
+          $$;
+          SQL
+
+            remaining_count="$(psql "$database_url" -v ON_ERROR_STOP=1 -Atqc \
+              "SELECT count(*) FROM \"webinar_recordings\" WHERE \"duration_seconds\" = 568 AND \"category\" = 'webinar' AND \"title\" = 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности';")"
+            if [[ "$remaining_count" != "0" ]]; then
+              echo "Recording deletion verification failed: $remaining_count matching row(s) remain." >&2
+              exit 1
+            fi
+            echo "Verified: the approved 9:28 production recording is absent."
           fi
 
           if [[ "$mode" == "apply" && "$install_retention" == "on" ]]; then

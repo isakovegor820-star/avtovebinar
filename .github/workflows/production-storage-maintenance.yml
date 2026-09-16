@@ -221,47 +221,39 @@ jobs:
 
           if [[ "$mode" == "delete-short-recording" ]]; then
             section "Deleting the approved 9:28 production recording"
-            database_url="$(sed -n 's/^DATABASE_URL=//p' .env.production | tail -n 1)"
-            if [[ "$database_url" != postgresql://* && "$database_url" != postgres://* ]]; then
-              echo "Production DATABASE_URL is missing or unsupported." >&2
-              exit 1
-            fi
-            psql_url="${database_url%%\?schema=*}"
-            if ! command -v psql >/dev/null 2>&1; then
-              echo "psql is required for the guarded recording deletion." >&2
+            api_container=aspb-platform-staging-api
+            if [[ "$(docker inspect --format '{{.State.Running}}' "$api_container" 2>/dev/null || true)" != "true" ]]; then
+              echo "Current webinar API container is unavailable: $api_container" >&2
               exit 1
             fi
 
-            psql "$psql_url" -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
-          DECLARE
-            matched_count integer;
-          BEGIN
-            SELECT count(*) INTO matched_count
-            FROM "webinar_recordings"
-            WHERE "duration_seconds" = 568
-              AND "category" = 'webinar'
-              AND "title" = 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности';
+            docker exec -i "$api_container" node --input-type=module <<'NODE'
+          import { PrismaClient } from '@prisma/client';
 
-            IF matched_count > 1 THEN
-              RAISE EXCEPTION 'Refusing guarded deletion: matched % recordings', matched_count;
-            END IF;
+          const prisma = new PrismaClient();
+          const where = {
+            durationSeconds: 568,
+            category: 'webinar',
+            title: 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности',
+          };
 
-            DELETE FROM "webinar_recordings"
-            WHERE "duration_seconds" = 568
-              AND "category" = 'webinar'
-              AND "title" = 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности';
-          END
-          $$;
-          SQL
-
-            remaining_count="$(psql "$psql_url" -v ON_ERROR_STOP=1 -Atqc \
-              "SELECT count(*) FROM \"webinar_recordings\" WHERE \"duration_seconds\" = 568 AND \"category\" = 'webinar' AND \"title\" = 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности';")"
-            if [[ "$remaining_count" != "0" ]]; then
-              echo "Recording deletion verification failed: $remaining_count matching row(s) remain." >&2
-              exit 1
-            fi
-            echo "Verified: the approved 9:28 production recording is absent."
+          try {
+            const matches = await prisma.webinarRecording.findMany({
+              where,
+              select: { id: true },
+            });
+            if (matches.length > 1) {
+              throw new Error(`Refusing guarded deletion: matched ${matches.length} recordings`);
+            }
+            const deleted = await prisma.webinarRecording.deleteMany({ where });
+            const remaining = await prisma.webinarRecording.count({ where });
+            console.log(JSON.stringify({ matchedBefore: matches.length, deleted: deleted.count, remaining }));
+            if (remaining !== 0) process.exitCode = 1;
+          } finally {
+            await prisma.$disconnect();
+          }
+          NODE
+            echo "Verified through the running webinar API: the approved 9:28 recording is absent."
           fi
 
           if [[ "$mode" == "apply" && "$install_retention" == "on" ]]; then

@@ -221,38 +221,65 @@ jobs:
 
           if [[ "$mode" == "delete-short-recording" ]]; then
             section "Deleting the approved 9:28 production recording"
-            api_container=aspb-platform-staging-api
-            if [[ "$(docker inspect --format '{{.State.Running}}' "$api_container" 2>/dev/null || true)" != "true" ]]; then
-              echo "Current webinar API container is unavailable: $api_container" >&2
+            live_api_pid=""
+            for env_file in /proc/[0-9]*/environ; do
+              [[ -r "$env_file" ]] || continue
+              process_environment="$(tr '\0' '\n' < "$env_file" 2>/dev/null || true)"
+              public_site_url="$(printf '%s\n' "$process_environment" | sed -n 's/^PUBLIC_SITE_URL=//p' | tail -n 1)"
+              worker_role="$(printf '%s\n' "$process_environment" | sed -n 's/^WORKER_ROLE=//p' | tail -n 1)"
+              if [[ "$public_site_url" == "https://aspb-partners.ru" && "$worker_role" == "api" ]]; then
+                live_api_pid="${env_file#/proc/}"
+                live_api_pid="${live_api_pid%/environ}"
+                break
+              fi
+            done
+            if [[ -z "$live_api_pid" ]]; then
+              echo "Could not locate the running aspb-partners.ru API process." >&2
               exit 1
             fi
 
-            docker exec -i "$api_container" node --input-type=module <<'NODE'
-          import { PrismaClient } from '@prisma/client';
+            live_database_url="$(tr '\0' '\n' < "/proc/$live_api_pid/environ" | sed -n 's/^DATABASE_URL=//p' | tail -n 1)"
+            live_cwd="$(readlink -e "/proc/$live_api_pid/cwd")"
+            live_node="$(readlink -e "/proc/$live_api_pid/exe")"
+            if [[ "$live_database_url" != postgresql://* && "$live_database_url" != postgres://* ]]; then
+              echo "The live API process has no supported DATABASE_URL." >&2
+              exit 1
+            fi
+            if [[ ! -d "$live_cwd/node_modules/@prisma/client" || ! -x "$live_node" ]]; then
+              echo "The live API runtime cannot execute the guarded Prisma deletion." >&2
+              exit 1
+            fi
+
+            cd "$live_cwd"
+            DATABASE_URL="$live_database_url" "$live_node" - <<'NODE'
+          const { PrismaClient } = require('@prisma/client');
 
           const prisma = new PrismaClient();
-          const where = {
-            title: 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности',
-            visible: true,
-          };
+          const targetId = 'cmq8bky18000eo3218badqb83';
+          const targetTitle = 'Экономика кризиса: как бухгалтеру и юристу развиваться в условиях нестабильности';
 
-          try {
-            const matches = await prisma.webinarRecording.findMany({
-              where,
-              select: { id: true },
+          (async () => {
+            const recording = await prisma.webinarRecording.findUnique({
+              where: { id: targetId },
+              select: { id: true, title: true, visible: true, durationSeconds: true },
             });
-            if (matches.length > 1) {
-              throw new Error(`Refusing guarded deletion: matched ${matches.length} recordings`);
+            if (recording && recording.title !== targetTitle) {
+              throw new Error('Refusing guarded deletion: the recording id has an unexpected title');
             }
-            const deleted = await prisma.webinarRecording.deleteMany({ where });
-            const remaining = await prisma.webinarRecording.count({ where });
-            console.log(JSON.stringify({ matchedBefore: matches.length, deleted: deleted.count, remaining }));
+            const deleted = recording
+              ? await prisma.webinarRecording.deleteMany({ where: { id: targetId, title: targetTitle } })
+              : { count: 0 };
+            const remaining = await prisma.webinarRecording.count({ where: { id: targetId } });
+            console.log(JSON.stringify({ matchedBefore: recording ? 1 : 0, deleted: deleted.count, remaining }));
             if (remaining !== 0) process.exitCode = 1;
-          } finally {
+          })().catch(error => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          }).finally(async () => {
             await prisma.$disconnect();
-          }
+          });
           NODE
-            echo "Verified through the running webinar API: the approved 9:28 recording is absent."
+            echo "Verified through the live aspb-partners.ru API database: the approved recording id is absent."
           fi
 
           if [[ "$mode" == "apply" && "$install_retention" == "on" ]]; then

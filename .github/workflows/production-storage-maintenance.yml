@@ -17,6 +17,7 @@ on:
         options:
           - inventory
           - apply
+          - remove-stale-7d9111b
       install_retention:
         description: Install a 15-minute retention cron for the production deploy user
         required: true
@@ -73,7 +74,7 @@ jobs:
               install_retention=off
             fi
           fi
-          if [[ "$mode" != "inventory" && "$mode" != "apply" ]]; then
+          if [[ "$mode" != "inventory" && "$mode" != "apply" && "$mode" != "remove-stale-7d9111b" ]]; then
             echo "Unsupported maintenance mode: $mode" >&2
             exit 1
           fi
@@ -102,7 +103,7 @@ jobs:
             echo "Production deploy path is invalid or missing." >&2
             exit 1
           fi
-          if [[ "$mode" != "inventory" && "$mode" != "apply" ]]; then
+          if [[ "$mode" != "inventory" && "$mode" != "apply" && "$mode" != "remove-stale-7d9111b" ]]; then
             echo "Unsupported maintenance mode: $mode" >&2
             exit 1
           fi
@@ -173,6 +174,45 @@ jobs:
               COMPLIANCE_PRUNE_LOCK_FILE=/tmp/prune-compliance152-releases.lock \
                 COMPLIANCE_KEEP_RELEASES=5 \
                 bash scripts/prune-server-storage.sh --apply
+            fi
+          fi
+
+          if [[ "$mode" == "remove-stale-7d9111b" ]]; then
+            section "Removing approved stale ASPB image 7d9111b"
+            target_id=sha256:5b50f8f0a4601f79d4f91347836a382a6eb75001e29299c0b4374d80f46268d3
+            target_revision=7d9111b51f1c6ef663a4a6a444395edaf2f38ab2
+            expected_tags="$(printf '%s\n' \
+              "aspb-autowebinar-api:$target_revision" \
+              "aspb-autowebinar-worker:$target_revision")"
+
+            if ! docker image inspect "$target_id" >/dev/null 2>&1; then
+              echo "Approved stale image is already absent; nothing to remove."
+            else
+              actual_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$target_id")"
+              if [[ "$actual_revision" != "$target_revision" ]]; then
+                echo "Refusing removal: image revision label does not match the approved commit." >&2
+                exit 1
+              fi
+
+              attached_containers="$(docker ps -aq --filter "ancestor=$target_id")"
+              if [[ -n "$attached_containers" ]]; then
+                echo "Refusing removal: approved stale image is referenced by container(s): $attached_containers" >&2
+                exit 1
+              fi
+
+              actual_tags="$(docker image inspect --format '{{range .RepoTags}}{{println .}}{{end}}' "$target_id" | sed '/^$/d' | sort)"
+              if [[ "$actual_tags" != "$expected_tags" ]]; then
+                echo "Refusing removal: image tags differ from the two approved ASPB tags." >&2
+                printf 'Actual tags:\n%s\n' "$actual_tags" >&2
+                exit 1
+              fi
+
+              docker image rm "$target_id"
+              if docker image inspect "$target_id" >/dev/null 2>&1; then
+                echo "Approved stale image still exists after removal." >&2
+                exit 1
+              fi
+              echo "Removed only the approved unused image $target_id ($target_revision)."
             fi
           fi
 

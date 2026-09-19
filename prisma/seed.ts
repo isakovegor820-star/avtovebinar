@@ -181,39 +181,6 @@ async function main() {
     });
   }
 
-  const existingRecording = await prisma.webinarRecording.findFirst({
-    where: { webinarSessionId: session.id },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  const recordingData = {
-    title: session.title,
-    description:
-      'Запись вебинара АСПБ о том, как бухгалтеру, юристу или консультанту развиваться на рынке банкротства и передавать клиентов в партнерской модели.',
-    posterUrl: WEBINAR_BROADCAST_POSTER_URL,
-    videoUrl: WEBINAR_BROADCAST_VIDEO_URL,
-    hlsUrl: null,
-    durationSeconds: WEBINAR_VIDEO_DURATION_SECONDS,
-    publishedAt: new Date('2026-06-10T17:05:00.000Z'),
-    visible: true,
-    orderIndex: 0,
-    category: 'webinar',
-  };
-
-  if (existingRecording) {
-    await prisma.webinarRecording.update({
-      where: { id: existingRecording.id },
-      data: recordingData,
-    });
-  } else {
-    await prisma.webinarRecording.create({
-      data: {
-        webinarSessionId: session.id,
-        ...recordingData,
-      },
-    });
-  }
-
   await prisma.$transaction(tx => createInitialOwnerIfMissing(tx));
 }
 
